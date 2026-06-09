@@ -83,10 +83,33 @@ geometry (rendered dashed/grey, exported to a separate DXF layer).
 `Concentric`, `Equal` (line lengths), `EqualRadius`, `Tangent` (line–circle),
 `TangentCircles` (circle–circle, internal or external).
 
-**Dimensional** (editable; each returns a handle with a `.Set(value)` method)
+**Dimensional** (editable; each carries a unit and has a `.Set`/`.SetValue`)
 
 `Distance`, `HorizontalDistance`, `VerticalDistance`, `Radius`, `Diameter`,
-`Angle` (radians, between two lines).
+`Angle` (between two lines).
+
+## Units
+
+Dimensions and parameters carry units via the standalone [`units`](units)
+package. Units are **typed** — you use `units.Millimeter`, `units.Inch`,
+`units.Degree`, … rather than strings — and a `units.Value` knows its own unit
+and converts only through the library (no magnitude relabelling):
+
+```go
+w := units.Inches(4)
+mm, _ := w.In(units.Millimeter) // 101.6
+
+s := sketch.New()               // default units: mm and degrees
+s.SetUnits(units.Imperial())    // ... or inches and degrees
+
+d := s.Distance(a, b, 0)
+d.SetValue(units.Inches(4))     // solves to 101.6 mm internally
+s.Angle(l1, l2, 90)             // 90 in the sketch's default angle unit (degrees)
+```
+
+The solver works in base units (millimetre, radian); a dimension's residual
+converts its target with `Target().Base()`. Bare-float constructor values are
+interpreted in the sketch's default unit for that kind.
 
 ## Parameters & expressions
 
@@ -94,29 +117,35 @@ Every dimension can be **driven by an expression** instead of a literal. You
 supply a parameter table (the [`param`](param) package) when binding a
 dimension; a bound dimension is re-evaluated against that table before every
 solve, so changing one parameter cascades through everything that depends on it.
+Parameters carry units too:
 
 ```go
 p := param.New()
-p.Set("width", "120")
-p.Set("height", "width * 0.6")        // expressions may reference others
-p.Set("hole_d", "min(width, height) / 3")
+p.SetValue("width", units.Millimeters(120))       // a typed length
+p.SetExpr("height", "width * 0.6", units.Millimeter)
+p.SetExpr("hole_d", "min(width, height) / 3", units.Millimeter)
 
 s.Bind(s.Distance(a, b, 0), p, "width")
 s.Bind(s.Distance(a, d, 0), p, "height")
 s.Bind(s.Radius(hole, 0), p, "hole_d / 2")
 
-s.Solve()                 // width=120 -> height=72, hole d=24
-p.Set("width", "200")     // change ONE parameter ...
-s.Solve()                 // ... height=120 and hole d=40 follow
+s.Solve()                              // 120 x 72, hole d 24 (mm)
+p.SetValue("width", units.Inches(8))   // change ONE parameter, in inches ...
+s.Solve()                              // ... 203.2 x 121.9, hole d 40.6 (mm)
 
 // Calling a dimension's .Set(v) overrides and unbinds it.
 ```
 
+Within an expression, parameters contribute their value in base units and
+numeric literals are dimensionless; the declared unit (the third argument to
+`SetExpr`) tags the result. Binding a length dimension directly to an angle
+parameter is reported as an error at solve time.
+
 The table is required at [`Bind`](https://pkg.go.dev/github.com/lestrrat-3d/sketch#Sketch.Bind)
-time and all of a sketch's dimensions must share one table. Parameters (and each
-dimension's bound expression) are included in the sketch's JSON, so a parametric
-sketch reloads still parametric, and `s.Params()` returns the restored table.
-The expression language supports arithmetic, `^`, parentheses, constants (`pi`,
+time and all of a sketch's dimensions must share one table. Parameters, each
+dimension's unit and bound expression, and the unit system are all included in
+the sketch's JSON, so a parametric sketch reloads still parametric. The
+expression language supports arithmetic, `^`, parentheses, constants (`pi`,
 `tau`, `e`, `phi`) and functions (`sin`, `sqrt`, `min`/`max`, `hypot`, `clamp`,
 …); see [`examples/parametric`](examples/parametric).
 

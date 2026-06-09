@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/lestrrat-3d/sketch/param"
+	"github.com/lestrrat-3d/sketch/units"
 )
 
 // On-disk representation. Points and entities are referenced by their stable
@@ -30,15 +31,40 @@ type jsonConstraint struct {
 	Points   []int   `json:"points,omitempty"`
 	Entities []int   `json:"entities,omitempty"`
 	Value    float64 `json:"value,omitempty"`
+	Unit     string  `json:"unit,omitempty"` // dimension's unit symbol
 	Expr     string  `json:"expr,omitempty"` // parameter binding on a dimension
 	Flag     bool    `json:"flag,omitempty"`
+}
+
+type jsonSystem struct {
+	Length string `json:"length"`
+	Angle  string `json:"angle"`
 }
 
 type jsonSketch struct {
 	Points      []jsonPoint      `json:"points"`
 	Entities    []jsonEntity     `json:"entities"`
 	Constraints []jsonConstraint `json:"constraints"`
+	Units       *jsonSystem      `json:"units,omitempty"`
 	Parameters  *param.Table     `json:"parameters,omitempty"`
+}
+
+// dimJSON builds the serialized form of a dimensional constraint.
+func dimJSON(typ string, d Dimension, points, entities []int) jsonConstraint {
+	t := d.Target()
+	return jsonConstraint{
+		Type: typ, Points: points, Entities: entities,
+		Value: t.Mag(), Unit: t.Unit().Symbol(), Expr: d.driverExpr(),
+	}
+}
+
+// dimUnit resolves a stored unit symbol for a dimension of the given kind,
+// falling back to the kind's base unit.
+func dimUnit(symbol string, kind units.Kind) units.Unit {
+	if u, ok := units.Lookup(symbol); ok && u.Kind() == kind {
+		return u
+	}
+	return units.BaseUnit(kind)
 }
 
 // MarshalJSON implements [json.Marshaler], producing a portable, reloadable
@@ -81,6 +107,8 @@ func (s *Sketch) MarshalJSON() ([]byte, error) {
 		js.Constraints = append(js.Constraints, jc)
 	}
 
+	js.Units = &jsonSystem{Length: s.sys.Length.Symbol(), Angle: s.sys.Angle.Symbol()}
+
 	if s.params != nil && len(s.params.Names()) > 0 {
 		js.Parameters = s.params
 	}
@@ -117,17 +145,17 @@ func marshalConstraint(c Constraint) (jsonConstraint, bool) {
 	case *tangentCircles:
 		return jsonConstraint{Type: "tangent_circles", Entities: []int{t.C1.id, t.C2.id}, Flag: t.Internal}, true
 	case *Distance:
-		return jsonConstraint{Type: "distance", Points: []int{t.P1.id, t.P2.id}, Value: t.Value, Expr: t.Expr}, true
+		return dimJSON("distance", t, []int{t.P1.id, t.P2.id}, nil), true
 	case *HorizontalDistance:
-		return jsonConstraint{Type: "hdistance", Points: []int{t.P1.id, t.P2.id}, Value: t.Value, Expr: t.Expr}, true
+		return dimJSON("hdistance", t, []int{t.P1.id, t.P2.id}, nil), true
 	case *VerticalDistance:
-		return jsonConstraint{Type: "vdistance", Points: []int{t.P1.id, t.P2.id}, Value: t.Value, Expr: t.Expr}, true
+		return dimJSON("vdistance", t, []int{t.P1.id, t.P2.id}, nil), true
 	case *Radius:
-		return jsonConstraint{Type: "radius", Entities: []int{t.C.id}, Value: t.Value, Expr: t.Expr}, true
+		return dimJSON("radius", t, nil, []int{t.C.id}), true
 	case *Diameter:
-		return jsonConstraint{Type: "diameter", Entities: []int{t.C.id}, Value: t.Value, Expr: t.Expr}, true
+		return dimJSON("diameter", t, nil, []int{t.C.id}), true
 	case *Angle:
-		return jsonConstraint{Type: "angle", Entities: []int{t.L1.id, t.L2.id}, Value: t.Value, Expr: t.Expr}, true
+		return dimJSON("angle", t, nil, []int{t.L1.id, t.L2.id}), true
 	}
 	return jsonConstraint{}, false
 }
@@ -139,7 +167,15 @@ func (s *Sketch) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	*s = Sketch{}
+	*s = Sketch{sys: units.Metric()}
+	if js.Units != nil {
+		if lu, ok := units.Lookup(js.Units.Length); ok && lu.Kind() == units.Length {
+			s.sys.Length = lu
+		}
+		if au, ok := units.Lookup(js.Units.Angle); ok && au.Kind() == units.Angle {
+			s.sys.Angle = au
+		}
+	}
 
 	for _, jp := range js.Points {
 		p := s.AddPoint(jp.X, jp.Y)
@@ -243,7 +279,9 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		case "equal_lines":
 			s.Equal(l1, l2)
 		case "angle":
-			s.Angle(l1, l2, jc.Value).setDriverExpr(jc.Expr)
+			a := s.Angle(l1, l2, jc.Value)
+			a.restore(jc.Value, dimUnit(jc.Unit, units.Angle))
+			a.setDriverExpr(jc.Expr)
 		}
 	case "point_on_line":
 		l, err := line(jc.Entities[0])
@@ -300,23 +338,33 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		}
 		s.TangentCircles(c1, c2, jc.Flag)
 	case "distance":
-		s.Distance(pt(0), pt(1), jc.Value).setDriverExpr(jc.Expr)
+		d := s.Distance(pt(0), pt(1), jc.Value)
+		d.restore(jc.Value, dimUnit(jc.Unit, units.Length))
+		d.setDriverExpr(jc.Expr)
 	case "hdistance":
-		s.HorizontalDistance(pt(0), pt(1), jc.Value).setDriverExpr(jc.Expr)
+		d := s.HorizontalDistance(pt(0), pt(1), jc.Value)
+		d.restore(jc.Value, dimUnit(jc.Unit, units.Length))
+		d.setDriverExpr(jc.Expr)
 	case "vdistance":
-		s.VerticalDistance(pt(0), pt(1), jc.Value).setDriverExpr(jc.Expr)
+		d := s.VerticalDistance(pt(0), pt(1), jc.Value)
+		d.restore(jc.Value, dimUnit(jc.Unit, units.Length))
+		d.setDriverExpr(jc.Expr)
 	case "radius":
 		c, err := circle(jc.Entities[0])
 		if err != nil {
 			return err
 		}
-		s.Radius(c, jc.Value).setDriverExpr(jc.Expr)
+		r := s.Radius(c, jc.Value)
+		r.restore(jc.Value, dimUnit(jc.Unit, units.Length))
+		r.setDriverExpr(jc.Expr)
 	case "diameter":
 		c, err := circle(jc.Entities[0])
 		if err != nil {
 			return err
 		}
-		s.Diameter(c, jc.Value).setDriverExpr(jc.Expr)
+		dm := s.Diameter(c, jc.Value)
+		dm.restore(jc.Value, dimUnit(jc.Unit, units.Length))
+		dm.setDriverExpr(jc.Expr)
 	default:
 		return fmt.Errorf("sketch: unknown constraint type %q", jc.Type)
 	}

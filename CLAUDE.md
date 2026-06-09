@@ -38,7 +38,19 @@ expected to be built **on top of** this engine, not woven into it.
 | `solver.go` | Levenberg–Marquardt solver, numerical Jacobian, DOF/redundancy (rank) analysis. |
 | `svg.go` / `dxf.go` / `json.go` | Exporters / serialization. |
 | `param/` | **Self-contained** parameter & expression engine (own package). |
+| `units/` | **Self-contained** units-of-measure library (own package). |
 | `examples/` | Runnable programs that double as living documentation. |
+
+### The `units` package (slated for extraction)
+
+`units/` is a standalone units-of-measure library: typed [Unit] constants
+(metric + imperial length, deg/rad angle — never strings), a [Value] type that
+pairs a magnitude with its unit and converts between compatible units, and a
+[System] holding the current default length/angle units. Base units are
+millimetre and radian. **All unit conversion lives here** — no other package
+re-implements factor math. It must not import `sketch` or `param`; the
+dependency arrows are `sketch -> units` and `param -> units`, never the reverse.
+Like `param`, it is intended to move to its own module later.
 
 ### The `param` package (slated for extraction)
 
@@ -73,6 +85,12 @@ directly. Any new geometry that introduces unknowns must allocate them via
   rank-deficient / under-constrained sketches. Don't revert to `λ·A[i][i]`.
 - **The Jacobian is numerical** (central differences). Simple and robust; see
   the open questions for when this might change.
+- **The solver works in base units** (millimetre coordinates, radian angles).
+  Dimensions carry a `units.Value`; their residual uses `Target().Base()` to
+  reach base units. Unit conversion happens *only* in the `units` library
+  (`Value.Base`/`In`/`Convert`/`FromBase`) — never by relabelling a magnitude
+  (turning "1 deg" into "1 rad" is a bug). Bare-float constructors interpret
+  their number in the sketch's default unit for that kind (`Sketch.Units`).
 
 ### Serialization invariants
 
@@ -122,8 +140,18 @@ These are unsettled. If you resolve one, record the decision here.
 - **Higher-level interfaces.** A text DSL + CLI, and eventually an interactive
   GUI (e.g. Ebiten), are anticipated layers. They should consume the public API
   only.
-- **Units & tolerances.** Currently unitless floats with a fixed solver
-  tolerance. Do we model real-world units, and per-sketch tolerance/precision?
+- **Units.** *Resolved (units).* The `units` package provides typed units, a
+  unit-carrying `Value`, and a default-units `System`. Sketch dimensions and
+  `param` parameters both carry units; the solver stays in base units and all
+  conversion is delegated to the library. *Limited on purpose:* there is no
+  full dimensional algebra through expressions — `param` evaluates magnitudes in
+  base units and a parameter's declared unit tags the result; kind mismatches
+  are caught at the sketch-binding boundary, not inside every expression. *Open
+  follow-ups:* should expressions track kind through arithmetic (catch mm+deg
+  mid-expression); should points/coordinates expose unit-carrying accessors;
+  should exporters honour the display `System`.
+- **Tolerances.** Still a fixed solver tolerance. Per-sketch
+  tolerance/precision remains open.
 - **Persistence stability.** The JSON schema is not yet versioned. Before anyone
   depends on it, decide on a version field and compatibility policy.
 - **2D → 3D.** Out of scope for now, but the API shouldn't paint us into a

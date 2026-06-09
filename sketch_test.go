@@ -121,7 +121,7 @@ func TestAngleConstraint(t *testing.T) {
 	s.Horizontal(l1)
 	s.Distance(a, b, 10)
 	s.Distance(a, c, 8)
-	s.Angle(l1, l2, math.Pi/4)
+	s.Angle(l1, l2, 45) // degrees (the sketch's default angle unit)
 
 	mustSolve(t, s)
 	d1x, d1y := dir(l1)

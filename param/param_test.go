@@ -5,6 +5,8 @@ import (
 	"errors"
 	"math"
 	"testing"
+
+	"github.com/lestrrat-3d/sketch/units"
 )
 
 func approx(t *testing.T, name string, got, want float64) {
@@ -40,8 +42,69 @@ func TestParametricUpdate(t *testing.T) {
 func TestForwardReference(t *testing.T) {
 	tb := New()
 	must(t, tb.Set("a", "b + 1")) // b defined later
-	must(t, tb.SetValue("b", 2))
+	must(t, tb.SetNumber("b", 2))
 	approx(t, "a", tb.MustGet("a"), 3)
+}
+
+func TestTypedValues(t *testing.T) {
+	tb := New()
+	must(t, tb.SetValue("width", units.Meters(1))) // 1 m
+	must(t, tb.SetExpr("half", "width / 2", units.Millimeter))
+
+	// Get returns the base-unit (mm) magnitude.
+	approx(t, "width base", tb.MustGet("width"), 1000)
+	approx(t, "half base", tb.MustGet("half"), 500)
+
+	// GetValue carries the declared unit.
+	w, _ := tb.GetValue("width")
+	if w.Unit() != units.Meter {
+		t.Errorf("width unit = %v, want m", w.Unit())
+	}
+	approx(t, "width mag (m)", w.Mag(), 1)
+
+	h, _ := tb.GetValue("half")
+	approx(t, "half mag (mm)", h.Mag(), 500)
+	if h.Kind() != units.Length {
+		t.Errorf("half kind = %v, want length", h.Kind())
+	}
+}
+
+func TestTypedAngle(t *testing.T) {
+	tb := New()
+	must(t, tb.SetValue("a", units.Degrees(90)))
+	approx(t, "90deg base (rad)", tb.MustGet("a"), math.Pi/2)
+	v, _ := tb.GetValue("a")
+	approx(t, "mag in deg", v.Mag(), 90)
+}
+
+func TestUnitMethod(t *testing.T) {
+	tb := New()
+	must(t, tb.SetValue("len", units.Inches(2)))
+	u, ok := tb.Unit("len")
+	if !ok || u != units.Inch {
+		t.Errorf("Unit(len) = %v,%v want in,true", u, ok)
+	}
+}
+
+func TestJSONRoundTripUnits(t *testing.T) {
+	tb := New()
+	must(t, tb.SetValue("width", units.Meters(2)))
+	must(t, tb.SetExpr("height", "width / 4", units.Millimeter))
+	must(t, tb.Set("ratio", "1.5"))
+
+	data, err := json.Marshal(tb)
+	must(t, err)
+
+	var tb2 Table
+	must(t, json.Unmarshal(data, &tb2))
+
+	w, _ := tb2.GetValue("width")
+	if w.Unit() != units.Meter {
+		t.Errorf("reloaded width unit = %v, want m", w.Unit())
+	}
+	approx(t, "reloaded width base", tb2.MustGet("width"), 2000)
+	approx(t, "reloaded height base", tb2.MustGet("height"), 500)
+	approx(t, "reloaded ratio", tb2.MustGet("ratio"), 1.5)
 }
 
 func TestPrecedenceAndAssociativity(t *testing.T) {

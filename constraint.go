@@ -1,6 +1,11 @@
 package sketch
 
-import "math"
+import (
+	"fmt"
+	"math"
+
+	"github.com/lestrrat-3d/sketch/units"
+)
 
 // Constraint is a geometric or dimensional relationship between primitives.
 // Each constraint contributes one or more scalar residual equations that the
@@ -241,142 +246,170 @@ func (s *Sketch) TangentCircles(c1, c2 *Circle, internal bool) Constraint {
 
 // --- dimensional constraints ------------------------------------------------
 
+// dimBase is embedded by every dimensional constraint. It holds the driving
+// target as a unit-carrying [units.Value] (or, when bound, the parameter
+// expression that produces it) and the kind of quantity the dimension measures.
+type dimBase struct {
+	kind   units.Kind
+	target units.Value
+	expr   string // bound parameter expression; empty when the value is literal
+}
+
+// Kind reports whether the dimension measures a length or an angle.
+func (d *dimBase) Kind() units.Kind { return d.kind }
+
+// Target returns the dimension's current driving value as a unit-carrying
+// value.
+func (d *dimBase) Target() units.Value { return d.target }
+
+// Set changes the driving magnitude, keeping the dimension's current unit, and
+// clears any parameter binding. Call [Sketch.Solve] again to apply it.
+func (d *dimBase) Set(v float64) {
+	d.target = units.New(v, d.target.Unit())
+	d.expr = ""
+}
+
+// SetValue sets the driving value to a typed quantity (which must measure the
+// dimension's kind) and clears any binding. The value keeps its own unit; no
+// conversion takes place here — the units library converts on demand (e.g. via
+// [dimBase.base] for the solver).
+func (d *dimBase) SetValue(v units.Value) error {
+	if v.Kind() != d.kind {
+		return fmt.Errorf("sketch: cannot set %s dimension from a %s value", d.kind, v.Kind())
+	}
+	d.target = v
+	d.expr = ""
+	return nil
+}
+
+// base returns the target in the kind's base unit (mm or rad) for the solver.
+func (d *dimBase) base() float64 { return d.target.Base() }
+
+// setResolved stores a value produced by evaluating a parameter binding. A
+// quantity keeps its own unit; a dimensionless result is taken to already be in
+// the dimension's current unit.
+func (d *dimBase) setResolved(v units.Value) error {
+	if v.Kind() == units.Dimensionless {
+		d.target = units.New(v.Mag(), d.target.Unit())
+		return nil
+	}
+	if v.Kind() != d.kind {
+		return fmt.Errorf("sketch: cannot set %s dimension from a %s value", d.kind, v.Kind())
+	}
+	d.target = v
+	return nil
+}
+
+func (d *dimBase) driverExpr() string     { return d.expr }
+func (d *dimBase) setDriverExpr(e string) { d.expr = e }
+
+// restore sets the target verbatim from a deserialized magnitude and unit. It
+// reinstates saved state and does not convert.
+func (d *dimBase) restore(mag float64, u units.Unit) { d.target = units.New(mag, u) }
+
+func lengthDim(s *Sketch, v float64) dimBase {
+	return dimBase{kind: units.Length, target: units.New(v, s.lengthUnit())}
+}
+
+func angleDim(s *Sketch, v float64) dimBase {
+	return dimBase{kind: units.Angle, target: units.New(v, s.angleUnit())}
+}
+
 // Distance is an editable point-to-point distance dimension.
 //
-// Like every dimension type, its driving Value may instead be bound to a
-// parameter expression with [Sketch.Bind]; the bound expression (Expr) is
-// re-evaluated against the sketch's parameter table before each solve.
+// Like every dimension type, its driving value may instead be bound to a
+// parameter expression with [Sketch.Bind]; the binding is re-evaluated against
+// the sketch's parameter table before each solve.
 type Distance struct {
+	dimBase
 	P1, P2 *Point
-	Value  float64
-	Expr   string // bound parameter expression; empty when the value is literal
 }
 
 func (c *Distance) residual(out []float64) []float64 {
-	return append(out, dist(c.P1, c.P2)-c.Value)
+	return append(out, dist(c.P1, c.P2)-c.base())
 }
 
-// Set changes the driving value of the dimension and clears any parameter
-// binding. Call [Sketch.Solve] again to apply it.
-func (c *Distance) Set(v float64)          { c.Value = v; c.Expr = "" }
-func (c *Distance) value() float64         { return c.Value }
-func (c *Distance) setValue(v float64)     { c.Value = v }
-func (c *Distance) driverExpr() string     { return c.Expr }
-func (c *Distance) setDriverExpr(e string) { c.Expr = e }
-
-// Distance constrains the straight-line distance between two points.
+// Distance constrains the straight-line distance between two points. The value
+// d is interpreted in the sketch's default length unit.
 func (s *Sketch) Distance(p1, p2 *Point, d float64) *Distance {
-	c := &Distance{P1: p1, P2: p2, Value: d}
+	c := &Distance{dimBase: lengthDim(s, d), P1: p1, P2: p2}
 	s.add(c)
 	return c
 }
 
 // HorizontalDistance is an editable signed horizontal (Δx) dimension.
 type HorizontalDistance struct {
+	dimBase
 	P1, P2 *Point
-	Value  float64
-	Expr   string
 }
 
 func (c *HorizontalDistance) residual(out []float64) []float64 {
-	return append(out, c.P2.x()-c.P1.x()-c.Value)
+	return append(out, c.P2.x()-c.P1.x()-c.base())
 }
-
-// Set changes the driving value of the dimension and clears any binding.
-func (c *HorizontalDistance) Set(v float64)          { c.Value = v; c.Expr = "" }
-func (c *HorizontalDistance) value() float64         { return c.Value }
-func (c *HorizontalDistance) setValue(v float64)     { c.Value = v }
-func (c *HorizontalDistance) driverExpr() string     { return c.Expr }
-func (c *HorizontalDistance) setDriverExpr(e string) { c.Expr = e }
 
 // HorizontalDistance constrains the signed horizontal distance (x2−x1).
 func (s *Sketch) HorizontalDistance(p1, p2 *Point, d float64) *HorizontalDistance {
-	c := &HorizontalDistance{P1: p1, P2: p2, Value: d}
+	c := &HorizontalDistance{dimBase: lengthDim(s, d), P1: p1, P2: p2}
 	s.add(c)
 	return c
 }
 
 // VerticalDistance is an editable signed vertical (Δy) dimension.
 type VerticalDistance struct {
+	dimBase
 	P1, P2 *Point
-	Value  float64
-	Expr   string
 }
 
 func (c *VerticalDistance) residual(out []float64) []float64 {
-	return append(out, c.P2.y()-c.P1.y()-c.Value)
+	return append(out, c.P2.y()-c.P1.y()-c.base())
 }
-
-// Set changes the driving value of the dimension and clears any binding.
-func (c *VerticalDistance) Set(v float64)          { c.Value = v; c.Expr = "" }
-func (c *VerticalDistance) value() float64         { return c.Value }
-func (c *VerticalDistance) setValue(v float64)     { c.Value = v }
-func (c *VerticalDistance) driverExpr() string     { return c.Expr }
-func (c *VerticalDistance) setDriverExpr(e string) { c.Expr = e }
 
 // VerticalDistance constrains the signed vertical distance (y2−y1).
 func (s *Sketch) VerticalDistance(p1, p2 *Point, d float64) *VerticalDistance {
-	c := &VerticalDistance{P1: p1, P2: p2, Value: d}
+	c := &VerticalDistance{dimBase: lengthDim(s, d), P1: p1, P2: p2}
 	s.add(c)
 	return c
 }
 
 // Radius is an editable radius dimension.
 type Radius struct {
-	C     *Circle
-	Value float64
-	Expr  string
+	dimBase
+	C *Circle
 }
 
 func (c *Radius) residual(out []float64) []float64 {
-	return append(out, c.C.r()-c.Value)
+	return append(out, c.C.r()-c.base())
 }
-
-// Set changes the driving value of the dimension and clears any binding.
-func (c *Radius) Set(v float64)          { c.Value = v; c.Expr = "" }
-func (c *Radius) value() float64         { return c.Value }
-func (c *Radius) setValue(v float64)     { c.Value = v }
-func (c *Radius) driverExpr() string     { return c.Expr }
-func (c *Radius) setDriverExpr(e string) { c.Expr = e }
 
 // Radius constrains a circle's radius.
 func (s *Sketch) Radius(c *Circle, r float64) *Radius {
-	rc := &Radius{C: c, Value: r}
+	rc := &Radius{dimBase: lengthDim(s, r), C: c}
 	s.add(rc)
 	return rc
 }
 
 // Diameter is an editable diameter dimension.
 type Diameter struct {
-	C     *Circle
-	Value float64
-	Expr  string
+	dimBase
+	C *Circle
 }
 
 func (c *Diameter) residual(out []float64) []float64 {
-	return append(out, 2*c.C.r()-c.Value)
+	return append(out, 2*c.C.r()-c.base())
 }
-
-// Set changes the driving value of the dimension and clears any binding.
-func (c *Diameter) Set(v float64)          { c.Value = v; c.Expr = "" }
-func (c *Diameter) value() float64         { return c.Value }
-func (c *Diameter) setValue(v float64)     { c.Value = v }
-func (c *Diameter) driverExpr() string     { return c.Expr }
-func (c *Diameter) setDriverExpr(e string) { c.Expr = e }
 
 // Diameter constrains a circle's diameter.
 func (s *Sketch) Diameter(c *Circle, d float64) *Diameter {
-	dc := &Diameter{C: c, Value: d}
+	dc := &Diameter{dimBase: lengthDim(s, d), C: c}
 	s.add(dc)
 	return dc
 }
 
 // Angle is an editable angle dimension between two lines, measured from L1 to
-// L2 in radians.
+// L2.
 type Angle struct {
+	dimBase
 	L1, L2 *Line
-	Value  float64
-	Expr   string
 }
 
 func (c *Angle) residual(out []float64) []float64 {
@@ -385,7 +418,7 @@ func (c *Angle) residual(out []float64) []float64 {
 	cross := d1x*d2y - d1y*d2x
 	dot := d1x*d2x + d1y*d2y
 	ang := math.Atan2(cross, dot)
-	r := ang - c.Value
+	r := ang - c.base() // target in base (radian) units
 	// wrap into (-π, π] so the residual is continuous
 	for r > math.Pi {
 		r -= 2 * math.Pi
@@ -396,17 +429,11 @@ func (c *Angle) residual(out []float64) []float64 {
 	return append(out, r)
 }
 
-// Set changes the driving value of the dimension (radians) and clears any
-// binding.
-func (c *Angle) Set(v float64)          { c.Value = v; c.Expr = "" }
-func (c *Angle) value() float64         { return c.Value }
-func (c *Angle) setValue(v float64)     { c.Value = v }
-func (c *Angle) driverExpr() string     { return c.Expr }
-func (c *Angle) setDriverExpr(e string) { c.Expr = e }
-
-// Angle constrains the angle from line l1 to line l2 (radians).
-func (s *Sketch) Angle(l1, l2 *Line, radians float64) *Angle {
-	c := &Angle{L1: l1, L2: l2, Value: radians}
+// Angle constrains the angle from line l1 to line l2. The value a is interpreted
+// in the sketch's default angle unit (degrees for [units.Metric]); use
+// [Angle.SetValue] with a typed quantity such as units.Radians for another unit.
+func (s *Sketch) Angle(l1, l2 *Line, a float64) *Angle {
+	c := &Angle{dimBase: angleDim(s, a), L1: l1, L2: l2}
 	s.add(c)
 	return c
 }

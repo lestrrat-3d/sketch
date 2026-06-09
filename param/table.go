@@ -4,7 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strconv"
+
+	"github.com/lestrrat-3d/sketch/units"
 )
 
 // Sentinel errors returned (wrapped) by the package. Use [errors.Is] to test
@@ -25,8 +26,10 @@ type Func func(args []float64) (float64, error)
 
 type entry struct {
 	name string
-	src  string // original source text
-	expr Expr   // parsed expression
+	src  string       // original source text (expression or literal magnitude)
+	expr Expr         // parsed expression, evaluating to a base-unit magnitude
+	unit units.Unit   // the unit the parameter's value is expressed in
+	lit  *units.Value // non-nil for parameters defined as a literal value
 }
 
 // Table is a collection of named parameters that may reference one another
@@ -50,10 +53,20 @@ func New() *Table {
 	}
 }
 
-// Set defines or redefines a parameter from an expression string. The
-// expression is parsed immediately (syntax errors are returned now) but not
-// evaluated, so it may reference parameters defined later.
+// Set defines or redefines a parameter from a dimensionless expression string.
+// The expression is parsed immediately (syntax errors are returned now) but not
+// evaluated, so it may reference parameters defined later. Use [Table.SetExpr]
+// to give the result a unit.
 func (t *Table) Set(name, expr string) error {
+	return t.SetExpr(name, expr, units.One)
+}
+
+// SetExpr defines or redefines a parameter from an expression whose result is
+// expressed in unit u. Within the expression, parameters contribute their
+// value in base units (millimetre for length, radian for angle) and numeric
+// literals are dimensionless, so e.g. "width / 2" with u = units.Millimeter is
+// a length.
+func (t *Table) SetExpr(name, expr string, u units.Unit) error {
 	if !isIdent(name) {
 		return fmt.Errorf("%w: %q", ErrInvalidName, name)
 	}
@@ -61,17 +74,24 @@ func (t *Table) Set(name, expr string) error {
 	if err != nil {
 		return err
 	}
-	t.put(&entry{name: name, src: expr, expr: e})
+	t.put(&entry{name: name, src: expr, expr: e, unit: u})
 	return nil
 }
 
-// SetValue defines or redefines a parameter as a literal number.
-func (t *Table) SetValue(name string, v float64) error {
+// SetValue defines or redefines a parameter as a literal typed value, such as
+// units.Millimeters(120) or units.Degrees(45).
+func (t *Table) SetValue(name string, v units.Value) error {
 	if !isIdent(name) {
 		return fmt.Errorf("%w: %q", ErrInvalidName, name)
 	}
-	t.put(&entry{name: name, src: strconv.FormatFloat(v, 'g', -1, 64), expr: &numberExpr{v: v}})
+	lit := v
+	t.put(&entry{name: name, src: v.String(), expr: &numberExpr{v: v.Base()}, unit: v.Unit(), lit: &lit})
 	return nil
+}
+
+// SetNumber defines or redefines a parameter as a dimensionless literal number.
+func (t *Table) SetNumber(name string, x float64) error {
+	return t.SetValue(name, units.Scalar(x))
 }
 
 func (t *Table) put(e *entry) {
@@ -81,10 +101,32 @@ func (t *Table) put(e *entry) {
 	t.entries[e.name] = e
 }
 
-// Get evaluates the named parameter, resolving any parameters it depends on.
+// Get evaluates the named parameter, resolving any parameters it depends on,
+// and returns its magnitude in the kind's base unit (millimetre for length,
+// radian for angle; the number itself for dimensionless parameters). Use
+// [Table.GetValue] for a unit-carrying result.
 func (t *Table) Get(name string) (float64, error) {
 	ctx := &evalContext{t: t, memo: map[string]float64{}, inProgress: map[string]bool{}}
 	return ctx.resolve(name)
+}
+
+// GetValue evaluates the named parameter and returns it as a unit-carrying
+// [units.Value] in the parameter's declared unit.
+func (t *Table) GetValue(name string) (units.Value, error) {
+	base, err := t.Get(name)
+	if err != nil {
+		return units.Value{}, err
+	}
+	return units.FromBase(base, t.entries[name].unit), nil
+}
+
+// Unit returns the unit a parameter's value is expressed in.
+func (t *Table) Unit(name string) (units.Unit, bool) {
+	e, ok := t.entries[name]
+	if !ok {
+		return units.Unit{}, false
+	}
+	return e.unit, true
 }
 
 // MustGet is like [Table.Get] but panics on error. Intended for tests and

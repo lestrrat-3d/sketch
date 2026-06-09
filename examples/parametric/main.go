@@ -9,6 +9,7 @@ import (
 
 	"github.com/lestrrat-3d/sketch"
 	"github.com/lestrrat-3d/sketch/param"
+	"github.com/lestrrat-3d/sketch/units"
 )
 
 func main() {
@@ -31,11 +32,13 @@ func main() {
 	s.Vertical(ad)
 	s.Vertical(bc)
 
-	// Parameters: a single driving width, everything else derived from it.
+	// Parameters: a single driving width as a typed length; everything else is
+	// derived from it. Geometry solves in base millimetres regardless of the
+	// units the parameters are expressed in.
 	p := param.New()
-	p.Set("width", "120")
-	p.Set("height", "width * 0.6")
-	p.Set("hole_d", "min(width, height) / 3")
+	p.SetValue("width", units.Millimeters(120))
+	p.SetExpr("height", "width * 0.6", units.Millimeter)
+	p.SetExpr("hole_d", "min(width, height) / 3", units.Millimeter)
 
 	// Bind dimensions to expressions evaluated against p.
 	bind := func(d sketch.Dimension, expr string) {
@@ -56,16 +59,19 @@ func main() {
 			fmt.Fprintln(os.Stderr, label, "solve:", err)
 			os.Exit(1)
 		}
-		fmt.Printf("%s: plate %.0f x %.0f, hole d=%.1f at (%.0f, %.0f), DOF %d\n",
-			label, b.X(), d.Y(), 2*hole.R(), o.X(), o.Y(), res.DOF)
+		w, _ := p.GetValue("width")
+		fmt.Printf("%s: width=%s -> plate %.1f x %.1f mm, hole d=%.1f at (%.0f, %.0f), DOF %d\n",
+			label, w, b.X(), d.Y(), 2*hole.R(), o.X(), o.Y(), res.DOF)
 		svg, _ := s.SVG(sketch.DefaultSVGOptions())
 		name := "plate_" + label + ".svg"
 		os.WriteFile(name, []byte(svg), 0o644)
 		fmt.Println("  wrote", name)
 	}
 
-	report("a") // width = 120
+	report("a") // width = 120 mm
 
-	p.Set("width", "200") // change ONE parameter ...
-	report("b")           // ... height and hole follow automatically
+	// Change the one driving parameter — and express it in inches. The units
+	// library converts; height and hole follow automatically.
+	p.SetValue("width", units.Inches(8))
+	report("b")
 }

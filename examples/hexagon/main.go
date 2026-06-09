@@ -39,7 +39,7 @@ func main() {
 		s.Equal(lines[0], lines[i])
 	}
 	for i := 0; i < n-1; i++ {
-		s.Angle(lines[i], lines[i+1], math.Pi/3)
+		s.Angle(lines[i], lines[i+1], 60) // degrees (the default angle unit)
 	}
 
 	res, err := s.Solve()

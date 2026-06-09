@@ -5,6 +5,7 @@ import (
 	"math"
 
 	"github.com/lestrrat-3d/sketch/param"
+	"github.com/lestrrat-3d/sketch/units"
 )
 
 // Sketch is a collection of geometric primitives and the constraints relating
@@ -22,10 +23,12 @@ type Sketch struct {
 	cons   []Constraint
 
 	params *param.Table // optional; drives bound dimensions
+	sys    units.System // default length/angle units
 }
 
-// New returns an empty sketch.
-func New() *Sketch { return &Sketch{} }
+// New returns an empty sketch using metric default units (millimetres and
+// degrees); change them with [Sketch.SetUnits].
+func New() *Sketch { return &Sketch{sys: units.Metric()} }
 
 func (s *Sketch) newVar(v float64) int {
 	s.vars = append(s.vars, v)
