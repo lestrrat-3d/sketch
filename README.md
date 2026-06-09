@@ -121,8 +121,16 @@ within the arc's sweep.
 
 **Dimensional** (editable; each carries a unit and has a `.Set`/`.SetValue`)
 
-`NewDistance`, `NewHorizontalDistance`, `NewVerticalDistance`, `NewRadius`,
+`NewDistance`, `NewHorizontalDistance`, `NewVerticalDistance`,
+`NewDistancePointLine` (perpendicular point↔line), `NewDistanceLines`
+(perpendicular line↔line; forces the lines parallel), `NewRadius`,
 `NewDiameter`, `NewAngle` (between two lines).
+
+Any dimension can be flipped to a **driven (reference) dimension** with
+`.SetDriven(true)`: it stops constraining the geometry and instead reports the
+measured value — after each `Solve` its `.Target()` holds the measurement in
+the dimension's own unit. `.SetDriven(false)` turns it back into a driving
+dimension, keeping the last measured value as the new target.
 
 ## Units
 
@@ -213,6 +221,9 @@ res, err := s.Solve(                                    // or tune them
 * `res.Iterations`, `res.Residual`.
 
 `s.DOF()` reports the current degrees of freedom without moving any geometry.
+`s.RedundantConstraints()` identifies *which* constraints are redundant (or
+conflicting) at the current configuration — of two duplicates, the later-added
+one is reported.
 
 If the solver cannot satisfy the constraints (typically an over-constrained or
 contradictory sketch) `Solve` returns `ErrNotConverged` together with the

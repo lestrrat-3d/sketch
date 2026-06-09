@@ -32,8 +32,9 @@ type jsonConstraint struct {
 	Points   []int   `json:"points,omitempty"`
 	Entities []int   `json:"entities,omitempty"`
 	Value    float64 `json:"value,omitempty"`
-	Unit     string  `json:"unit,omitempty"` // dimension's unit symbol
-	Expr     string  `json:"expr,omitempty"` // parameter binding on a dimension
+	Unit     string  `json:"unit,omitempty"`   // dimension's unit symbol
+	Expr     string  `json:"expr,omitempty"`   // parameter binding on a dimension
+	Driven   bool    `json:"driven,omitempty"` // reference dimension flag
 	Flag     bool    `json:"flag,omitempty"`
 }
 
@@ -55,7 +56,7 @@ func dimJSON(typ string, d Dimension, points, entities []int) jsonConstraint {
 	t := d.Target()
 	return jsonConstraint{
 		Type: typ, Points: points, Entities: entities,
-		Value: t.Mag(), Unit: t.Unit().Symbol(), Expr: d.driverExpr(),
+		Value: t.Mag(), Unit: t.Unit().Symbol(), Expr: d.driverExpr(), Driven: d.Driven(),
 	}
 }
 
@@ -68,10 +69,12 @@ func dimUnit(symbol string, kind units.Kind) units.Unit {
 	return units.BaseUnit(kind)
 }
 
-// restoreDim reinstates a deserialized dimension's unit and parameter binding.
+// restoreDim reinstates a deserialized dimension's unit, parameter binding and
+// driven flag.
 func restoreDim(d Dimension, jc jsonConstraint) {
 	d.restore(jc.Value, dimUnit(jc.Unit, d.Kind()))
 	d.setDriverExpr(jc.Expr)
+	d.SetDriven(jc.Driven)
 }
 
 // MarshalJSON implements [json.Marshaler], producing a portable, reloadable
@@ -161,6 +164,10 @@ func marshalConstraint(c Constraint) (jsonConstraint, bool) {
 		return dimJSON("hdistance", t, []int{t.P1.id, t.P2.id}, nil), true
 	case *VerticalDistance:
 		return dimJSON("vdistance", t, []int{t.P1.id, t.P2.id}, nil), true
+	case *DistancePointLine:
+		return dimJSON("distance_point_line", t, []int{t.P.id}, []int{t.L.id}), true
+	case *DistanceLines:
+		return dimJSON("distance_lines", t, nil, []int{t.L1.id, t.L2.id}), true
 	case *Radius:
 		return dimJSON("radius", t, nil, []int{t.C.id}), true
 	case *Diameter:
@@ -376,6 +383,22 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		s.AddConstraint(NewTangentCircles(c1, c2, jc.Flag))
 	case "distance":
 		dim(NewDistance(pt(0), pt(1), jc.Value))
+	case "distance_point_line":
+		l, err := line(jc.Entities[0])
+		if err != nil {
+			return err
+		}
+		dim(NewDistancePointLine(pt(0), l, jc.Value))
+	case "distance_lines":
+		l1, err := line(jc.Entities[0])
+		if err != nil {
+			return err
+		}
+		l2, err := line(jc.Entities[1])
+		if err != nil {
+			return err
+		}
+		dim(NewDistanceLines(l1, l2, jc.Value))
 	case "hdistance":
 		dim(NewHorizontalDistance(pt(0), pt(1), jc.Value))
 	case "vdistance":

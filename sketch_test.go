@@ -344,6 +344,108 @@ func TestEqualRadiusArcArc(t *testing.T) {
 	require.InDelta(t, 5, a2.R(), 1e-6, "arc radii equal")
 }
 
+func TestDistancePointLine(t *testing.T) {
+	s := sketch.New()
+	a := addPt(s, 0, 0)
+	b := addPt(s, 10, 0)
+	s.Fix(a)
+	s.Fix(b)
+	line := addLn(s, a, b)
+
+	p := addPt(s, 3, 2)
+	s.AddConstraint(sketch.NewDistancePointLine(p, line, 5))
+
+	mustSolve(t, s)
+	require.InDelta(t, 5, p.Y(), 1e-6, "perpendicular distance (stays on starting side)")
+}
+
+func TestDistanceLines(t *testing.T) {
+	s := sketch.New()
+	a := addPt(s, 0, 0)
+	b := addPt(s, 10, 0)
+	s.Fix(a)
+	s.Fix(b)
+	l1 := addLn(s, a, b)
+
+	c := addPt(s, 0, 3)
+	d := addPt(s, 10, 4) // deliberately not parallel
+	l2 := addLn(s, c, d)
+	s.AddConstraint(sketch.NewDistanceLines(l1, l2, 6))
+
+	mustSolve(t, s)
+	require.InDelta(t, 6, c.Y(), 1e-6, "l2 start offset")
+	require.InDelta(t, 6, d.Y(), 1e-6, "l2 end offset")
+	d1x, d1y := lineDir(l1)
+	d2x, d2y := lineDir(l2)
+	require.InDelta(t, 0, d1x*d2y-d1y*d2x, 1e-6, "lines forced parallel")
+}
+
+func TestJSONRoundTripDistanceDims(t *testing.T) {
+	s := sketch.New()
+	a := addPt(s, 0, 0)
+	b := addPt(s, 10, 0)
+	s.Fix(a)
+	s.Fix(b)
+	l1 := addLn(s, a, b)
+	p := addPt(s, 3, 2)
+	c := addPt(s, 0, 3)
+	d := addPt(s, 10, 4)
+	l2 := addLn(s, c, d)
+	s.AddConstraint(sketch.NewDistancePointLine(p, l1, 5), sketch.NewDistanceLines(l1, l2, 6))
+
+	data, err := json.Marshal(s)
+	require.NoError(t, err, "marshal")
+	var s2 sketch.Sketch
+	require.NoError(t, json.Unmarshal(data, &s2), "unmarshal")
+
+	mustSolve(t, &s2)
+	require.InDelta(t, 5, s2.Points()[p.ID()].Y(), 1e-6, "reloaded point-line distance")
+	require.InDelta(t, 6, s2.Points()[c.ID()].Y(), 1e-6, "reloaded line-line start offset")
+	require.InDelta(t, 6, s2.Points()[d.ID()].Y(), 1e-6, "reloaded line-line end offset")
+}
+
+func TestDrivenDimension(t *testing.T) {
+	s, _, _, c, _ := newRectangle(t)
+	a := s.Points()[0]
+	diag := sketch.NewDistance(a, c, 0) // target irrelevant while driven
+	diag.SetDriven(true)
+	s.AddConstraint(diag)
+
+	res := mustSolve(t, s)
+	require.Equal(t, 0, res.DOF, "driven dim adds no equation")
+	require.Zero(t, res.Redundant, "driven dim is not redundant")
+	require.InDelta(t, math.Sqrt(544), diag.Target().Mag(), 1e-6, "measures the 20x12 diagonal")
+
+	// Switching back to driving keeps the measured value as the target; it now
+	// duplicates the rectangle's width/height dimensions, so the solve still
+	// converges but reports the redundancy.
+	diag.SetDriven(false)
+	res = mustSolve(t, s)
+	require.NotZero(t, res.Redundant, "driving duplicate is redundant")
+}
+
+func TestJSONRoundTripDrivenDimension(t *testing.T) {
+	s, _, _, c, _ := newRectangle(t)
+	a := s.Points()[0]
+	diag := sketch.NewDistance(a, c, 0)
+	diag.SetDriven(true)
+	s.AddConstraint(diag)
+	mustSolve(t, s)
+
+	data, err := json.Marshal(s)
+	require.NoError(t, err, "marshal")
+	var s2 sketch.Sketch
+	require.NoError(t, json.Unmarshal(data, &s2), "unmarshal")
+
+	res := mustSolve(t, &s2)
+	require.Equal(t, 0, res.DOF, "reloaded DOF")
+	cons := s2.Constraints()
+	d2, ok := cons[len(cons)-1].(*sketch.Distance)
+	require.True(t, ok, "last constraint is the distance dimension")
+	require.True(t, d2.Driven(), "driven flag survives round-trip")
+	require.InDelta(t, math.Sqrt(544), d2.Target().Mag(), 1e-6, "measured value after reload")
+}
+
 func TestSymmetric(t *testing.T) {
 	s := sketch.New()
 	// vertical axis along x = 0
@@ -378,6 +480,23 @@ func TestRedundantConstraint(t *testing.T) {
 	addDist(s, a, b, 20)
 	res := mustSolve(t, s)
 	require.NotZero(t, res.Redundant, "expected at least one redundant equation")
+}
+
+func TestRedundantConstraints(t *testing.T) {
+	s, _, b, _, _ := newRectangle(t)
+	mustSolve(t, s)
+	require.Empty(t, s.RedundantConstraints(), "clean sketch has no redundancy")
+
+	// A duplicate width dimension is consistent but redundant; the
+	// later-added duplicate is the one identified.
+	a := s.Points()[0]
+	dup := addDist(s, a, b, 20)
+	mustSolve(t, s)
+	red := s.RedundantConstraints()
+	require.Len(t, red, 1, "exactly one redundant constraint")
+	got, ok := red[0].(*sketch.Distance)
+	require.True(t, ok, "redundant constraint is a distance dimension")
+	require.Same(t, dup, got, "the duplicate is the one reported")
 }
 
 func TestJSONRoundTrip(t *testing.T) {

@@ -12,7 +12,8 @@ import (
 // Dimension is a dimensional constraint (distance, radius, angle, …) whose
 // driving value carries a unit and may be set literally or bound to a parameter
 // expression. All of [Distance], [HorizontalDistance], [VerticalDistance],
-// [Radius], [Diameter] and [Angle] satisfy it.
+// [DistancePointLine], [DistanceLines], [Radius], [Diameter] and [Angle]
+// satisfy it.
 type Dimension interface {
 	Constraint
 	// Kind reports the quantity the dimension measures (length or angle).
@@ -23,6 +24,10 @@ type Dimension interface {
 	Set(float64)
 	// SetValue replaces the value with a typed quantity of the dimension's kind.
 	SetValue(units.Value) error
+	// SetDriven toggles between driving the geometry and measuring it.
+	SetDriven(bool)
+	// Driven reports whether this is a driven (reference) dimension.
+	Driven() bool
 
 	base() float64
 	setResolved(units.Value) error
@@ -135,8 +140,8 @@ func (s *Sketch) ApplyParameters() error {
 	}
 	for _, c := range s.cons {
 		d, ok := c.(Dimension)
-		if !ok {
-			continue
+		if !ok || d.Driven() {
+			continue // a driven dimension measures; an expression cannot drive it
 		}
 		expr := d.driverExpr()
 		if expr == "" {

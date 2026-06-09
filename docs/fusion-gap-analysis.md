@@ -52,12 +52,13 @@ The geometric set is already close to Fusion's. Remaining gaps:
 ### Dimensional gaps
 
 - **Arc length dimension.**
-- **Distance point↔line** (perpendicular distance).
-- **Distance line↔line** (parallel lines).
+- ~~**Distance point↔line**~~ — *closed 2026-06*: `NewDistancePointLine`.
+- ~~**Distance line↔line**~~ — *closed 2026-06*: `NewDistanceLines` (two
+  residuals; forces parallelism, no separate parallel constraint needed).
 - **Distance to circle/arc tangent** (Fusion's dimension-to-tangent option).
-- **Driven (reference) dimensions** — a dimension that *measures* without
-  constraining. Solver terms: excluded from residuals, evaluated after solve.
-  Important for the DOF story and very cheap to add.
+- ~~**Driven (reference) dimensions**~~ — *closed 2026-06*:
+  `Dimension.SetDriven(true)`; excluded from residuals, target refreshed to
+  the measured value after every solve, `driven` flag serialized.
 
 ## Sketch-modification tools
 
@@ -81,10 +82,11 @@ constraint solver:
 
 ## Solver & diagnostics
 
-- **Identify which constraint is redundant/conflicting** — counts are reported
-  today; Fusion points at the offending constraint and refuses to add it
-  interactively. QR/SVD on the Jacobian to find dependent rows gets most of the
-  way. (Already in CLAUDE.md open questions.)
+- ~~**Identify which constraint is redundant/conflicting**~~ — *partially
+  closed 2026-06*: `Sketch.RedundantConstraints()` maps dependent Jacobian rows
+  back to constraints (later-added duplicates are the ones reported). Still
+  open: distinguishing conflicting from merely redundant, and add-time
+  rejection (below).
 - **Over-constrained rejection at add-time** — Fusion checks the *new*
   constraint against current rank before accepting it. Cheap as an opt-in API
   (e.g. `AddConstraintChecked`).
@@ -113,16 +115,17 @@ Without it the "2D → 3D someday" door stays shut.
 
 ## Suggested priority order
 
-1. **Construction-geometry flag** + rectangle/polygon/slot compound
-   constructors — cheap, immediately makes examples look like real sketches.
-2. ~~**Tangent/equal coverage for arcs**~~ (*done 2026-06*) + point↔line and
-   line↔line distance dimensions — rounds out the constraint matrix.
-3. **Driven dimensions** — small, big payoff for diagnostics.
-4. **Redundant-constraint identification** — turns the existing rank analysis
-   into a usable answer.
+1. **Rectangle/polygon/slot compound constructors** — cheap, immediately makes
+   examples look like real sketches. (The construction-geometry flag already
+   exists.)
+2. ~~**Tangent/equal coverage for arcs + point↔line and line↔line distance
+   dimensions**~~ — *done 2026-06*.
+3. ~~**Driven dimensions**~~ — *done 2026-06*.
+4. ~~**Redundant-constraint identification**~~ — *done 2026-06*
+   (`RedundantConstraints()`; conflicting-vs-redundant still open).
 5. **Drag-solve API** — prerequisite for any interactive layer.
 6. **Offset/fillet/trim**, then **ellipse**, then **profiles/loop detection**,
    with **splines** last (largest solver impact).
 
-Items 1–4 fit the current architecture without structural change. Dragging and
+Item 1 fits the current architecture without structural change. Dragging and
 splines deserve a design doc before code.

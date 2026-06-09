@@ -256,6 +256,7 @@ type dimBase struct {
 	target units.Value
 	deflt  bool   // target's unit is a placeholder, replaced by the sketch default on add
 	expr   string // bound parameter expression; empty when the value is literal
+	driven bool   // reference dimension: measures the geometry instead of driving it
 }
 
 // Kind reports whether the dimension measures a length or an angle.
@@ -285,6 +286,16 @@ func (d *dimBase) SetValue(v units.Value) error {
 	d.expr = ""
 	return nil
 }
+
+// SetDriven toggles the dimension between driving (a solver constraint) and
+// driven (a reference dimension). A driven dimension contributes no residual —
+// it does not constrain the geometry — and after every [Sketch.Solve] its
+// [dimBase.Target] is refreshed to the measured value. Switching back to
+// driving keeps the last measured value as the new driving target.
+func (d *dimBase) SetDriven(v bool) { d.driven = v }
+
+// Driven reports whether the dimension is a driven (reference) dimension.
+func (d *dimBase) Driven() bool { return d.driven }
 
 // resolveUnit, called when the dimension is added to a sketch, replaces a
 // placeholder unit (from a bare-float constructor) with the sketch's default
@@ -383,6 +394,63 @@ func (c *VerticalDistance) residual(out []float64) []float64 {
 // NewVerticalDistance constrains the signed vertical distance (y2−y1).
 func NewVerticalDistance(p1, p2 *Point, d float64) *VerticalDistance {
 	return &VerticalDistance{dimBase: lengthDim(d), P1: p1, P2: p2}
+}
+
+// DistancePointLine is an editable perpendicular distance dimension between a
+// point and the infinite line through a [Line]'s endpoints.
+type DistancePointLine struct {
+	dimBase
+	P *Point
+	L *Line
+}
+
+func (c *DistancePointLine) residual(out []float64) []float64 {
+	// |distance(point, line)| − d, in length units
+	ax, ay := c.L.Start.x(), c.L.Start.y()
+	abx, aby := c.L.End.x()-ax, c.L.End.y()-ay
+	apx, apy := c.P.x()-ax, c.P.y()-ay
+	cross := abx*apy - aby*apx
+	return append(out, math.Abs(cross)/norm(abx, aby)-c.base())
+}
+
+// NewDistancePointLine constrains the perpendicular distance from a point to
+// the infinite line through l. The distance is unsigned: the point stays on
+// whichever side of the line it starts.
+func NewDistancePointLine(p *Point, l *Line, d float64) *DistancePointLine {
+	return &DistancePointLine{dimBase: lengthDim(d), P: p, L: l}
+}
+
+// DistanceLines is an editable distance dimension between two lines. It
+// contributes two residuals — the distance from each endpoint of L2 to the
+// infinite line through L1 — so satisfying it forces the lines parallel at the
+// given separation; no separate parallel constraint is needed.
+type DistanceLines struct {
+	dimBase
+	L1, L2 *Line
+}
+
+func (c *DistanceLines) residual(out []float64) []float64 {
+	// Signed distance of both L2 endpoints from L1, oriented so the first
+	// endpoint's current side counts as positive — this keeps the geometry on
+	// the side it starts while rejecting the crossing configuration where the
+	// endpoints sit at distance d on opposite sides. Length units ×2.
+	ax, ay := c.L1.Start.x(), c.L1.Start.y()
+	abx, aby := c.L1.End.x()-ax, c.L1.End.y()-ay
+	n := norm(abx, aby)
+	d1 := (abx*(c.L2.Start.y()-ay) - aby*(c.L2.Start.x()-ax)) / n
+	d2 := (abx*(c.L2.End.y()-ay) - aby*(c.L2.End.x()-ax)) / n
+	sign := 1.0
+	if d1 < 0 {
+		sign = -1
+	}
+	return append(out, sign*d1-c.base(), sign*d2-c.base())
+}
+
+// NewDistanceLines constrains the perpendicular distance between two lines,
+// forcing them parallel in the process. The distance is unsigned: L2 stays on
+// whichever side of L1 it starts.
+func NewDistanceLines(l1, l2 *Line, d float64) *DistanceLines {
+	return &DistanceLines{dimBase: lengthDim(d), L1: l1, L2: l2}
 }
 
 // Radius is an editable radius dimension.

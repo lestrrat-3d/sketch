@@ -3,6 +3,7 @@ package sketch
 import (
 	"math"
 
+	"github.com/lestrrat-3d/sketch/units"
 	"github.com/lestrrat-go/option/v3"
 )
 
@@ -78,6 +79,7 @@ func (s *Sketch) Solve(options ...SolveOption) (*Result, error) {
 
 	res := &Result{}
 	if m == 0 {
+		s.refreshDriven()
 		res.Converged = true
 		res.DOF = n
 		return res, nil
@@ -172,6 +174,8 @@ func (s *Sketch) Solve(options ...SolveOption) (*Result, error) {
 		}
 	}
 
+	s.refreshDriven()
+
 	res.Iterations = iter
 	res.Residual = math.Sqrt(cost)
 	res.Converged = res.Residual <= o.tolerance
@@ -207,6 +211,83 @@ func (s *Sketch) DOF() int {
 	return d
 }
 
+// RedundantConstraints identifies which constraints contribute redundant or
+// conflicting equations at the current configuration (typically called after
+// [Sketch.Solve], like [Sketch.DOF]). Constraints are examined in creation
+// order: an equation that is linearly dependent on the equations of earlier
+// constraints marks its constraint as redundant, so of two duplicates the
+// later-added one is reported. A constraint whose equations touch no free
+// variable (e.g. a dimension between fully grounded points) is also reported —
+// it either holds trivially or conflicts, and removing it never frees
+// geometry. Driven dimensions contribute no equations and never appear. The
+// result is nil when no redundancy exists.
+func (s *Sketch) RedundantConstraints() []Constraint {
+	free := s.freeVars()
+
+	// Map each residual row to the constraint that produced it, mirroring the
+	// iteration (and therefore row) order of residuals().
+	var owners []Constraint
+	var probe []float64
+	for _, c := range s.cons {
+		if d, ok := c.(Dimension); ok && d.Driven() {
+			continue
+		}
+		n0 := len(probe)
+		probe = c.residual(probe)
+		for i := n0; i < len(probe); i++ {
+			owners = append(owners, c)
+		}
+	}
+	m := len(owners)
+	if m == 0 {
+		return nil
+	}
+
+	J := s.jacobian(free, m)
+
+	// Incremental Gram–Schmidt over the Jacobian rows: a row that projects to
+	// (numerically) zero against the rows accepted so far adds no independent
+	// equation, so its constraint is redundant at this configuration.
+	const eps = 1e-9
+	var basis [][]float64
+	flagged := make(map[Constraint]struct{})
+	var out []Constraint
+	for i := 0; i < m; i++ {
+		scale := math.Sqrt(dot(J[i], J[i]))
+		dependent := scale < eps
+		if !dependent {
+			v := append([]float64(nil), J[i]...)
+			for pass := 0; pass < 2; pass++ { // second pass re-orthogonalizes
+				for _, b := range basis {
+					p := dot(v, b)
+					for k := range v {
+						v[k] -= p * b[k]
+					}
+				}
+			}
+			rest := math.Sqrt(dot(v, v))
+			if rest <= eps*scale {
+				dependent = true
+			} else {
+				inv := 1 / rest
+				for k := range v {
+					v[k] *= inv
+				}
+				basis = append(basis, v)
+			}
+		}
+		if !dependent {
+			continue
+		}
+		if _, dup := flagged[owners[i]]; dup {
+			continue
+		}
+		flagged[owners[i]] = struct{}{}
+		out = append(out, owners[i])
+	}
+	return out
+}
+
 func (s *Sketch) freeVars() []int {
 	idx := make([]int, 0, len(s.vars))
 	for i := range s.vars {
@@ -218,13 +299,37 @@ func (s *Sketch) freeVars() []int {
 }
 
 // residuals evaluates every constraint into a fresh slice (reusing buf's
-// backing array when possible).
+// backing array when possible). Driven (reference) dimensions contribute no
+// residual — they measure the geometry instead of constraining it.
 func (s *Sketch) residuals(buf []float64) []float64 {
 	buf = buf[:0]
 	for _, c := range s.cons {
+		if d, ok := c.(Dimension); ok && d.Driven() {
+			continue
+		}
 		buf = c.residual(buf)
 	}
 	return buf
+}
+
+// refreshDriven updates every driven dimension's target to the value measured
+// from the current geometry, expressed in the dimension's own unit. Called at
+// the end of [Sketch.Solve] so driven dimensions report the solved geometry.
+func (s *Sketch) refreshDriven() {
+	for _, c := range s.cons {
+		d, ok := c.(Dimension)
+		if !ok || !d.Driven() {
+			continue
+		}
+		// A dimension's first residual is measured − target (in base units),
+		// so the measurement is recovered as residual + target.
+		r := c.residual(nil)
+		if len(r) == 0 {
+			continue
+		}
+		v := units.FromBase(d.base()+r[0], d.Target().Unit())
+		d.restore(v.Mag(), v.Unit())
+	}
 }
 
 // jacobian computes the m×n Jacobian of the residuals w.r.t. the free

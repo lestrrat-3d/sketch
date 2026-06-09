@@ -135,6 +135,12 @@ sees them automatically.
   `Solve` that is the *solved* point. NEVER reuse the Solve loop's
   last-iteration Jacobian for rank analysis: it is stale (evaluated one step
   before convergence) and yields wrong DOF/redundancy counts.
+- **Driven (reference) dimensions contribute no residuals.** `residuals()`
+  skips any `Dimension` with `Driven() == true`, and `refreshDriven()` writes
+  the measured value back into the dimension's target after every `Solve`.
+  Anything that maps residual rows back to constraints (e.g.
+  `RedundantConstraints`) MUST mirror `residuals()`'s iteration exactly —
+  including the driven skip — or row↔constraint attribution silently shifts.
 - **The solver works in base units** (millimetre coordinates, radian angles).
   Dimensions carry a `units.Value`; their residual uses `Target().Base()` to
   reach base units. Unit conversion happens *only* in the `units` library
@@ -210,9 +216,12 @@ These are unsettled. If you resolve one, record the decision here.
   independent constraint clusters separately), and better diagnostics for
   over-constrained sketches (identify *which* constraints conflict, not just a
   count).
-- **Constraint diagnostics & UX.** Today we report DOF and a redundancy count.
-  A real sketcher wants to point at the specific redundant/conflicting
-  constraint and at the remaining free DOF.
+- **Constraint diagnostics & UX.** *Partially resolved.*
+  `Sketch.RedundantConstraints()` identifies the specific redundant
+  constraints (creation order decides: of two duplicates the later one is
+  reported; the row→constraint mapping mirrors `residuals()`). Still open:
+  distinguishing *conflicting* from merely redundant constraints, and pointing
+  at the remaining free DOF (which entities can still move).
 - **Higher-level interfaces.** A text DSL + CLI, and eventually an interactive
   GUI (e.g. Ebiten), are anticipated layers. They should consume the public API
   only.
