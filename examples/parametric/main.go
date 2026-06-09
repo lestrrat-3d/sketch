@@ -36,7 +36,8 @@ func main() {
 	hole := s.AddCircle(geom.NewCircle(gO, 1))
 
 	// Geometric constraints: grounded origin, axis-aligned rectangle.
-	s.Lock(a, 0, 0)
+	a.MoveTo(0, 0)
+	s.Fix(a)
 	s.AddConstraint(
 		sketch.NewHorizontal(ab),
 		sketch.NewHorizontal(dc),

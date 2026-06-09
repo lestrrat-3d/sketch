@@ -36,7 +36,8 @@ func main() {
 	}
 
 	// Ground one vertex, make the first edge horizontal, and dimension it.
-	s.Lock(pts[0], 0, 0)
+	pts[0].MoveTo(0, 0)
+	s.Fix(pts[0])
 	s.AddConstraint(sketch.NewHorizontal(lines[0]))
 	s.AddConstraint(sketch.NewDistance(pts[0], pts[1], side))
 

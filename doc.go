@@ -24,7 +24,8 @@
 //	ab := s.AddLine(geom.NewLine(ga, gb)) // commits the line and its points
 //	ad := s.AddLine(geom.NewLine(ga, gd))
 //
-//	s.Lock(ab.Start, 0, 0) // ground the origin corner
+//	ab.Start.MoveTo(0, 0) // move the origin corner and ground it
+//	s.Fix(ab.Start)
 //	w := sketch.NewDistance(ab.Start, ab.End, 100) // driving dimension
 //	h := sketch.NewDistance(ad.Start, ad.End, 60)
 //	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewVertical(ad), w, h)

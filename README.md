@@ -47,7 +47,8 @@ bc := s.AddLine(geom.NewLine(b, c))
 dc := s.AddLine(geom.NewLine(d, c))
 ad := s.AddLine(geom.NewLine(a, d))
 
-s.Lock(ab.Start, 0, 0) // ground a corner at the origin
+ab.Start.MoveTo(0, 0) // move a corner to the origin and ground it
+s.Fix(ab.Start)
 s.AddConstraint(
 	sketch.NewHorizontal(ab),
 	sketch.NewHorizontal(dc),
@@ -93,9 +94,12 @@ one bound instance per sketch). A bound handle exposes solved values (`p.X()`,
 Grounding (per-sketch — the same generic point may be fixed in one sketch and
 free in another):
 
+* `p.MoveTo(x, y)` — move a point to `(x, y)` (sets the solver's starting guess).
 * `s.Fix(p)` — pin a point at its current location.
-* `s.Lock(p, x, y)` — move a point to `(x, y)` and pin it.
 * `s.Unfix(p)` — release a pinned point.
+
+To ground a point at a specific location, move it first: `p.MoveTo(x, y)` then
+`s.Fix(p)`.
 
 Any entity's `.Construction` field can be set to mark it as construction
 geometry (rendered dashed/grey, exported to a separate DXF layer).

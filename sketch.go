@@ -73,7 +73,7 @@ func (s *Sketch) Constraints() []Constraint { return s.cons }
 
 // Point is the solver-bound instance of a [geom.Point] within a sketch. Its
 // coordinates are unknowns solved for by the constraint solver unless the point
-// is grounded with [Sketch.Fix] or [Sketch.Lock]. Obtain one by committing
+// is grounded with [Sketch.Fix]. Obtain one by committing
 // generic geometry with [Sketch.AddPoint] (directly or via a line/circle/arc).
 type Point struct {
 	g      *geom.Point
@@ -111,26 +111,21 @@ func (s *Sketch) AddPoint(g *geom.Point) *Point {
 	return p
 }
 
-// SetXY moves a point. This sets the solver's starting guess for the point and
-// has no effect once constraints pin it down. It does not change the generic
-// geometry the point came from.
-func (p *Point) SetXY(x, y float64) {
+// MoveTo moves a point to (x, y). This sets the solver's starting guess for the
+// point and has no effect once constraints pin it down. It does not change the
+// generic geometry the point came from.
+func (p *Point) MoveTo(x, y float64) {
 	p.s.vars[p.xi] = x
 	p.s.vars[p.yi] = y
 }
 
 // Fix grounds a point at its current location so the solver will not move it.
 // Grounding is per-sketch: the same generic point may be fixed in one sketch
-// and free in another.
+// and free in another. To ground a point at a specific location, move it first:
+// p.MoveTo(x, y) then s.Fix(p).
 func (s *Sketch) Fix(p *Point) {
 	s.fixed[p.xi] = true
 	s.fixed[p.yi] = true
-}
-
-// Lock moves a point to (x, y) and grounds it there.
-func (s *Sketch) Lock(p *Point, x, y float64) {
-	p.SetXY(x, y)
-	s.Fix(p)
 }
 
 // Unfix releases a previously grounded point so the solver may move it again.
