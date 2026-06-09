@@ -104,6 +104,16 @@ To ground a point at a specific location, move it first: `p.MoveTo(x, y)` then
 Any entity's `.Construction` field can be set to mark it as construction
 geometry (rendered dashed/grey, exported to a separate DXF layer).
 
+### Compound shapes
+
+`s.AddRectangle(x1, y1, x2, y2)`, `s.AddPolygon(cx, cy, n, r)` and
+`s.AddSlot(x1, y1, x2, y2, r)` build a whole shape — primitives plus the
+constraints that hold it in shape (horizontal/vertical sides; equal sides and
+equal construction spokes; equal cap radii and perpendicular contact spokes) —
+and return a grouping handle with the bound parts. The pieces are ordinary
+sketch geometry/constraints and serialize as such; position and size stay free
+to ground and dimension.
+
 ## Constraints
 
 Construct a constraint with its `New…` function and commit it with

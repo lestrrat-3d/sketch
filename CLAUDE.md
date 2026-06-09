@@ -45,6 +45,7 @@ expected to be built **on top of** this engine, not woven into it.
 | File | Responsibility |
 |---|---|
 | `sketch.go` | `Sketch`, solver-bound geometry (`Point`/`Line`/`Circle`/`Arc`) wrapping `geom`, the parameter model, grounding. |
+| `compound.go` | Compound shape builders (`AddRectangle`/`AddPolygon`/`AddSlot`): primitives + shape-holding constraints, returned as a grouping handle (handle itself is not serialized). |
 | `constraint.go` | `Constraint` interface and every constraint's residual + the public `New…` constructors. |
 | `solver.go` | Levenberg–Marquardt solver, numerical Jacobian, DOF/redundancy (rank) analysis. |
 | `svg.go` / `dxf.go` / `json.go` | Exporters / serialization. |

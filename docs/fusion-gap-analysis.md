@@ -17,16 +17,14 @@ with DOF/redundancy counts, `param` table, `units`, SVG/DXF/JSON export.
   one architecturally: control points become solver unknowns, and
   point-on-spline / tangent-to-spline residuals need curve evaluation inside
   the residual function. Already flagged in CLAUDE.md open questions.
-- **Slot** (straight and arc slot) — in Fusion a compound: two arcs + two lines
-  + auto-applied tangent/equal/concentric constraints. Good test of whether the
-  "auto-added internal constraints" pattern generalizes.
-- **Rectangle / polygon constructors** — also compounds (4 lines +
-  perpendicular/horizontal constraints; n lines + equal + angle). Pure
-  convenience layer over existing primitives; cheap wins.
-- **Construction geometry flag** — load-bearing and cheap: any primitive can be
-  marked construction-only so it participates in constraints but is excluded
-  from profiles/export. Fusion sketching is unusable without this (symmetry
-  axes, pitch circles).
+- ~~**Slot** (straight)~~ — *closed 2026-06*: `AddSlot` (two arcs + two flanks;
+  equal cap radii + perpendicular construction spokes at the contact points —
+  perpendicularity implies tangency *and* pins the contact point, which a plain
+  tangent constraint does not). Arc slot still open.
+- ~~**Rectangle / polygon constructors**~~ — *closed 2026-06*: `AddRectangle`
+  (H/V constraints) and `AddPolygon` (equal sides + equal construction spokes).
+- **Construction geometry flag** — already existed (`.Construction` on any
+  entity; rendered dashed, separate DXF layer).
 
 ## Constraints
 
@@ -115,9 +113,8 @@ Without it the "2D → 3D someday" door stays shut.
 
 ## Suggested priority order
 
-1. **Rectangle/polygon/slot compound constructors** — cheap, immediately makes
-   examples look like real sketches. (The construction-geometry flag already
-   exists.)
+1. ~~**Rectangle/polygon/slot compound constructors**~~ — *done 2026-06*
+   (`AddRectangle`/`AddPolygon`/`AddSlot` in `compound.go`).
 2. ~~**Tangent/equal coverage for arcs + point↔line and line↔line distance
    dimensions**~~ — *done 2026-06*.
 3. ~~**Driven dimensions**~~ — *done 2026-06*.
@@ -127,5 +124,5 @@ Without it the "2D → 3D someday" door stays shut.
 6. **Offset/fillet/trim**, then **ellipse**, then **profiles/loop detection**,
    with **splines** last (largest solver impact).
 
-Item 1 fits the current architecture without structural change. Dragging and
-splines deserve a design doc before code.
+Dragging and splines deserve a design doc before code; see
+`docs/drag-solve-design.md` for the former.
