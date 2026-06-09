@@ -13,8 +13,8 @@ re-solve, and the geometry updates.
 * Levenberg–Marquardt geometric constraint solver with degrees-of-freedom and
   redundancy analysis.
 * A rich, Fusion-like constraint set.
-* Export to **SVG** (visual inspection), **DXF** (CAD interchange) and **JSON**
-  (save / load).
+* Export to **SVG** (visual inspection), **DXF** R12 (CAD interchange) and
+  **JSON** (lossless save / load round-trip).
 
 ```go
 import "github.com/lestrrat-3d/sketch"
@@ -141,6 +141,9 @@ s.AddConstraint(sketch.NewAngle(l1, l2, 90)) // 90 in the default angle unit (de
 The solver works in base units (millimetre, radian); a dimension's residual
 converts its target with `Target().Base()`. A bare-float constructor value
 adopts the sketch's default unit for that kind when the constraint is added.
+Default systems come from `units.Metric()` (mm/deg), `units.SI()` (m/rad) and
+`units.Imperial()` (in/deg); mixing kinds (e.g. adding a length to an angle)
+returns `units.ErrIncompatible`, and `units.Define` registers custom units.
 
 ## Parameters & expressions
 
@@ -180,9 +183,11 @@ The table is required at [`Bind`](https://pkg.go.dev/github.com/lestrrat-3d/sket
 time and all of a sketch's dimensions must share one table. Parameters, each
 dimension's unit and bound expression, and the unit system are all included in
 the sketch's JSON, so a parametric sketch reloads still parametric. The
-expression language supports arithmetic, `^`, parentheses, constants (`pi`,
+expression language supports `+ - * / %`, right-associative `^`, unary `±`,
+parentheses, numeric literals (including scientific notation), constants (`pi`,
 `tau`, `e`, `phi`) and functions (`sin`, `sqrt`, `min`/`max`, `hypot`, `clamp`,
-…); see [`examples/parametric`](examples/parametric).
+…). Register your own with `table.SetFunc` / `table.SetConst`. See
+[`examples/parametric`](examples/parametric).
 
 ## Solving
 

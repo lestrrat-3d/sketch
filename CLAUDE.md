@@ -56,8 +56,12 @@ Standard-library-only and intended to move to its own module later.
 `units/` is a standalone units-of-measure library: typed [Unit] constants
 (metric + imperial length, deg/rad angle — never strings), a [Value] type that
 pairs a magnitude with its unit and converts between compatible units, and a
-[System] holding the current default length/angle units. Base units are
-millimetre and radian. **All unit conversion lives here** — no other package
+[System] holding the current default length/angle units (`Metric`/`SI`/
+`Imperial`). Base units are millimetre and radian. Every unit has a [Kind]
+(length/angle/dimensionless); conversion and `Value` arithmetic are
+kind-checked and return [ErrIncompatible] on a mismatch — units are NEVER
+silently relabelled. New units register via [Define]/[Lookup] (also the
+serialization hook). **All unit conversion lives here** — no other package
 re-implements factor math. It must not import `sketch` or `param`; the
 dependency arrows are `sketch -> units` and `param -> units`, never the reverse.
 Like `param`, it is intended to move to its own module later.
@@ -113,6 +117,11 @@ sees them automatically.
   rank-deficient / under-constrained sketches. Don't revert to `λ·A[i][i]`.
 - **The Jacobian is numerical** (central differences). Simple and robust; see
   the open questions for when this might change.
+- **DOF/redundancy analysis recomputes the Jacobian at the call-time
+  configuration.** `rank()`/`DOF()` rebuild J via `jacobian` when called — after
+  `Solve` that is the *solved* point. NEVER reuse the Solve loop's
+  last-iteration Jacobian for rank analysis: it is stale (evaluated one step
+  before convergence) and yields wrong DOF/redundancy counts.
 - **The solver works in base units** (millimetre coordinates, radian angles).
   Dimensions carry a `units.Value`; their residual uses `Target().Base()` to
   reach base units. Unit conversion happens *only* in the `units` library
@@ -129,6 +138,9 @@ sees them automatically.
   arc radius-consistency constraint auto-added by `AddArc`) are *not* serialized
   — they're recreated by the constructor on load. New auto-added constraints
   must follow this pattern or round-trips will double them.
+- **The `param` table serializes in definition order.** Its JSON preserves the
+  order parameters were defined so forward references and reload stay
+  reproducible. Keep that order on marshal/unmarshal.
 
 ## Conventions
 
@@ -183,7 +195,12 @@ These are unsettled. If you resolve one, record the decision here.
   conversion is delegated to the library. *Limited on purpose:* there is no
   full dimensional algebra through expressions — `param` evaluates magnitudes in
   base units and a parameter's declared unit tags the result; kind mismatches
-  are caught at the sketch-binding boundary, not inside every expression. *Open
+  are caught at the sketch-binding boundary, not inside every expression. Only a
+  *direct* parameter reference (`s.Bind(dim, t, "width")`) carries the
+  parameter's unit and is kind-checked against the dimension; a compound
+  expression (`"width * 2"`) is evaluated to a base-unit magnitude and tagged
+  with the dimension's base unit, so a kind error hidden inside an expression is
+  not caught. *Open
   follow-ups:* should expressions track kind through arithmetic (catch mm+deg
   mid-expression); should points/coordinates expose unit-carrying accessors;
   should exporters honour the display `System`.
