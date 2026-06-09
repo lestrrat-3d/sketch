@@ -37,7 +37,18 @@ expected to be built **on top of** this engine, not woven into it.
 | `constraint.go` | `Constraint` interface and every constraint's residual + the public constructor methods. |
 | `solver.go` | Levenberg–Marquardt solver, numerical Jacobian, DOF/redundancy (rank) analysis. |
 | `svg.go` / `dxf.go` / `json.go` | Exporters / serialization. |
+| `param/` | **Self-contained** parameter & expression engine (own package). |
 | `examples/` | Runnable programs that double as living documentation. |
+
+### The `param` package (slated for extraction)
+
+`param/` is a standalone parameter/expression engine: a `Table` of named
+parameters holding literals or expressions (`width = height * 1.5`), with a
+lexer/parser/evaluator, functions, constants, forward references and cycle
+detection. **It must not import anything from the `sketch` package or rely on
+the rest of the repo** — it is intended to move into its own module/repository
+later, so the dependency arrow only ever points *into* it. Keep it standard-
+library-only and independently testable.
 
 ### The parameter model (load-bearing)
 
@@ -87,9 +98,14 @@ directly. Any new geometry that introduces unknowns must allocate them via
 
 These are unsettled. If you resolve one, record the decision here.
 
-- **Parameters & expressions.** Dimensions are currently bare `float64`s. Do we
-  want named parameters and an expression engine (`width = 2*height`) for true
-  parametric tables? This shapes the data model and serialization.
+- **Parameters & expressions.** *Engine built* — see the `param` package
+  (named parameters, expressions, functions, cycle detection). **Still open:**
+  how it wires into the sketcher. Dimensional constraints currently hold bare
+  `float64`s; the intended direction is to optionally drive a dimension's value
+  from a `param.Table` expression (e.g. a dimension bound to `"width"`),
+  re-evaluated before each solve. The binding API, how it serializes, and
+  whether the `Sketch` owns a `Table` or references an external one are
+  undecided.
 - **Geometry coverage.** Splines/B-splines, ellipses, slots, fillet/chamfer and
   offset helpers are not yet present. Splines in particular interact with the
   solver (control points as unknowns).
