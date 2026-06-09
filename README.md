@@ -114,8 +114,10 @@ Construct a constraint with its `New…` function and commit it with
 `NewCoincident`, `NewHorizontal`, `NewVertical`, `NewParallel`,
 `NewPerpendicular`, `NewPointOnLine`, `NewCollinear`, `NewPointOnCircle`,
 `NewMidpoint`, `NewSymmetric`, `NewConcentric`, `NewEqual` (line lengths),
-`NewEqualRadius`, `NewTangent` (line–circle), `NewTangentCircles` (circle–circle,
-internal or external).
+`NewEqualRadius` (circles and/or arcs), `NewTangent` (line to circle or arc),
+`NewTangentCircles` (circle/arc to circle/arc, internal or external). Tangency
+treats an arc as its full circle — the tangent point is not required to lie
+within the arc's sweep.
 
 **Dimensional** (editable; each carries a unit and has a `.Set`/`.SetValue`)
 

@@ -175,7 +175,10 @@ sees them automatically.
   the bare name; keep all constructors consistent). `s.Add…`/`s.AddConstraint`
   commits.
 - Constraints reference **sketch** geometry (`*sketch.Point`/`*sketch.Line`/…),
-  not generic geometry; the residual reads solved values through it.
+  not generic geometry; the residual reads solved values through it. Constraints
+  that relate centers/radii take the sealed `Circular` interface (`*Circle` or
+  `*Arc`); an arc's radius is the derived `dist(Start, Center)`, so such
+  residuals need no radius variable.
 - Public dimensional constructors return concrete handles (`*Distance`, etc.)
   with `.Set`/`.SetValue`; geometric constructors return the `Constraint`
   interface.

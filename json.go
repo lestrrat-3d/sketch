@@ -150,11 +150,11 @@ func marshalConstraint(c Constraint) (jsonConstraint, bool) {
 	case *equalLines:
 		return jsonConstraint{Type: "equal_lines", Entities: []int{t.L1.id, t.L2.id}}, true
 	case *equalRadii:
-		return jsonConstraint{Type: "equal_radii", Entities: []int{t.C1.id, t.C2.id}}, true
+		return jsonConstraint{Type: "equal_radii", Entities: []int{t.C1.entID(), t.C2.entID()}}, true
 	case *tangentLineCircle:
-		return jsonConstraint{Type: "tangent_line_circle", Entities: []int{t.L.id, t.C.id}}, true
+		return jsonConstraint{Type: "tangent_line_circle", Entities: []int{t.L.id, t.C.entID()}}, true
 	case *tangentCircles:
-		return jsonConstraint{Type: "tangent_circles", Entities: []int{t.C1.id, t.C2.id}, Flag: t.Internal}, true
+		return jsonConstraint{Type: "tangent_circles", Entities: []int{t.C1.entID(), t.C2.entID()}, Flag: t.Internal}, true
 	case *Distance:
 		return dimJSON("distance", t, []int{t.P1.id, t.P2.id}, nil), true
 	case *HorizontalDistance:
@@ -212,6 +212,13 @@ func (s *Sketch) UnmarshalJSON(data []byte) error {
 		}
 		return c, nil
 	}
+	circular := func(i int) (Circular, error) {
+		c, ok := s.entByID(i).(Circular)
+		if !ok {
+			return nil, fmt.Errorf("sketch: entity %d is not a circle or arc", i)
+		}
+		return c, nil
+	}
 
 	for _, je := range js.Entities {
 		switch je.Type {
@@ -242,7 +249,7 @@ func (s *Sketch) UnmarshalJSON(data []byte) error {
 	}
 
 	for _, jc := range js.Constraints {
-		if err := s.rebuildConstraint(jc, line, circle); err != nil {
+		if err := s.rebuildConstraint(jc, line, circle, circular); err != nil {
 			return err
 		}
 	}
@@ -260,7 +267,7 @@ func (s *Sketch) entByID(i int) Entity {
 	return s.ents[i]
 }
 
-func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, error), circle func(int) (*Circle, error)) error {
+func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, error), circle func(int) (*Circle, error), circular func(int) (Circular, error)) error {
 	pt := func(i int) *Point { return s.points[jc.Points[i]] }
 	// dim restores a dimensional constraint's unit/binding, then commits it.
 	dim := func(d Dimension) {
@@ -338,11 +345,11 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		}
 		s.AddConstraint(NewConcentric(c1, c2))
 	case "equal_radii":
-		c1, err := circle(jc.Entities[0])
+		c1, err := circular(jc.Entities[0])
 		if err != nil {
 			return err
 		}
-		c2, err := circle(jc.Entities[1])
+		c2, err := circular(jc.Entities[1])
 		if err != nil {
 			return err
 		}
@@ -352,17 +359,17 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		if err != nil {
 			return err
 		}
-		c, err := circle(jc.Entities[1])
+		c, err := circular(jc.Entities[1])
 		if err != nil {
 			return err
 		}
 		s.AddConstraint(NewTangent(l, c))
 	case "tangent_circles":
-		c1, err := circle(jc.Entities[0])
+		c1, err := circular(jc.Entities[0])
 		if err != nil {
 			return err
 		}
-		c2, err := circle(jc.Entities[1])
+		c2, err := circular(jc.Entities[1])
 		if err != nil {
 			return err
 		}

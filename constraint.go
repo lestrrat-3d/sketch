@@ -192,52 +192,57 @@ func (c *equalLines) residual(out []float64) []float64 {
 // NewEqual forces two lines to have equal length.
 func NewEqual(l1, l2 *Line) Constraint { return &equalLines{l1, l2} }
 
-type equalRadii struct{ C1, C2 *Circle }
+type equalRadii struct{ C1, C2 Circular }
 
 func (c *equalRadii) residual(out []float64) []float64 {
-	return append(out, c.C1.r()-c.C2.r())
+	return append(out, c.C1.R()-c.C2.R()) // length units
 }
 
-// NewEqualRadius forces two circles to have equal radius.
-func NewEqualRadius(c1, c2 *Circle) Constraint { return &equalRadii{c1, c2} }
+// NewEqualRadius forces two circular entities (circles or arcs) to have equal
+// radius.
+func NewEqualRadius(c1, c2 Circular) Constraint { return &equalRadii{c1, c2} }
 
 // --- tangent ----------------------------------------------------------------
 
 type tangentLineCircle struct {
 	L *Line
-	C *Circle
+	C Circular
 }
 
 func (c *tangentLineCircle) residual(out []float64) []float64 {
 	// |distance(center, line)| − r, in length units
+	ctr := c.C.centerPt()
 	ax, ay := c.L.Start.x(), c.L.Start.y()
 	abx, aby := c.L.End.x()-ax, c.L.End.y()-ay
-	acx, acy := c.C.Center.x()-ax, c.C.Center.y()-ay
+	acx, acy := ctr.x()-ax, ctr.y()-ay
 	cross := abx*acy - aby*acx
-	return append(out, math.Abs(cross)/norm(abx, aby)-c.C.r())
+	return append(out, math.Abs(cross)/norm(abx, aby)-c.C.R())
 }
 
-// NewTangent forces a line to be tangent to a circle.
-func NewTangent(l *Line, c *Circle) Constraint { return &tangentLineCircle{l, c} }
+// NewTangent forces a line to be tangent to a circular entity (circle or arc).
+// An arc is treated as its full circle: the tangent point is not required to
+// lie within the arc's sweep.
+func NewTangent(l *Line, c Circular) Constraint { return &tangentLineCircle{l, c} }
 
 type tangentCircles struct {
-	C1, C2   *Circle
+	C1, C2   Circular
 	Internal bool
 }
 
 func (c *tangentCircles) residual(out []float64) []float64 {
-	d := dist(c.C1.Center, c.C2.Center)
-	sum := c.C1.r() + c.C2.r()
+	d := dist(c.C1.centerPt(), c.C2.centerPt())
+	sum := c.C1.R() + c.C2.R()
 	if c.Internal {
-		sum = math.Abs(c.C1.r() - c.C2.r())
+		sum = math.Abs(c.C1.R() - c.C2.R())
 	}
 	return append(out, d-sum) // length units
 }
 
-// NewTangentCircles forces two circles to be tangent. When internal is true the
-// circles are internally tangent (one inside the other); otherwise they are
-// externally tangent.
-func NewTangentCircles(c1, c2 *Circle, internal bool) Constraint {
+// NewTangentCircles forces two circular entities (circles or arcs) to be
+// tangent. When internal is true they are internally tangent (one inside the
+// other); otherwise they are externally tangent. An arc is treated as its full
+// circle: the tangent point is not required to lie within the arc's sweep.
+func NewTangentCircles(c1, c2 Circular, internal bool) Constraint {
 	return &tangentCircles{c1, c2, internal}
 }
 

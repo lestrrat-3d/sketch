@@ -146,6 +146,15 @@ type Entity interface {
 	entity()
 }
 
+// Circular is a sketch entity with a center point and a radius: a [*Circle] or
+// an [*Arc]. Constraints that relate centers and radii — [NewTangent],
+// [NewTangentCircles], [NewEqualRadius] — accept either.
+type Circular interface {
+	Entity
+	R() float64
+	centerPt() *Point
+}
+
 // Line is the solver-bound instance of a [geom.Line].
 type Line struct {
 	g          *geom.Line
@@ -197,6 +206,8 @@ func (c *Circle) R() float64 { return c.s.vars[c.ri] }
 
 func (c *Circle) r() float64 { return c.s.vars[c.ri] }
 
+func (c *Circle) centerPt() *Point { return c.Center }
+
 // AddCircle commits a generic circle to the sketch, first committing its
 // center, and returns its solver-bound instance. It is idempotent.
 func (s *Sketch) AddCircle(g *geom.Circle) *Circle {
@@ -228,6 +239,8 @@ func (a *Arc) Generic() *geom.Arc { return a.g }
 
 // R returns the arc's current radius (distance from center to start).
 func (a *Arc) R() float64 { return math.Hypot(a.Start.x()-a.Center.x(), a.Start.y()-a.Center.y()) }
+
+func (a *Arc) centerPt() *Point { return a.Center }
 
 // StartAngle returns the angle (radians) of the start point about the center.
 func (a *Arc) StartAngle() float64 {

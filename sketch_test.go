@@ -228,6 +228,122 @@ func TestConcentricEqualRadius(t *testing.T) {
 	require.InDelta(t, 7, c2.R(), 1e-6, "c2 radius")
 }
 
+func TestTangentLineArc(t *testing.T) {
+	s := sketch.New()
+	a := addPt(s, 0, 0)
+	b := addPt(s, 10, 0)
+	s.Fix(a)
+	s.Fix(b)
+	line := addLn(s, a, b)
+
+	center := addPt(s, 5, 5)
+	s.Fix(center)
+	start := addPt(s, 8, 5) // bad initial radius (3)
+	end := addPt(s, 5, 8)
+	arc := addArc(s, center, start, end)
+	s.AddConstraint(sketch.NewTangent(line, arc))
+
+	mustSolve(t, s)
+	require.InDelta(t, 5, arc.R(), 1e-6, "arc radius reaches line")
+	require.InDelta(t, pointDist(start, center), pointDist(end, center), 1e-6, "radius consistency held")
+}
+
+func TestTangentCircleArc(t *testing.T) {
+	t.Run("external", func(t *testing.T) {
+		s := sketch.New()
+		o := addPt(s, 0, 0)
+		s.Fix(o)
+		circ := addCir(s, o, 3)
+		s.AddConstraint(sketch.NewRadius(circ, 3))
+
+		center := addPt(s, 10, 0)
+		s.Fix(center)
+		start := addPt(s, 12, 0)
+		end := addPt(s, 10, 2)
+		arc := addArc(s, center, start, end)
+		s.AddConstraint(sketch.NewTangentCircles(circ, arc, false))
+
+		mustSolve(t, s)
+		require.InDelta(t, 7, arc.R(), 1e-6, "external: d = r1 + r2")
+	})
+	t.Run("internal", func(t *testing.T) {
+		s := sketch.New()
+		o := addPt(s, 0, 0)
+		s.Fix(o)
+		circ := addCir(s, o, 10)
+		s.AddConstraint(sketch.NewRadius(circ, 10))
+
+		center := addPt(s, 4, 0)
+		s.Fix(center)
+		start := addPt(s, 6, 0)
+		end := addPt(s, 4, 2)
+		arc := addArc(s, center, start, end)
+		s.AddConstraint(sketch.NewTangentCircles(circ, arc, true))
+
+		mustSolve(t, s)
+		require.InDelta(t, 6, arc.R(), 1e-6, "internal: d = |r1 - r2|")
+	})
+}
+
+func TestTangentArcArc(t *testing.T) {
+	s := sketch.New()
+	c1 := addPt(s, 0, 0)
+	s.Fix(c1)
+	s1 := addPt(s, 3, 0)
+	s.Fix(s1) // pins the first arc's radius at 3
+	e1 := addPt(s, 0, 3)
+	a1 := addArc(s, c1, s1, e1)
+
+	c2 := addPt(s, 10, 0)
+	s.Fix(c2)
+	s2 := addPt(s, 12, 0)
+	e2 := addPt(s, 10, 2)
+	a2 := addArc(s, c2, s2, e2)
+	s.AddConstraint(sketch.NewTangentCircles(a1, a2, false))
+
+	mustSolve(t, s)
+	require.InDelta(t, 3, a1.R(), 1e-6, "pinned arc radius")
+	require.InDelta(t, 7, a2.R(), 1e-6, "external arc-arc tangency")
+}
+
+func TestEqualRadiusCircleArc(t *testing.T) {
+	s := sketch.New()
+	o := addPt(s, 0, 0)
+	s.Fix(o)
+	circ := addCir(s, o, 7)
+	s.AddConstraint(sketch.NewRadius(circ, 7))
+
+	center := addPt(s, 20, 0)
+	s.Fix(center)
+	start := addPt(s, 22, 0)
+	end := addPt(s, 20, 2)
+	arc := addArc(s, center, start, end)
+	s.AddConstraint(sketch.NewEqualRadius(circ, arc))
+
+	mustSolve(t, s)
+	require.InDelta(t, 7, arc.R(), 1e-6, "arc matches circle radius")
+}
+
+func TestEqualRadiusArcArc(t *testing.T) {
+	s := sketch.New()
+	c1 := addPt(s, 0, 0)
+	s.Fix(c1)
+	s1 := addPt(s, 5, 0)
+	s.Fix(s1) // pins the first arc's radius at 5
+	e1 := addPt(s, 0, 5)
+	a1 := addArc(s, c1, s1, e1)
+
+	c2 := addPt(s, 20, 0)
+	s.Fix(c2)
+	s2 := addPt(s, 22, 0)
+	e2 := addPt(s, 20, 2)
+	a2 := addArc(s, c2, s2, e2)
+	s.AddConstraint(sketch.NewEqualRadius(a1, a2))
+
+	mustSolve(t, s)
+	require.InDelta(t, 5, a2.R(), 1e-6, "arc radii equal")
+}
+
 func TestSymmetric(t *testing.T) {
 	s := sketch.New()
 	// vertical axis along x = 0
@@ -280,6 +396,46 @@ func TestJSONRoundTrip(t *testing.T) {
 	require.InDelta(t, 20, s2.Points()[b.ID()].X(), 1e-6, "reloaded b.X")
 	require.InDelta(t, 12, s2.Points()[c.ID()].Y(), 1e-6, "reloaded c.Y")
 	require.InDelta(t, 0, s2.Points()[d.ID()].X(), 1e-6, "reloaded d.X")
+}
+
+func TestJSONRoundTripArcTangent(t *testing.T) {
+	s := sketch.New()
+	a := addPt(s, 0, 0)
+	b := addPt(s, 10, 0)
+	s.Fix(a)
+	s.Fix(b)
+	line := addLn(s, a, b)
+
+	center := addPt(s, 5, 5)
+	s.Fix(center)
+	start := addPt(s, 8, 5)
+	end := addPt(s, 5, 8)
+	arc := addArc(s, center, start, end)
+
+	o := addPt(s, 20, 0)
+	s.Fix(o)
+	circ := addCir(s, o, 2)
+
+	s.AddConstraint(sketch.NewTangent(line, arc), sketch.NewEqualRadius(circ, arc))
+	mustSolve(t, s)
+	require.InDelta(t, 5, arc.R(), 1e-6, "arc radius before round-trip")
+
+	data, err := json.Marshal(s)
+	require.NoError(t, err, "marshal")
+
+	var s2 sketch.Sketch
+	require.NoError(t, json.Unmarshal(data, &s2), "unmarshal")
+	// The internal arc radius-consistency constraint must be recreated by
+	// AddArc exactly once, not also deserialized.
+	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraint count")
+
+	mustSolve(t, &s2)
+	reloaded, ok := s2.Entities()[1].(*sketch.Arc)
+	require.True(t, ok, "entity 1 is the arc")
+	circ2, ok := s2.Entities()[2].(*sketch.Circle)
+	require.True(t, ok, "entity 2 is the circle")
+	require.InDelta(t, 5, reloaded.R(), 1e-6, "reloaded arc radius")
+	require.InDelta(t, 5, circ2.R(), 1e-6, "reloaded circle equals arc radius")
 }
 
 func TestSVGOutput(t *testing.T) {
