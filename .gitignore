@@ -30,3 +30,8 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Generated example output (written to the working directory by `go run`)
+/hexagon.svg
+/hexagon.dxf
+/hexagon.json
