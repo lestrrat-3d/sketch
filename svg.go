@@ -4,31 +4,78 @@ import (
 	"fmt"
 	"math"
 	"strings"
+
+	"github.com/lestrrat-go/option/v3"
 )
 
-// SVGOptions controls SVG rendering.
-type SVGOptions struct {
-	Margin       float64 // blank border around the geometry, in sketch units
-	StrokeWidth  float64 // stroke width in sketch units
-	ShowPoints   bool    // draw a small marker at each point
-	PointRadius  float64 // marker radius in sketch units
-	ArcSegments  int     // polyline segments used to approximate an arc
-	Background   string  // background fill (e.g. "white"); empty for none
-	Stroke       string  // geometry color
-	Construction string  // construction-geometry color
+// SVGOption configures [Sketch.SVG] rendering. Construct values with the With…
+// helpers; any option left unset falls back to a sensible default.
+type SVGOption interface {
+	option.Interface
+	svgOption()
 }
 
-// DefaultSVGOptions returns sensible SVG rendering defaults.
-func DefaultSVGOptions() SVGOptions {
-	return SVGOptions{
-		Margin:       10,
-		StrokeWidth:  1,
-		ShowPoints:   true,
-		PointRadius:  2,
-		ArcSegments:  64,
-		Background:   "white",
-		Stroke:       "#1a73e8",
-		Construction: "#bbbbbb",
+type svgOption struct{ option.Interface }
+
+func (svgOption) svgOption() {}
+
+type (
+	identMargin       struct{}
+	identStrokeWidth  struct{}
+	identShowPoints   struct{}
+	identPointRadius  struct{}
+	identArcSegments  struct{}
+	identBackground   struct{}
+	identStroke       struct{}
+	identConstruction struct{}
+)
+
+// WithMargin sets the blank border around the geometry, in sketch units.
+func WithMargin(v float64) SVGOption { return svgOption{option.New(identMargin{}, v)} }
+
+// WithStrokeWidth sets the stroke width, in sketch units.
+func WithStrokeWidth(v float64) SVGOption { return svgOption{option.New(identStrokeWidth{}, v)} }
+
+// WithShowPoints toggles drawing a small marker at each point.
+func WithShowPoints(v bool) SVGOption { return svgOption{option.New(identShowPoints{}, v)} }
+
+// WithPointRadius sets the point-marker radius, in sketch units.
+func WithPointRadius(v float64) SVGOption { return svgOption{option.New(identPointRadius{}, v)} }
+
+// WithArcSegments sets the number of polyline segments used to approximate an arc.
+func WithArcSegments(v int) SVGOption { return svgOption{option.New(identArcSegments{}, v)} }
+
+// WithBackground sets the background fill (e.g. "white"); empty for none.
+func WithBackground(v string) SVGOption { return svgOption{option.New(identBackground{}, v)} }
+
+// WithStroke sets the geometry color.
+func WithStroke(v string) SVGOption { return svgOption{option.New(identStroke{}, v)} }
+
+// WithConstruction sets the construction-geometry color.
+func WithConstruction(v string) SVGOption { return svgOption{option.New(identConstruction{}, v)} }
+
+// svgConfig holds the resolved SVG rendering options.
+type svgConfig struct {
+	margin       float64
+	strokeWidth  float64
+	showPoints   bool
+	pointRadius  float64
+	arcSegments  int
+	background   string
+	stroke       string
+	construction string
+}
+
+func defaultSVGConfig() svgConfig {
+	return svgConfig{
+		margin:       10,
+		strokeWidth:  1,
+		showPoints:   true,
+		pointRadius:  2,
+		arcSegments:  64,
+		background:   "white",
+		stroke:       "#1a73e8",
+		construction: "#bbbbbb",
 	}
 }
 
@@ -82,14 +129,38 @@ func arcPolyline(a *Arc, segments int) [][2]float64 {
 }
 
 // SVG renders the sketch to an SVG document. The y-axis is flipped so the
-// output matches conventional math orientation (y up).
-func (s *Sketch) SVG(opts SVGOptions) (string, error) {
+// output matches conventional math orientation (y up). Called with no options
+// it uses sensible defaults; override individual settings with the With…
+// helpers.
+func (s *Sketch) SVG(options ...SVGOption) (string, error) {
+	cfg := defaultSVGConfig()
+	for _, o := range options {
+		switch o.Ident().(type) {
+		case identMargin:
+			cfg.margin = option.MustGet[float64](o)
+		case identStrokeWidth:
+			cfg.strokeWidth = option.MustGet[float64](o)
+		case identShowPoints:
+			cfg.showPoints = option.MustGet[bool](o)
+		case identPointRadius:
+			cfg.pointRadius = option.MustGet[float64](o)
+		case identArcSegments:
+			cfg.arcSegments = option.MustGet[int](o)
+		case identBackground:
+			cfg.background = option.MustGet[string](o)
+		case identStroke:
+			cfg.stroke = option.MustGet[string](o)
+		case identConstruction:
+			cfg.construction = option.MustGet[string](o)
+		}
+	}
+
 	b, ok := s.bounds()
 	if !ok {
 		b = bbox{0, 0, 1, 1}
 	}
-	w := (b.maxX - b.minX) + 2*opts.Margin
-	h := (b.maxY - b.minY) + 2*opts.Margin
+	w := (b.maxX - b.minX) + 2*cfg.margin
+	h := (b.maxY - b.minY) + 2*cfg.margin
 	if w <= 0 {
 		w = 1
 	}
@@ -98,27 +169,27 @@ func (s *Sketch) SVG(opts SVGOptions) (string, error) {
 	}
 
 	// Map sketch coords to SVG coords (flip y).
-	tx := func(x float64) float64 { return x - b.minX + opts.Margin }
-	ty := func(y float64) float64 { return b.maxY - y + opts.Margin }
+	tx := func(x float64) float64 { return x - b.minX + cfg.margin }
+	ty := func(y float64) float64 { return b.maxY - y + cfg.margin }
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb,
 		`<svg xmlns="http://www.w3.org/2000/svg" width="%s" height="%s" viewBox="0 0 %s %s">`,
 		f(w), f(h), f(w), f(h))
 	sb.WriteByte('\n')
-	if opts.Background != "" {
-		fmt.Fprintf(&sb, `  <rect width="100%%" height="100%%" fill="%s"/>`+"\n", opts.Background)
+	if cfg.background != "" {
+		fmt.Fprintf(&sb, `  <rect width="100%%" height="100%%" fill="%s"/>`+"\n", cfg.background)
 	}
 
 	color := func(construction bool) string {
 		if construction {
-			return opts.Construction
+			return cfg.construction
 		}
-		return opts.Stroke
+		return cfg.stroke
 	}
 	dash := func(construction bool) string {
 		if construction {
-			return fmt.Sprintf(` stroke-dasharray="%s,%s"`, f(opts.StrokeWidth*4), f(opts.StrokeWidth*3))
+			return fmt.Sprintf(` stroke-dasharray="%s,%s"`, f(cfg.strokeWidth*4), f(cfg.strokeWidth*3))
 		}
 		return ""
 	}
@@ -129,14 +200,14 @@ func (s *Sketch) SVG(opts SVGOptions) (string, error) {
 			fmt.Fprintf(&sb,
 				`  <line x1="%s" y1="%s" x2="%s" y2="%s" stroke="%s" stroke-width="%s"%s/>`+"\n",
 				f(tx(t.Start.x())), f(ty(t.Start.y())), f(tx(t.End.x())), f(ty(t.End.y())),
-				color(t.isConstruction()), f(opts.StrokeWidth), dash(t.isConstruction()))
+				color(t.isConstruction()), f(cfg.strokeWidth), dash(t.isConstruction()))
 		case *Circle:
 			fmt.Fprintf(&sb,
 				`  <circle cx="%s" cy="%s" r="%s" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
 				f(tx(t.Center.x())), f(ty(t.Center.y())), f(t.r()),
-				color(t.isConstruction()), f(opts.StrokeWidth), dash(t.isConstruction()))
+				color(t.isConstruction()), f(cfg.strokeWidth), dash(t.isConstruction()))
 		case *Arc:
-			pts := arcPolyline(t, opts.ArcSegments)
+			pts := arcPolyline(t, cfg.arcSegments)
 			var d strings.Builder
 			for i, p := range pts {
 				cmd := "L"
@@ -147,11 +218,11 @@ func (s *Sketch) SVG(opts SVGOptions) (string, error) {
 			}
 			fmt.Fprintf(&sb,
 				`  <path d="%s" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
-				strings.TrimSpace(d.String()), color(t.isConstruction()), f(opts.StrokeWidth), dash(t.isConstruction()))
+				strings.TrimSpace(d.String()), color(t.isConstruction()), f(cfg.strokeWidth), dash(t.isConstruction()))
 		}
 	}
 
-	if opts.ShowPoints {
+	if cfg.showPoints {
 		for _, p := range s.points {
 			fill := "#d93025"
 			if p.IsFixed() {
@@ -159,7 +230,7 @@ func (s *Sketch) SVG(opts SVGOptions) (string, error) {
 			}
 			fmt.Fprintf(&sb,
 				`  <circle cx="%s" cy="%s" r="%s" fill="%s"/>`+"\n",
-				f(tx(p.x())), f(ty(p.y())), f(opts.PointRadius), fill)
+				f(tx(p.x())), f(ty(p.y())), f(cfg.pointRadius), fill)
 		}
 	}
 

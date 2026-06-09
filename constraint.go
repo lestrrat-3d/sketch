@@ -227,11 +227,9 @@ type tangentCircles struct {
 
 func (c *tangentCircles) residual(out []float64) []float64 {
 	d := dist(c.C1.Center, c.C2.Center)
-	var sum float64
+	sum := c.C1.r() + c.C2.r()
 	if c.Internal {
 		sum = math.Abs(c.C1.r() - c.C2.r())
-	} else {
-		sum = c.C1.r() + c.C2.r()
 	}
 	return append(out, d-sum) // length units
 }
@@ -445,7 +443,7 @@ func NewAngle(l1, l2 *Line, a float64) *Angle {
 
 // --- geometry helpers -------------------------------------------------------
 
-func dir(l *Line) (dx, dy float64) { return l.End.x() - l.Start.x(), l.End.y() - l.Start.y() }
+func dir(l *Line) (float64, float64) { return l.End.x() - l.Start.x(), l.End.y() - l.Start.y() }
 
 func dist(a, b *Point) float64 { return math.Hypot(a.x()-b.x(), a.y()-b.y()) }
 

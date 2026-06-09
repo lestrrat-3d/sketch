@@ -65,7 +65,7 @@ res, err := s.Solve()
 width.Set(35) // edit a dimension ...
 s.Solve()     // ... and re-solve: the rectangle is now 35 x 12
 
-svg, _ := s.SVG(sketch.DefaultSVGOptions())
+svg, _ := s.SVG() // defaults; override e.g. s.SVG(sketch.WithMargin(20))
 dxf, _ := s.DXF()
 data, _ := s.MarshalJSON()
 _, _, _ = res, height, c
@@ -196,11 +196,11 @@ parentheses, numeric literals (including scientific notation), constants (`pi`,
 ## Solving
 
 ```go
-res, err := s.Solve()                       // default settings
-res, err := s.Solve(sketch.SolveOptions{    // or tune them
-    MaxIterations: 200,
-    Tolerance:     1e-10,
-})
+res, err := s.Solve()                                   // default settings
+res, err := s.Solve(                                    // or tune them
+    sketch.WithMaxIterations(200),
+    sketch.WithTolerance(1e-10),
+)
 ```
 
 `Solve` reports:

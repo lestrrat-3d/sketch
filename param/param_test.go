@@ -1,114 +1,105 @@
-package param
+package param_test
 
 import (
 	"encoding/json"
-	"errors"
 	"math"
 	"testing"
 
+	"github.com/lestrrat-3d/sketch/param"
 	"github.com/lestrrat-3d/sketch/units"
+	"github.com/stretchr/testify/require"
 )
 
-func approx(t *testing.T, name string, got, want float64) {
-	t.Helper()
-	if math.Abs(got-want) > 1e-9 {
-		t.Errorf("%s = %v, want %v", name, got, want)
-	}
-}
-
 func TestLiteralAndExpression(t *testing.T) {
-	tb := New()
-	must(t, tb.Set("height", "60"))
-	must(t, tb.Set("width", "height * 1.5"))
-	must(t, tb.Set("area", "width * height"))
+	tb := param.New()
+	require.NoError(t, tb.Set("height", "60"))
+	require.NoError(t, tb.Set("width", "height * 1.5"))
+	require.NoError(t, tb.Set("area", "width * height"))
 
-	approx(t, "height", tb.MustGet("height"), 60)
-	approx(t, "width", tb.MustGet("width"), 90)
-	approx(t, "area", tb.MustGet("area"), 5400)
+	require.InDelta(t, 60, tb.MustGet("height"), 1e-9, "height")
+	require.InDelta(t, 90, tb.MustGet("width"), 1e-9, "width")
+	require.InDelta(t, 5400, tb.MustGet("area"), 1e-9, "area")
 }
 
 func TestParametricUpdate(t *testing.T) {
-	tb := New()
-	must(t, tb.Set("height", "60"))
-	must(t, tb.Set("width", "height * 1.5"))
-	must(t, tb.Set("area", "width * height"))
-	approx(t, "area", tb.MustGet("area"), 5400)
+	tb := param.New()
+	require.NoError(t, tb.Set("height", "60"))
+	require.NoError(t, tb.Set("width", "height * 1.5"))
+	require.NoError(t, tb.Set("area", "width * height"))
+	require.InDelta(t, 5400, tb.MustGet("area"), 1e-9, "area")
 
-	must(t, tb.Set("height", "40")) // edit propagates downstream
-	approx(t, "width after edit", tb.MustGet("width"), 60)
-	approx(t, "area after edit", tb.MustGet("area"), 2400)
+	require.NoError(t, tb.Set("height", "40")) // edit propagates downstream
+	require.InDelta(t, 60, tb.MustGet("width"), 1e-9, "width after edit")
+	require.InDelta(t, 2400, tb.MustGet("area"), 1e-9, "area after edit")
 }
 
 func TestForwardReference(t *testing.T) {
-	tb := New()
-	must(t, tb.Set("a", "b + 1")) // b defined later
-	must(t, tb.SetNumber("b", 2))
-	approx(t, "a", tb.MustGet("a"), 3)
+	tb := param.New()
+	require.NoError(t, tb.Set("a", "b + 1")) // b defined later
+	require.NoError(t, tb.SetNumber("b", 2))
+	require.InDelta(t, 3, tb.MustGet("a"), 1e-9, "a")
 }
 
 func TestTypedValues(t *testing.T) {
-	tb := New()
-	must(t, tb.SetValue("width", units.Meters(1))) // 1 m
-	must(t, tb.SetExpr("half", "width / 2", units.Millimeter))
+	tb := param.New()
+	require.NoError(t, tb.SetValue("width", units.Meters(1))) // 1 m
+	require.NoError(t, tb.SetExpr("half", "width / 2", units.Millimeter))
 
 	// Get returns the base-unit (mm) magnitude.
-	approx(t, "width base", tb.MustGet("width"), 1000)
-	approx(t, "half base", tb.MustGet("half"), 500)
+	require.InDelta(t, 1000, tb.MustGet("width"), 1e-9, "width base")
+	require.InDelta(t, 500, tb.MustGet("half"), 1e-9, "half base")
 
 	// GetValue carries the declared unit.
-	w, _ := tb.GetValue("width")
-	if w.Unit() != units.Meter {
-		t.Errorf("width unit = %v, want m", w.Unit())
-	}
-	approx(t, "width mag (m)", w.Mag(), 1)
+	w, err := tb.GetValue("width")
+	require.NoError(t, err)
+	require.Equal(t, units.Meter, w.Unit(), "width unit")
+	require.InDelta(t, 1, w.Mag(), 1e-9, "width mag (m)")
 
-	h, _ := tb.GetValue("half")
-	approx(t, "half mag (mm)", h.Mag(), 500)
-	if h.Kind() != units.Length {
-		t.Errorf("half kind = %v, want length", h.Kind())
-	}
+	h, err := tb.GetValue("half")
+	require.NoError(t, err)
+	require.InDelta(t, 500, h.Mag(), 1e-9, "half mag (mm)")
+	require.Equal(t, units.Length, h.Kind(), "half kind")
 }
 
 func TestTypedAngle(t *testing.T) {
-	tb := New()
-	must(t, tb.SetValue("a", units.Degrees(90)))
-	approx(t, "90deg base (rad)", tb.MustGet("a"), math.Pi/2)
-	v, _ := tb.GetValue("a")
-	approx(t, "mag in deg", v.Mag(), 90)
+	tb := param.New()
+	require.NoError(t, tb.SetValue("a", units.Degrees(90)))
+	require.InDelta(t, math.Pi/2, tb.MustGet("a"), 1e-9, "90deg base (rad)")
+	v, err := tb.GetValue("a")
+	require.NoError(t, err)
+	require.InDelta(t, 90, v.Mag(), 1e-9, "mag in deg")
 }
 
 func TestUnitMethod(t *testing.T) {
-	tb := New()
-	must(t, tb.SetValue("len", units.Inches(2)))
+	tb := param.New()
+	require.NoError(t, tb.SetValue("len", units.Inches(2)))
 	u, ok := tb.Unit("len")
-	if !ok || u != units.Inch {
-		t.Errorf("Unit(len) = %v,%v want in,true", u, ok)
-	}
+	require.True(t, ok, "Unit(len) ok")
+	require.Equal(t, units.Inch, u)
 }
 
 func TestJSONRoundTripUnits(t *testing.T) {
-	tb := New()
-	must(t, tb.SetValue("width", units.Meters(2)))
-	must(t, tb.SetExpr("height", "width / 4", units.Millimeter))
-	must(t, tb.Set("ratio", "1.5"))
+	tb := param.New()
+	require.NoError(t, tb.SetValue("width", units.Meters(2)))
+	require.NoError(t, tb.SetExpr("height", "width / 4", units.Millimeter))
+	require.NoError(t, tb.Set("ratio", "1.5"))
 
 	data, err := json.Marshal(tb)
-	must(t, err)
+	require.NoError(t, err)
 
-	var tb2 Table
-	must(t, json.Unmarshal(data, &tb2))
+	var tb2 param.Table
+	require.NoError(t, json.Unmarshal(data, &tb2))
 
-	w, _ := tb2.GetValue("width")
-	if w.Unit() != units.Meter {
-		t.Errorf("reloaded width unit = %v, want m", w.Unit())
-	}
-	approx(t, "reloaded width base", tb2.MustGet("width"), 2000)
-	approx(t, "reloaded height base", tb2.MustGet("height"), 500)
-	approx(t, "reloaded ratio", tb2.MustGet("ratio"), 1.5)
+	w, err := tb2.GetValue("width")
+	require.NoError(t, err)
+	require.Equal(t, units.Meter, w.Unit(), "reloaded width unit")
+	require.InDelta(t, 2000, tb2.MustGet("width"), 1e-9, "reloaded width base")
+	require.InDelta(t, 500, tb2.MustGet("height"), 1e-9, "reloaded height base")
+	require.InDelta(t, 1.5, tb2.MustGet("ratio"), 1e-9, "reloaded ratio")
 }
 
 func TestPrecedenceAndAssociativity(t *testing.T) {
-	tb := New()
+	tb := param.New()
 	cases := map[string]float64{
 		"2 + 3 * 4":   14,
 		"(2 + 3) * 4": 20,
@@ -122,164 +113,131 @@ func TestPrecedenceAndAssociativity(t *testing.T) {
 	}
 	for expr, want := range cases {
 		got, err := tb.Eval(expr)
-		if err != nil {
-			t.Errorf("%q: %v", expr, err)
-			continue
-		}
-		approx(t, expr, got, want)
+		require.NoErrorf(t, err, "eval %q", expr)
+		require.InDelta(t, want, got, 1e-9, expr)
 	}
 }
 
 func TestFunctionsAndConstants(t *testing.T) {
-	tb := New()
-	approx(t, "sin(pi/2)", mustEval(t, tb, "sin(pi/2)"), 1)
-	approx(t, "sqrt(2)^2", mustEval(t, tb, "sqrt(2)^2"), 2)
-	approx(t, "max(1,7,3)", mustEval(t, tb, "max(1, 7, 3)"), 7)
-	approx(t, "min(1,7,3)", mustEval(t, tb, "min(1, 7, 3)"), 1)
-	approx(t, "hypot(3,4)", mustEval(t, tb, "hypot(3, 4)"), 5)
-	approx(t, "clamp(12,0,10)", mustEval(t, tb, "clamp(12, 0, 10)"), 10)
-	approx(t, "deg(pi)", mustEval(t, tb, "deg(pi)"), 180)
-	approx(t, "atan2(1,1)", mustEval(t, tb, "atan2(1, 1)"), math.Pi/4)
+	tb := param.New()
+	require.InDelta(t, 1, mustEval(t, tb, "sin(pi/2)"), 1e-9, "sin(pi/2)")
+	require.InDelta(t, 2, mustEval(t, tb, "sqrt(2)^2"), 1e-9, "sqrt(2)^2")
+	require.InDelta(t, 7, mustEval(t, tb, "max(1, 7, 3)"), 1e-9, "max(1,7,3)")
+	require.InDelta(t, 1, mustEval(t, tb, "min(1, 7, 3)"), 1e-9, "min(1,7,3)")
+	require.InDelta(t, 5, mustEval(t, tb, "hypot(3, 4)"), 1e-9, "hypot(3,4)")
+	require.InDelta(t, 10, mustEval(t, tb, "clamp(12, 0, 10)"), 1e-9, "clamp(12,0,10)")
+	require.InDelta(t, 180, mustEval(t, tb, "deg(pi)"), 1e-9, "deg(pi)")
+	require.InDelta(t, math.Pi/4, mustEval(t, tb, "atan2(1, 1)"), 1e-9, "atan2(1,1)")
 }
 
 func TestCustomFunc(t *testing.T) {
-	tb := New()
+	tb := param.New()
 	tb.SetFunc("double", func(a []float64) (float64, error) { return a[0] * 2, nil })
-	approx(t, "double(21)", mustEval(t, tb, "double(21)"), 42)
+	require.InDelta(t, 42, mustEval(t, tb, "double(21)"), 1e-9, "double(21)")
 }
 
 func TestCycleDetection(t *testing.T) {
-	tb := New()
-	must(t, tb.Set("a", "b + 1"))
-	must(t, tb.Set("b", "a + 1"))
+	tb := param.New()
+	require.NoError(t, tb.Set("a", "b + 1"))
+	require.NoError(t, tb.Set("b", "a + 1"))
 	_, err := tb.Get("a")
-	if !errors.Is(err, ErrCycle) {
-		t.Fatalf("expected ErrCycle, got %v", err)
-	}
+	require.ErrorIs(t, err, param.ErrCycle)
 }
 
 func TestSelfReferenceCycle(t *testing.T) {
-	tb := New()
-	must(t, tb.Set("a", "a + 1"))
-	if _, err := tb.Get("a"); !errors.Is(err, ErrCycle) {
-		t.Fatalf("expected ErrCycle, got %v", err)
-	}
+	tb := param.New()
+	require.NoError(t, tb.Set("a", "a + 1"))
+	_, err := tb.Get("a")
+	require.ErrorIs(t, err, param.ErrCycle)
 }
 
 func TestUndefinedReference(t *testing.T) {
-	tb := New()
-	must(t, tb.Set("a", "missing + 1"))
-	if _, err := tb.Get("a"); !errors.Is(err, ErrUndefined) {
-		t.Fatalf("expected ErrUndefined, got %v", err)
-	}
+	tb := param.New()
+	require.NoError(t, tb.Set("a", "missing + 1"))
+	_, err := tb.Get("a")
+	require.ErrorIs(t, err, param.ErrUndefined)
 }
 
 func TestDivisionByZero(t *testing.T) {
-	tb := New()
-	if _, err := tb.Eval("1 / 0"); err == nil {
-		t.Fatal("expected division by zero error")
-	}
+	tb := param.New()
+	_, err := tb.Eval("1 / 0")
+	require.Error(t, err, "expected division by zero error")
 }
 
 func TestSyntaxError(t *testing.T) {
-	tb := New()
+	tb := param.New()
 	err := tb.Set("a", "2 +")
-	var pe *ParseError
-	if !errors.As(err, &pe) {
-		t.Fatalf("expected *ParseError, got %v", err)
-	}
+	var pe *param.ParseError
+	require.ErrorAs(t, err, &pe)
 }
 
 func TestInvalidName(t *testing.T) {
-	tb := New()
-	if err := tb.Set("2bad", "1"); !errors.Is(err, ErrInvalidName) {
-		t.Fatalf("expected ErrInvalidName, got %v", err)
-	}
+	tb := param.New()
+	err := tb.Set("2bad", "1")
+	require.ErrorIs(t, err, param.ErrInvalidName)
 }
 
 func TestDependencies(t *testing.T) {
-	tb := New()
-	must(t, tb.Set("a", "1"))
-	must(t, tb.Set("b", "2"))
-	must(t, tb.Set("c", "a + b * pi")) // pi is a constant, excluded
+	tb := param.New()
+	require.NoError(t, tb.Set("a", "1"))
+	require.NoError(t, tb.Set("b", "2"))
+	require.NoError(t, tb.Set("c", "a + b * pi")) // pi is a constant, excluded
 	deps, err := tb.Dependencies("c")
-	must(t, err)
-	if len(deps) != 2 || deps[0] != "a" || deps[1] != "b" {
-		t.Fatalf("deps = %v, want [a b]", deps)
-	}
+	require.NoError(t, err)
+	require.Equal(t, []string{"a", "b"}, deps)
 }
 
 func TestValidate(t *testing.T) {
-	tb := New()
-	must(t, tb.Set("a", "b"))
-	must(t, tb.Set("b", "c")) // c undefined
-	if err := tb.Validate(); err == nil {
-		t.Fatal("expected validation error for undefined reference")
-	}
+	tb := param.New()
+	require.NoError(t, tb.Set("a", "b"))
+	require.NoError(t, tb.Set("b", "c")) // c undefined
+	require.Error(t, tb.Validate(), "expected validation error for undefined reference")
 
-	tb2 := New()
-	must(t, tb2.Set("a", "1"))
-	must(t, tb2.Set("b", "a + 1"))
-	if err := tb2.Validate(); err != nil {
-		t.Fatalf("unexpected validation error: %v", err)
-	}
+	tb2 := param.New()
+	require.NoError(t, tb2.Set("a", "1"))
+	require.NoError(t, tb2.Set("b", "a + 1"))
+	require.NoError(t, tb2.Validate())
 }
 
 func TestParamShadowsConstant(t *testing.T) {
-	tb := New()
-	must(t, tb.Set("pi", "3")) // parameter named pi shadows the constant
-	approx(t, "pi param", tb.MustGet("pi"), 3)
-	approx(t, "uses shadow", mustEval(t, tb, "pi * 2"), 6)
+	tb := param.New()
+	require.NoError(t, tb.Set("pi", "3")) // parameter named pi shadows the constant
+	require.InDelta(t, 3, tb.MustGet("pi"), 1e-9, "pi param")
+	require.InDelta(t, 6, mustEval(t, tb, "pi * 2"), 1e-9, "uses shadow")
 }
 
 func TestDeleteAndOrder(t *testing.T) {
-	tb := New()
-	must(t, tb.Set("a", "1"))
-	must(t, tb.Set("b", "2"))
-	must(t, tb.Set("c", "3"))
+	tb := param.New()
+	require.NoError(t, tb.Set("a", "1"))
+	require.NoError(t, tb.Set("b", "2"))
+	require.NoError(t, tb.Set("c", "3"))
 	tb.Delete("b")
-	got := tb.Names()
-	if len(got) != 2 || got[0] != "a" || got[1] != "c" {
-		t.Fatalf("Names after delete = %v, want [a c]", got)
-	}
-	if tb.Has("b") {
-		t.Fatal("b should be deleted")
-	}
+	require.Equal(t, []string{"a", "c"}, tb.Names(), "Names after delete")
+	require.False(t, tb.Has("b"), "b should be deleted")
 }
 
 func TestJSONRoundTrip(t *testing.T) {
-	tb := New()
-	must(t, tb.Set("height", "60"))
-	must(t, tb.Set("width", "height * 1.5"))
-	must(t, tb.Set("corner_r", "min(width, height) / 8"))
+	tb := param.New()
+	require.NoError(t, tb.Set("height", "60"))
+	require.NoError(t, tb.Set("width", "height * 1.5"))
+	require.NoError(t, tb.Set("corner_r", "min(width, height) / 8"))
 
 	data, err := json.Marshal(tb)
-	must(t, err)
+	require.NoError(t, err)
 
-	var tb2 Table
-	must(t, json.Unmarshal(data, &tb2))
+	var tb2 param.Table
+	require.NoError(t, json.Unmarshal(data, &tb2))
 
-	if got := tb2.Names(); len(got) != 3 || got[0] != "height" || got[2] != "corner_r" {
-		t.Fatalf("order not preserved: %v", got)
-	}
-	approx(t, "reloaded width", tb2.MustGet("width"), 90)
-	approx(t, "reloaded corner_r", tb2.MustGet("corner_r"), 7.5)
+	require.Equal(t, []string{"height", "width", "corner_r"}, tb2.Names(), "order preserved")
+	require.InDelta(t, 90, tb2.MustGet("width"), 1e-9, "reloaded width")
+	require.InDelta(t, 7.5, tb2.MustGet("corner_r"), 1e-9, "reloaded corner_r")
 }
 
 // --- helpers ---------------------------------------------------------------
 
-func must(t *testing.T, err error) {
-	t.Helper()
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
-func mustEval(t *testing.T, tb *Table, expr string) float64 {
+func mustEval(t *testing.T, tb *param.Table, expr string) float64 {
 	t.Helper()
 	v, err := tb.Eval(expr)
-	if err != nil {
-		t.Fatalf("eval %q: %v", expr, err)
-	}
+	require.NoErrorf(t, err, "eval %q", expr)
 	return v
 }

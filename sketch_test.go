@@ -1,53 +1,65 @@
-package sketch
+package sketch_test
 
 import (
 	"encoding/json"
 	"math"
-	"strings"
 	"testing"
 
+	"github.com/lestrrat-3d/sketch"
 	"github.com/lestrrat-3d/sketch/geom"
+	"github.com/stretchr/testify/require"
 )
 
-func approx(t *testing.T, name string, got, want float64) {
-	t.Helper()
-	if math.Abs(got-want) > 1e-6 {
-		t.Errorf("%s = %.9f, want %.9f", name, got, want)
-	}
-}
-
-func mustSolve(t *testing.T, s *Sketch) *Result {
+func mustSolve(t *testing.T, s *sketch.Sketch) *sketch.Result {
 	t.Helper()
 	res, err := s.Solve()
-	if err != nil {
-		t.Fatalf("solve failed: %v (residual=%.3e)", err, res.Residual)
-	}
+	require.NoErrorf(t, err, "solve failed (residual=%.3e)", res.Residual)
 	return res
 }
 
 // Test helpers that construct generic geometry and immediately commit it,
 // keeping the test bodies terse. They reach the generic point behind a
-// solver-bound one via its Generic geometry.
-func addPt(s *Sketch, x, y float64) *Point { return s.AddPoint(geom.NewPoint(x, y)) }
-func addLn(s *Sketch, a, b *Point) *Line   { return s.AddLine(geom.NewLine(a.g, b.g)) }
-func addCir(s *Sketch, c *Point, r float64) *Circle {
-	return s.AddCircle(geom.NewCircle(c.g, r))
+// solver-bound one via [sketch.Point.Generic].
+func addPt(s *sketch.Sketch, x, y float64) *sketch.Point {
+	return s.AddPoint(geom.NewPoint(x, y))
 }
-func addArc(s *Sketch, c, a, b *Point) *Arc { return s.AddArc(geom.NewArc(c.g, a.g, b.g)) }
-func addDist(s *Sketch, a, b *Point, d float64) *Distance {
-	c := NewDistance(a, b, d)
+
+func addLn(s *sketch.Sketch, a, b *sketch.Point) *sketch.Line {
+	return s.AddLine(geom.NewLine(a.Generic(), b.Generic()))
+}
+
+func addCir(s *sketch.Sketch, c *sketch.Point, r float64) *sketch.Circle {
+	return s.AddCircle(geom.NewCircle(c.Generic(), r))
+}
+
+func addArc(s *sketch.Sketch, c, a, b *sketch.Point) *sketch.Arc {
+	return s.AddArc(geom.NewArc(c.Generic(), a.Generic(), b.Generic()))
+}
+
+func addDist(s *sketch.Sketch, a, b *sketch.Point, d float64) *sketch.Distance {
+	c := sketch.NewDistance(a, b, d)
 	s.AddConstraint(c)
 	return c
 }
 
+// lineDir returns the line's direction vector via exported accessors.
+func lineDir(l *sketch.Line) (float64, float64) {
+	return l.End.X() - l.Start.X(), l.End.Y() - l.Start.Y()
+}
+
+// pointDist returns the distance between two points via exported accessors.
+func pointDist(a, b *sketch.Point) float64 {
+	return math.Hypot(a.X()-b.X(), a.Y()-b.Y())
+}
+
 // A fully constrained rectangle: grounded origin, horizontal/vertical sides,
 // width and height dimensions.
-func newRectangle(t *testing.T) (s *Sketch, w *Distance, b, c, d *Point) {
-	s = New()
+func newRectangle(t *testing.T) (*sketch.Sketch, *sketch.Distance, *sketch.Point, *sketch.Point, *sketch.Point) {
+	s := sketch.New()
 	a := addPt(s, 0, 0)
-	b = addPt(s, 18, 2) // deliberately rough guesses
-	c = addPt(s, 17, 11)
-	d = addPt(s, 1, 13)
+	b := addPt(s, 18, 2) // deliberately rough guesses
+	c := addPt(s, 17, 11)
+	d := addPt(s, 1, 13)
 
 	ab := addLn(s, a, b)
 	bc := addLn(s, b, c)
@@ -56,8 +68,8 @@ func newRectangle(t *testing.T) (s *Sketch, w *Distance, b, c, d *Point) {
 
 	a.MoveTo(0, 0)
 	s.Fix(a)
-	s.AddConstraint(NewHorizontal(ab), NewHorizontal(dc), NewVertical(ad), NewVertical(bc))
-	w = addDist(s, a, b, 20)
+	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
+	w := addDist(s, a, b, 20)
 	addDist(s, a, d, 12)
 	return s, w, b, c, d
 }
@@ -66,15 +78,13 @@ func TestRectangleSolves(t *testing.T) {
 	s, _, b, c, d := newRectangle(t)
 	res := mustSolve(t, s)
 
-	if res.DOF != 0 {
-		t.Errorf("DOF = %d, want 0 (fully constrained)", res.DOF)
-	}
-	approx(t, "b.X", b.X(), 20)
-	approx(t, "b.Y", b.Y(), 0)
-	approx(t, "c.X", c.X(), 20)
-	approx(t, "c.Y", c.Y(), 12)
-	approx(t, "d.X", d.X(), 0)
-	approx(t, "d.Y", d.Y(), 12)
+	require.Equal(t, 0, res.DOF, "DOF (fully constrained)")
+	require.InDelta(t, 20, b.X(), 1e-6, "b.X")
+	require.InDelta(t, 0, b.Y(), 1e-6, "b.Y")
+	require.InDelta(t, 20, c.X(), 1e-6, "c.X")
+	require.InDelta(t, 12, c.Y(), 1e-6, "c.Y")
+	require.InDelta(t, 0, d.X(), 1e-6, "d.X")
+	require.InDelta(t, 12, d.Y(), 1e-6, "d.Y")
 }
 
 func TestParametricUpdate(t *testing.T) {
@@ -83,9 +93,9 @@ func TestParametricUpdate(t *testing.T) {
 
 	w.Set(35) // change the driving width dimension
 	mustSolve(t, s)
-	approx(t, "b.X after edit", b.X(), 35)
-	approx(t, "c.X after edit", c.X(), 35)
-	approx(t, "c.Y after edit", c.Y(), 12) // height unchanged
+	require.InDelta(t, 35, b.X(), 1e-6, "b.X after edit")
+	require.InDelta(t, 35, c.X(), 1e-6, "c.X after edit")
+	require.InDelta(t, 12, c.Y(), 1e-6, "c.Y after edit (height unchanged)")
 }
 
 func TestGenericGeometryReuse(t *testing.T) {
@@ -93,43 +103,41 @@ func TestGenericGeometryReuse(t *testing.T) {
 	ga := geom.NewPoint(0, 0)
 	gb := geom.NewPoint(40, 0)
 	gl := geom.NewLine(ga, gb)
-	approx(t, "generic length", gl.Length(), 40)
+	require.InDelta(t, 40, gl.Length(), 1e-6, "generic length")
 
 	// Commit it into two independent sketches with different widths.
-	s1 := New()
+	s1 := sketch.New()
 	l1 := s1.AddLine(gl)
 	l1.Start.MoveTo(0, 0)
 	s1.Fix(l1.Start)
-	s1.AddConstraint(NewHorizontal(l1))
+	s1.AddConstraint(sketch.NewHorizontal(l1))
 	addDist(s1, l1.Start, l1.End, 25)
 	mustSolve(t, s1)
-	approx(t, "s1 width", l1.End.X(), 25)
+	require.InDelta(t, 25, l1.End.X(), 1e-6, "s1 width")
 
-	s2 := New()
+	s2 := sketch.New()
 	l2 := s2.AddLine(gl) // same generic geometry, fresh solver state
 	l2.Start.MoveTo(0, 0)
 	s2.Fix(l2.Start)
-	s2.AddConstraint(NewHorizontal(l2))
+	s2.AddConstraint(sketch.NewHorizontal(l2))
 	addDist(s2, l2.Start, l2.End, 100)
 	mustSolve(t, s2)
 
-	approx(t, "s2 width", l2.End.X(), 100)
-	approx(t, "s1 unaffected", l1.End.X(), 25) // independent
-	approx(t, "generic template unchanged", gb.X, 40)
+	require.InDelta(t, 100, l2.End.X(), 1e-6, "s2 width")
+	require.InDelta(t, 25, l1.End.X(), 1e-6, "s1 unaffected") // independent
+	require.InDelta(t, 40, gb.X, 1e-6, "generic template unchanged")
 }
 
 func TestAddIdempotent(t *testing.T) {
-	s := New()
+	s := sketch.New()
 	g := geom.NewPoint(1, 2)
 	s.AddPoint(g)
 	s.AddPoint(g) // same generic point -> same bound point
-	if len(s.points) != 1 {
-		t.Errorf("idempotent add: got %d points, want 1", len(s.points))
-	}
+	require.Len(t, s.Points(), 1, "idempotent add")
 }
 
 func TestTangentLineCircle(t *testing.T) {
-	s := New()
+	s := sketch.New()
 	a := addPt(s, 0, 0)
 	b := addPt(s, 10, 0)
 	a.MoveTo(0, 0)
@@ -141,14 +149,14 @@ func TestTangentLineCircle(t *testing.T) {
 	center := addPt(s, 5, 5)
 	s.Fix(center)
 	circ := addCir(s, center, 2) // bad initial radius
-	s.AddConstraint(NewTangent(line, circ))
+	s.AddConstraint(sketch.NewTangent(line, circ))
 
 	mustSolve(t, s)
-	approx(t, "tangent radius", circ.R(), 5)
+	require.InDelta(t, 5, circ.R(), 1e-6, "tangent radius")
 }
 
 func TestPerpendicular(t *testing.T) {
-	s := New()
+	s := sketch.New()
 	a := addPt(s, 0, 0)
 	b := addPt(s, 10, 1)
 	c := addPt(s, 1, 5)
@@ -156,19 +164,19 @@ func TestPerpendicular(t *testing.T) {
 	s.Fix(a)
 	l1 := addLn(s, a, b)
 	l2 := addLn(s, a, c)
-	s.AddConstraint(NewHorizontal(l1), NewPerpendicular(l1, l2))
+	s.AddConstraint(sketch.NewHorizontal(l1), sketch.NewPerpendicular(l1, l2))
 	addDist(s, a, b, 10)
 	addDist(s, a, c, 5)
 
 	mustSolve(t, s)
-	d1x, d1y := dir(l1)
-	d2x, d2y := dir(l2)
-	approx(t, "perp dot", d1x*d2x+d1y*d2y, 0)
-	approx(t, "ac length", dist(a, c), 5)
+	d1x, d1y := lineDir(l1)
+	d2x, d2y := lineDir(l2)
+	require.InDelta(t, 0, d1x*d2x+d1y*d2y, 1e-6, "perp dot")
+	require.InDelta(t, 5, pointDist(a, c), 1e-6, "ac length")
 }
 
 func TestAngleConstraint(t *testing.T) {
-	s := New()
+	s := sketch.New()
 	a := addPt(s, 0, 0)
 	b := addPt(s, 10, 0)
 	c := addPt(s, 5, 5)
@@ -176,20 +184,20 @@ func TestAngleConstraint(t *testing.T) {
 	s.Fix(a)
 	l1 := addLn(s, a, b)
 	l2 := addLn(s, a, c)
-	s.AddConstraint(NewHorizontal(l1))
+	s.AddConstraint(sketch.NewHorizontal(l1))
 	addDist(s, a, b, 10)
 	addDist(s, a, c, 8)
-	s.AddConstraint(NewAngle(l1, l2, 45)) // degrees (the sketch's default angle unit)
+	s.AddConstraint(sketch.NewAngle(l1, l2, 45)) // degrees (the sketch's default angle unit)
 
 	mustSolve(t, s)
-	d1x, d1y := dir(l1)
-	d2x, d2y := dir(l2)
+	d1x, d1y := lineDir(l1)
+	d2x, d2y := lineDir(l2)
 	ang := math.Atan2(d1x*d2y-d1y*d2x, d1x*d2x+d1y*d2y)
-	approx(t, "angle", ang, math.Pi/4)
+	require.InDelta(t, math.Pi/4, ang, 1e-6, "angle")
 }
 
 func TestArcRadiusConsistency(t *testing.T) {
-	s := New()
+	s := sketch.New()
 	center := addPt(s, 0, 0)
 	start := addPt(s, 5, 0)
 	end := addPt(s, 1, 9) // off the radius-5 circle
@@ -199,29 +207,29 @@ func TestArcRadiusConsistency(t *testing.T) {
 	arc := addArc(s, center, start, end)
 
 	mustSolve(t, s)
-	approx(t, "arc radius via end", math.Hypot(end.X(), end.Y()), 5)
-	approx(t, "arc R()", arc.R(), 5)
+	require.InDelta(t, 5, math.Hypot(end.X(), end.Y()), 1e-6, "arc radius via end")
+	require.InDelta(t, 5, arc.R(), 1e-6, "arc R()")
 }
 
 func TestConcentricEqualRadius(t *testing.T) {
-	s := New()
+	s := sketch.New()
 	o1 := addPt(s, 0, 0)
 	o2 := addPt(s, 3, 2)
 	o1.MoveTo(0, 0)
 	s.Fix(o1)
 	c1 := addCir(s, o1, 5)
 	c2 := addCir(s, o2, 9)
-	s.AddConstraint(NewConcentric(c1, c2), NewEqualRadius(c1, c2), NewRadius(c1, 7))
+	s.AddConstraint(sketch.NewConcentric(c1, c2), sketch.NewEqualRadius(c1, c2), sketch.NewRadius(c1, 7))
 
 	mustSolve(t, s)
-	approx(t, "c2 center x", o2.X(), 0)
-	approx(t, "c2 center y", o2.Y(), 0)
-	approx(t, "c1 radius", c1.R(), 7)
-	approx(t, "c2 radius", c2.R(), 7)
+	require.InDelta(t, 0, o2.X(), 1e-6, "c2 center x")
+	require.InDelta(t, 0, o2.Y(), 1e-6, "c2 center y")
+	require.InDelta(t, 7, c1.R(), 1e-6, "c1 radius")
+	require.InDelta(t, 7, c2.R(), 1e-6, "c2 radius")
 }
 
 func TestSymmetric(t *testing.T) {
-	s := New()
+	s := sketch.New()
 	// vertical axis along x = 0
 	axA := addPt(s, 0, 0)
 	axB := addPt(s, 0, 10)
@@ -234,30 +242,26 @@ func TestSymmetric(t *testing.T) {
 	p1 := addPt(s, -3, 4)
 	p2 := addPt(s, 5, 1)
 	s.Fix(p1)
-	s.AddConstraint(NewSymmetric(p1, p2, axis))
+	s.AddConstraint(sketch.NewSymmetric(p1, p2, axis))
 
 	mustSolve(t, s)
-	approx(t, "mirror x", p2.X(), 3)
-	approx(t, "mirror y", p2.Y(), 4)
+	require.InDelta(t, 3, p2.X(), 1e-6, "mirror x")
+	require.InDelta(t, 4, p2.Y(), 1e-6, "mirror y")
 }
 
 func TestUnderConstrainedDOF(t *testing.T) {
-	s := New()
+	s := sketch.New()
 	addPt(s, 0, 0) // single free point, nothing else
-	if got := s.DOF(); got != 2 {
-		t.Errorf("DOF = %d, want 2", got)
-	}
+	require.Equal(t, 2, s.DOF(), "DOF")
 }
 
 func TestRedundantConstraint(t *testing.T) {
 	s, _, b, _, _ := newRectangle(t)
 	// Add a redundant duplicate width dimension.
-	a := s.points[0]
+	a := s.Points()[0]
 	addDist(s, a, b, 20)
 	res := mustSolve(t, s)
-	if res.Redundant == 0 {
-		t.Errorf("expected at least one redundant equation, got %d", res.Redundant)
-	}
+	require.NotZero(t, res.Redundant, "expected at least one redundant equation")
 }
 
 func TestJSONRoundTrip(t *testing.T) {
@@ -265,24 +269,17 @@ func TestJSONRoundTrip(t *testing.T) {
 	mustSolve(t, s)
 
 	data, err := json.MarshalIndent(s, "", "  ")
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
+	require.NoError(t, err, "marshal")
 
-	var s2 Sketch
-	if err := json.Unmarshal(data, &s2); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(s2.points) != len(s.points) {
-		t.Fatalf("points: got %d want %d", len(s2.points), len(s.points))
-	}
+	var s2 sketch.Sketch
+	require.NoError(t, json.Unmarshal(data, &s2), "unmarshal")
+	require.Len(t, s2.Points(), len(s.Points()), "points")
+
 	res := mustSolve(t, &s2)
-	if res.DOF != 0 {
-		t.Errorf("reloaded DOF = %d, want 0", res.DOF)
-	}
-	approx(t, "reloaded b.X", s2.points[b.id].X(), 20)
-	approx(t, "reloaded c.Y", s2.points[c.id].Y(), 12)
-	approx(t, "reloaded d.X", s2.points[d.id].X(), 0)
+	require.Equal(t, 0, res.DOF, "reloaded DOF")
+	require.InDelta(t, 20, s2.Points()[b.ID()].X(), 1e-6, "reloaded b.X")
+	require.InDelta(t, 12, s2.Points()[c.ID()].Y(), 1e-6, "reloaded c.Y")
+	require.InDelta(t, 0, s2.Points()[d.ID()].X(), 1e-6, "reloaded d.X")
 }
 
 func TestSVGOutput(t *testing.T) {
@@ -291,19 +288,15 @@ func TestSVGOutput(t *testing.T) {
 	o := addPt(s, 10, 6)
 	addCir(s, o, 3)
 
-	svg, err := s.SVG(DefaultSVGOptions())
-	if err != nil {
-		t.Fatal(err)
-	}
+	svg, err := s.SVG()
+	require.NoError(t, err)
 	for _, want := range []string{"<svg", "<line", "<circle", "</svg>"} {
-		if !strings.Contains(svg, want) {
-			t.Errorf("SVG missing %q", want)
-		}
+		require.Containsf(t, svg, want, "SVG missing %q", want)
 	}
 }
 
 func TestDXFOutput(t *testing.T) {
-	s := New()
+	s := sketch.New()
 	a := addPt(s, 0, 0)
 	b := addPt(s, 10, 0)
 	addLn(s, a, b)
@@ -314,12 +307,8 @@ func TestDXFOutput(t *testing.T) {
 	addArc(s, o, st, en)
 
 	dxf, err := s.DXF()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	for _, want := range []string{"SECTION", "ENTITIES", "LINE", "CIRCLE", "ARC", "EOF"} {
-		if !strings.Contains(dxf, want) {
-			t.Errorf("DXF missing %q", want)
-		}
+		require.Containsf(t, dxf, want, "DXF missing %q", want)
 	}
 }

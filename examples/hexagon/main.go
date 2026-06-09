@@ -68,7 +68,7 @@ func main() {
 		fmt.Println("wrote", name)
 	}
 
-	svg, _ := s.SVG(sketch.DefaultSVGOptions())
+	svg, _ := s.SVG()
 	write("hexagon.svg", svg)
 	dxf, _ := s.DXF()
 	write("hexagon.dxf", dxf)

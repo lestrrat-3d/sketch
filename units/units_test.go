@@ -1,116 +1,100 @@
-package units
+package units_test
 
 import (
-	"errors"
 	"math"
 	"testing"
+
+	"github.com/lestrrat-3d/sketch/units"
+	"github.com/stretchr/testify/require"
 )
 
-func approx(t *testing.T, name string, got, want float64) {
-	t.Helper()
-	if math.Abs(got-want) > 1e-9 {
-		t.Errorf("%s = %v, want %v", name, got, want)
-	}
-}
-
 func TestConversionLength(t *testing.T) {
-	w := Millimeters(100)
-	in, err := w.In(Inch)
-	if err != nil {
-		t.Fatal(err)
-	}
-	approx(t, "100mm in inch", in, 100/25.4)
+	in, err := units.Millimeters(100).In(units.Inch)
+	require.NoError(t, err)
+	require.InDelta(t, 100/25.4, in, 1e-9, "100mm in inch")
 
-	m, _ := Meters(1).In(Millimeter)
-	approx(t, "1m in mm", m, 1000)
+	m, err := units.Meters(1).In(units.Millimeter)
+	require.NoError(t, err)
+	require.InDelta(t, 1000, m, 1e-9, "1m in mm")
 
-	ft, _ := Inches(12).In(Foot)
-	approx(t, "12in in ft", ft, 1)
+	ft, err := units.Inches(12).In(units.Foot)
+	require.NoError(t, err)
+	require.InDelta(t, 1, ft, 1e-9, "12in in ft")
 
-	approx(t, "1 thou base", Thous(1).Base(), 0.0254)
+	require.InDelta(t, 0.0254, units.Thous(1).Base(), 1e-9, "1 thou base")
 }
 
 func TestConversionAngle(t *testing.T) {
-	r, err := Degrees(180).In(Radian)
-	if err != nil {
-		t.Fatal(err)
-	}
-	approx(t, "180deg in rad", r, math.Pi)
-	d, _ := Radians(math.Pi / 2).In(Degree)
-	approx(t, "pi/2 in deg", d, 90)
+	r, err := units.Degrees(180).In(units.Radian)
+	require.NoError(t, err)
+	require.InDelta(t, math.Pi, r, 1e-9, "180deg in rad")
+
+	d, err := units.Radians(math.Pi / 2).In(units.Degree)
+	require.NoError(t, err)
+	require.InDelta(t, 90, d, 1e-9, "pi/2 in deg")
 }
 
 func TestIncompatibleKinds(t *testing.T) {
-	if _, err := Millimeters(1).In(Degree); !errors.Is(err, ErrIncompatible) {
-		t.Fatalf("expected ErrIncompatible, got %v", err)
-	}
-	if _, err := Millimeters(1).Add(Degrees(1)); !errors.Is(err, ErrIncompatible) {
-		t.Fatalf("expected ErrIncompatible on add, got %v", err)
-	}
+	_, err := units.Millimeters(1).In(units.Degree)
+	require.ErrorIs(t, err, units.ErrIncompatible)
+
+	_, err = units.Millimeters(1).Add(units.Degrees(1))
+	require.ErrorIs(t, err, units.ErrIncompatible, "add across kinds")
 }
 
 func TestArithmetic(t *testing.T) {
-	sum, err := Millimeters(50).Add(Centimeters(5)) // 50mm + 50mm
-	if err != nil {
-		t.Fatal(err)
-	}
-	approx(t, "sum base", sum.Base(), 100)
-	if sum.Unit() != Millimeter {
-		t.Errorf("sum unit = %v, want mm", sum.Unit())
-	}
+	sum, err := units.Millimeters(50).Add(units.Centimeters(5)) // 50mm + 50mm
+	require.NoError(t, err)
+	require.InDelta(t, 100, sum.Base(), 1e-9, "sum base")
+	require.Equal(t, units.Millimeter, sum.Unit(), "sum keeps left-hand unit")
 
-	diff, _ := Meters(1).Sub(Millimeters(250))
-	approx(t, "diff base", diff.Base(), 750)
-	approx(t, "diff mag (m)", diff.Mag(), 0.75)
+	diff, err := units.Meters(1).Sub(units.Millimeters(250))
+	require.NoError(t, err)
+	require.InDelta(t, 750, diff.Base(), 1e-9, "diff base")
+	require.InDelta(t, 0.75, diff.Mag(), 1e-9, "diff mag (m)")
 
-	approx(t, "scale", Millimeters(10).Scale(3).Base(), 30)
+	require.InDelta(t, 30, units.Millimeters(10).Scale(3).Base(), 1e-9, "scale")
 }
 
 func TestFromBaseAndKind(t *testing.T) {
-	v := FromBase(1000, Meter)
-	approx(t, "from base mag", v.Mag(), 1)
-	if v.Kind() != Length {
-		t.Errorf("kind = %v, want length", v.Kind())
-	}
-	approx(t, "from base base", v.Base(), 1000)
+	v := units.FromBase(1000, units.Meter)
+	require.InDelta(t, 1, v.Mag(), 1e-9, "from base mag")
+	require.Equal(t, units.Length, v.Kind(), "kind")
+	require.InDelta(t, 1000, v.Base(), 1e-9, "from base base")
 }
 
 func TestString(t *testing.T) {
-	if got := Millimeters(100).String(); got != "100 mm" {
-		t.Errorf("String = %q, want %q", got, "100 mm")
-	}
-	if got := Scalar(1.5).String(); got != "1.5" {
-		t.Errorf("scalar String = %q, want %q", got, "1.5")
-	}
+	require.Equal(t, "100 mm", units.Millimeters(100).String())
+	require.Equal(t, "1.5", units.Scalar(1.5).String())
 }
 
 func TestEqual(t *testing.T) {
-	if !Meters(1).Equal(Millimeters(1000), 1e-9) {
-		t.Error("1m should equal 1000mm")
-	}
-	if Millimeters(1).Equal(Degrees(1), 1e-9) {
-		t.Error("length must never equal angle")
-	}
+	require.True(t, units.Meters(1).Equal(units.Millimeters(1000), 1e-9), "1m should equal 1000mm")
+	require.False(t, units.Millimeters(1).Equal(units.Degrees(1), 1e-9), "length must never equal angle")
 }
 
 func TestSystem(t *testing.T) {
-	m := Metric()
-	if m.UnitFor(Length) != Millimeter || m.UnitFor(Angle) != Degree {
-		t.Error("metric defaults wrong")
-	}
-	imp := Imperial()
-	approx(t, "imperial length-from-base", imp.LengthFromBase(25.4).Mag(), 1) // 25.4mm = 1in
-	approx(t, "metric angle-from-base", Metric().AngleFromBase(math.Pi).Mag(), 180)
-	approx(t, "system In", Metric().In(Meters(2)), 2000) // displayed in mm
+	m := units.Metric()
+	require.Equal(t, units.Millimeter, m.UnitFor(units.Length), "metric length default")
+	require.Equal(t, units.Degree, m.UnitFor(units.Angle), "metric angle default")
+
+	imp := units.Imperial()
+	require.InDelta(t, 1, imp.LengthFromBase(25.4).Mag(), 1e-9, "imperial length-from-base") // 25.4mm = 1in
+	require.InDelta(t, 180, units.Metric().AngleFromBase(math.Pi).Mag(), 1e-9, "metric angle-from-base")
+	require.InDelta(t, 2000, units.Metric().In(units.Meters(2)), 1e-9, "system In") // displayed in mm
 }
 
 func TestLookupAndDefine(t *testing.T) {
-	if u, ok := Lookup("mm"); !ok || u != Millimeter {
-		t.Error("lookup mm failed")
-	}
-	yard := Define("yd", Length, 914.4)
-	if u, ok := Lookup("yd"); !ok || u != yard {
-		t.Error("define/lookup yard failed")
-	}
-	approx(t, "1 yd in ft", func() float64 { v, _ := New(1, yard).In(Foot); return v }(), 3)
+	u, ok := units.Lookup("mm")
+	require.True(t, ok, "lookup mm")
+	require.Equal(t, units.Millimeter, u)
+
+	yard := units.Define("yd", units.Length, 914.4)
+	u, ok = units.Lookup("yd")
+	require.True(t, ok, "lookup yd")
+	require.Equal(t, yard, u)
+
+	ft, err := units.New(1, yard).In(units.Foot)
+	require.NoError(t, err)
+	require.InDelta(t, 3, ft, 1e-9, "1 yd in ft")
 }

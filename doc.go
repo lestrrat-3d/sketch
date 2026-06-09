@@ -33,7 +33,7 @@
 //	res, err := s.Solve()
 //	if err != nil { /* ... */ }
 //	fmt.Println(res.DOF, "degrees of freedom remaining")
-//	svg, _ := s.SVG(sketch.DefaultSVGOptions())
+//	svg, _ := s.SVG() // or s.SVG(sketch.WithMargin(20), sketch.WithShowPoints(false))
 //
 // The package has no external dependencies.
 package sketch

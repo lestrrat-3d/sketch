@@ -76,7 +76,7 @@ func main() {
 		w, _ := p.GetValue("width")
 		fmt.Printf("%s: width=%s -> plate %.1f x %.1f mm, hole d=%.1f at (%.0f, %.0f), DOF %d\n",
 			label, w, b.X(), d.Y(), 2*hole.R(), o.X(), o.Y(), res.DOF)
-		svg, _ := s.SVG(sketch.DefaultSVGOptions())
+		svg, _ := s.SVG()
 		name := "plate_" + label + ".svg"
 		os.WriteFile(name, []byte(svg), 0o644)
 		fmt.Println("  wrote", name)

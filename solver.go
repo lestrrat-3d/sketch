@@ -1,38 +1,68 @@
 package sketch
 
-import "math"
+import (
+	"math"
+
+	"github.com/lestrrat-go/option/v3"
+)
 
 // Result reports the outcome of a [Sketch.Solve] call.
 type Result struct {
-	Converged  bool    // every residual is within Tolerance
+	Converged  bool    // every residual is within the tolerance
 	Iterations int     // outer Levenberg–Marquardt iterations performed
 	Residual   float64 // Euclidean norm of the final residual vector
 	DOF        int     // remaining degrees of freedom (0 == fully constrained)
 	Redundant  int     // number of redundant/conflicting constraint equations
 }
 
-// SolveOptions tunes the constraint solver. Use [DefaultSolveOptions] as a
-// starting point.
-type SolveOptions struct {
-	MaxIterations int     // outer iteration budget
-	Tolerance     float64 // convergence threshold on the residual norm
+// SolveOption tunes the constraint solver. Construct values with the With…
+// helpers; any option left unset falls back to a sensible default.
+type SolveOption interface {
+	option.Interface
+	solveOption()
 }
 
-// DefaultSolveOptions returns reasonable solver settings.
-func DefaultSolveOptions() SolveOptions {
-	return SolveOptions{MaxIterations: 200, Tolerance: 1e-10}
+type solveOption struct{ option.Interface }
+
+func (solveOption) solveOption() {}
+
+type (
+	identMaxIterations struct{}
+	identTolerance     struct{}
+)
+
+// WithMaxIterations sets the outer Levenberg–Marquardt iteration budget.
+func WithMaxIterations(v int) SolveOption { return solveOption{option.New(identMaxIterations{}, v)} }
+
+// WithTolerance sets the convergence threshold on the residual norm.
+func WithTolerance(v float64) SolveOption { return solveOption{option.New(identTolerance{}, v)} }
+
+// solveConfig holds the resolved solver options.
+type solveConfig struct {
+	maxIterations int
+	tolerance     float64
+}
+
+func defaultSolveConfig() solveConfig {
+	return solveConfig{maxIterations: 200, tolerance: 1e-10}
 }
 
 // Solve runs the constraint solver, moving non-grounded geometry until all
-// constraints are satisfied. Optional settings override [DefaultSolveOptions].
+// constraints are satisfied. Called with no options it uses sensible defaults;
+// override individual settings with the With… helpers.
 //
 // Solve returns [ErrNotConverged] (along with the partial [Result]) if the
 // residuals cannot be driven below the tolerance within the iteration budget,
 // which usually means the sketch is over-constrained or contradictory.
-func (s *Sketch) Solve(opts ...SolveOptions) (*Result, error) {
-	o := DefaultSolveOptions()
-	if len(opts) > 0 {
-		o = opts[0]
+func (s *Sketch) Solve(options ...SolveOption) (*Result, error) {
+	o := defaultSolveConfig()
+	for _, opt := range options {
+		switch opt.Ident().(type) {
+		case identMaxIterations:
+			o.maxIterations = option.MustGet[int](opt)
+		case identTolerance:
+			o.tolerance = option.MustGet[float64](opt)
+		}
 	}
 
 	// Refresh any dimensions driven by parameter expressions before solving.
@@ -56,8 +86,8 @@ func (s *Sketch) Solve(opts ...SolveOptions) (*Result, error) {
 	cost := dot(r, r) // sum of squared residuals
 	lambda := 1e-3
 	var iter int
-	for iter = 0; iter < o.MaxIterations; iter++ {
-		if math.Sqrt(cost) <= o.Tolerance {
+	for iter = 0; iter < o.maxIterations; iter++ {
+		if math.Sqrt(cost) <= o.tolerance {
 			break
 		}
 		if n == 0 {
@@ -144,7 +174,7 @@ func (s *Sketch) Solve(opts ...SolveOptions) (*Result, error) {
 
 	res.Iterations = iter
 	res.Residual = math.Sqrt(cost)
-	res.Converged = res.Residual <= o.Tolerance
+	res.Converged = res.Residual <= o.tolerance
 
 	rank := s.rank(free, m)
 	res.DOF = n - rank
@@ -264,9 +294,9 @@ func (s *Sketch) rank(free []int, m int) int {
 }
 
 // solveLinear solves A·x = b for a square matrix using Gaussian elimination
-// with partial pivoting. A and b are not modified. ok is false if A is
-// singular.
-func solveLinear(A [][]float64, b []float64) (x []float64, ok bool) {
+// with partial pivoting. A and b are not modified. The second return is false
+// if A is singular.
+func solveLinear(A [][]float64, b []float64) ([]float64, bool) {
 	n := len(b)
 	M := make([][]float64, n)
 	for i := range M {
@@ -294,7 +324,7 @@ func solveLinear(A [][]float64, b []float64) (x []float64, ok bool) {
 			}
 		}
 	}
-	x = make([]float64, n)
+	x := make([]float64, n)
 	for i := n - 1; i >= 0; i-- {
 		sum := M[i][n]
 		for c := i + 1; c < n; c++ {

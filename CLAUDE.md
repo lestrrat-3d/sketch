@@ -21,9 +21,20 @@ expected to be built **on top of** this engine, not woven into it.
 1. **Library-first, engine at the core.** The constraint engine is the product.
    Everything else (rendering, serialization, future DSL/GUI) is a consumer of
    it and must not leak back into the solver's design.
-2. **Zero external dependencies.** Standard library only. This is a deliberate
-   constraint — do not add modules to `go.mod` without an explicit decision
-   recorded here. It keeps the engine embeddable anywhere.
+2. **Curated dependencies.** The engine leans on the standard library plus a
+   short, deliberate dependency list — do not add modules to `go.mod` without
+   recording the decision here. Current approved dependencies:
+   - `github.com/lestrrat-go/option/v3` — functional-options API. Used by the
+     root `sketch` package only (`Sketch.SVG`, `Sketch.Solve`). The `geom`,
+     `param` and `units` packages keep their **production** code standard-
+     library-only so they stay independently extractable.
+   - `github.com/stretchr/testify/require` — test assertions, **test code only**
+     (all packages). Never imported by production code.
+
+   Keeping the runtime surface this small keeps the engine embeddable anywhere.
+   (Historical note: the project started zero-dependency; the two entries above
+   were adopted deliberately to follow house style — typed functional options
+   and `require`-based tests.)
 3. **Programmability over UI.** The API is the primary interface. Anything a
    user can do interactively should be expressible in code first.
 4. **Correctness is observable.** Every capability ships with a test that
@@ -49,7 +60,8 @@ definitions (coordinates + metadata, no sketch, solver or constraints). It is
 the reusable *template* layer: the same generic geometry can be committed into
 several independent sketches, each building its own solver-bound instance. It
 must not import `sketch`; the arrow is `sketch -> geom`, never the reverse.
-Standard-library-only and intended to move to its own module later.
+Production code is standard-library-only (tests use `testify/require`); intended
+to move to its own module later.
 
 ### The `units` package (slated for extraction)
 
@@ -73,8 +85,9 @@ parameters holding literals or expressions (`width = height * 1.5`), with a
 lexer/parser/evaluator, functions, constants, forward references and cycle
 detection. **It must not import anything from the `sketch` package or rely on
 the rest of the repo** — it is intended to move into its own module/repository
-later, so the dependency arrow only ever points *into* it. Keep it standard-
-library-only and independently testable.
+later, so the dependency arrow only ever points *into* it. Keep its production
+code standard-library-only (tests may use `testify/require`) and independently
+testable.
 
 ### Generic geometry vs. sketch geometry (load-bearing)
 
@@ -145,6 +158,17 @@ sees them automatically.
 ## Conventions
 
 - `gofmt`, `go vet`, and `go test ./...` must all be clean before committing.
+- **Optional settings use functional options**, not options structs. Each option
+  group defines a typed marker interface (`SVGOption`, `SolveOption`) embedding
+  `option.Interface` plus a private wrapper, `ident…` marker structs, and `With…`
+  constructors; the consumer folds them into a private `…Config` struct seeded
+  from a `default…Config()`. See `svg.go` / `solver.go`. The typed interface
+  keeps each option group distinct (an `SVGOption` can't be passed to `Solve`).
+- **Tests use `testify/require`** (never `assert`) and live in **external
+  `xxx_test` packages** — they exercise only the exported API. If a test needs
+  to observe internal state, add a documented exported accessor rather than
+  reaching into unexported fields (e.g. `Sketch.Points`, `Point.ID`,
+  `Point.Generic`, `DriverExpr`). No named return values, including in tests.
 - Generic geometry is built with `geom.NewX`; constraints with package-level
   `New…` functions (the `New` prefix is forced for the dimensional ones because
   their concrete handle types — `Distance`, `Radius`, `Angle`, … — already own

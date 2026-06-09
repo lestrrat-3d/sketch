@@ -105,7 +105,7 @@ func (t *Table) put(e *entry) {
 // radian for angle; the number itself for dimensionless parameters). Use
 // [Table.GetValue] for a unit-carrying result.
 func (t *Table) Get(name string) (float64, error) {
-	ctx := &evalContext{t: t, memo: map[string]float64{}, inProgress: map[string]bool{}}
+	ctx := &evalContext{t: t, memo: map[string]float64{}, inProgress: map[string]struct{}{}}
 	return ctx.resolve(name)
 }
 
@@ -144,7 +144,7 @@ func (t *Table) Eval(expr string) (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	ctx := &evalContext{t: t, memo: map[string]float64{}, inProgress: map[string]bool{}}
+	ctx := &evalContext{t: t, memo: map[string]float64{}, inProgress: map[string]struct{}{}}
 	return e.eval(ctx)
 }
 
@@ -220,7 +220,7 @@ func (t *Table) SetConst(name string, v float64) { t.consts[name] = v }
 type evalContext struct {
 	t          *Table
 	memo       map[string]float64
-	inProgress map[string]bool
+	inProgress map[string]struct{}
 }
 
 func (ctx *evalContext) resolve(name string) (float64, error) {
@@ -235,10 +235,10 @@ func (ctx *evalContext) resolve(name string) (float64, error) {
 		}
 		return 0, fmt.Errorf("%w: %q", ErrUndefined, name)
 	}
-	if ctx.inProgress[name] {
+	if _, ok := ctx.inProgress[name]; ok {
 		return 0, fmt.Errorf("%w: %q", ErrCycle, name)
 	}
-	ctx.inProgress[name] = true
+	ctx.inProgress[name] = struct{}{}
 	v, err := e.expr.eval(ctx)
 	delete(ctx.inProgress, name)
 	if err != nil {
