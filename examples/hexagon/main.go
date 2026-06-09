@@ -17,29 +17,30 @@ func main() {
 	const side = 30.0
 	const n = 6
 
-	// Rough initial guesses on a circle; the solver finds the exact hexagon.
+	// Construct points (rough initial guesses on a circle) and commit them.
 	pts := make([]*sketch.Point, n)
 	for i := range pts {
 		a := float64(i)/float64(n)*2*math.Pi + 0.15 // perturbed
-		pts[i] = s.AddPoint(40*math.Cos(a)+5, 40*math.Sin(a)-3)
+		pts[i] = s.AddPoint(sketch.NewPoint(40*math.Cos(a)+5, 40*math.Sin(a)-3))
 	}
 
+	// Construct the edges and commit them (their points are already added).
 	lines := make([]*sketch.Line, n)
 	for i := range lines {
-		lines[i] = s.AddLine(pts[i], pts[(i+1)%n])
+		lines[i] = s.AddLine(sketch.NewLine(pts[i], pts[(i+1)%n]))
 	}
 
 	// Ground one vertex, make the first edge horizontal, and dimension it.
 	s.Lock(pts[0], 0, 0)
-	s.Horizontal(lines[0])
-	s.Distance(pts[0], pts[1], side)
+	s.AddConstraint(sketch.NewHorizontal(lines[0]))
+	s.AddConstraint(sketch.NewDistance(pts[0], pts[1], side))
 
 	// Every edge equal in length and every interior turn 60° (exterior angle).
 	for i := 1; i < n; i++ {
-		s.Equal(lines[0], lines[i])
+		s.AddConstraint(sketch.NewEqual(lines[0], lines[i]))
 	}
 	for i := 0; i < n-1; i++ {
-		s.Angle(lines[i], lines[i+1], 60) // degrees (the default angle unit)
+		s.AddConstraint(sketch.NewAngle(lines[i], lines[i+1], 60)) // degrees
 	}
 
 	res, err := s.Solve()

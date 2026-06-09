@@ -15,22 +15,27 @@ import (
 func main() {
 	s := sketch.New()
 
-	// Geometry: four corners + a center point for the hole.
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 1)
-	c := s.AddPoint(9, 6)
-	d := s.AddPoint(1, 5)
-	o := s.AddPoint(5, 3)
+	// Construct geometry: four corners + a center point for the hole.
+	a := s.AddPoint(sketch.NewPoint(0, 0))
+	b := s.AddPoint(sketch.NewPoint(10, 1))
+	c := s.AddPoint(sketch.NewPoint(9, 6))
+	d := s.AddPoint(sketch.NewPoint(1, 5))
+	o := s.AddPoint(sketch.NewPoint(5, 3))
 
-	ab, bc, dc, ad := s.AddLine(a, b), s.AddLine(b, c), s.AddLine(d, c), s.AddLine(a, d)
-	hole := s.AddCircle(o, 1)
+	ab := s.AddLine(sketch.NewLine(a, b))
+	bc := s.AddLine(sketch.NewLine(b, c))
+	dc := s.AddLine(sketch.NewLine(d, c))
+	ad := s.AddLine(sketch.NewLine(a, d))
+	hole := s.AddCircle(sketch.NewCircle(o, 1))
 
 	// Geometric constraints: grounded origin, axis-aligned rectangle.
 	s.Lock(a, 0, 0)
-	s.Horizontal(ab)
-	s.Horizontal(dc)
-	s.Vertical(ad)
-	s.Vertical(bc)
+	s.AddConstraint(
+		sketch.NewHorizontal(ab),
+		sketch.NewHorizontal(dc),
+		sketch.NewVertical(ad),
+		sketch.NewVertical(bc),
+	)
 
 	// Parameters: a single driving width as a typed length; everything else is
 	// derived from it. Geometry solves in base millimetres regardless of the
@@ -40,18 +45,19 @@ func main() {
 	p.SetExpr("height", "width * 0.6", units.Millimeter)
 	p.SetExpr("hole_d", "min(width, height) / 3", units.Millimeter)
 
-	// Bind dimensions to expressions evaluated against p.
+	// Add each dimension, then bind it to an expression evaluated against p.
 	bind := func(d sketch.Dimension, expr string) {
+		s.AddConstraint(d)
 		if err := s.Bind(d, p, expr); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 	}
-	bind(s.Distance(a, b, 0), "width")
-	bind(s.Distance(a, d, 0), "height")
-	bind(s.HorizontalDistance(a, o, 0), "width / 2") // hole centered
-	bind(s.VerticalDistance(a, o, 0), "height / 2")
-	bind(s.Radius(hole, 0), "hole_d / 2")
+	bind(sketch.NewDistance(a, b, 0), "width")
+	bind(sketch.NewDistance(a, d, 0), "height")
+	bind(sketch.NewHorizontalDistance(a, o, 0), "width / 2") // hole centered
+	bind(sketch.NewVerticalDistance(a, o, 0), "height / 2")
+	bind(sketch.NewRadius(hole, 0), "hole_d / 2")
 
 	report := func(label string) {
 		res, err := s.Solve()

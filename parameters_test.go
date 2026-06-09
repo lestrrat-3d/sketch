@@ -14,19 +14,16 @@ import (
 func parametricRect(t *testing.T) (s *Sketch, b, c, d *Point) {
 	t.Helper()
 	s = New()
-	a := s.AddPoint(0, 0)
-	b = s.AddPoint(5, 1)
-	c = s.AddPoint(4, 6)
-	d = s.AddPoint(1, 5)
-	ab := s.AddLine(a, b)
-	bc := s.AddLine(b, c)
-	dc := s.AddLine(d, c)
-	ad := s.AddLine(a, d)
+	a := addPt(s, 0, 0)
+	b = addPt(s, 5, 1)
+	c = addPt(s, 4, 6)
+	d = addPt(s, 1, 5)
+	ab := addLn(s, a, b)
+	bc := addLn(s, b, c)
+	dc := addLn(s, d, c)
+	ad := addLn(s, a, d)
 	s.Lock(a, 0, 0)
-	s.Horizontal(ab)
-	s.Horizontal(dc)
-	s.Vertical(ad)
-	s.Vertical(bc)
+	s.AddConstraint(NewHorizontal(ab), NewHorizontal(dc), NewVertical(ad), NewVertical(bc))
 
 	p := param.New()
 	if err := p.Set("w", "20"); err != nil {
@@ -35,8 +32,8 @@ func parametricRect(t *testing.T) (s *Sketch, b, c, d *Point) {
 	if err := p.Set("h", "w / 2"); err != nil { // height depends on width
 		t.Fatal(err)
 	}
-	wDim := s.Distance(a, b, 0)
-	hDim := s.Distance(a, d, 0)
+	wDim := addDist(s, a, b, 0)
+	hDim := addDist(s, a, d, 0)
 	if err := s.Bind(wDim, p, "w"); err != nil {
 		t.Fatal(err)
 	}
@@ -102,13 +99,13 @@ func TestManualSetUnbinds(t *testing.T) {
 
 func TestBindExpressionInline(t *testing.T) {
 	s := New()
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(3, 0)
+	a := addPt(s, 0, 0)
+	b := addPt(s, 3, 0)
 	s.Lock(a, 0, 0)
-	s.Horizontal(s.AddLine(a, b))
+	s.AddConstraint(NewHorizontal(addLn(s, a, b)))
 	p := param.New()
 	p.Set("gap", "8")
-	dim := s.Distance(a, b, 0)
+	dim := addDist(s, a, b, 0)
 	// Expression combining a parameter, a function and a constant.
 	if err := s.Bind(dim, p, "gap * 2 + sqrt(16)"); err != nil {
 		t.Fatal(err)
@@ -119,9 +116,9 @@ func TestBindExpressionInline(t *testing.T) {
 
 func TestBindSyntaxError(t *testing.T) {
 	s := New()
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(1, 0)
-	dim := s.Distance(a, b, 1)
+	a := addPt(s, 0, 0)
+	b := addPt(s, 1, 0)
+	dim := NewDistance(a, b, 1)
 	if err := s.Bind(dim, param.New(), "1 +"); err == nil {
 		t.Fatal("expected syntax error from Bind")
 	}
@@ -129,9 +126,9 @@ func TestBindSyntaxError(t *testing.T) {
 
 func TestBindNilTable(t *testing.T) {
 	s := New()
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(1, 0)
-	dim := s.Distance(a, b, 1)
+	a := addPt(s, 0, 0)
+	b := addPt(s, 1, 0)
+	dim := NewDistance(a, b, 1)
 	if err := s.Bind(dim, nil, "1"); err == nil {
 		t.Fatal("expected error binding with a nil table")
 	}
@@ -139,17 +136,17 @@ func TestBindNilTable(t *testing.T) {
 
 func TestBindTableMismatch(t *testing.T) {
 	s := New()
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(1, 0)
-	c := s.AddPoint(0, 1)
+	a := addPt(s, 0, 0)
+	b := addPt(s, 1, 0)
+	c := addPt(s, 0, 1)
 	p1 := param.New()
 	p1.Set("x", "1")
 	p2 := param.New()
 	p2.Set("x", "1")
-	if err := s.Bind(s.Distance(a, b, 0), p1, "x"); err != nil {
+	if err := s.Bind(NewDistance(a, b, 0), p1, "x"); err != nil {
 		t.Fatal(err)
 	}
-	err := s.Bind(s.Distance(a, c, 0), p2, "x") // different table
+	err := s.Bind(NewDistance(a, c, 0), p2, "x") // different table
 	if !errors.Is(err, ErrTableMismatch) {
 		t.Fatalf("expected ErrTableMismatch, got %v", err)
 	}
@@ -157,11 +154,11 @@ func TestBindTableMismatch(t *testing.T) {
 
 func TestUndefinedParameterFailsSolve(t *testing.T) {
 	s := New()
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(1, 0)
+	a := addPt(s, 0, 0)
+	b := addPt(s, 1, 0)
 	s.Lock(a, 0, 0)
-	s.Horizontal(s.AddLine(a, b))
-	dim := s.Distance(a, b, 1)
+	s.AddConstraint(NewHorizontal(addLn(s, a, b)))
+	dim := addDist(s, a, b, 1)
 	if err := s.Bind(dim, param.New(), "nope * 2"); err != nil {
 		t.Fatal(err)
 	}

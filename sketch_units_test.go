@@ -12,11 +12,11 @@ import (
 // A distance set with a typed value keeps that unit but solves in base mm.
 func TestDimensionTypedValue(t *testing.T) {
 	s := New()
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(1, 0)
+	a := addPt(s, 0, 0)
+	b := addPt(s, 1, 0)
 	s.Lock(a, 0, 0)
-	s.Horizontal(s.AddLine(a, b))
-	d := s.Distance(a, b, 0)
+	s.AddConstraint(NewHorizontal(addLn(s, a, b)))
+	d := addDist(s, a, b, 0)
 	if err := d.SetValue(units.Inches(4)); err != nil {
 		t.Fatal(err)
 	}
@@ -30,9 +30,9 @@ func TestDimensionTypedValue(t *testing.T) {
 // SetValue must reject a value of the wrong kind.
 func TestDimensionWrongKind(t *testing.T) {
 	s := New()
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(1, 0)
-	d := s.Distance(a, b, 0)
+	a := addPt(s, 0, 0)
+	b := addPt(s, 1, 0)
+	d := NewDistance(a, b, 0)
 	if err := d.SetValue(units.Degrees(30)); err == nil {
 		t.Fatal("expected error setting a length dimension from an angle")
 	}
@@ -41,16 +41,15 @@ func TestDimensionWrongKind(t *testing.T) {
 // The bare-float Angle constructor uses the sketch's default angle unit.
 func TestAngleDefaultUnitDegrees(t *testing.T) {
 	s := New() // metric default: degrees
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
-	c := s.AddPoint(5, 5)
+	a := addPt(s, 0, 0)
+	b := addPt(s, 10, 0)
+	c := addPt(s, 5, 5)
 	s.Lock(a, 0, 0)
-	l1 := s.AddLine(a, b)
-	l2 := s.AddLine(a, c)
-	s.Horizontal(l1)
-	s.Distance(a, b, 10)
-	s.Distance(a, c, 8)
-	s.Angle(l1, l2, 90) // 90 degrees
+	l1 := addLn(s, a, b)
+	l2 := addLn(s, a, c)
+	s.AddConstraint(NewHorizontal(l1), NewAngle(l1, l2, 90)) // 90 degrees
+	addDist(s, a, b, 10)
+	addDist(s, a, c, 8)
 
 	mustSolve(t, s)
 	d1x, d1y := dir(l1)
@@ -62,11 +61,11 @@ func TestAngleDefaultUnitDegrees(t *testing.T) {
 func TestSetUnitsImperial(t *testing.T) {
 	s := New()
 	s.SetUnits(units.Imperial()) // inches, degrees
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(1, 0)
+	a := addPt(s, 0, 0)
+	b := addPt(s, 1, 0)
 	s.Lock(a, 0, 0)
-	s.Horizontal(s.AddLine(a, b))
-	s.Distance(a, b, 2) // 2 inches
+	s.AddConstraint(NewHorizontal(addLn(s, a, b)))
+	addDist(s, a, b, 2) // 2 inches
 	mustSolve(t, s)
 	approx(t, "2in in mm", b.X(), 50.8)
 }
@@ -74,14 +73,14 @@ func TestSetUnitsImperial(t *testing.T) {
 // A length dimension bound to a typed length parameter converts correctly.
 func TestBindTypedLengthParam(t *testing.T) {
 	s := New()
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(1, 0)
+	a := addPt(s, 0, 0)
+	b := addPt(s, 1, 0)
 	s.Lock(a, 0, 0)
-	s.Horizontal(s.AddLine(a, b))
+	s.AddConstraint(NewHorizontal(addLn(s, a, b)))
 
 	p := param.New()
 	p.SetValue("len", units.Meters(1)) // 1 m == 1000 mm
-	if err := s.Bind(s.Distance(a, b, 0), p, "len"); err != nil {
+	if err := s.Bind(addDist(s, a, b, 0), p, "len"); err != nil {
 		t.Fatal(err)
 	}
 	mustSolve(t, s)
@@ -91,14 +90,14 @@ func TestBindTypedLengthParam(t *testing.T) {
 // Binding a length dimension to an angle parameter is a kind error at solve.
 func TestBindKindMismatch(t *testing.T) {
 	s := New()
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(1, 0)
+	a := addPt(s, 0, 0)
+	b := addPt(s, 1, 0)
 	s.Lock(a, 0, 0)
-	s.Horizontal(s.AddLine(a, b))
+	s.AddConstraint(NewHorizontal(addLn(s, a, b)))
 
 	p := param.New()
 	p.SetValue("turn", units.Degrees(45))
-	if err := s.Bind(s.Distance(a, b, 0), p, "turn"); err != nil {
+	if err := s.Bind(addDist(s, a, b, 0), p, "turn"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Solve(); err == nil {
@@ -109,19 +108,21 @@ func TestBindKindMismatch(t *testing.T) {
 // An angle dimension bound to a typed angle parameter (degrees) solves correctly.
 func TestBindAngleParam(t *testing.T) {
 	s := New()
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
-	c := s.AddPoint(5, 5)
+	a := addPt(s, 0, 0)
+	b := addPt(s, 10, 0)
+	c := addPt(s, 5, 5)
 	s.Lock(a, 0, 0)
-	l1 := s.AddLine(a, b)
-	l2 := s.AddLine(a, c)
-	s.Horizontal(l1)
-	s.Distance(a, b, 10)
-	s.Distance(a, c, 8)
+	l1 := addLn(s, a, b)
+	l2 := addLn(s, a, c)
+	s.AddConstraint(NewHorizontal(l1))
+	addDist(s, a, b, 10)
+	addDist(s, a, c, 8)
 
 	p := param.New()
 	p.SetValue("theta", units.Degrees(30))
-	if err := s.Bind(s.Angle(l1, l2, 0), p, "theta"); err != nil {
+	theta := NewAngle(l1, l2, 0)
+	s.AddConstraint(theta)
+	if err := s.Bind(theta, p, "theta"); err != nil {
 		t.Fatal(err)
 	}
 	mustSolve(t, s)
@@ -135,11 +136,11 @@ func TestBindAngleParam(t *testing.T) {
 func TestJSONRoundTripUnits(t *testing.T) {
 	s := New()
 	s.SetUnits(units.Imperial())
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(1, 0)
+	a := addPt(s, 0, 0)
+	b := addPt(s, 1, 0)
 	s.Lock(a, 0, 0)
-	s.Horizontal(s.AddLine(a, b))
-	d := s.Distance(a, b, 0)
+	s.AddConstraint(NewHorizontal(addLn(s, a, b)))
+	d := addDist(s, a, b, 0)
 	d.SetValue(units.Inches(3))
 	mustSolve(t, s)
 

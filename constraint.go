@@ -21,12 +21,6 @@ type Constraint interface {
 // should not be serialized (they are recreated on load).
 type internalConstraint interface{ internal() }
 
-// add appends a constraint and returns it.
-func (s *Sketch) add(c Constraint) Constraint {
-	s.cons = append(s.cons, c)
-	return c
-}
-
 // --- arc consistency (internal) --------------------------------------------
 
 type arcRadius struct{ a *Arc }
@@ -45,10 +39,8 @@ func (c *coincident) residual(out []float64) []float64 {
 	return append(out, c.P1.x()-c.P2.x(), c.P1.y()-c.P2.y())
 }
 
-// Coincident forces two points to occupy the same location.
-func (s *Sketch) Coincident(p1, p2 *Point) Constraint {
-	return s.add(&coincident{p1, p2})
-}
+// NewCoincident forces two points to occupy the same location.
+func NewCoincident(p1, p2 *Point) Constraint { return &coincident{p1, p2} }
 
 // --- horizontal / vertical --------------------------------------------------
 
@@ -58,8 +50,8 @@ func (c *horizontal) residual(out []float64) []float64 {
 	return append(out, c.L.A.y()-c.L.B.y())
 }
 
-// Horizontal forces a line to be horizontal.
-func (s *Sketch) Horizontal(l *Line) Constraint { return s.add(&horizontal{l}) }
+// NewHorizontal forces a line to be horizontal.
+func NewHorizontal(l *Line) Constraint { return &horizontal{l} }
 
 type vertical struct{ L *Line }
 
@@ -67,8 +59,8 @@ func (c *vertical) residual(out []float64) []float64 {
 	return append(out, c.L.A.x()-c.L.B.x())
 }
 
-// Vertical forces a line to be vertical.
-func (s *Sketch) Vertical(l *Line) Constraint { return s.add(&vertical{l}) }
+// NewVertical forces a line to be vertical.
+func NewVertical(l *Line) Constraint { return &vertical{l} }
 
 // --- parallel / perpendicular ----------------------------------------------
 
@@ -81,8 +73,8 @@ func (c *parallel) residual(out []float64) []float64 {
 	return append(out, (d1x*d2y-d1y*d2x)/(norm(d1x, d1y)*norm(d2x, d2y)))
 }
 
-// Parallel forces two lines to be parallel.
-func (s *Sketch) Parallel(l1, l2 *Line) Constraint { return s.add(&parallel{l1, l2}) }
+// NewParallel forces two lines to be parallel.
+func NewParallel(l1, l2 *Line) Constraint { return &parallel{l1, l2} }
 
 type perpendicular struct{ L1, L2 *Line }
 
@@ -93,8 +85,8 @@ func (c *perpendicular) residual(out []float64) []float64 {
 	return append(out, (d1x*d2x+d1y*d2y)/(norm(d1x, d1y)*norm(d2x, d2y)))
 }
 
-// Perpendicular forces two lines to be perpendicular.
-func (s *Sketch) Perpendicular(l1, l2 *Line) Constraint { return s.add(&perpendicular{l1, l2}) }
+// NewPerpendicular forces two lines to be perpendicular.
+func NewPerpendicular(l1, l2 *Line) Constraint { return &perpendicular{l1, l2} }
 
 // --- collinear / point-on --------------------------------------------------
 
@@ -111,15 +103,20 @@ func (c *pointOnLine) residual(out []float64) []float64 {
 	return append(out, (abx*apy-aby*apx)/norm(abx, aby))
 }
 
-// PointOnLine forces a point to lie on the infinite line through a segment.
-func (s *Sketch) PointOnLine(p *Point, l *Line) Constraint { return s.add(&pointOnLine{p, l}) }
+// NewPointOnLine forces a point to lie on the infinite line through a segment.
+func NewPointOnLine(p *Point, l *Line) Constraint { return &pointOnLine{p, l} }
 
-// Collinear forces two lines to share the same infinite line by placing both
-// endpoints of the second line on the first.
-func (s *Sketch) Collinear(l1, l2 *Line) Constraint {
-	s.add(&pointOnLine{l2.A, l1})
-	return s.add(&pointOnLine{l2.B, l1})
+type collinear struct{ L1, L2 *Line }
+
+func (c *collinear) residual(out []float64) []float64 {
+	// both endpoints of L2 lie on the infinite line through L1
+	out = (&pointOnLine{c.L2.A, c.L1}).residual(out)
+	out = (&pointOnLine{c.L2.B, c.L1}).residual(out)
+	return out
 }
+
+// NewCollinear forces two lines to share the same infinite line.
+func NewCollinear(l1, l2 *Line) Constraint { return &collinear{l1, l2} }
 
 type pointOnCircle struct {
 	P *Point
@@ -132,8 +129,8 @@ func (c *pointOnCircle) residual(out []float64) []float64 {
 	return append(out, norm(dx, dy)-c.C.r()) // length units
 }
 
-// PointOnCircle forces a point to lie on a circle.
-func (s *Sketch) PointOnCircle(p *Point, c *Circle) Constraint { return s.add(&pointOnCircle{p, c}) }
+// NewPointOnCircle forces a point to lie on a circle.
+func NewPointOnCircle(p *Point, c *Circle) Constraint { return &pointOnCircle{p, c} }
 
 // --- midpoint / symmetric ---------------------------------------------------
 
@@ -149,8 +146,8 @@ func (c *midpoint) residual(out []float64) []float64 {
 	)
 }
 
-// Midpoint forces a point to be the midpoint of a line.
-func (s *Sketch) Midpoint(p *Point, l *Line) Constraint { return s.add(&midpoint{p, l}) }
+// NewMidpoint forces a point to be the midpoint of a line.
+func NewMidpoint(p *Point, l *Line) Constraint { return &midpoint{p, l} }
 
 type symmetric struct {
 	P1, P2 *Point
@@ -170,17 +167,19 @@ func (c *symmetric) residual(out []float64) []float64 {
 	return append(out, onAxis, perp)
 }
 
-// Symmetric forces two points to be mirror images across an axis line.
-func (s *Sketch) Symmetric(p1, p2 *Point, axis *Line) Constraint {
-	return s.add(&symmetric{p1, p2, axis})
-}
+// NewSymmetric forces two points to be mirror images across an axis line.
+func NewSymmetric(p1, p2 *Point, axis *Line) Constraint { return &symmetric{p1, p2, axis} }
 
 // --- concentric -------------------------------------------------------------
 
-// Concentric forces two circles to share a center.
-func (s *Sketch) Concentric(c1, c2 *Circle) Constraint {
-	return s.add(&coincident{c1.Center, c2.Center})
+type concentric struct{ C1, C2 *Circle }
+
+func (c *concentric) residual(out []float64) []float64 {
+	return (&coincident{c.C1.Center, c.C2.Center}).residual(out)
 }
+
+// NewConcentric forces two circles to share a center.
+func NewConcentric(c1, c2 *Circle) Constraint { return &concentric{c1, c2} }
 
 // --- equal ------------------------------------------------------------------
 
@@ -190,8 +189,8 @@ func (c *equalLines) residual(out []float64) []float64 {
 	return append(out, c.L1.Length()-c.L2.Length()) // length units
 }
 
-// Equal forces two lines to have equal length.
-func (s *Sketch) Equal(l1, l2 *Line) Constraint { return s.add(&equalLines{l1, l2}) }
+// NewEqual forces two lines to have equal length.
+func NewEqual(l1, l2 *Line) Constraint { return &equalLines{l1, l2} }
 
 type equalRadii struct{ C1, C2 *Circle }
 
@@ -199,8 +198,8 @@ func (c *equalRadii) residual(out []float64) []float64 {
 	return append(out, c.C1.r()-c.C2.r())
 }
 
-// EqualRadius forces two circles to have equal radius.
-func (s *Sketch) EqualRadius(c1, c2 *Circle) Constraint { return s.add(&equalRadii{c1, c2}) }
+// NewEqualRadius forces two circles to have equal radius.
+func NewEqualRadius(c1, c2 *Circle) Constraint { return &equalRadii{c1, c2} }
 
 // --- tangent ----------------------------------------------------------------
 
@@ -218,8 +217,8 @@ func (c *tangentLineCircle) residual(out []float64) []float64 {
 	return append(out, math.Abs(cross)/norm(abx, aby)-c.C.r())
 }
 
-// Tangent forces a line to be tangent to a circle.
-func (s *Sketch) Tangent(l *Line, c *Circle) Constraint { return s.add(&tangentLineCircle{l, c}) }
+// NewTangent forces a line to be tangent to a circle.
+func NewTangent(l *Line, c *Circle) Constraint { return &tangentLineCircle{l, c} }
 
 type tangentCircles struct {
 	C1, C2   *Circle
@@ -237,11 +236,11 @@ func (c *tangentCircles) residual(out []float64) []float64 {
 	return append(out, d-sum) // length units
 }
 
-// TangentCircles forces two circles to be tangent. When internal is true the
+// NewTangentCircles forces two circles to be tangent. When internal is true the
 // circles are internally tangent (one inside the other); otherwise they are
 // externally tangent.
-func (s *Sketch) TangentCircles(c1, c2 *Circle, internal bool) Constraint {
-	return s.add(&tangentCircles{c1, c2, internal})
+func NewTangentCircles(c1, c2 *Circle, internal bool) Constraint {
+	return &tangentCircles{c1, c2, internal}
 }
 
 // --- dimensional constraints ------------------------------------------------
@@ -252,6 +251,7 @@ func (s *Sketch) TangentCircles(c1, c2 *Circle, internal bool) Constraint {
 type dimBase struct {
 	kind   units.Kind
 	target units.Value
+	deflt  bool   // target's unit is a placeholder, replaced by the sketch default on add
 	expr   string // bound parameter expression; empty when the value is literal
 }
 
@@ -278,8 +278,20 @@ func (d *dimBase) SetValue(v units.Value) error {
 		return fmt.Errorf("sketch: cannot set %s dimension from a %s value", d.kind, v.Kind())
 	}
 	d.target = v
+	d.deflt = false
 	d.expr = ""
 	return nil
+}
+
+// resolveUnit, called when the dimension is added to a sketch, replaces a
+// placeholder unit (from a bare-float constructor) with the sketch's default
+// unit for the kind, keeping the magnitude. This is how a bare number takes on
+// the sketch's chosen unit; it is an assignment of intent, not a conversion.
+func (d *dimBase) resolveUnit(s *Sketch) {
+	if d.deflt {
+		d.target = units.New(d.target.Mag(), s.unitFor(d.kind))
+		d.deflt = false
+	}
 }
 
 // base returns the target in the kind's base unit (mm or rad) for the solver.
@@ -305,14 +317,19 @@ func (d *dimBase) setDriverExpr(e string) { d.expr = e }
 
 // restore sets the target verbatim from a deserialized magnitude and unit. It
 // reinstates saved state and does not convert.
-func (d *dimBase) restore(mag float64, u units.Unit) { d.target = units.New(mag, u) }
-
-func lengthDim(s *Sketch, v float64) dimBase {
-	return dimBase{kind: units.Length, target: units.New(v, s.lengthUnit())}
+func (d *dimBase) restore(mag float64, u units.Unit) {
+	d.target = units.New(mag, u)
+	d.deflt = false
 }
 
-func angleDim(s *Sketch, v float64) dimBase {
-	return dimBase{kind: units.Angle, target: units.New(v, s.angleUnit())}
+// lengthDim and angleDim build a detached dimension whose unit is a placeholder
+// (the metric default) to be resolved to the sketch's default unit on add.
+func lengthDim(v float64) dimBase {
+	return dimBase{kind: units.Length, target: units.Millimeters(v), deflt: true}
+}
+
+func angleDim(v float64) dimBase {
+	return dimBase{kind: units.Angle, target: units.Degrees(v), deflt: true}
 }
 
 // Distance is an editable point-to-point distance dimension.
@@ -329,12 +346,10 @@ func (c *Distance) residual(out []float64) []float64 {
 	return append(out, dist(c.P1, c.P2)-c.base())
 }
 
-// Distance constrains the straight-line distance between two points. The value
-// d is interpreted in the sketch's default length unit.
-func (s *Sketch) Distance(p1, p2 *Point, d float64) *Distance {
-	c := &Distance{dimBase: lengthDim(s, d), P1: p1, P2: p2}
-	s.add(c)
-	return c
+// NewDistance constrains the straight-line distance between two points. The
+// value d is interpreted in the sketch's default length unit once added.
+func NewDistance(p1, p2 *Point, d float64) *Distance {
+	return &Distance{dimBase: lengthDim(d), P1: p1, P2: p2}
 }
 
 // HorizontalDistance is an editable signed horizontal (Δx) dimension.
@@ -347,11 +362,9 @@ func (c *HorizontalDistance) residual(out []float64) []float64 {
 	return append(out, c.P2.x()-c.P1.x()-c.base())
 }
 
-// HorizontalDistance constrains the signed horizontal distance (x2−x1).
-func (s *Sketch) HorizontalDistance(p1, p2 *Point, d float64) *HorizontalDistance {
-	c := &HorizontalDistance{dimBase: lengthDim(s, d), P1: p1, P2: p2}
-	s.add(c)
-	return c
+// NewHorizontalDistance constrains the signed horizontal distance (x2−x1).
+func NewHorizontalDistance(p1, p2 *Point, d float64) *HorizontalDistance {
+	return &HorizontalDistance{dimBase: lengthDim(d), P1: p1, P2: p2}
 }
 
 // VerticalDistance is an editable signed vertical (Δy) dimension.
@@ -364,11 +377,9 @@ func (c *VerticalDistance) residual(out []float64) []float64 {
 	return append(out, c.P2.y()-c.P1.y()-c.base())
 }
 
-// VerticalDistance constrains the signed vertical distance (y2−y1).
-func (s *Sketch) VerticalDistance(p1, p2 *Point, d float64) *VerticalDistance {
-	c := &VerticalDistance{dimBase: lengthDim(s, d), P1: p1, P2: p2}
-	s.add(c)
-	return c
+// NewVerticalDistance constrains the signed vertical distance (y2−y1).
+func NewVerticalDistance(p1, p2 *Point, d float64) *VerticalDistance {
+	return &VerticalDistance{dimBase: lengthDim(d), P1: p1, P2: p2}
 }
 
 // Radius is an editable radius dimension.
@@ -381,11 +392,9 @@ func (c *Radius) residual(out []float64) []float64 {
 	return append(out, c.C.r()-c.base())
 }
 
-// Radius constrains a circle's radius.
-func (s *Sketch) Radius(c *Circle, r float64) *Radius {
-	rc := &Radius{dimBase: lengthDim(s, r), C: c}
-	s.add(rc)
-	return rc
+// NewRadius constrains a circle's radius.
+func NewRadius(c *Circle, r float64) *Radius {
+	return &Radius{dimBase: lengthDim(r), C: c}
 }
 
 // Diameter is an editable diameter dimension.
@@ -398,11 +407,9 @@ func (c *Diameter) residual(out []float64) []float64 {
 	return append(out, 2*c.C.r()-c.base())
 }
 
-// Diameter constrains a circle's diameter.
-func (s *Sketch) Diameter(c *Circle, d float64) *Diameter {
-	dc := &Diameter{dimBase: lengthDim(s, d), C: c}
-	s.add(dc)
-	return dc
+// NewDiameter constrains a circle's diameter.
+func NewDiameter(c *Circle, d float64) *Diameter {
+	return &Diameter{dimBase: lengthDim(d), C: c}
 }
 
 // Angle is an editable angle dimension between two lines, measured from L1 to
@@ -428,13 +435,12 @@ func (c *Angle) residual(out []float64) []float64 {
 	return append(out, r)
 }
 
-// Angle constrains the angle from line l1 to line l2. The value a is interpreted
-// in the sketch's default angle unit (degrees for [units.Metric]); use
-// [Angle.SetValue] with a typed quantity such as units.Radians for another unit.
-func (s *Sketch) Angle(l1, l2 *Line, a float64) *Angle {
-	c := &Angle{dimBase: angleDim(s, a), L1: l1, L2: l2}
-	s.add(c)
-	return c
+// NewAngle constrains the angle from line l1 to line l2. The value a is
+// interpreted in the sketch's default angle unit (degrees for [units.Metric])
+// once added; use [Angle.SetValue] with a typed quantity such as units.Radians
+// for another unit.
+func NewAngle(l1, l2 *Line, a float64) *Angle {
+	return &Angle{dimBase: angleDim(a), L1: l1, L2: l2}
 }
 
 // --- geometry helpers -------------------------------------------------------

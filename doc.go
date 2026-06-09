@@ -16,21 +16,16 @@
 // # Example
 //
 //	s := sketch.New()
-//	a := s.AddPoint(0, 0)
-//	b := s.AddPoint(7, 2)
-//	c := s.AddPoint(6, 9)
-//	d := s.AddPoint(-1, 8)
-//	s.AddLine(a, b)
-//	s.AddLine(b, c)
-//	s.AddLine(c, d)
-//	s.AddLine(d, a)
+//	a := sketch.NewPoint(0, 0)
+//	b := sketch.NewPoint(7, 2)
+//	d := sketch.NewPoint(-1, 8)
+//	ab := s.AddLine(sketch.NewLine(a, b)) // commits ab and its points
+//	ad := s.AddLine(sketch.NewLine(a, d))
 //
-//	s.Lock(a, 0, 0)            // ground the origin corner
-//	s.Horizontal(s.AddLine(a, b))
-//	s.Vertical(s.AddLine(a, d))
-//	w := s.Distance(a, b, 100) // driving dimension
-//	h := s.Distance(a, d, 60)
-//	_ = w; _ = h
+//	s.Lock(a, 0, 0) // ground the origin corner
+//	w := sketch.NewDistance(a, b, 100) // driving dimension
+//	h := sketch.NewDistance(a, d, 60)
+//	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewVertical(ad), w, h)
 //
 //	res, err := s.Solve()
 //	if err != nil { /* ... */ }

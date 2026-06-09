@@ -62,13 +62,29 @@ the rest of the repo** — it is intended to move into its own module/repository
 later, so the dependency arrow only ever points *into* it. Keep it standard-
 library-only and independently testable.
 
+### Construction vs. committing (load-bearing)
+
+Geometry and constraints are **constructed detached** (`NewPoint`, `NewLine`,
+`NewCircle`, `NewArc`, and `NewDistance`/`NewHorizontal`/… for constraints) and
+then **committed** to a sketch as a separate step (`AddPoint`, `AddLine`,
+`AddCircle`, `AddArc`, `AddConstraint`). The two operations are deliberately
+distinct. Adders are **idempotent** and **cascade**: `AddLine` commits the
+line's points first, `AddConstraint` commits any geometry the constraint
+references. A detached object holds its own values (`Point.x0/y0`,
+`Circle.r0`) and is fully usable (`X()`, `Length()`, `R()`) before being added;
+once added it is index-backed (see below). New geometry/constraints must keep
+this split — constructors allocate nothing on a sketch; `Add…` does the
+committing — and `addConstraintGeometry` (in `parameters.go`) must learn the
+new constraint's geometry references so the cascade stays complete.
+
 ### The parameter model (load-bearing)
 
 All scalar unknowns — point `x`/`y`, circle radius — live in one flat vector on
 the `Sketch` (`vars []float64`, with a parallel `fixed []bool`). Primitives hold
-**indices** into that vector, not values. The solver reads/perturbs the vector
-directly. Any new geometry that introduces unknowns must allocate them via
-`newVar` and reference them by index so the solver sees them automatically.
+**indices** into that vector once committed (before that they hold their own
+values). The solver reads/perturbs the vector directly. Any new geometry that
+introduces unknowns must allocate them via `newVar` in its `Add…` method and
+reference them by index so the solver sees them automatically.
 
 ### Invariants the solver depends on
 
@@ -105,12 +121,18 @@ directly. Any new geometry that introduces unknowns must allocate them via
 ## Conventions
 
 - `gofmt`, `go vet`, and `go test ./...` must all be clean before committing.
-- Public dimensional constraints return concrete handles (`*Distance`, etc.)
-  with a `.Set` method; geometric constraints return the `Constraint` interface.
+- Constructors are package-level `New…` functions (the `New` prefix is forced
+  for the dimensional ones because their concrete handle types — `Distance`,
+  `Radius`, `Angle`, … — already own the bare name; keep all constructors
+  consistent). `New…` constructs detached; `s.Add…`/`s.AddConstraint` commits.
+- Public dimensional constructors return concrete handles (`*Distance`, etc.)
+  with `.Set`/`.SetValue`; geometric constructors return the `Constraint`
+  interface.
 - Keep exported API documented with Go doc comments; primitives expose value
   accessors (`X()`, `Y()`, `R()`) while the index-backed fields stay unexported.
-- New constraints: add the residual, the constructor, a test asserting on the
-  solved geometry, and a case in the JSON marshal/unmarshal switches.
+- New constraints: add the residual, the `New…` constructor, a case in
+  `addConstraintGeometry` so its geometry cascades, a case in the JSON
+  marshal/unmarshal switches, and a test asserting on the solved geometry.
 
 ## Open design questions (the "many variables")
 

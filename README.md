@@ -22,34 +22,47 @@ import "github.com/lestrrat-3d/sketch"
 
 ## Quick start
 
+Geometry and constraints are **constructed** detached (`sketch.NewPoint`,
+`sketch.NewLine`, `sketch.NewDistance`, …) and then **committed** to the sketch
+as a separate step (`s.AddPoint`, `s.AddLine`, `s.AddConstraint`). Adding a line
+or a constraint idempotently pulls in any geometry it references, so you only
+have to add the top-level objects.
+
 ```go
 s := sketch.New()
 
-a := s.AddPoint(0, 0)
-b := s.AddPoint(18, 2)  // rough guesses; the solver finds the exact positions
-c := s.AddPoint(17, 11)
-d := s.AddPoint(1, 13)
+a := sketch.NewPoint(0, 0)
+b := sketch.NewPoint(18, 2) // rough guesses; the solver finds the exact positions
+c := sketch.NewPoint(17, 11)
+d := sketch.NewPoint(1, 13)
 
-ab, bc, dc, ad := s.AddLine(a, b), s.AddLine(b, c), s.AddLine(d, c), s.AddLine(a, d)
+ab := s.AddLine(sketch.NewLine(a, b)) // commits the line and its two points
+bc := s.AddLine(sketch.NewLine(b, c))
+dc := s.AddLine(sketch.NewLine(d, c))
+ad := s.AddLine(sketch.NewLine(a, d))
 
-s.Lock(a, 0, 0)        // ground a corner at the origin
-s.Horizontal(ab)
-s.Horizontal(dc)
-s.Vertical(ad)
-s.Vertical(bc)
-width  := s.Distance(a, b, 20) // driving dimensions
-height := s.Distance(a, d, 12)
+s.Lock(a, 0, 0)           // ground a corner at the origin
+s.AddConstraint(
+	sketch.NewHorizontal(ab),
+	sketch.NewHorizontal(dc),
+	sketch.NewVertical(ad),
+	sketch.NewVertical(bc),
+)
+width := sketch.NewDistance(a, b, 20) // driving dimensions
+height := sketch.NewDistance(a, d, 12)
+s.AddConstraint(width, height)
 
 res, err := s.Solve()
 // res.DOF == 0  -> fully constrained
 // b == (20, 0), c == (20, 12), d == (0, 12)
 
-width.Set(35)   // edit a dimension ...
-s.Solve()       // ... and re-solve: the rectangle is now 35 x 12
+width.Set(35) // edit a dimension ...
+s.Solve()     // ... and re-solve: the rectangle is now 35 x 12
 
 svg, _ := s.SVG(sketch.DefaultSVGOptions())
 dxf, _ := s.DXF()
 data, _ := s.MarshalJSON()
+_ = res
 _ = height
 ```
 
@@ -58,12 +71,19 @@ regular hexagon entirely from constraints and writes SVG/DXF/JSON.
 
 ## Geometry
 
-| Constructor | Description |
-|---|---|
-| `s.AddPoint(x, y)` | A free point. Its coordinates are unknowns solved for. |
-| `s.AddLine(a, b)` | A segment between two points. |
-| `s.AddCircle(center, r)` | A circle with a center point and radius. |
-| `s.AddArc(center, start, end)` | An arc swept counter-clockwise from `start` to `end`. |
+Construct with the `New…` functions, then commit with the matching `Add…`:
+
+| Construct | Commit | Description |
+|---|---|---|
+| `sketch.NewPoint(x, y)` | `s.AddPoint(p)` | A free point; its coordinates are solved for. |
+| `sketch.NewLine(a, b)` | `s.AddLine(l)` | A segment between two points. |
+| `sketch.NewCircle(center, r)` | `s.AddCircle(c)` | A circle with a center point and radius. |
+| `sketch.NewArc(center, start, end)` | `s.AddArc(a)` | An arc swept counter-clockwise from `start` to `end`. |
+
+`AddLine`/`AddCircle`/`AddArc` commit any referenced points first and return the
+committed object; they are idempotent. `s.AddConstraint(...)` is variadic and
+likewise commits any geometry a constraint references. A detached object is
+fully inspectable (`p.X()`, `l.Length()`) before it is added.
 
 Grounding:
 
@@ -76,17 +96,21 @@ geometry (rendered dashed/grey, exported to a separate DXF layer).
 
 ## Constraints
 
+Construct a constraint with its `New…` function and commit it with
+`s.AddConstraint(...)`.
+
 **Geometric**
 
-`Coincident`, `Horizontal`, `Vertical`, `Parallel`, `Perpendicular`,
-`PointOnLine`, `Collinear`, `PointOnCircle`, `Midpoint`, `Symmetric`,
-`Concentric`, `Equal` (line lengths), `EqualRadius`, `Tangent` (line–circle),
-`TangentCircles` (circle–circle, internal or external).
+`NewCoincident`, `NewHorizontal`, `NewVertical`, `NewParallel`,
+`NewPerpendicular`, `NewPointOnLine`, `NewCollinear`, `NewPointOnCircle`,
+`NewMidpoint`, `NewSymmetric`, `NewConcentric`, `NewEqual` (line lengths),
+`NewEqualRadius`, `NewTangent` (line–circle), `NewTangentCircles` (circle–circle,
+internal or external).
 
 **Dimensional** (editable; each carries a unit and has a `.Set`/`.SetValue`)
 
-`Distance`, `HorizontalDistance`, `VerticalDistance`, `Radius`, `Diameter`,
-`Angle` (between two lines).
+`NewDistance`, `NewHorizontalDistance`, `NewVerticalDistance`, `NewRadius`,
+`NewDiameter`, `NewAngle` (between two lines).
 
 ## Units
 
@@ -102,14 +126,15 @@ mm, _ := w.In(units.Millimeter) // 101.6
 s := sketch.New()               // default units: mm and degrees
 s.SetUnits(units.Imperial())    // ... or inches and degrees
 
-d := s.Distance(a, b, 0)
+d := sketch.NewDistance(a, b, 0)
+s.AddConstraint(d)
 d.SetValue(units.Inches(4))     // solves to 101.6 mm internally
-s.Angle(l1, l2, 90)             // 90 in the sketch's default angle unit (degrees)
+s.AddConstraint(sketch.NewAngle(l1, l2, 90)) // 90 in the default angle unit (degrees)
 ```
 
 The solver works in base units (millimetre, radian); a dimension's residual
-converts its target with `Target().Base()`. Bare-float constructor values are
-interpreted in the sketch's default unit for that kind.
+converts its target with `Target().Base()`. A bare-float constructor value
+adopts the sketch's default unit for that kind when the constraint is added.
 
 ## Parameters & expressions
 
@@ -125,9 +150,13 @@ p.SetValue("width", units.Millimeters(120))       // a typed length
 p.SetExpr("height", "width * 0.6", units.Millimeter)
 p.SetExpr("hole_d", "min(width, height) / 3", units.Millimeter)
 
-s.Bind(s.Distance(a, b, 0), p, "width")
-s.Bind(s.Distance(a, d, 0), p, "height")
-s.Bind(s.Radius(hole, 0), p, "hole_d / 2")
+width := sketch.NewDistance(a, b, 0)
+height := sketch.NewDistance(a, d, 0)
+hr := sketch.NewRadius(hole, 0)
+s.AddConstraint(width, height, hr)
+s.Bind(width, p, "width")
+s.Bind(height, p, "height")
+s.Bind(hr, p, "hole_d / 2")
 
 s.Solve()                              // 120 x 72, hole d 24 (mm)
 p.SetValue("width", units.Inches(8))   // change ONE parameter, in inches ...

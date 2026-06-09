@@ -26,6 +26,7 @@ type Dimension interface {
 
 	base() float64
 	setResolved(units.Value) error
+	restore(float64, units.Unit)
 	driverExpr() string
 	setDriverExpr(string)
 }
@@ -59,6 +60,98 @@ func (s *Sketch) angleUnit() units.Unit {
 		return units.Degree
 	}
 	return s.sys.Angle
+}
+
+func (s *Sketch) unitFor(k units.Kind) units.Unit {
+	switch k {
+	case units.Length:
+		return s.lengthUnit()
+	case units.Angle:
+		return s.angleUnit()
+	default:
+		return units.One
+	}
+}
+
+// AddConstraint commits one or more constraints to the sketch. Any geometry a
+// constraint references is committed first if it is not already in the sketch
+// (idempotently), so constructing geometry and constraints detached and then
+// adding the constraints alone is sufficient. Dimensional constraints created
+// from a bare float adopt the sketch's default unit for their kind here.
+func (s *Sketch) AddConstraint(cs ...Constraint) {
+	for _, c := range cs {
+		s.addConstraintGeometry(c)
+		if d, ok := c.(interface{ resolveUnit(*Sketch) }); ok {
+			d.resolveUnit(s)
+		}
+		s.cons = append(s.cons, c)
+	}
+}
+
+// addConstraintGeometry commits the geometry referenced by a constraint.
+func (s *Sketch) addConstraintGeometry(c Constraint) {
+	switch t := c.(type) {
+	case *coincident:
+		s.AddPoint(t.P1)
+		s.AddPoint(t.P2)
+	case *horizontal:
+		s.AddLine(t.L)
+	case *vertical:
+		s.AddLine(t.L)
+	case *parallel:
+		s.AddLine(t.L1)
+		s.AddLine(t.L2)
+	case *perpendicular:
+		s.AddLine(t.L1)
+		s.AddLine(t.L2)
+	case *pointOnLine:
+		s.AddPoint(t.P)
+		s.AddLine(t.L)
+	case *collinear:
+		s.AddLine(t.L1)
+		s.AddLine(t.L2)
+	case *pointOnCircle:
+		s.AddPoint(t.P)
+		s.AddCircle(t.C)
+	case *midpoint:
+		s.AddPoint(t.P)
+		s.AddLine(t.L)
+	case *symmetric:
+		s.AddPoint(t.P1)
+		s.AddPoint(t.P2)
+		s.AddLine(t.Axis)
+	case *concentric:
+		s.AddCircle(t.C1)
+		s.AddCircle(t.C2)
+	case *equalLines:
+		s.AddLine(t.L1)
+		s.AddLine(t.L2)
+	case *equalRadii:
+		s.AddCircle(t.C1)
+		s.AddCircle(t.C2)
+	case *tangentLineCircle:
+		s.AddLine(t.L)
+		s.AddCircle(t.C)
+	case *tangentCircles:
+		s.AddCircle(t.C1)
+		s.AddCircle(t.C2)
+	case *Distance:
+		s.AddPoint(t.P1)
+		s.AddPoint(t.P2)
+	case *HorizontalDistance:
+		s.AddPoint(t.P1)
+		s.AddPoint(t.P2)
+	case *VerticalDistance:
+		s.AddPoint(t.P1)
+		s.AddPoint(t.P2)
+	case *Radius:
+		s.AddCircle(t.C)
+	case *Diameter:
+		s.AddCircle(t.C)
+	case *Angle:
+		s.AddLine(t.L1)
+		s.AddLine(t.L2)
+	}
 }
 
 // Params returns the parameter table the sketch's dimensions are bound against,

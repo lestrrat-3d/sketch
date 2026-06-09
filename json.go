@@ -68,11 +68,7 @@ func dimUnit(symbol string, kind units.Kind) units.Unit {
 }
 
 // restoreDim reinstates a deserialized dimension's unit and parameter binding.
-func restoreDim(d interface {
-	Kind() units.Kind
-	restore(float64, units.Unit)
-	setDriverExpr(string)
-}, jc jsonConstraint) {
+func restoreDim(d Dimension, jc jsonConstraint) {
 	d.restore(jc.Value, dimUnit(jc.Unit, d.Kind()))
 	d.setDriverExpr(jc.Expr)
 }
@@ -140,6 +136,10 @@ func marshalConstraint(c Constraint) (jsonConstraint, bool) {
 		return jsonConstraint{Type: "perpendicular", Entities: []int{t.L1.id, t.L2.id}}, true
 	case *pointOnLine:
 		return jsonConstraint{Type: "point_on_line", Points: []int{t.P.id}, Entities: []int{t.L.id}}, true
+	case *collinear:
+		return jsonConstraint{Type: "collinear", Entities: []int{t.L1.id, t.L2.id}}, true
+	case *concentric:
+		return jsonConstraint{Type: "concentric", Entities: []int{t.C1.id, t.C2.id}}, true
 	case *pointOnCircle:
 		return jsonConstraint{Type: "point_on_circle", Points: []int{t.P.id}, Entities: []int{t.C.id}}, true
 	case *midpoint:
@@ -188,7 +188,7 @@ func (s *Sketch) UnmarshalJSON(data []byte) error {
 	}
 
 	for _, jp := range js.Points {
-		p := s.AddPoint(jp.X, jp.Y)
+		p := s.AddPoint(NewPoint(jp.X, jp.Y))
 		p.Name = jp.Name
 		p.Construction = jp.Construction
 		if jp.Fixed {
@@ -217,19 +217,19 @@ func (s *Sketch) UnmarshalJSON(data []byte) error {
 			if len(je.Points) != 2 {
 				return fmt.Errorf("sketch: line needs 2 points, got %d", len(je.Points))
 			}
-			l := s.AddLine(s.points[je.Points[0]], s.points[je.Points[1]])
+			l := s.AddLine(NewLine(s.points[je.Points[0]], s.points[je.Points[1]]))
 			l.Construction = je.Construction
 		case "circle":
 			if len(je.Points) != 1 {
 				return fmt.Errorf("sketch: circle needs 1 point, got %d", len(je.Points))
 			}
-			c := s.AddCircle(s.points[je.Points[0]], je.Radius)
+			c := s.AddCircle(NewCircle(s.points[je.Points[0]], je.Radius))
 			c.Construction = je.Construction
 		case "arc":
 			if len(je.Points) != 3 {
 				return fmt.Errorf("sketch: arc needs 3 points, got %d", len(je.Points))
 			}
-			a := s.AddArc(s.points[je.Points[0]], s.points[je.Points[1]], s.points[je.Points[2]])
+			a := s.AddArc(NewArc(s.points[je.Points[0]], s.points[je.Points[1]], s.points[je.Points[2]]))
 			a.Construction = je.Construction
 		default:
 			return fmt.Errorf("sketch: unknown entity type %q", je.Type)
@@ -257,22 +257,27 @@ func (s *Sketch) entByID(i int) Entity {
 
 func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, error), circle func(int) (*Circle, error)) error {
 	pt := func(i int) *Point { return s.points[jc.Points[i]] }
+	// dim restores a dimensional constraint's unit/binding, then commits it.
+	dim := func(d Dimension) {
+		restoreDim(d, jc)
+		s.AddConstraint(d)
+	}
 	switch jc.Type {
 	case "coincident":
-		s.Coincident(pt(0), pt(1))
+		s.AddConstraint(NewCoincident(pt(0), pt(1)))
 	case "horizontal":
 		l, err := line(jc.Entities[0])
 		if err != nil {
 			return err
 		}
-		s.Horizontal(l)
+		s.AddConstraint(NewHorizontal(l))
 	case "vertical":
 		l, err := line(jc.Entities[0])
 		if err != nil {
 			return err
 		}
-		s.Vertical(l)
-	case "parallel", "perpendicular", "equal_lines", "angle":
+		s.AddConstraint(NewVertical(l))
+	case "parallel", "perpendicular", "equal_lines", "collinear", "angle":
 		l1, err := line(jc.Entities[0])
 		if err != nil {
 			return err
@@ -283,38 +288,50 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		}
 		switch jc.Type {
 		case "parallel":
-			s.Parallel(l1, l2)
+			s.AddConstraint(NewParallel(l1, l2))
 		case "perpendicular":
-			s.Perpendicular(l1, l2)
+			s.AddConstraint(NewPerpendicular(l1, l2))
 		case "equal_lines":
-			s.Equal(l1, l2)
+			s.AddConstraint(NewEqual(l1, l2))
+		case "collinear":
+			s.AddConstraint(NewCollinear(l1, l2))
 		case "angle":
-			restoreDim(s.Angle(l1, l2, jc.Value), jc)
+			dim(NewAngle(l1, l2, jc.Value))
 		}
 	case "point_on_line":
 		l, err := line(jc.Entities[0])
 		if err != nil {
 			return err
 		}
-		s.PointOnLine(pt(0), l)
+		s.AddConstraint(NewPointOnLine(pt(0), l))
 	case "point_on_circle":
 		c, err := circle(jc.Entities[0])
 		if err != nil {
 			return err
 		}
-		s.PointOnCircle(pt(0), c)
+		s.AddConstraint(NewPointOnCircle(pt(0), c))
 	case "midpoint":
 		l, err := line(jc.Entities[0])
 		if err != nil {
 			return err
 		}
-		s.Midpoint(pt(0), l)
+		s.AddConstraint(NewMidpoint(pt(0), l))
 	case "symmetric":
 		l, err := line(jc.Entities[0])
 		if err != nil {
 			return err
 		}
-		s.Symmetric(pt(0), pt(1), l)
+		s.AddConstraint(NewSymmetric(pt(0), pt(1), l))
+	case "concentric":
+		c1, err := circle(jc.Entities[0])
+		if err != nil {
+			return err
+		}
+		c2, err := circle(jc.Entities[1])
+		if err != nil {
+			return err
+		}
+		s.AddConstraint(NewConcentric(c1, c2))
 	case "equal_radii":
 		c1, err := circle(jc.Entities[0])
 		if err != nil {
@@ -324,7 +341,7 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		if err != nil {
 			return err
 		}
-		s.EqualRadius(c1, c2)
+		s.AddConstraint(NewEqualRadius(c1, c2))
 	case "tangent_line_circle":
 		l, err := line(jc.Entities[0])
 		if err != nil {
@@ -334,7 +351,7 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		if err != nil {
 			return err
 		}
-		s.Tangent(l, c)
+		s.AddConstraint(NewTangent(l, c))
 	case "tangent_circles":
 		c1, err := circle(jc.Entities[0])
 		if err != nil {
@@ -344,25 +361,25 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		if err != nil {
 			return err
 		}
-		s.TangentCircles(c1, c2, jc.Flag)
+		s.AddConstraint(NewTangentCircles(c1, c2, jc.Flag))
 	case "distance":
-		restoreDim(s.Distance(pt(0), pt(1), jc.Value), jc)
+		dim(NewDistance(pt(0), pt(1), jc.Value))
 	case "hdistance":
-		restoreDim(s.HorizontalDistance(pt(0), pt(1), jc.Value), jc)
+		dim(NewHorizontalDistance(pt(0), pt(1), jc.Value))
 	case "vdistance":
-		restoreDim(s.VerticalDistance(pt(0), pt(1), jc.Value), jc)
+		dim(NewVerticalDistance(pt(0), pt(1), jc.Value))
 	case "radius":
 		c, err := circle(jc.Entities[0])
 		if err != nil {
 			return err
 		}
-		restoreDim(s.Radius(c, jc.Value), jc)
+		dim(NewRadius(c, jc.Value))
 	case "diameter":
 		c, err := circle(jc.Entities[0])
 		if err != nil {
 			return err
 		}
-		restoreDim(s.Diameter(c, jc.Value), jc)
+		dim(NewDiameter(c, jc.Value))
 	default:
 		return fmt.Errorf("sketch: unknown constraint type %q", jc.Type)
 	}
