@@ -3,7 +3,7 @@ package param
 import (
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 
 	"github.com/lestrrat-3d/sketch/units"
 )
@@ -158,19 +158,14 @@ func (t *Table) Delete(name string) {
 		return
 	}
 	delete(t.entries, name)
-	for i, n := range t.order {
-		if n == name {
-			t.order = append(t.order[:i], t.order[i+1:]...)
-			break
-		}
+	if i := slices.Index(t.order, name); i >= 0 {
+		t.order = slices.Delete(t.order, i, i+1)
 	}
 }
 
 // Names returns the parameter names in the order they were first defined.
 func (t *Table) Names() []string {
-	out := make([]string, len(t.order))
-	copy(out, t.order)
-	return out
+	return slices.Clone(t.order)
 }
 
 // Source returns the original expression text of a parameter.
@@ -198,7 +193,7 @@ func (t *Table) Dependencies(name string) ([]string, error) {
 		}
 		deps = append(deps, n)
 	}
-	sort.Strings(deps)
+	slices.Sort(deps)
 	return deps, nil
 }
 
