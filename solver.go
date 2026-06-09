@@ -30,6 +30,7 @@ func (solveOption) solveOption() {}
 type (
 	identMaxIterations struct{}
 	identTolerance     struct{}
+	identGoal          struct{}
 )
 
 // WithMaxIterations sets the outer Levenberg–Marquardt iteration budget.
@@ -38,10 +39,38 @@ func WithMaxIterations(v int) SolveOption { return solveOption{option.New(identM
 // WithTolerance sets the convergence threshold on the residual norm.
 func WithTolerance(v float64) SolveOption { return solveOption{option.New(identTolerance{}, v)} }
 
+// goalTarget is a transient soft target for one point, valid for a single
+// Solve call. See docs/goal-solve-design.md.
+type goalTarget struct {
+	p      *Point
+	tx, ty float64
+}
+
+// goalWeight scales goal residuals. It is dimensionless and small so that hard
+// constraints always win; goals only steer degrees of freedom the constraints
+// leave open.
+const goalWeight = 1e-3
+
+// WithGoal asks the solver to pull point p toward (x, y) — base units, like
+// all point coordinates — while every constraint keeps holding exactly. Goals
+// are soft: an unreachable target is not an error, the geometry settles at the
+// closest feasible configuration. Pass several WithGoal options to target
+// several points in one solve. A goal is transient — it exists only for that
+// Solve call, is invisible to DOF/redundancy analysis, and never serializes.
+// A goal on a fixed point is legal and inert.
+//
+// One goal per pointer-move event is the drag interaction: solves are
+// warm-started from the current geometry, so repeated goal solves track a
+// moving target cheaply. See docs/goal-solve-design.md.
+func WithGoal(p *Point, x, y float64) SolveOption {
+	return solveOption{option.New(identGoal{}, goalTarget{p: p, tx: x, ty: y})}
+}
+
 // solveConfig holds the resolved solver options.
 type solveConfig struct {
 	maxIterations int
 	tolerance     float64
+	goals         []goalTarget
 }
 
 func defaultSolveConfig() solveConfig {
@@ -63,6 +92,9 @@ func (s *Sketch) Solve(options ...SolveOption) (*Result, error) {
 			o.maxIterations = option.MustGet[int](opt)
 		case identTolerance:
 			o.tolerance = option.MustGet[float64](opt)
+		case identGoal:
+			// Append — repeated WithGoal options accumulate.
+			o.goals = append(o.goals, option.MustGet[goalTarget](opt))
 		}
 	}
 
@@ -74,29 +106,77 @@ func (s *Sketch) Solve(options ...SolveOption) (*Result, error) {
 	free := s.freeVars()
 	n := len(free)
 
-	r := s.residuals(nil)
-	m := len(r)
+	// Goal solves run two phases. Phase 1 minimizes the augmented system
+	// [hard residuals | goal rows], which moves toward the targets but — this
+	// is plain weighted least squares — leaves the hard constraints violated
+	// by O(w²·pull) at the optimum of an unreachable goal. Phase 2 (the only
+	// phase when there are no goals) then polishes on the hard residuals
+	// alone, projecting the geometry back onto the constraint manifold; the
+	// correction is tiny relative to the goal motion, so goal attainment is
+	// preserved while constraints end up holding exactly.
+	var iters int
+	if len(o.goals) > 0 {
+		aug := func(buf []float64) []float64 { return s.goalResiduals(buf, o.goals) }
+		iters += s.lm(free, aug, o.maxIterations, o.tolerance)
+	}
+	iters += s.lm(free, s.residuals, o.maxIterations, o.tolerance)
 
-	res := &Result{}
-	if m == 0 {
-		s.refreshDriven()
-		res.Converged = true
+	s.refreshDriven()
+
+	res := &Result{Iterations: iters}
+	// Convergence is judged on the hard constraints only: a goal pulling
+	// toward an unreachable target is the expected outcome, not a failure.
+	rh := s.residuals(nil)
+	mh := len(rh)
+	res.Residual = math.Sqrt(dot(rh, rh))
+	res.Converged = res.Residual <= o.tolerance
+
+	if mh == 0 {
 		res.DOF = n
 		return res, nil
+	}
+
+	rank := s.rank(free, mh)
+	res.DOF = n - rank
+	if res.DOF < 0 {
+		res.DOF = 0
+	}
+	res.Redundant = mh - rank
+	if res.Redundant < 0 {
+		res.Redundant = 0
+	}
+
+	if !res.Converged {
+		return res, ErrNotConverged
+	}
+	return res, nil
+}
+
+// lm runs the Levenberg–Marquardt loop on the residual vector produced by
+// eval, mutating the sketch's free variables in place, and reports the outer
+// iterations performed. It terminates when the residual norm reaches the
+// tolerance, when no damped step improves the cost (a minimum — possibly with
+// nonzero residual, e.g. an unreachable goal), or when the budget runs out.
+func (s *Sketch) lm(free []int, eval func([]float64) []float64, maxIterations int, tolerance float64) int {
+	n := len(free)
+	r := eval(nil)
+	m := len(r)
+	if m == 0 {
+		return 0
 	}
 
 	cost := dot(r, r) // sum of squared residuals
 	lambda := 1e-3
 	var iter int
-	for iter = 0; iter < o.maxIterations; iter++ {
-		if math.Sqrt(cost) <= o.tolerance {
+	for iter = 0; iter < maxIterations; iter++ {
+		if math.Sqrt(cost) <= tolerance {
 			break
 		}
 		if n == 0 {
 			break // nothing free to move
 		}
 
-		J := s.jacobian(free, m)
+		J := s.jacobian(free, m, eval)
 		// Normal equations: A = JᵀJ, g = Jᵀr.
 		A := make([][]float64, n)
 		g := make([]float64, n)
@@ -151,7 +231,7 @@ func (s *Sketch) Solve(options ...SolveOption) (*Result, error) {
 			for j, vi := range free {
 				s.vars[vi] += delta[j]
 			}
-			rNew := s.residuals(nil)
+			rNew := eval(nil)
 			costNew := dot(rNew, rNew)
 			if costNew < cost {
 				cost = costNew
@@ -173,27 +253,7 @@ func (s *Sketch) Solve(options ...SolveOption) (*Result, error) {
 			break
 		}
 	}
-
-	s.refreshDriven()
-
-	res.Iterations = iter
-	res.Residual = math.Sqrt(cost)
-	res.Converged = res.Residual <= o.tolerance
-
-	rank := s.rank(free, m)
-	res.DOF = n - rank
-	if res.DOF < 0 {
-		res.DOF = 0
-	}
-	res.Redundant = m - rank
-	if res.Redundant < 0 {
-		res.Redundant = 0
-	}
-
-	if !res.Converged {
-		return res, ErrNotConverged
-	}
-	return res, nil
+	return iter
 }
 
 // DOF reports the remaining degrees of freedom of the sketch at its current
@@ -243,7 +303,7 @@ func (s *Sketch) RedundantConstraints() []Constraint {
 		return nil
 	}
 
-	J := s.jacobian(free, m)
+	J := s.jacobian(free, m, s.residuals)
 
 	// Incremental Gram–Schmidt over the Jacobian rows: a row that projects to
 	// (numerically) zero against the rows accepted so far adds no independent
@@ -312,6 +372,17 @@ func (s *Sketch) residuals(buf []float64) []float64 {
 	return buf
 }
 
+// goalResiduals evaluates the augmented residual vector: every hard constraint
+// followed by two weighted soft rows per goal. Used only inside Solve — goals
+// are not constraints and must stay invisible to DOF/rank/redundancy analysis.
+func (s *Sketch) goalResiduals(buf []float64, goals []goalTarget) []float64 {
+	buf = s.residuals(buf)
+	for _, g := range goals {
+		buf = append(buf, goalWeight*(g.p.x()-g.tx), goalWeight*(g.p.y()-g.ty))
+	}
+	return buf
+}
+
 // refreshDriven updates every driven dimension's target to the value measured
 // from the current geometry, expressed in the dimension's own unit. Called at
 // the end of [Sketch.Solve] so driven dimensions report the solved geometry.
@@ -332,9 +403,11 @@ func (s *Sketch) refreshDriven() {
 	}
 }
 
-// jacobian computes the m×n Jacobian of the residuals w.r.t. the free
-// variables using central finite differences.
-func (s *Sketch) jacobian(free []int, m int) [][]float64 {
+// jacobian computes the m×n Jacobian of the residual vector produced by eval
+// w.r.t. the free variables using central finite differences. Hard-constraint
+// analysis passes s.residuals; Solve passes its (possibly goal-augmented)
+// evaluator.
+func (s *Sketch) jacobian(free []int, m int, eval func([]float64) []float64) [][]float64 {
 	n := len(free)
 	J := make([][]float64, m)
 	for i := range J {
@@ -348,9 +421,9 @@ func (s *Sketch) jacobian(free []int, m int) [][]float64 {
 		orig := s.vars[vi]
 		h := 1e-7 * (1 + math.Abs(orig))
 		s.vars[vi] = orig + h
-		rp = s.residuals(rp)
+		rp = eval(rp)
 		s.vars[vi] = orig - h
-		rm = s.residuals(rm)
+		rm = eval(rm)
 		s.vars[vi] = orig
 		inv := 1.0 / (2 * h)
 		for i := 0; i < m; i++ {
@@ -360,10 +433,10 @@ func (s *Sketch) jacobian(free []int, m int) [][]float64 {
 	return J
 }
 
-// rank estimates the rank of the Jacobian at the current configuration via
-// Gaussian elimination with partial pivoting.
+// rank estimates the rank of the hard-constraint Jacobian at the current
+// configuration via Gaussian elimination with partial pivoting.
 func (s *Sketch) rank(free []int, m int) int {
-	J := s.jacobian(free, m)
+	J := s.jacobian(free, m, s.residuals)
 	n := len(free)
 	const eps = 1e-9
 	row := 0

@@ -91,10 +91,11 @@ constraint solver:
 - **Under-constrained visualization data** — Fusion shows unconstrained
   geometry in blue. API equivalent: report which variables/entities still have
   free DOF (null-space of J).
-- **Dragging** — Fusion's defining interaction: grab a point, solver re-solves
-  continuously with the dragged point as a soft target. Engine-side: a solve
-  with an extra low-weight residual pulling toward the cursor. Needed before
-  any GUI layer works.
+- ~~**Dragging**~~ — *engine side closed 2026-06*: `Solve(WithGoal(p, x, y))`
+  pulls a point toward a target while constraints hold exactly (two-phase:
+  augmented pull + hard-only polish; see `docs/goal-solve-design.md`). Gesture
+  policy (entity dragging semantics, snapping, hit-testing) deliberately stays
+  in the future UI layer.
 
 ## Profiles & regions
 
@@ -120,9 +121,9 @@ Without it the "2D → 3D someday" door stays shut.
 3. ~~**Driven dimensions**~~ — *done 2026-06*.
 4. ~~**Redundant-constraint identification**~~ — *done 2026-06*
    (`RedundantConstraints()`; conflicting-vs-redundant still open).
-5. **Drag-solve API** — prerequisite for any interactive layer.
+5. ~~**Drag-solve API**~~ — *done 2026-06* as goal-solve
+   (`Solve(WithGoal(…))`; design in `docs/goal-solve-design.md`).
 6. **Offset/fillet/trim**, then **ellipse**, then **profiles/loop detection**,
    with **splines** last (largest solver impact).
 
-Dragging and splines deserve a design doc before code; see
-`docs/drag-solve-design.md` for the former.
+Splines still deserve a design doc before code.

@@ -239,6 +239,21 @@ If the solver cannot satisfy the constraints (typically an over-constrained or
 contradictory sketch) `Solve` returns `ErrNotConverged` together with the
 partial result.
 
+### Goals (interactive dragging)
+
+`Solve` accepts soft targets — the engine primitive behind drag interactions:
+
+```go
+res, err := s.Solve(sketch.WithGoal(p, x, y)) // pull p toward (x, y)
+```
+
+Constraints always win: the geometry settles at the closest feasible
+configuration, and an unreachable target is not an error. Goals are transient
+(per-call, never serialized, invisible to DOF/redundancy analysis). Issue one
+goal per pointer-move event for dragging; several goals move whole selections.
+Gesture policy (what dragging a line's body *means*) belongs to the UI layer —
+see `docs/goal-solve-design.md`.
+
 ### How it works
 
 All scalar unknowns (point coordinates, circle radii) form one parameter

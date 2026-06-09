@@ -142,6 +142,13 @@ sees them automatically.
   Anything that maps residual rows back to constraints (e.g.
   `RedundantConstraints`) MUST mirror `residuals()`'s iteration exactly —
   including the driven skip — or row↔constraint attribution silently shifts.
+- **Goals (`WithGoal`) are transient solver rows, never constraints.** They
+  exist only inside `Solve`'s pull phase; `residuals()`, `rank`, `DOF` and
+  `RedundantConstraints` never see them. Goal solves are **two-phase** (pull
+  on the augmented system, then polish on hard residuals only) because plain
+  weighted least squares trades constraints off against an unreachable goal by
+  O(w²·pull) — far above tolerance. Don't collapse the phases back into one:
+  the polish pass is what makes "constraints win exactly" true.
 - **The solver works in base units** (millimetre coordinates, radian angles).
   Dimensions carry a `units.Value`; their residual uses `Target().Base()` to
   reach base units. Unit conversion happens *only* in the `units` library
