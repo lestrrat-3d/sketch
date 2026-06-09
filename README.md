@@ -88,6 +88,35 @@ geometry (rendered dashed/grey, exported to a separate DXF layer).
 `Distance`, `HorizontalDistance`, `VerticalDistance`, `Radius`, `Diameter`,
 `Angle` (radians, between two lines).
 
+## Parameters & expressions
+
+Every dimension can be **driven by an expression** instead of a literal. Each
+sketch carries a parameter table (the [`param`](param) package); a bound
+dimension is re-evaluated against it before every solve, so changing one
+parameter cascades through everything that depends on it.
+
+```go
+s.Params().Set("width", "120")
+s.Params().Set("height", "width * 0.6")     // expressions may reference others
+s.Params().Set("hole_d", "min(width, height) / 3")
+
+s.Bind(s.Distance(a, b, 0), "width")
+s.Bind(s.Distance(a, d, 0), "height")
+s.Bind(s.Radius(hole, 0), "hole_d / 2")
+
+s.Solve()                       // width=120 -> height=72, hole d=24
+s.Params().Set("width", "200")  // change ONE parameter ...
+s.Solve()                       // ... height=120 and hole d=40 follow
+
+// Calling a dimension's .Set(v) overrides and unbinds it.
+```
+
+Parameters (and each dimension's bound expression) are included in the sketch's
+JSON, so a parametric sketch reloads still parametric. The expression language
+supports arithmetic, `^`, parentheses, constants (`pi`, `tau`, `e`, `phi`) and
+functions (`sin`, `sqrt`, `min`/`max`, `hypot`, `clamp`, …); see
+[`examples/parametric`](examples/parametric).
+
 ## Solving
 
 ```go

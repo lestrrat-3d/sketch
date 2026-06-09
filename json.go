@@ -3,6 +3,8 @@ package sketch
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/lestrrat-3d/sketch/param"
 )
 
 // On-disk representation. Points and entities are referenced by their stable
@@ -28,6 +30,7 @@ type jsonConstraint struct {
 	Points   []int   `json:"points,omitempty"`
 	Entities []int   `json:"entities,omitempty"`
 	Value    float64 `json:"value,omitempty"`
+	Expr     string  `json:"expr,omitempty"` // parameter binding on a dimension
 	Flag     bool    `json:"flag,omitempty"`
 }
 
@@ -35,6 +38,7 @@ type jsonSketch struct {
 	Points      []jsonPoint      `json:"points"`
 	Entities    []jsonEntity     `json:"entities"`
 	Constraints []jsonConstraint `json:"constraints"`
+	Parameters  *param.Table     `json:"parameters,omitempty"`
 }
 
 // MarshalJSON implements [json.Marshaler], producing a portable, reloadable
@@ -77,6 +81,10 @@ func (s *Sketch) MarshalJSON() ([]byte, error) {
 		js.Constraints = append(js.Constraints, jc)
 	}
 
+	if s.params != nil && len(s.params.Names()) > 0 {
+		js.Parameters = s.params
+	}
+
 	return json.Marshal(js)
 }
 
@@ -109,17 +117,17 @@ func marshalConstraint(c Constraint) (jsonConstraint, bool) {
 	case *tangentCircles:
 		return jsonConstraint{Type: "tangent_circles", Entities: []int{t.C1.id, t.C2.id}, Flag: t.Internal}, true
 	case *Distance:
-		return jsonConstraint{Type: "distance", Points: []int{t.P1.id, t.P2.id}, Value: t.Value}, true
+		return jsonConstraint{Type: "distance", Points: []int{t.P1.id, t.P2.id}, Value: t.Value, Expr: t.Expr}, true
 	case *HorizontalDistance:
-		return jsonConstraint{Type: "hdistance", Points: []int{t.P1.id, t.P2.id}, Value: t.Value}, true
+		return jsonConstraint{Type: "hdistance", Points: []int{t.P1.id, t.P2.id}, Value: t.Value, Expr: t.Expr}, true
 	case *VerticalDistance:
-		return jsonConstraint{Type: "vdistance", Points: []int{t.P1.id, t.P2.id}, Value: t.Value}, true
+		return jsonConstraint{Type: "vdistance", Points: []int{t.P1.id, t.P2.id}, Value: t.Value, Expr: t.Expr}, true
 	case *Radius:
-		return jsonConstraint{Type: "radius", Entities: []int{t.C.id}, Value: t.Value}, true
+		return jsonConstraint{Type: "radius", Entities: []int{t.C.id}, Value: t.Value, Expr: t.Expr}, true
 	case *Diameter:
-		return jsonConstraint{Type: "diameter", Entities: []int{t.C.id}, Value: t.Value}, true
+		return jsonConstraint{Type: "diameter", Entities: []int{t.C.id}, Value: t.Value, Expr: t.Expr}, true
 	case *Angle:
-		return jsonConstraint{Type: "angle", Entities: []int{t.L1.id, t.L2.id}, Value: t.Value}, true
+		return jsonConstraint{Type: "angle", Entities: []int{t.L1.id, t.L2.id}, Value: t.Value, Expr: t.Expr}, true
 	}
 	return jsonConstraint{}, false
 }
@@ -187,6 +195,10 @@ func (s *Sketch) UnmarshalJSON(data []byte) error {
 			return err
 		}
 	}
+
+	if js.Parameters != nil {
+		s.params = js.Parameters
+	}
 	return nil
 }
 
@@ -231,7 +243,7 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		case "equal_lines":
 			s.Equal(l1, l2)
 		case "angle":
-			s.Angle(l1, l2, jc.Value)
+			s.Angle(l1, l2, jc.Value).setDriverExpr(jc.Expr)
 		}
 	case "point_on_line":
 		l, err := line(jc.Entities[0])
@@ -288,23 +300,23 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		}
 		s.TangentCircles(c1, c2, jc.Flag)
 	case "distance":
-		s.Distance(pt(0), pt(1), jc.Value)
+		s.Distance(pt(0), pt(1), jc.Value).setDriverExpr(jc.Expr)
 	case "hdistance":
-		s.HorizontalDistance(pt(0), pt(1), jc.Value)
+		s.HorizontalDistance(pt(0), pt(1), jc.Value).setDriverExpr(jc.Expr)
 	case "vdistance":
-		s.VerticalDistance(pt(0), pt(1), jc.Value)
+		s.VerticalDistance(pt(0), pt(1), jc.Value).setDriverExpr(jc.Expr)
 	case "radius":
 		c, err := circle(jc.Entities[0])
 		if err != nil {
 			return err
 		}
-		s.Radius(c, jc.Value)
+		s.Radius(c, jc.Value).setDriverExpr(jc.Expr)
 	case "diameter":
 		c, err := circle(jc.Entities[0])
 		if err != nil {
 			return err
 		}
-		s.Diameter(c, jc.Value)
+		s.Diameter(c, jc.Value).setDriverExpr(jc.Expr)
 	default:
 		return fmt.Errorf("sketch: unknown constraint type %q", jc.Type)
 	}

@@ -242,22 +242,31 @@ func (s *Sketch) TangentCircles(c1, c2 *Circle, internal bool) Constraint {
 // --- dimensional constraints ------------------------------------------------
 
 // Distance is an editable point-to-point distance dimension.
+//
+// Like every dimension type, its driving Value may instead be bound to a
+// parameter expression with [Sketch.Bind]; the bound expression (Expr) is
+// re-evaluated against the sketch's parameter table before each solve.
 type Distance struct {
 	P1, P2 *Point
 	Value  float64
+	Expr   string // bound parameter expression; empty when the value is literal
 }
 
 func (c *Distance) residual(out []float64) []float64 {
 	return append(out, dist(c.P1, c.P2)-c.Value)
 }
 
-// Set changes the driving value of the dimension. Call [Sketch.Solve] again to
-// apply it.
-func (c *Distance) Set(v float64) { c.Value = v }
+// Set changes the driving value of the dimension and clears any parameter
+// binding. Call [Sketch.Solve] again to apply it.
+func (c *Distance) Set(v float64)          { c.Value = v; c.Expr = "" }
+func (c *Distance) value() float64         { return c.Value }
+func (c *Distance) setValue(v float64)     { c.Value = v }
+func (c *Distance) driverExpr() string     { return c.Expr }
+func (c *Distance) setDriverExpr(e string) { c.Expr = e }
 
 // Distance constrains the straight-line distance between two points.
 func (s *Sketch) Distance(p1, p2 *Point, d float64) *Distance {
-	c := &Distance{p1, p2, d}
+	c := &Distance{P1: p1, P2: p2, Value: d}
 	s.add(c)
 	return c
 }
@@ -266,18 +275,23 @@ func (s *Sketch) Distance(p1, p2 *Point, d float64) *Distance {
 type HorizontalDistance struct {
 	P1, P2 *Point
 	Value  float64
+	Expr   string
 }
 
 func (c *HorizontalDistance) residual(out []float64) []float64 {
 	return append(out, c.P2.x()-c.P1.x()-c.Value)
 }
 
-// Set changes the driving value of the dimension.
-func (c *HorizontalDistance) Set(v float64) { c.Value = v }
+// Set changes the driving value of the dimension and clears any binding.
+func (c *HorizontalDistance) Set(v float64)          { c.Value = v; c.Expr = "" }
+func (c *HorizontalDistance) value() float64         { return c.Value }
+func (c *HorizontalDistance) setValue(v float64)     { c.Value = v }
+func (c *HorizontalDistance) driverExpr() string     { return c.Expr }
+func (c *HorizontalDistance) setDriverExpr(e string) { c.Expr = e }
 
 // HorizontalDistance constrains the signed horizontal distance (x2−x1).
 func (s *Sketch) HorizontalDistance(p1, p2 *Point, d float64) *HorizontalDistance {
-	c := &HorizontalDistance{p1, p2, d}
+	c := &HorizontalDistance{P1: p1, P2: p2, Value: d}
 	s.add(c)
 	return c
 }
@@ -286,18 +300,23 @@ func (s *Sketch) HorizontalDistance(p1, p2 *Point, d float64) *HorizontalDistanc
 type VerticalDistance struct {
 	P1, P2 *Point
 	Value  float64
+	Expr   string
 }
 
 func (c *VerticalDistance) residual(out []float64) []float64 {
 	return append(out, c.P2.y()-c.P1.y()-c.Value)
 }
 
-// Set changes the driving value of the dimension.
-func (c *VerticalDistance) Set(v float64) { c.Value = v }
+// Set changes the driving value of the dimension and clears any binding.
+func (c *VerticalDistance) Set(v float64)          { c.Value = v; c.Expr = "" }
+func (c *VerticalDistance) value() float64         { return c.Value }
+func (c *VerticalDistance) setValue(v float64)     { c.Value = v }
+func (c *VerticalDistance) driverExpr() string     { return c.Expr }
+func (c *VerticalDistance) setDriverExpr(e string) { c.Expr = e }
 
 // VerticalDistance constrains the signed vertical distance (y2−y1).
 func (s *Sketch) VerticalDistance(p1, p2 *Point, d float64) *VerticalDistance {
-	c := &VerticalDistance{p1, p2, d}
+	c := &VerticalDistance{P1: p1, P2: p2, Value: d}
 	s.add(c)
 	return c
 }
@@ -306,18 +325,23 @@ func (s *Sketch) VerticalDistance(p1, p2 *Point, d float64) *VerticalDistance {
 type Radius struct {
 	C     *Circle
 	Value float64
+	Expr  string
 }
 
 func (c *Radius) residual(out []float64) []float64 {
 	return append(out, c.C.r()-c.Value)
 }
 
-// Set changes the driving value of the dimension.
-func (c *Radius) Set(v float64) { c.Value = v }
+// Set changes the driving value of the dimension and clears any binding.
+func (c *Radius) Set(v float64)          { c.Value = v; c.Expr = "" }
+func (c *Radius) value() float64         { return c.Value }
+func (c *Radius) setValue(v float64)     { c.Value = v }
+func (c *Radius) driverExpr() string     { return c.Expr }
+func (c *Radius) setDriverExpr(e string) { c.Expr = e }
 
 // Radius constrains a circle's radius.
 func (s *Sketch) Radius(c *Circle, r float64) *Radius {
-	rc := &Radius{c, r}
+	rc := &Radius{C: c, Value: r}
 	s.add(rc)
 	return rc
 }
@@ -326,18 +350,23 @@ func (s *Sketch) Radius(c *Circle, r float64) *Radius {
 type Diameter struct {
 	C     *Circle
 	Value float64
+	Expr  string
 }
 
 func (c *Diameter) residual(out []float64) []float64 {
 	return append(out, 2*c.C.r()-c.Value)
 }
 
-// Set changes the driving value of the dimension.
-func (c *Diameter) Set(v float64) { c.Value = v }
+// Set changes the driving value of the dimension and clears any binding.
+func (c *Diameter) Set(v float64)          { c.Value = v; c.Expr = "" }
+func (c *Diameter) value() float64         { return c.Value }
+func (c *Diameter) setValue(v float64)     { c.Value = v }
+func (c *Diameter) driverExpr() string     { return c.Expr }
+func (c *Diameter) setDriverExpr(e string) { c.Expr = e }
 
 // Diameter constrains a circle's diameter.
 func (s *Sketch) Diameter(c *Circle, d float64) *Diameter {
-	dc := &Diameter{c, d}
+	dc := &Diameter{C: c, Value: d}
 	s.add(dc)
 	return dc
 }
@@ -347,6 +376,7 @@ func (s *Sketch) Diameter(c *Circle, d float64) *Diameter {
 type Angle struct {
 	L1, L2 *Line
 	Value  float64
+	Expr   string
 }
 
 func (c *Angle) residual(out []float64) []float64 {
@@ -366,12 +396,17 @@ func (c *Angle) residual(out []float64) []float64 {
 	return append(out, r)
 }
 
-// Set changes the driving value of the dimension (radians).
-func (c *Angle) Set(v float64) { c.Value = v }
+// Set changes the driving value of the dimension (radians) and clears any
+// binding.
+func (c *Angle) Set(v float64)          { c.Value = v; c.Expr = "" }
+func (c *Angle) value() float64         { return c.Value }
+func (c *Angle) setValue(v float64)     { c.Value = v }
+func (c *Angle) driverExpr() string     { return c.Expr }
+func (c *Angle) setDriverExpr(e string) { c.Expr = e }
 
 // Angle constrains the angle from line l1 to line l2 (radians).
 func (s *Sketch) Angle(l1, l2 *Line, radians float64) *Angle {
-	c := &Angle{l1, l2, radians}
+	c := &Angle{L1: l1, L2: l2, Value: radians}
 	s.add(c)
 	return c
 }

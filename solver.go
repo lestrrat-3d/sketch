@@ -35,6 +35,11 @@ func (s *Sketch) Solve(opts ...SolveOptions) (*Result, error) {
 		o = opts[0]
 	}
 
+	// Refresh any dimensions driven by parameter expressions before solving.
+	if err := s.ApplyParameters(); err != nil {
+		return &Result{}, err
+	}
+
 	free := s.freeVars()
 	n := len(free)
 

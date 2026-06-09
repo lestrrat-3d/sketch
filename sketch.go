@@ -3,6 +3,8 @@ package sketch
 import (
 	"errors"
 	"math"
+
+	"github.com/lestrrat-3d/sketch/param"
 )
 
 // Sketch is a collection of geometric primitives and the constraints relating
@@ -18,6 +20,8 @@ type Sketch struct {
 	points []*Point
 	ents   []Entity
 	cons   []Constraint
+
+	params *param.Table // optional; drives bound dimensions
 }
 
 // New returns an empty sketch.
