@@ -47,19 +47,19 @@ bc := s.AddLine(geom.NewLine(b, c))
 dc := s.AddLine(geom.NewLine(d, c))
 ad := s.AddLine(geom.NewLine(a, d))
 
-s.Lock(ab.A, 0, 0) // ground a corner at the origin
+s.Lock(ab.Start, 0, 0) // ground a corner at the origin
 s.AddConstraint(
 	sketch.NewHorizontal(ab),
 	sketch.NewHorizontal(dc),
 	sketch.NewVertical(ad),
 	sketch.NewVertical(bc),
 )
-width := sketch.NewDistance(ab.A, ab.B, 20) // driving dimensions
-height := sketch.NewDistance(ad.A, ad.B, 12)
+width := sketch.NewDistance(ab.Start, ab.End, 20) // driving dimensions
+height := sketch.NewDistance(ad.Start, ad.End, 12)
 s.AddConstraint(width, height)
 
 res, err := s.Solve()
-// res.DOF == 0  -> fully constrained; ab.B == (20, 0), bc.B == (20, 12)
+// res.DOF == 0  -> fully constrained; ab.End == (20, 0), bc.End == (20, 12)
 
 width.Set(35) // edit a dimension ...
 s.Solve()     // ... and re-solve: the rectangle is now 35 x 12

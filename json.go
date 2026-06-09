@@ -90,7 +90,7 @@ func (s *Sketch) MarshalJSON() ([]byte, error) {
 		switch t := e.(type) {
 		case *Line:
 			js.Entities = append(js.Entities, jsonEntity{
-				Type: "line", Points: []int{t.A.id, t.B.id}, Construction: t.g.Construction,
+				Type: "line", Points: []int{t.Start.id, t.End.id}, Construction: t.g.Construction,
 			})
 		case *Circle:
 			js.Entities = append(js.Entities, jsonEntity{

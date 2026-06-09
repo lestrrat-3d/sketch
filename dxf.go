@@ -38,11 +38,11 @@ func (s *Sketch) DXF() (string, error) {
 		case *Line:
 			pair(0, "LINE")
 			pair(8, layer)
-			pairf(10, t.A.x())
-			pairf(20, t.A.y())
+			pairf(10, t.Start.x())
+			pairf(20, t.Start.y())
 			pairf(30, 0)
-			pairf(11, t.B.x())
-			pairf(21, t.B.y())
+			pairf(11, t.End.x())
+			pairf(21, t.End.y())
 			pairf(31, 0)
 		case *Circle:
 			pair(0, "CIRCLE")

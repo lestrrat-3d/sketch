@@ -47,7 +47,7 @@ func NewCoincident(p1, p2 *Point) Constraint { return &coincident{p1, p2} }
 type horizontal struct{ L *Line }
 
 func (c *horizontal) residual(out []float64) []float64 {
-	return append(out, c.L.A.y()-c.L.B.y())
+	return append(out, c.L.Start.y()-c.L.End.y())
 }
 
 // NewHorizontal forces a line to be horizontal.
@@ -56,7 +56,7 @@ func NewHorizontal(l *Line) Constraint { return &horizontal{l} }
 type vertical struct{ L *Line }
 
 func (c *vertical) residual(out []float64) []float64 {
-	return append(out, c.L.A.x()-c.L.B.x())
+	return append(out, c.L.Start.x()-c.L.End.x())
 }
 
 // NewVertical forces a line to be vertical.
@@ -97,8 +97,8 @@ type pointOnLine struct {
 
 func (c *pointOnLine) residual(out []float64) []float64 {
 	// signed perpendicular distance from P to the line (length units)
-	ax, ay := c.L.A.x(), c.L.A.y()
-	abx, aby := c.L.B.x()-ax, c.L.B.y()-ay
+	ax, ay := c.L.Start.x(), c.L.Start.y()
+	abx, aby := c.L.End.x()-ax, c.L.End.y()-ay
 	apx, apy := c.P.x()-ax, c.P.y()-ay
 	return append(out, (abx*apy-aby*apx)/norm(abx, aby))
 }
@@ -110,8 +110,8 @@ type collinear struct{ L1, L2 *Line }
 
 func (c *collinear) residual(out []float64) []float64 {
 	// both endpoints of L2 lie on the infinite line through L1
-	out = (&pointOnLine{c.L2.A, c.L1}).residual(out)
-	out = (&pointOnLine{c.L2.B, c.L1}).residual(out)
+	out = (&pointOnLine{c.L2.Start, c.L1}).residual(out)
+	out = (&pointOnLine{c.L2.End, c.L1}).residual(out)
 	return out
 }
 
@@ -141,8 +141,8 @@ type midpoint struct {
 
 func (c *midpoint) residual(out []float64) []float64 {
 	return append(out,
-		c.P.x()-(c.L.A.x()+c.L.B.x())/2,
-		c.P.y()-(c.L.A.y()+c.L.B.y())/2,
+		c.P.x()-(c.L.Start.x()+c.L.End.x())/2,
+		c.P.y()-(c.L.Start.y()+c.L.End.y())/2,
 	)
 }
 
@@ -155,8 +155,8 @@ type symmetric struct {
 }
 
 func (c *symmetric) residual(out []float64) []float64 {
-	ax, ay := c.Axis.A.x(), c.Axis.A.y()
-	abx, aby := c.Axis.B.x()-ax, c.Axis.B.y()-ay
+	ax, ay := c.Axis.Start.x(), c.Axis.Start.y()
+	abx, aby := c.Axis.End.x()-ax, c.Axis.End.y()-ay
 	// midpoint of P1P2 lies on the axis
 	mx := (c.P1.x()+c.P2.x())/2 - ax
 	my := (c.P1.y()+c.P2.y())/2 - ay
@@ -210,8 +210,8 @@ type tangentLineCircle struct {
 
 func (c *tangentLineCircle) residual(out []float64) []float64 {
 	// |distance(center, line)| − r, in length units
-	ax, ay := c.L.A.x(), c.L.A.y()
-	abx, aby := c.L.B.x()-ax, c.L.B.y()-ay
+	ax, ay := c.L.Start.x(), c.L.Start.y()
+	abx, aby := c.L.End.x()-ax, c.L.End.y()-ay
 	acx, acy := c.C.Center.x()-ax, c.C.Center.y()-ay
 	cross := abx*acy - aby*acx
 	return append(out, math.Abs(cross)/norm(abx, aby)-c.C.r())
@@ -445,7 +445,7 @@ func NewAngle(l1, l2 *Line, a float64) *Angle {
 
 // --- geometry helpers -------------------------------------------------------
 
-func dir(l *Line) (dx, dy float64) { return l.B.x() - l.A.x(), l.B.y() - l.A.y() }
+func dir(l *Line) (dx, dy float64) { return l.End.x() - l.Start.x(), l.End.y() - l.Start.y() }
 
 func dist(a, b *Point) float64 { return math.Hypot(a.x()-b.x(), a.y()-b.y()) }
 

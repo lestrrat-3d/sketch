@@ -153,10 +153,10 @@ type Entity interface {
 
 // Line is the solver-bound instance of a [geom.Line].
 type Line struct {
-	g    *geom.Line
-	s    *Sketch
-	A, B *Point
-	id   int
+	g          *geom.Line
+	s          *Sketch
+	Start, End *Point
+	id         int
 }
 
 func (l *Line) entity()              {}
@@ -167,7 +167,7 @@ func (l *Line) isConstruction() bool { return l.g.Construction }
 func (l *Line) Generic() *geom.Line { return l.g }
 
 // Length returns the current distance between the line's endpoints.
-func (l *Line) Length() float64 { return math.Hypot(l.B.x()-l.A.x(), l.B.y()-l.A.y()) }
+func (l *Line) Length() float64 { return math.Hypot(l.End.x()-l.Start.x(), l.End.y()-l.Start.y()) }
 
 // AddLine commits a generic line to the sketch, first committing its endpoints,
 // and returns its solver-bound instance. It is idempotent.
@@ -175,7 +175,7 @@ func (s *Sketch) AddLine(g *geom.Line) *Line {
 	if l, ok := s.lnOf[g]; ok {
 		return l
 	}
-	l := &Line{g: g, s: s, A: s.AddPoint(g.A), B: s.AddPoint(g.B), id: len(s.ents)}
+	l := &Line{g: g, s: s, Start: s.AddPoint(g.Start), End: s.AddPoint(g.End), id: len(s.ents)}
 	s.ents = append(s.ents, l)
 	s.lnOf[g] = l
 	return l

@@ -29,7 +29,7 @@ func TestSharedPointIdentity(t *testing.T) {
 	v := NewPoint(1, 1)
 	l1 := NewLine(NewPoint(0, 0), v)
 	l2 := NewLine(v, NewPoint(2, 2))
-	if l1.B != l2.A {
+	if l1.End != l2.Start {
 		t.Error("shared vertex should be the same *Point")
 	}
 }

@@ -97,21 +97,21 @@ func TestGenericGeometryReuse(t *testing.T) {
 	// Commit it into two independent sketches with different widths.
 	s1 := New()
 	l1 := s1.AddLine(gl)
-	s1.Lock(l1.A, 0, 0)
+	s1.Lock(l1.Start, 0, 0)
 	s1.AddConstraint(NewHorizontal(l1))
-	addDist(s1, l1.A, l1.B, 25)
+	addDist(s1, l1.Start, l1.End, 25)
 	mustSolve(t, s1)
-	approx(t, "s1 width", l1.B.X(), 25)
+	approx(t, "s1 width", l1.End.X(), 25)
 
 	s2 := New()
 	l2 := s2.AddLine(gl) // same generic geometry, fresh solver state
-	s2.Lock(l2.A, 0, 0)
+	s2.Lock(l2.Start, 0, 0)
 	s2.AddConstraint(NewHorizontal(l2))
-	addDist(s2, l2.A, l2.B, 100)
+	addDist(s2, l2.Start, l2.End, 100)
 	mustSolve(t, s2)
 
-	approx(t, "s2 width", l2.B.X(), 100)
-	approx(t, "s1 unaffected", l1.B.X(), 25) // independent
+	approx(t, "s2 width", l2.End.X(), 100)
+	approx(t, "s1 unaffected", l1.End.X(), 25) // independent
 	approx(t, "generic template unchanged", gb.X, 40)
 }
 

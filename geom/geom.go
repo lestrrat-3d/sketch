@@ -16,15 +16,15 @@ func NewPoint(x, y float64) *Point { return &Point{X: x, Y: y} }
 
 // Line is a straight segment between two points.
 type Line struct {
-	A, B         *Point
+	Start, End   *Point
 	Construction bool
 }
 
-// NewLine returns a line between two points.
-func NewLine(a, b *Point) *Line { return &Line{A: a, B: b} }
+// NewLine returns a line between start and end.
+func NewLine(start, end *Point) *Line { return &Line{Start: start, End: end} }
 
 // Length returns the distance between the line's endpoints.
-func (l *Line) Length() float64 { return math.Hypot(l.B.X-l.A.X, l.B.Y-l.A.Y) }
+func (l *Line) Length() float64 { return math.Hypot(l.End.X-l.Start.X, l.End.Y-l.Start.Y) }
 
 // Circle is a full circle defined by a center point and a radius.
 type Circle struct {
