@@ -99,14 +99,15 @@ directly. Any new geometry that introduces unknowns must allocate them via
 These are unsettled. If you resolve one, record the decision here.
 
 - **Parameters & expressions.** *Resolved.* The `param` engine is wired into
-  the sketcher: a `Sketch` optionally owns a `param.Table` (`s.Params()`, or
-  attach an external one with `s.SetParams`), and any [Dimension] can be bound
-  to an expression via `s.Bind(dim, expr)`. Bound dimensions are re-evaluated
-  by `ApplyParameters` at the start of every `Solve`; a manual `.Set(v)`
-  clears the binding. Parameters and per-dimension expressions are serialized
-  in the sketch JSON. The dependency arrow is `sketch -> param`, never the
-  reverse. *Possible follow-ups:* parameter units, and reporting which
-  parameter a solve failure came from.
+  the sketcher: the caller supplies a `param.Table` explicitly at bind time via
+  `s.Bind(dim, table, expr)` (the table is required, and all of a sketch's
+  dimensions must share one table — `ErrTableMismatch` otherwise). `s.Params()`
+  returns whatever table the bindings established (nil if none). Bound
+  dimensions are re-evaluated by `ApplyParameters` at the start of every
+  `Solve`; a manual `.Set(v)` clears the binding. Parameters and per-dimension
+  expressions are serialized in the sketch JSON. The dependency arrow is
+  `sketch -> param`, never the reverse. *Possible follow-ups:* parameter units,
+  and reporting which parameter a solve failure came from.
 - **Geometry coverage.** Splines/B-splines, ellipses, slots, fillet/chamfer and
   offset helpers are not yet present. Splines in particular interact with the
   solver (control points as unknowns).

@@ -2,8 +2,11 @@ package sketch
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/lestrrat-3d/sketch/param"
 )
 
 // parametricRect builds a rectangle whose width and height are driven by
@@ -25,18 +28,19 @@ func parametricRect(t *testing.T) (s *Sketch, b, c, d *Point) {
 	s.Vertical(ad)
 	s.Vertical(bc)
 
-	if err := s.Params().Set("w", "20"); err != nil {
+	p := param.New()
+	if err := p.Set("w", "20"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Params().Set("h", "w / 2"); err != nil { // height depends on width
+	if err := p.Set("h", "w / 2"); err != nil { // height depends on width
 		t.Fatal(err)
 	}
 	wDim := s.Distance(a, b, 0)
 	hDim := s.Distance(a, d, 0)
-	if err := s.Bind(wDim, "w"); err != nil {
+	if err := s.Bind(wDim, p, "w"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Bind(hDim, "h"); err != nil {
+	if err := s.Bind(hDim, p, "h"); err != nil {
 		t.Fatal(err)
 	}
 	return s, b, c, d
@@ -102,10 +106,11 @@ func TestBindExpressionInline(t *testing.T) {
 	b := s.AddPoint(3, 0)
 	s.Lock(a, 0, 0)
 	s.Horizontal(s.AddLine(a, b))
-	s.Params().Set("gap", "8")
+	p := param.New()
+	p.Set("gap", "8")
 	dim := s.Distance(a, b, 0)
 	// Expression combining a parameter, a function and a constant.
-	if err := s.Bind(dim, "gap * 2 + sqrt(16)"); err != nil {
+	if err := s.Bind(dim, p, "gap * 2 + sqrt(16)"); err != nil {
 		t.Fatal(err)
 	}
 	mustSolve(t, s)
@@ -117,8 +122,36 @@ func TestBindSyntaxError(t *testing.T) {
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(1, 0)
 	dim := s.Distance(a, b, 1)
-	if err := s.Bind(dim, "1 +"); err == nil {
+	if err := s.Bind(dim, param.New(), "1 +"); err == nil {
 		t.Fatal("expected syntax error from Bind")
+	}
+}
+
+func TestBindNilTable(t *testing.T) {
+	s := New()
+	a := s.AddPoint(0, 0)
+	b := s.AddPoint(1, 0)
+	dim := s.Distance(a, b, 1)
+	if err := s.Bind(dim, nil, "1"); err == nil {
+		t.Fatal("expected error binding with a nil table")
+	}
+}
+
+func TestBindTableMismatch(t *testing.T) {
+	s := New()
+	a := s.AddPoint(0, 0)
+	b := s.AddPoint(1, 0)
+	c := s.AddPoint(0, 1)
+	p1 := param.New()
+	p1.Set("x", "1")
+	p2 := param.New()
+	p2.Set("x", "1")
+	if err := s.Bind(s.Distance(a, b, 0), p1, "x"); err != nil {
+		t.Fatal(err)
+	}
+	err := s.Bind(s.Distance(a, c, 0), p2, "x") // different table
+	if !errors.Is(err, ErrTableMismatch) {
+		t.Fatalf("expected ErrTableMismatch, got %v", err)
 	}
 }
 
@@ -129,7 +162,7 @@ func TestUndefinedParameterFailsSolve(t *testing.T) {
 	s.Lock(a, 0, 0)
 	s.Horizontal(s.AddLine(a, b))
 	dim := s.Distance(a, b, 1)
-	if err := s.Bind(dim, "nope * 2"); err != nil {
+	if err := s.Bind(dim, param.New(), "nope * 2"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Solve(); err == nil {

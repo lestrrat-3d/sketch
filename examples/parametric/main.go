@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/lestrrat-3d/sketch"
+	"github.com/lestrrat-3d/sketch/param"
 )
 
 func main() {
@@ -31,14 +32,14 @@ func main() {
 	s.Vertical(bc)
 
 	// Parameters: a single driving width, everything else derived from it.
-	p := s.Params()
+	p := param.New()
 	p.Set("width", "120")
 	p.Set("height", "width * 0.6")
 	p.Set("hole_d", "min(width, height) / 3")
 
-	// Bind dimensions to expressions.
+	// Bind dimensions to expressions evaluated against p.
 	bind := func(d sketch.Dimension, expr string) {
-		if err := s.Bind(d, expr); err != nil {
+		if err := s.Bind(d, p, expr); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

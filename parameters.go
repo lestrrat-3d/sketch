@@ -1,6 +1,7 @@
 package sketch
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/lestrrat-3d/sketch/param"
@@ -27,33 +28,37 @@ func Value(d Dimension) float64 { return d.value() }
 // its value is a literal.
 func DriverExpr(d Dimension) string { return d.driverExpr() }
 
-// Params returns the sketch's parameter table, creating an empty one on first
-// use. Define parameters on it and bind dimensions to expressions with
-// [Sketch.Bind].
-func (s *Sketch) Params() *param.Table {
-	if s.params == nil {
-		s.params = param.New()
-	}
-	return s.params
-}
+// ErrTableMismatch is returned by [Sketch.Bind] when a dimension is bound to a
+// different parameter table than the one already in use by the sketch. All
+// bound dimensions in a sketch share a single table.
+var ErrTableMismatch = errors.New("sketch: dimensions must be bound to the same parameter table")
 
-// SetParams attaches an external parameter table to the sketch, replacing any
-// existing one. Passing nil detaches parameters entirely.
-func (s *Sketch) SetParams(t *param.Table) { s.params = t }
+// Params returns the parameter table the sketch's dimensions are bound against,
+// or nil if no dimension has been bound yet. The table is supplied explicitly
+// at [Sketch.Bind] time.
+func (s *Sketch) Params() *param.Table { return s.params }
 
-// Bind drives a dimension's value from a parameter expression that is
-// re-evaluated against the sketch's parameter table before every solve. The
-// expression is parsed immediately so syntax errors surface here; references it
-// contains are resolved at solve time.
+// Bind drives a dimension's value from an expression evaluated against the
+// given parameter table before every solve. The table is required and becomes
+// the sketch's table; binding another dimension against a different table
+// returns [ErrTableMismatch]. The expression is parsed immediately so syntax
+// errors surface here; the names it references are resolved at solve time.
 //
-//	s.Params().Set("width", "120")
+//	p := param.New()
+//	p.Set("width", "120")
 //	w := s.Distance(a, b, 0)
-//	s.Bind(w, "width")
-func (s *Sketch) Bind(d Dimension, expr string) error {
+//	s.Bind(w, p, "width")
+func (s *Sketch) Bind(d Dimension, table *param.Table, expr string) error {
+	if table == nil {
+		return fmt.Errorf("sketch: Bind requires a non-nil parameter table")
+	}
+	if s.params != nil && s.params != table {
+		return ErrTableMismatch
+	}
 	if _, err := param.Parse(expr); err != nil {
 		return err
 	}
-	s.Params() // ensure a table exists so the binding is always evaluated
+	s.params = table
 	d.setDriverExpr(expr)
 	return nil
 }
