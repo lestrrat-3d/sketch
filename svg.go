@@ -129,12 +129,12 @@ func (s *Sketch) SVG(opts SVGOptions) (string, error) {
 			fmt.Fprintf(&sb,
 				`  <line x1="%s" y1="%s" x2="%s" y2="%s" stroke="%s" stroke-width="%s"%s/>`+"\n",
 				f(tx(t.A.x())), f(ty(t.A.y())), f(tx(t.B.x())), f(ty(t.B.y())),
-				color(t.Construction), f(opts.StrokeWidth), dash(t.Construction))
+				color(t.isConstruction()), f(opts.StrokeWidth), dash(t.isConstruction()))
 		case *Circle:
 			fmt.Fprintf(&sb,
 				`  <circle cx="%s" cy="%s" r="%s" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
 				f(tx(t.Center.x())), f(ty(t.Center.y())), f(t.r()),
-				color(t.Construction), f(opts.StrokeWidth), dash(t.Construction))
+				color(t.isConstruction()), f(opts.StrokeWidth), dash(t.isConstruction()))
 		case *Arc:
 			pts := arcPolyline(t, opts.ArcSegments)
 			var d strings.Builder
@@ -147,7 +147,7 @@ func (s *Sketch) SVG(opts SVGOptions) (string, error) {
 			}
 			fmt.Fprintf(&sb,
 				`  <path d="%s" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
-				strings.TrimSpace(d.String()), color(t.Construction), f(opts.StrokeWidth), dash(t.Construction))
+				strings.TrimSpace(d.String()), color(t.isConstruction()), f(opts.StrokeWidth), dash(t.isConstruction()))
 		}
 	}
 

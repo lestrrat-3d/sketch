@@ -15,16 +15,18 @@
 //
 // # Example
 //
-//	s := sketch.New()
-//	a := sketch.NewPoint(0, 0)
-//	b := sketch.NewPoint(7, 2)
-//	d := sketch.NewPoint(-1, 8)
-//	ab := s.AddLine(sketch.NewLine(a, b)) // commits ab and its points
-//	ad := s.AddLine(sketch.NewLine(a, d))
+//	// Generic geometry lives in the geom package and is committed into a sketch.
+//	ga := geom.NewPoint(0, 0)
+//	gb := geom.NewPoint(7, 2)
+//	gd := geom.NewPoint(-1, 8)
 //
-//	s.Lock(a, 0, 0) // ground the origin corner
-//	w := sketch.NewDistance(a, b, 100) // driving dimension
-//	h := sketch.NewDistance(a, d, 60)
+//	s := sketch.New()
+//	ab := s.AddLine(geom.NewLine(ga, gb)) // commits the line and its points
+//	ad := s.AddLine(geom.NewLine(ga, gd))
+//
+//	s.Lock(ab.A, 0, 0) // ground the origin corner
+//	w := sketch.NewDistance(ab.A, ab.B, 100) // driving dimension
+//	h := sketch.NewDistance(ad.A, ad.B, 60)
 //	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewVertical(ad), w, h)
 //
 //	res, err := s.Solve()

@@ -33,13 +33,23 @@ expected to be built **on top of** this engine, not woven into it.
 
 | File | Responsibility |
 |---|---|
-| `sketch.go` | `Sketch`, primitives (`Point`/`Line`/`Circle`/`Arc`), the parameter model, grounding. |
-| `constraint.go` | `Constraint` interface and every constraint's residual + the public constructor methods. |
+| `sketch.go` | `Sketch`, solver-bound geometry (`Point`/`Line`/`Circle`/`Arc`) wrapping `geom`, the parameter model, grounding. |
+| `constraint.go` | `Constraint` interface and every constraint's residual + the public `New…` constructors. |
 | `solver.go` | Levenberg–Marquardt solver, numerical Jacobian, DOF/redundancy (rank) analysis. |
 | `svg.go` / `dxf.go` / `json.go` | Exporters / serialization. |
+| `geom/` | **Self-contained** context-agnostic geometry (own package). |
 | `param/` | **Self-contained** parameter & expression engine (own package). |
 | `units/` | **Self-contained** units-of-measure library (own package). |
 | `examples/` | Runnable programs that double as living documentation. |
+
+### The `geom` package (slated for extraction)
+
+`geom/` holds context-agnostic geometry — plain `Point`/`Line`/`Circle`/`Arc`
+definitions (coordinates + metadata, no sketch, solver or constraints). It is
+the reusable *template* layer: the same generic geometry can be committed into
+several independent sketches, each building its own solver-bound instance. It
+must not import `sketch`; the arrow is `sketch -> geom`, never the reverse.
+Standard-library-only and intended to move to its own module later.
 
 ### The `units` package (slated for extraction)
 
@@ -62,29 +72,31 @@ the rest of the repo** — it is intended to move into its own module/repository
 later, so the dependency arrow only ever points *into* it. Keep it standard-
 library-only and independently testable.
 
-### Construction vs. committing (load-bearing)
+### Generic geometry vs. sketch geometry (load-bearing)
 
-Geometry and constraints are **constructed detached** (`NewPoint`, `NewLine`,
-`NewCircle`, `NewArc`, and `NewDistance`/`NewHorizontal`/… for constraints) and
-then **committed** to a sketch as a separate step (`AddPoint`, `AddLine`,
-`AddCircle`, `AddArc`, `AddConstraint`). The two operations are deliberately
-distinct. Adders are **idempotent** and **cascade**: `AddLine` commits the
-line's points first, `AddConstraint` commits any geometry the constraint
-references. A detached object holds its own values (`Point.x0/y0`,
-`Circle.r0`) and is fully usable (`X()`, `Length()`, `R()`) before being added;
-once added it is index-backed (see below). New geometry/constraints must keep
-this split — constructors allocate nothing on a sketch; `Add…` does the
-committing — and `addConstraintGeometry` (in `parameters.go`) must learn the
-new constraint's geometry references so the cascade stays complete.
+Geometry exists at two layers. **Generic geometry** (`geom.Point`/`Line`/…) is a
+context-agnostic template — constructed with `geom.NewX`, holding only
+coordinates/metadata. **Sketch geometry** (`sketch.Point`/`Line`/…) is the
+solver-bound instance, created only by committing generic geometry with
+`s.AddPoint`/`AddLine`/`AddCircle`/`AddArc`. Each sketch keeps a
+`map[*geom.X]*X` so a generic primitive maps to exactly one bound instance per
+sketch (committing the same line twice, or its shared endpoint, is idempotent);
+the same generic geometry committed into a second sketch yields a fresh,
+independent instance. Constraints reference **sketch** geometry (the bound
+handles), so they never reference un-committed geometry — `AddConstraint` just
+registers them (no geometry cascade needed). Constructors (`geom.NewX`) allocate
+nothing on a sketch; `Add…` does all the committing.
 
 ### The parameter model (load-bearing)
 
 All scalar unknowns — point `x`/`y`, circle radius — live in one flat vector on
-the `Sketch` (`vars []float64`, with a parallel `fixed []bool`). Primitives hold
-**indices** into that vector once committed (before that they hold their own
-values). The solver reads/perturbs the vector directly. Any new geometry that
-introduces unknowns must allocate them via `newVar` in its `Add…` method and
-reference them by index so the solver sees them automatically.
+the `Sketch` (`vars []float64`, with a parallel `fixed []bool`). Sketch
+primitives hold **indices** into that vector (and a back-reference to their
+`geom` template). The solver reads/perturbs the vector directly; solving never
+mutates the generic geometry. Grounding (`fixed`) is per-sketch, not a property
+of the generic point. Any new geometry that introduces unknowns must allocate
+them via `newVar` in its `Add…` method and reference them by index so the solver
+sees them automatically.
 
 ### Invariants the solver depends on
 
@@ -121,17 +133,20 @@ reference them by index so the solver sees them automatically.
 ## Conventions
 
 - `gofmt`, `go vet`, and `go test ./...` must all be clean before committing.
-- Constructors are package-level `New…` functions (the `New` prefix is forced
-  for the dimensional ones because their concrete handle types — `Distance`,
-  `Radius`, `Angle`, … — already own the bare name; keep all constructors
-  consistent). `New…` constructs detached; `s.Add…`/`s.AddConstraint` commits.
+- Generic geometry is built with `geom.NewX`; constraints with package-level
+  `New…` functions (the `New` prefix is forced for the dimensional ones because
+  their concrete handle types — `Distance`, `Radius`, `Angle`, … — already own
+  the bare name; keep all constructors consistent). `s.Add…`/`s.AddConstraint`
+  commits.
+- Constraints reference **sketch** geometry (`*sketch.Point`/`*sketch.Line`/…),
+  not generic geometry; the residual reads solved values through it.
 - Public dimensional constructors return concrete handles (`*Distance`, etc.)
   with `.Set`/`.SetValue`; geometric constructors return the `Constraint`
   interface.
 - Keep exported API documented with Go doc comments; primitives expose value
-  accessors (`X()`, `Y()`, `R()`) while the index-backed fields stay unexported.
-- New constraints: add the residual, the `New…` constructor, a case in
-  `addConstraintGeometry` so its geometry cascades, a case in the JSON
+  accessors (`X()`, `Y()`, `R()`, `Generic()`) while index-backed fields stay
+  unexported.
+- New constraints: add the residual, the `New…` constructor, a case in the JSON
   marshal/unmarshal switches, and a test asserting on the solved geometry.
 
 ## Open design questions (the "many variables")

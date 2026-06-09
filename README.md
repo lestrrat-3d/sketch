@@ -22,39 +22,44 @@ import "github.com/lestrrat-3d/sketch"
 
 ## Quick start
 
-Geometry and constraints are **constructed** detached (`sketch.NewPoint`,
-`sketch.NewLine`, `sketch.NewDistance`, …) and then **committed** to the sketch
-as a separate step (`s.AddPoint`, `s.AddLine`, `s.AddConstraint`). Adding a line
-or a constraint idempotently pulls in any geometry it references, so you only
-have to add the top-level objects.
+Geometry comes in two layers. **Generic geometry** (the standalone
+[`geom`](geom) package: `geom.Point`, `geom.Line`, `geom.Circle`, `geom.Arc`) is
+context-agnostic — just coordinates, no solver. You **commit** it into a sketch
+with the `Add…` methods, which return solver-bound handles (`sketch.Point`,
+`sketch.Line`, …). The same generic geometry can be committed into several
+independent sketches.
 
 ```go
+import (
+	"github.com/lestrrat-3d/sketch"
+	"github.com/lestrrat-3d/sketch/geom"
+)
+
+// Generic geometry — reusable, no sketch yet.
+a := geom.NewPoint(0, 0)
+b := geom.NewPoint(18, 2) // rough guesses; the solver finds the exact positions
+c := geom.NewPoint(17, 11)
+d := geom.NewPoint(1, 13)
+
 s := sketch.New()
+ab := s.AddLine(geom.NewLine(a, b)) // commits the line and its two points
+bc := s.AddLine(geom.NewLine(b, c))
+dc := s.AddLine(geom.NewLine(d, c))
+ad := s.AddLine(geom.NewLine(a, d))
 
-a := sketch.NewPoint(0, 0)
-b := sketch.NewPoint(18, 2) // rough guesses; the solver finds the exact positions
-c := sketch.NewPoint(17, 11)
-d := sketch.NewPoint(1, 13)
-
-ab := s.AddLine(sketch.NewLine(a, b)) // commits the line and its two points
-bc := s.AddLine(sketch.NewLine(b, c))
-dc := s.AddLine(sketch.NewLine(d, c))
-ad := s.AddLine(sketch.NewLine(a, d))
-
-s.Lock(a, 0, 0)           // ground a corner at the origin
+s.Lock(ab.A, 0, 0) // ground a corner at the origin
 s.AddConstraint(
 	sketch.NewHorizontal(ab),
 	sketch.NewHorizontal(dc),
 	sketch.NewVertical(ad),
 	sketch.NewVertical(bc),
 )
-width := sketch.NewDistance(a, b, 20) // driving dimensions
-height := sketch.NewDistance(a, d, 12)
+width := sketch.NewDistance(ab.A, ab.B, 20) // driving dimensions
+height := sketch.NewDistance(ad.A, ad.B, 12)
 s.AddConstraint(width, height)
 
 res, err := s.Solve()
-// res.DOF == 0  -> fully constrained
-// b == (20, 0), c == (20, 12), d == (0, 12)
+// res.DOF == 0  -> fully constrained; ab.B == (20, 0), bc.B == (20, 12)
 
 width.Set(35) // edit a dimension ...
 s.Solve()     // ... and re-solve: the rectangle is now 35 x 12
@@ -62,8 +67,7 @@ s.Solve()     // ... and re-solve: the rectangle is now 35 x 12
 svg, _ := s.SVG(sketch.DefaultSVGOptions())
 dxf, _ := s.DXF()
 data, _ := s.MarshalJSON()
-_ = res
-_ = height
+_, _, _ = res, height, c
 ```
 
 See [`examples/hexagon`](examples/hexagon) for a complete program that builds a
@@ -71,21 +75,23 @@ regular hexagon entirely from constraints and writes SVG/DXF/JSON.
 
 ## Geometry
 
-Construct with the `New…` functions, then commit with the matching `Add…`:
+Construct generic geometry with `geom.New…`, then commit it with the matching
+`Add…` to get a solver-bound handle:
 
-| Construct | Commit | Description |
+| Generic ([`geom`](geom)) | Commit | Bound handle |
 |---|---|---|
-| `sketch.NewPoint(x, y)` | `s.AddPoint(p)` | A free point; its coordinates are solved for. |
-| `sketch.NewLine(a, b)` | `s.AddLine(l)` | A segment between two points. |
-| `sketch.NewCircle(center, r)` | `s.AddCircle(c)` | A circle with a center point and radius. |
-| `sketch.NewArc(center, start, end)` | `s.AddArc(a)` | An arc swept counter-clockwise from `start` to `end`. |
+| `geom.NewPoint(x, y)` | `s.AddPoint(p)` | `*sketch.Point` (coordinates are solved for) |
+| `geom.NewLine(a, b)` | `s.AddLine(l)` | `*sketch.Line` |
+| `geom.NewCircle(center, r)` | `s.AddCircle(c)` | `*sketch.Circle` |
+| `geom.NewArc(center, start, end)` | `s.AddArc(a)` | `*sketch.Arc` |
 
-`AddLine`/`AddCircle`/`AddArc` commit any referenced points first and return the
-committed object; they are idempotent. `s.AddConstraint(...)` is variadic and
-likewise commits any geometry a constraint references. A detached object is
-fully inspectable (`p.X()`, `l.Length()`) before it is added.
+`AddLine`/`AddCircle`/`AddArc` commit any referenced generic points first and
+return the bound object; all `Add…` are idempotent (a generic primitive maps to
+one bound instance per sketch). A bound handle exposes solved values (`p.X()`,
+`l.Length()`, `c.R()`) and the generic geometry it came from (`p.Generic()`).
 
-Grounding:
+Grounding (per-sketch — the same generic point may be fixed in one sketch and
+free in another):
 
 * `s.Fix(p)` — pin a point at its current location.
 * `s.Lock(p, x, y)` — move a point to `(x, y)` and pin it.

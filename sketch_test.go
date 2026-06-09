@@ -5,6 +5,8 @@ import (
 	"math"
 	"strings"
 	"testing"
+
+	"github.com/lestrrat-3d/sketch/geom"
 )
 
 func approx(t *testing.T, name string, got, want float64) {
@@ -23,12 +25,15 @@ func mustSolve(t *testing.T, s *Sketch) *Result {
 	return res
 }
 
-// Test helpers that construct geometry and immediately commit it, keeping the
-// test bodies terse. They exercise the construct-then-add API underneath.
-func addPt(s *Sketch, x, y float64) *Point          { return s.AddPoint(NewPoint(x, y)) }
-func addLn(s *Sketch, a, b *Point) *Line            { return s.AddLine(NewLine(a, b)) }
-func addCir(s *Sketch, c *Point, r float64) *Circle { return s.AddCircle(NewCircle(c, r)) }
-func addArc(s *Sketch, c, a, b *Point) *Arc         { return s.AddArc(NewArc(c, a, b)) }
+// Test helpers that construct generic geometry and immediately commit it,
+// keeping the test bodies terse. They reach the generic point behind a
+// solver-bound one via its Generic geometry.
+func addPt(s *Sketch, x, y float64) *Point { return s.AddPoint(geom.NewPoint(x, y)) }
+func addLn(s *Sketch, a, b *Point) *Line   { return s.AddLine(geom.NewLine(a.g, b.g)) }
+func addCir(s *Sketch, c *Point, r float64) *Circle {
+	return s.AddCircle(geom.NewCircle(c.g, r))
+}
+func addArc(s *Sketch, c, a, b *Point) *Arc { return s.AddArc(geom.NewArc(c.g, a.g, b.g)) }
 func addDist(s *Sketch, a, b *Point, d float64) *Distance {
 	c := NewDistance(a, b, d)
 	s.AddConstraint(c)
@@ -82,31 +87,39 @@ func TestParametricUpdate(t *testing.T) {
 	approx(t, "c.Y after edit", c.Y(), 12) // height unchanged
 }
 
-func TestDetachedThenCommitted(t *testing.T) {
-	// Construct geometry fully detached, inspect it, then commit.
-	a := NewPoint(0, 0)
-	b := NewPoint(40, 0)
-	approx(t, "detached b.X", b.X(), 40) // readable before being added
-	l := NewLine(a, b)
-	approx(t, "detached length", l.Length(), 40)
+func TestGenericGeometryReuse(t *testing.T) {
+	// One generic line, inspectable on its own.
+	ga := geom.NewPoint(0, 0)
+	gb := geom.NewPoint(40, 0)
+	gl := geom.NewLine(ga, gb)
+	approx(t, "generic length", gl.Length(), 40)
 
-	s := New()
-	s.AddLine(l) // cascades: commits a and b too
-	if !a.IsFixed() && len(s.points) != 2 {
-		t.Fatalf("expected 2 points committed, got %d", len(s.points))
-	}
-	s.Lock(a, 0, 0)
-	s.AddConstraint(NewHorizontal(l))
-	addDist(s, a, b, 25)
-	mustSolve(t, s)
-	approx(t, "committed b.X", b.X(), 25)
+	// Commit it into two independent sketches with different widths.
+	s1 := New()
+	l1 := s1.AddLine(gl)
+	s1.Lock(l1.A, 0, 0)
+	s1.AddConstraint(NewHorizontal(l1))
+	addDist(s1, l1.A, l1.B, 25)
+	mustSolve(t, s1)
+	approx(t, "s1 width", l1.B.X(), 25)
+
+	s2 := New()
+	l2 := s2.AddLine(gl) // same generic geometry, fresh solver state
+	s2.Lock(l2.A, 0, 0)
+	s2.AddConstraint(NewHorizontal(l2))
+	addDist(s2, l2.A, l2.B, 100)
+	mustSolve(t, s2)
+
+	approx(t, "s2 width", l2.B.X(), 100)
+	approx(t, "s1 unaffected", l1.B.X(), 25) // independent
+	approx(t, "generic template unchanged", gb.X, 40)
 }
 
 func TestAddIdempotent(t *testing.T) {
 	s := New()
-	p := NewPoint(1, 2)
-	s.AddPoint(p)
-	s.AddPoint(p) // no-op
+	g := geom.NewPoint(1, 2)
+	s.AddPoint(g)
+	s.AddPoint(g) // same generic point -> same bound point
 	if len(s.points) != 1 {
 		t.Errorf("idempotent add: got %d points, want 1", len(s.points))
 	}

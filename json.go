@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/lestrrat-3d/sketch/geom"
 	"github.com/lestrrat-3d/sketch/param"
 	"github.com/lestrrat-3d/sketch/units"
 )
@@ -81,7 +82,7 @@ func (s *Sketch) MarshalJSON() ([]byte, error) {
 	for _, p := range s.points {
 		js.Points = append(js.Points, jsonPoint{
 			X: p.x(), Y: p.y(), Fixed: p.IsFixed(),
-			Name: p.Name, Construction: p.Construction,
+			Name: p.g.Name, Construction: p.g.Construction,
 		})
 	}
 
@@ -89,15 +90,15 @@ func (s *Sketch) MarshalJSON() ([]byte, error) {
 		switch t := e.(type) {
 		case *Line:
 			js.Entities = append(js.Entities, jsonEntity{
-				Type: "line", Points: []int{t.A.id, t.B.id}, Construction: t.Construction,
+				Type: "line", Points: []int{t.A.id, t.B.id}, Construction: t.g.Construction,
 			})
 		case *Circle:
 			js.Entities = append(js.Entities, jsonEntity{
-				Type: "circle", Points: []int{t.Center.id}, Radius: t.r(), Construction: t.Construction,
+				Type: "circle", Points: []int{t.Center.id}, Radius: t.r(), Construction: t.g.Construction,
 			})
 		case *Arc:
 			js.Entities = append(js.Entities, jsonEntity{
-				Type: "arc", Points: []int{t.Center.id, t.Start.id, t.End.id}, Construction: t.Construction,
+				Type: "arc", Points: []int{t.Center.id, t.Start.id, t.End.id}, Construction: t.g.Construction,
 			})
 		}
 	}
@@ -178,6 +179,7 @@ func (s *Sketch) UnmarshalJSON(data []byte) error {
 	}
 
 	*s = Sketch{sys: units.Metric()}
+	s.initMaps()
 	if js.Units != nil {
 		if lu, ok := units.Lookup(js.Units.Length); ok && lu.Kind() == units.Length {
 			s.sys.Length = lu
@@ -188,10 +190,10 @@ func (s *Sketch) UnmarshalJSON(data []byte) error {
 	}
 
 	for _, jp := range js.Points {
-		p := s.AddPoint(NewPoint(jp.X, jp.Y))
-		p.Name = jp.Name
-		p.Construction = jp.Construction
-		if jp.Fixed {
+		g := geom.NewPoint(jp.X, jp.Y)
+		g.Name = jp.Name
+		g.Construction = jp.Construction
+		if p := s.AddPoint(g); jp.Fixed {
 			s.Fix(p)
 		}
 	}
@@ -217,20 +219,23 @@ func (s *Sketch) UnmarshalJSON(data []byte) error {
 			if len(je.Points) != 2 {
 				return fmt.Errorf("sketch: line needs 2 points, got %d", len(je.Points))
 			}
-			l := s.AddLine(NewLine(s.points[je.Points[0]], s.points[je.Points[1]]))
-			l.Construction = je.Construction
+			g := geom.NewLine(s.points[je.Points[0]].g, s.points[je.Points[1]].g)
+			g.Construction = je.Construction
+			s.AddLine(g)
 		case "circle":
 			if len(je.Points) != 1 {
 				return fmt.Errorf("sketch: circle needs 1 point, got %d", len(je.Points))
 			}
-			c := s.AddCircle(NewCircle(s.points[je.Points[0]], je.Radius))
-			c.Construction = je.Construction
+			g := geom.NewCircle(s.points[je.Points[0]].g, je.Radius)
+			g.Construction = je.Construction
+			s.AddCircle(g)
 		case "arc":
 			if len(je.Points) != 3 {
 				return fmt.Errorf("sketch: arc needs 3 points, got %d", len(je.Points))
 			}
-			a := s.AddArc(NewArc(s.points[je.Points[0]], s.points[je.Points[1]], s.points[je.Points[2]]))
-			a.Construction = je.Construction
+			g := geom.NewArc(s.points[je.Points[0]].g, s.points[je.Points[1]].g, s.points[je.Points[2]].g)
+			g.Construction = je.Construction
+			s.AddArc(g)
 		default:
 			return fmt.Errorf("sketch: unknown entity type %q", je.Type)
 		}

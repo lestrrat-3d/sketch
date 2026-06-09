@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/lestrrat-3d/sketch"
+	"github.com/lestrrat-3d/sketch/geom"
 )
 
 func main() {
@@ -17,17 +18,21 @@ func main() {
 	const side = 30.0
 	const n = 6
 
-	// Construct points (rough initial guesses on a circle) and commit them.
-	pts := make([]*sketch.Point, n)
-	for i := range pts {
+	// Generic geometry: vertices (rough guesses on a circle) and edges.
+	gp := make([]*geom.Point, n)
+	for i := range gp {
 		a := float64(i)/float64(n)*2*math.Pi + 0.15 // perturbed
-		pts[i] = s.AddPoint(sketch.NewPoint(40*math.Cos(a)+5, 40*math.Sin(a)-3))
+		gp[i] = geom.NewPoint(40*math.Cos(a)+5, 40*math.Sin(a)-3)
 	}
 
-	// Construct the edges and commit them (their points are already added).
+	// Commit the edges (each pulls in its endpoints) and grab the bound points.
 	lines := make([]*sketch.Line, n)
 	for i := range lines {
-		lines[i] = s.AddLine(sketch.NewLine(pts[i], pts[(i+1)%n]))
+		lines[i] = s.AddLine(geom.NewLine(gp[i], gp[(i+1)%n]))
+	}
+	pts := make([]*sketch.Point, n)
+	for i := range pts {
+		pts[i] = s.AddPoint(gp[i]) // idempotent: returns the already-bound point
 	}
 
 	// Ground one vertex, make the first edge horizontal, and dimension it.
