@@ -2,6 +2,7 @@ package param
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 )
 
@@ -75,9 +76,9 @@ func (e *binaryExpr) eval(ctx *evalContext) (float64, error) {
 		if b == 0 {
 			return 0, fmt.Errorf("param: modulo by zero")
 		}
-		return mod(a, b), nil
+		return math.Mod(a, b), nil
 	case '^':
-		return powFn(a, b), nil
+		return math.Pow(a, b), nil
 	}
 	return 0, fmt.Errorf("param: unknown operator %q", e.op)
 }

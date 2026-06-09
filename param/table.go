@@ -84,8 +84,7 @@ func (t *Table) SetValue(name string, v units.Value) error {
 	if !isIdent(name) {
 		return fmt.Errorf("%w: %q", ErrInvalidName, name)
 	}
-	lit := v
-	t.put(&entry{name: name, src: v.String(), expr: &numberExpr{v: v.Base()}, unit: v.Unit(), lit: &lit})
+	t.put(&entry{name: name, src: v.String(), expr: &numberExpr{v: v.Base()}, unit: v.Unit(), lit: &v})
 	return nil
 }
 

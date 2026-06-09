@@ -61,10 +61,10 @@ type Point struct {
 }
 
 // X returns the point's current x coordinate.
-func (p *Point) X() float64 { return p.s.vars[p.xi] }
+func (p *Point) X() float64 { return p.x() }
 
 // Y returns the point's current y coordinate.
-func (p *Point) Y() float64 { return p.s.vars[p.yi] }
+func (p *Point) Y() float64 { return p.y() }
 
 // ID returns the stable index of the point within its sketch.
 func (p *Point) ID() int { return p.id }
@@ -153,7 +153,7 @@ func (c *Circle) entID() int           { return c.id }
 func (c *Circle) isConstruction() bool { return c.Construction }
 
 // R returns the circle's current radius.
-func (c *Circle) R() float64 { return c.s.vars[c.ri] }
+func (c *Circle) R() float64 { return c.r() }
 
 func (c *Circle) r() float64 { return c.s.vars[c.ri] }
 
@@ -193,12 +193,9 @@ func (a *Arc) EndAngle() float64 {
 
 // Sweep returns the counter-clockwise sweep angle of the arc in (0, 2π].
 func (a *Arc) Sweep() float64 {
-	d := a.EndAngle() - a.StartAngle()
-	for d <= 0 {
+	d := math.Mod(a.EndAngle()-a.StartAngle(), 2*math.Pi)
+	if d <= 0 {
 		d += 2 * math.Pi
-	}
-	for d > 2*math.Pi {
-		d -= 2 * math.Pi
 	}
 	return d
 }

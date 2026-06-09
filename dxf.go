@@ -70,16 +70,11 @@ func (s *Sketch) DXF() (string, error) {
 }
 
 func deg(rad float64) float64 {
-	d := rad * 180 / math.Pi
-	for d < 0 {
+	d := math.Mod(rad*180/math.Pi, 360)
+	if d < 0 {
 		d += 360
-	}
-	for d >= 360 {
-		d -= 360
 	}
 	return d
 }
 
-func dxff(v float64) string {
-	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.6f", v), "0"), ".")
-}
+func dxff(v float64) string { return trimFloat(v, 6) }

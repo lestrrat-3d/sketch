@@ -418,12 +418,11 @@ func (c *Angle) residual(out []float64) []float64 {
 	cross := d1x*d2y - d1y*d2x
 	dot := d1x*d2x + d1y*d2y
 	ang := math.Atan2(cross, dot)
-	r := ang - c.base() // target in base (radian) units
-	// wrap into (-π, π] so the residual is continuous
-	for r > math.Pi {
+	// wrap the residual into (-π, π] so it stays continuous
+	r := math.Mod(ang-c.base(), 2*math.Pi) // target in base (radian) units
+	if r > math.Pi {
 		r -= 2 * math.Pi
-	}
-	for r <= -math.Pi {
+	} else if r <= -math.Pi {
 		r += 2 * math.Pi
 	}
 	return append(out, r)

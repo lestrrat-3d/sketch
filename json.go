@@ -67,6 +67,16 @@ func dimUnit(symbol string, kind units.Kind) units.Unit {
 	return units.BaseUnit(kind)
 }
 
+// restoreDim reinstates a deserialized dimension's unit and parameter binding.
+func restoreDim(d interface {
+	Kind() units.Kind
+	restore(float64, units.Unit)
+	setDriverExpr(string)
+}, jc jsonConstraint) {
+	d.restore(jc.Value, dimUnit(jc.Unit, d.Kind()))
+	d.setDriverExpr(jc.Expr)
+}
+
 // MarshalJSON implements [json.Marshaler], producing a portable, reloadable
 // description of the sketch.
 func (s *Sketch) MarshalJSON() ([]byte, error) {
@@ -279,9 +289,7 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		case "equal_lines":
 			s.Equal(l1, l2)
 		case "angle":
-			a := s.Angle(l1, l2, jc.Value)
-			a.restore(jc.Value, dimUnit(jc.Unit, units.Angle))
-			a.setDriverExpr(jc.Expr)
+			restoreDim(s.Angle(l1, l2, jc.Value), jc)
 		}
 	case "point_on_line":
 		l, err := line(jc.Entities[0])
@@ -338,33 +346,23 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		}
 		s.TangentCircles(c1, c2, jc.Flag)
 	case "distance":
-		d := s.Distance(pt(0), pt(1), jc.Value)
-		d.restore(jc.Value, dimUnit(jc.Unit, units.Length))
-		d.setDriverExpr(jc.Expr)
+		restoreDim(s.Distance(pt(0), pt(1), jc.Value), jc)
 	case "hdistance":
-		d := s.HorizontalDistance(pt(0), pt(1), jc.Value)
-		d.restore(jc.Value, dimUnit(jc.Unit, units.Length))
-		d.setDriverExpr(jc.Expr)
+		restoreDim(s.HorizontalDistance(pt(0), pt(1), jc.Value), jc)
 	case "vdistance":
-		d := s.VerticalDistance(pt(0), pt(1), jc.Value)
-		d.restore(jc.Value, dimUnit(jc.Unit, units.Length))
-		d.setDriverExpr(jc.Expr)
+		restoreDim(s.VerticalDistance(pt(0), pt(1), jc.Value), jc)
 	case "radius":
 		c, err := circle(jc.Entities[0])
 		if err != nil {
 			return err
 		}
-		r := s.Radius(c, jc.Value)
-		r.restore(jc.Value, dimUnit(jc.Unit, units.Length))
-		r.setDriverExpr(jc.Expr)
+		restoreDim(s.Radius(c, jc.Value), jc)
 	case "diameter":
 		c, err := circle(jc.Entities[0])
 		if err != nil {
 			return err
 		}
-		dm := s.Diameter(c, jc.Value)
-		dm.restore(jc.Value, dimUnit(jc.Unit, units.Length))
-		dm.setDriverExpr(jc.Expr)
+		restoreDim(s.Diameter(c, jc.Value), jc)
 	default:
 		return fmt.Errorf("sketch: unknown constraint type %q", jc.Type)
 	}

@@ -3,6 +3,7 @@ package units
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 )
 
@@ -96,11 +97,7 @@ func (v Value) Equal(o Value, tol float64) bool {
 	if v.unit.kind != o.unit.kind {
 		return false
 	}
-	d := v.Base() - o.Base()
-	if d < 0 {
-		d = -d
-	}
-	return d <= tol
+	return math.Abs(v.Base()-o.Base()) <= tol
 }
 
 // String renders the value as "<magnitude> <symbol>" (just the number for

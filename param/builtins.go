@@ -14,11 +14,6 @@ func defaultConsts() map[string]float64 {
 	}
 }
 
-// mod and powFn are used by the evaluator so that % and ^ behave like the math
-// package rather than panicking or truncating.
-func mod(a, b float64) float64   { return math.Mod(a, b) }
-func powFn(a, b float64) float64 { return math.Pow(a, b) }
-
 func arityErr(name string, want, got int) error {
 	return fmt.Errorf("param: %s expects %d argument(s), got %d", name, want, got)
 }

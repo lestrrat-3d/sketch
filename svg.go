@@ -168,6 +168,10 @@ func (s *Sketch) SVG(opts SVGOptions) (string, error) {
 }
 
 // f formats a float compactly without a trailing ".000000".
-func f(v float64) string {
-	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.4f", v), "0"), ".")
+func f(v float64) string { return trimFloat(v, 4) }
+
+// trimFloat formats v with prec decimals and drops trailing zeros (and a bare
+// trailing decimal point).
+func trimFloat(v float64, prec int) string {
+	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.*f", prec, v), "0"), ".")
 }

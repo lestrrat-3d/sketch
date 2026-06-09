@@ -205,13 +205,17 @@ func (s *Sketch) jacobian(free []int, m int) [][]float64 {
 	for i := range J {
 		J[i] = make([]float64, n)
 	}
+	// Reuse two residual buffers across columns instead of allocating fresh
+	// slices for every perturbed variable.
+	rp := make([]float64, 0, m)
+	rm := make([]float64, 0, m)
 	for j, vi := range free {
 		orig := s.vars[vi]
 		h := 1e-7 * (1 + math.Abs(orig))
 		s.vars[vi] = orig + h
-		rp := s.residuals(nil)
+		rp = s.residuals(rp)
 		s.vars[vi] = orig - h
-		rm := s.residuals(nil)
+		rm = s.residuals(rm)
 		s.vars[vi] = orig
 		inv := 1.0 / (2 * h)
 		for i := 0; i < m; i++ {
