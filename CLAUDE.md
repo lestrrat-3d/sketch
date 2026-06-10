@@ -226,10 +226,13 @@ These are unsettled. If you resolve one, record the decision here.
   expressions are serialized in the sketch JSON. The dependency arrow is
   `sketch -> param`, never the reverse. *Possible follow-ups:* parameter units,
   and reporting which parameter a solve failure came from.
-- **Geometry coverage.** Splines/B-splines remain the big gap (control points
-  as solver unknowns). Ellipses are in (center point + rx/ry/rotation vars;
-  `NewPointOnEllipse` uses a Sampson-normalized residual — |F|/|∇F| — to stay
-  in length units; tangency-to-ellipse and elliptical arcs are still open).
+- **Geometry coverage.** *Largely resolved.* Splines are in as clamped
+  uniform cubic B-splines whose control points are ordinary sketch points (no
+  new solver machinery; see `docs/spline-design.md` — point-on-spline/tangency
+  is the recorded v2 via an aux-parameter `allocVars` hook). Ellipses are in
+  (center point + rx/ry/rotation vars; `NewPointOnEllipse` uses a
+  Sampson-normalized residual — |F|/|∇F| — to stay in length units;
+  tangency-to-ellipse and elliptical arcs are still open).
   Slots/fillet/chamfer exist as compound builders and `geom` template helpers.
 - **Solver evolution.** Numerical Jacobian is fine at current scale. Open:
   analytic Jacobians for speed/accuracy, equation decomposition (solve

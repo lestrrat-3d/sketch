@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"math"
 	"strings"
+
+	"github.com/lestrrat-3d/sketch/geom"
 )
 
 // DXF renders the sketch as a minimal AutoCAD R12 ASCII DXF document
-// containing LINE, CIRCLE, ARC and ELLIPSE entities (ELLIPSE is formally
-// R13+, but widely accepted). It is intended for interchange with CAD tools;
-// only geometry is exported, not constraints.
+// containing LINE, CIRCLE, ARC, ELLIPSE and SPLINE entities (ELLIPSE and
+// SPLINE are formally R13+, but widely accepted). It is intended for
+// interchange with CAD tools; only geometry is exported, not constraints.
 func (s *Sketch) DXF() (string, error) {
 	var sb strings.Builder
 
@@ -87,6 +89,27 @@ func (s *Sketch) DXF() (string, error) {
 			pairf(40, ratio)
 			pairf(41, 0)
 			pairf(42, 2*math.Pi)
+		case *Spline:
+			// SPLINE is an R13+ entity, like ELLIPSE above. Flags (70): 8 =
+			// planar. Degree 3, clamped uniform knots, then the control
+			// points.
+			n := len(t.Control)
+			knots := geom.ClampedKnots(n)
+			pair(0, "SPLINE")
+			pair(8, layer)
+			pair(70, "8")
+			pair(71, "3")
+			pair(72, fmt.Sprintf("%d", len(knots)))
+			pair(73, fmt.Sprintf("%d", n))
+			pair(74, "0")
+			for _, k := range knots {
+				pairf(40, k)
+			}
+			for _, c := range t.Control {
+				pairf(10, c.x())
+				pairf(20, c.y())
+				pairf(30, 0)
+			}
 		}
 	}
 

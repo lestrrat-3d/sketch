@@ -18,10 +18,12 @@ with DOF/redundancy counts, `param` table, `units`, SVG/DXF/JSON export.
   **elliptical arcs**, and **tangency to an ellipse** (no closed-form
   distance; needs a foot-point iteration or an auxiliary contact-point
   variable).
-- **Splines** — Fusion has fit-point splines and control-point splines. The big
-  one architecturally: control points become solver unknowns, and
-  point-on-spline / tangent-to-spline residuals need curve evaluation inside
-  the residual function. Already flagged in CLAUDE.md open questions.
+- ~~**Splines**~~ — *v1 closed 2026-06*: control-point clamped cubic
+  B-splines (`geom.NewSpline`/`AddSpline`); control points are ordinary
+  sketch points, so constraints/dimensions/goals reshape the curve with no
+  new solver machinery (design: `docs/spline-design.md`). Still open:
+  fit-point splines, point-on/tangent-to-spline constraints (v2
+  aux-parameter design recorded in the design doc), closed/periodic splines.
 - ~~**Slot** (straight)~~ — *closed 2026-06*: `AddSlot` (two arcs + two flanks;
   equal cap radii + perpendicular construction spokes at the contact points —
   perpendicularity implies tangency *and* pins the contact point, which a plain
@@ -140,7 +142,8 @@ Without it the "2D → 3D someday" door stays shut.
 6. **Offset/fillet/trim** (*geom math layer done 2026-06*; sketch-level
    mutation blocked on entity removal), then ~~**ellipse**~~ (*done 2026-06*;
    elliptical arcs and ellipse tangency still open), then
-   **profiles/loop detection**, with **splines** last (largest solver impact).
+   **profiles/loop detection**, with ~~**splines**~~ (*v1 done 2026-06*;
+   fit-point and point-on-spline constraints still open).
 
 Splines still deserve a design doc before code, as does entity/constraint
 removal (the prerequisite for mutating sketch tools).

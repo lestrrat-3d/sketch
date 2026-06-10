@@ -33,6 +33,7 @@ type Sketch struct {
 	cirOf map[*geom.Circle]*Circle
 	arcOf map[*geom.Arc]*Arc
 	elOf  map[*geom.Ellipse]*Ellipse
+	splOf map[*geom.Spline]*Spline
 
 	params *param.Table // optional; drives bound dimensions
 	sys    units.System // default length/angle units
@@ -52,6 +53,7 @@ func (s *Sketch) initMaps() {
 	s.cirOf = map[*geom.Circle]*Circle{}
 	s.arcOf = map[*geom.Arc]*Arc{}
 	s.elOf = map[*geom.Ellipse]*Ellipse{}
+	s.splOf = map[*geom.Spline]*Spline{}
 }
 
 func (s *Sketch) newVar(v float64) int {

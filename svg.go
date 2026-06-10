@@ -114,6 +114,11 @@ func (s *Sketch) bounds() (bbox, bool) {
 			b.add(t.Center.x()-ex, t.Center.y()-ey)
 			b.add(t.Center.x()+ex, t.Center.y()+ey)
 			any = true
+		case *Spline:
+			for _, p := range t.Polyline(32) {
+				b.add(p[0], p[1])
+			}
+			any = true
 		}
 	}
 	return b, any
@@ -236,6 +241,20 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 				f(cx), f(cy), f(t.rx()), f(t.ry()),
 				f(-t.rot()*180/math.Pi), f(cx), f(cy),
 				color(t.isConstruction()), f(cfg.strokeWidth), dash(t.isConstruction()))
+		case *Spline:
+			// Sampled polyline, like arcs; cfg.arcSegments governs fidelity.
+			pts := t.Polyline(cfg.arcSegments)
+			var d strings.Builder
+			for i, p := range pts {
+				cmd := "L"
+				if i == 0 {
+					cmd = "M"
+				}
+				fmt.Fprintf(&d, "%s%s %s ", cmd, f(tx(p[0])), f(ty(p[1])))
+			}
+			fmt.Fprintf(&sb,
+				`  <path d="%s" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
+				strings.TrimSpace(d.String()), color(t.isConstruction()), f(cfg.strokeWidth), dash(t.isConstruction()))
 		}
 	}
 

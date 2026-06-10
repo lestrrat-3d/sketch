@@ -86,12 +86,21 @@ Construct generic geometry with `geom.New…`, then commit it with the matching
 | `geom.NewCircle(center, r)` | `s.AddCircle(c)` | `*sketch.Circle` |
 | `geom.NewArc(center, start, end)` | `s.AddArc(a)` | `*sketch.Arc` |
 | `geom.NewEllipse(center, rx, ry, rot)` | `s.AddEllipse(e)` | `*sketch.Ellipse` (semi-axes and rotation are solved for) |
+| `geom.NewSpline(p0, p1, p2, p3, …)` | `s.AddSpline(sp)` | `*sketch.Spline` (clamped cubic B-spline) |
 
-`AddLine`/`AddCircle`/`AddArc`/`AddEllipse` commit any referenced generic
-points first and return the bound object; all `Add…` are idempotent (a generic
-primitive maps to one bound instance per sketch). A bound handle exposes
-solved values (`p.X()`, `l.Length()`, `c.R()`, `e.Rx()`) and the generic
-geometry it came from (`p.Generic()`).
+`AddLine`/`AddCircle`/`AddArc`/`AddEllipse`/`AddSpline` commit any referenced
+generic points first and return the bound object; all `Add…` are idempotent (a
+generic primitive maps to one bound instance per sketch). A bound handle
+exposes solved values (`p.X()`, `l.Length()`, `c.R()`, `e.Rx()`) and the
+generic geometry it came from (`p.Generic()`).
+
+A spline's control points are ordinary sketch points: constrain, dimension,
+ground or drag (`WithGoal`) them and the curve follows — the curve itself
+carries no extra unknowns. Clamping means the curve starts/ends exactly at the
+first/last control points with end tangents along the outer control-polygon
+legs, so endpoint attachment is point coincidence and end tangency is a
+`NewParallel` on a construction line over the first leg. `sp.Eval(t)` /
+`sp.Polyline(n)` evaluate the solved curve.
 
 Grounding (per-sketch — the same generic point may be fixed in one sketch and
 free in another):

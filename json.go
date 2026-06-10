@@ -21,12 +21,13 @@ type jsonPoint struct {
 }
 
 type jsonEntity struct {
-	Type         string  `json:"type"` // "line" | "circle" | "arc" | "ellipse"
+	Type         string  `json:"type"` // "line" | "circle" | "arc" | "ellipse" | "spline"
 	Points       []int   `json:"points"`
 	Radius       float64 `json:"radius,omitempty"`
 	Rx           float64 `json:"rx,omitempty"`       // ellipse semi-axis (local x)
 	Ry           float64 `json:"ry,omitempty"`       // ellipse semi-axis (local y)
 	Rotation     float64 `json:"rotation,omitempty"` // ellipse frame rotation, radians
+	Degree       int     `json:"degree,omitempty"`   // spline degree (always 3 today)
 	Construction bool    `json:"construction,omitempty"`
 }
 
@@ -111,6 +112,12 @@ func (s *Sketch) MarshalJSON() ([]byte, error) {
 				Type: "ellipse", Points: []int{t.Center.id},
 				Rx: t.rx(), Ry: t.ry(), Rotation: t.rot(), Construction: t.g.Construction,
 			})
+		case *Spline:
+			je := jsonEntity{Type: "spline", Degree: 3, Construction: t.g.Construction}
+			for _, c := range t.Control {
+				je.Points = append(je.Points, c.id)
+			}
+			js.Entities = append(js.Entities, je)
 		}
 	}
 
@@ -280,6 +287,20 @@ func (s *Sketch) UnmarshalJSON(data []byte) error {
 			g := geom.NewEllipse(s.points[je.Points[0]].g, je.Rx, je.Ry, je.Rotation)
 			g.Construction = je.Construction
 			s.AddEllipse(g)
+		case "spline":
+			if je.Degree != 0 && je.Degree != 3 {
+				return fmt.Errorf("sketch: unsupported spline degree %d", je.Degree)
+			}
+			if len(je.Points) < 4 {
+				return fmt.Errorf("sketch: spline needs at least 4 control points, got %d", len(je.Points))
+			}
+			ctrl := make([]*geom.Point, len(je.Points))
+			for i, pi := range je.Points {
+				ctrl[i] = s.points[pi].g
+			}
+			g := geom.NewSpline(ctrl...)
+			g.Construction = je.Construction
+			s.AddSpline(g)
 		default:
 			return fmt.Errorf("sketch: unknown entity type %q", je.Type)
 		}
