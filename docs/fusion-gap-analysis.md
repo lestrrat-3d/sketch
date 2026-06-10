@@ -113,11 +113,14 @@ ids (see CLAUDE.md open questions).
 
 ## Profiles & regions
 
-Fusion's whole reason for sketching is closed profiles that feed extrude. The
-engine eventually needs **loop detection**: find closed regions formed by the
-non-construction curves, including regions bounded by parts of curves. Pure
-computational geometry, sketch-independent — a natural future `geom` citizen.
-Without it the "2D → 3D someday" door stays shut.
+Fusion's whole reason for sketching is closed profiles that feed extrude.
+*Partially closed 2026-06*: `geom.Loops` finds closed chains of lines/arcs
+connected by shared endpoint identity, and `Sketch.Profiles()` returns those
+loops plus every non-construction circle/ellipse as `Profile` values. Still
+open: **region subdivision at bare crossings** — boundaries that intersect
+without sharing a point are not split into faces (the curve-splitting math
+exists in `geom`'s intersection toolkit; the subdivision algorithm does not),
+and loop **area/winding** classification (outer boundary vs hole).
 
 ## Parameters
 
@@ -140,7 +143,9 @@ Without it the "2D → 3D someday" door stays shut.
 6. **Offset/fillet/trim** (*geom math layer done 2026-06*; sketch-level
    mutation blocked on entity removal), then ~~**ellipse**~~ (*done 2026-06*;
    elliptical arcs and ellipse tangency still open), then
-   **profiles/loop detection**, with **splines** last (largest solver impact).
+   ~~**profiles/loop detection**~~ (*shared-endpoint loops done 2026-06*;
+   region subdivision at bare crossings still open), with **splines** last
+   (largest solver impact).
 
 Splines still deserve a design doc before code, as does entity/constraint
 removal (the prerequisite for mutating sketch tools).
