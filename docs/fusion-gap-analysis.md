@@ -60,16 +60,25 @@ The geometric set is already close to Fusion's. Remaining gaps:
 
 ## Sketch-modification tools
 
-None exist yet; these are what make it feel like a sketcher rather than a
-constraint solver:
+These are what make it feel like a sketcher rather than a constraint solver.
+The math layer now lives in `geom` (intersections + template modification);
+the *mutating* versions on committed sketch geometry are blocked on
+entity/constraint removal — sketches are append-only with creation-indexed
+ids (see CLAUDE.md open questions).
 
-- **Trim / extend / break** — needs curve–curve intersection math (natural fit
-  for `geom`).
+- **Trim / extend / break** — *geom layer closed 2026-06*: line/circle/arc
+  intersections (`LineLineIntersection`, `LineCircleIntersections`,
+  `CircleCircleIntersections`, arc variants via `Arc.Contains`) plus
+  `SplitLineAt`. Sketch-level trim of committed geometry remains open
+  (removal prerequisite).
 - **Offset** — offset a chain of curves with a single driving dimension; in
   Fusion the offset is itself a constraint, so the offset curve follows the
-  original.
-- **Fillet / chamfer** between two sketch lines (inserts arc + tangent
-  constraints).
+  original. (Single line/circle offsets are expressible today via
+  `NewDistanceLines` and concentric + radius; the chain tool remains open.)
+- **Fillet / chamfer** — *geom layer closed 2026-06*: `geom.Fillet` /
+  `geom.Chamfer` shape templates before committing (replace the shared corner
+  with contact points, return the tangent arc / cut line). Committed-geometry
+  versions remain open (removal prerequisite).
 - **Mirror** — creates mirrored copies *with symmetric constraints attached* so
   they stay linked.
 - **Rectangular / circular patterns** — copies with pattern constraints (count
@@ -123,7 +132,9 @@ Without it the "2D → 3D someday" door stays shut.
    (`RedundantConstraints()`; conflicting-vs-redundant still open).
 5. ~~**Drag-solve API**~~ — *done 2026-06* as goal-solve
    (`Solve(WithGoal(…))`; design in `docs/goal-solve-design.md`).
-6. **Offset/fillet/trim**, then **ellipse**, then **profiles/loop detection**,
-   with **splines** last (largest solver impact).
+6. **Offset/fillet/trim** (*geom math layer done 2026-06*; sketch-level
+   mutation blocked on entity removal), then **ellipse**, then
+   **profiles/loop detection**, with **splines** last (largest solver impact).
 
-Splines still deserve a design doc before code.
+Splines still deserve a design doc before code, as does entity/constraint
+removal (the prerequisite for mutating sketch tools).

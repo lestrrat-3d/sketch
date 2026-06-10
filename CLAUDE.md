@@ -64,6 +64,15 @@ must not import `sketch`; the arrow is `sketch -> geom`, never the reverse.
 Production code is standard-library-only (tests use `testify/require`); intended
 to move to its own module later.
 
+It also carries the **construction toolkit** (`intersect.go`, `modify.go`):
+line/circle/arc intersections (arc cases reduce to circle cases filtered by
+`Arc.Contains`), plus `SplitLineAt`/`Fillet`/`Chamfer`, which operate on
+generic geometry **before it is committed** — `Fillet`/`Chamfer` replace each
+line's shared endpoint with a fresh contact point and return the connecting
+arc/line. They are the math layer for sketcher tools; the *mutating*
+sketch-level equivalents (trim a committed line, fillet a committed corner)
+are blocked on entity/constraint removal (see open questions).
+
 ### The `units` package (slated for extraction)
 
 `units/` is a standalone units-of-measure library: typed [Unit] constants
@@ -248,6 +257,14 @@ These are unsettled. If you resolve one, record the decision here.
   follow-ups:* should expressions track kind through arithmetic (catch mm+deg
   mid-expression); should points/coordinates expose unit-carrying accessors;
   should exporters honour the display `System`.
+- **Entity/constraint removal.** Sketches are append-only today: entities are
+  referenced by creation index (`id`) and JSON round-trips depend on that
+  order, so nothing can be removed once committed. This blocks the *mutating*
+  sketch tools (trim/extend a committed line, fillet a committed corner,
+  delete a constraint from a UI). Resolving it means choosing between stable
+  ids with tombstones, id remapping on save, or a generation/handle scheme —
+  decide together with the persistence-versioning question below. Until then,
+  shape geometry with the `geom` toolkit *before* committing.
 - **Tolerances.** Still a fixed solver tolerance. Per-sketch
   tolerance/precision remains open.
 - **Persistence stability.** The JSON schema is not yet versioned. Before anyone

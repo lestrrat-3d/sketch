@@ -114,6 +114,18 @@ and return a grouping handle with the bound parts. The pieces are ordinary
 sketch geometry/constraints and serialize as such; position and size stay free
 to ground and dimension.
 
+### Shaping templates (the `geom` toolkit)
+
+Generic geometry can be shaped *before* committing: `geom` provides
+intersection math (`LineLineIntersection`, `SegmentIntersection`,
+`LineCircleIntersections`, `CircleCircleIntersections`, and arc variants
+filtered by `Arc.Contains`) plus modification helpers — `SplitLineAt`,
+`Fillet` (replaces a shared corner with a tangent arc, shortening both legs)
+and `Chamfer` (straight cut). Commit the result with the usual `Add…` calls,
+adding constraints to keep the shape parametric (e.g. tangency spokes, as
+`AddSlot` does). Committed sketch geometry is append-only — shape first, then
+commit.
+
 ## Constraints
 
 Construct a constraint with its `New…` function and commit it with
