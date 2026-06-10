@@ -134,8 +134,17 @@ filtered by `Arc.Contains`) plus modification helpers — `SplitLineAt`,
 `Fillet` (replaces a shared corner with a tangent arc, shortening both legs)
 and `Chamfer` (straight cut). Commit the result with the usual `Add…` calls,
 adding constraints to keep the shape parametric (e.g. tangency spokes, as
-`AddSlot` does). Committed sketch geometry is append-only — shape first, then
-commit.
+`AddSlot` does).
+
+### Removing geometry and constraints
+
+`s.RemoveConstraint(c)`, `s.RemoveEntity(e)` and `s.RemovePoint(p)` undo
+commits. Removing an entity cascades every constraint that references it
+(including auto-added internal ones) but keeps its points — they may be
+shared; remove orphans explicitly. `RemovePoint` refuses (returns false)
+while any entity still uses the point. Removed handles are dead — discard
+them; re-adding the same generic geometry creates a fresh instance. Sketch
+documents carry a `"version"` field; legacy unversioned files still load.
 
 ## Constraints
 

@@ -47,7 +47,13 @@ type jsonSystem struct {
 	Angle  string `json:"angle"`
 }
 
+// jsonVersion is the current sketch document schema version. Documents
+// without a version field (legacy, effectively version 0) still load;
+// documents from a newer schema are rejected rather than mis-loaded.
+const jsonVersion = 1
+
 type jsonSketch struct {
+	Version     int              `json:"version"`
 	Points      []jsonPoint      `json:"points"`
 	Entities    []jsonEntity     `json:"entities"`
 	Constraints []jsonConstraint `json:"constraints"`
@@ -84,7 +90,7 @@ func restoreDim(d Dimension, jc jsonConstraint) {
 // MarshalJSON implements [json.Marshaler], producing a portable, reloadable
 // description of the sketch.
 func (s *Sketch) MarshalJSON() ([]byte, error) {
-	var js jsonSketch
+	js := jsonSketch{Version: jsonVersion}
 
 	for _, p := range s.points {
 		js.Points = append(js.Points, jsonPoint{
@@ -206,6 +212,9 @@ func (s *Sketch) UnmarshalJSON(data []byte) error {
 	var js jsonSketch
 	if err := json.Unmarshal(data, &js); err != nil {
 		return err
+	}
+	if js.Version > jsonVersion {
+		return fmt.Errorf("sketch: unsupported document version %d (this build reads up to %d)", js.Version, jsonVersion)
 	}
 
 	*s = Sketch{sys: units.Metric()}

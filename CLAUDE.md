@@ -71,7 +71,9 @@ generic geometry **before it is committed** — `Fillet`/`Chamfer` replace each
 line's shared endpoint with a fresh contact point and return the connecting
 arc/line. They are the math layer for sketcher tools; the *mutating*
 sketch-level equivalents (trim a committed line, fillet a committed corner)
-are blocked on entity/constraint removal (see open questions).
+are now expressible — shape replacements with the toolkit, `Add` them, then
+`RemoveEntity` the originals — though dedicated convenience tools have not
+been built yet.
 
 ### The `units` package (slated for extraction)
 
@@ -168,9 +170,15 @@ sees them automatically.
 
 ### Serialization invariants
 
-- Points and entities are referenced by their **creation index** (`id`). JSON
-  round-trips rely on `UnmarshalJSON` recreating them in the same order so those
-  indices line up. Preserve creation order when reconstructing.
+- Points and entities are referenced by their **id, which always equals their
+  current slice position** (`s.points`/`s.ents` — two independent id spaces).
+  Removal splices and renumbers the later ids (`removal.go`), so marshalled
+  documents stay dense and coherent; `UnmarshalJSON` recreates in order so the
+  indices line up. Never let an `id` field and slice position diverge.
+- The document carries `"version": 1` (`jsonVersion`). Absent (legacy) and
+  current versions load; newer versions are rejected with an error rather
+  than mis-loaded. Bump `jsonVersion` and add read-side migration for schema
+  changes.
 - **Internal constraints** (those implementing `internalConstraint`, e.g. the
   arc radius-consistency constraint auto-added by `AddArc`) are *not* serialized
   — they're recreated by the constructor on load. New auto-added constraints
@@ -210,7 +218,9 @@ sees them automatically.
   accessors (`X()`, `Y()`, `R()`, `Generic()`) while index-backed fields stay
   unexported.
 - New constraints: add the residual, the `New…` constructor, a case in the JSON
-  marshal/unmarshal switches, and a test asserting on the solved geometry.
+  marshal/unmarshal switches, a case in `constraintRefs` (`removal.go` — or
+  the removal cascade silently misses it), and a test asserting on the solved
+  geometry.
 
 ## Open design questions (the "many variables")
 
@@ -263,18 +273,20 @@ These are unsettled. If you resolve one, record the decision here.
   follow-ups:* should expressions track kind through arithmetic (catch mm+deg
   mid-expression); should points/coordinates expose unit-carrying accessors;
   should exporters honour the display `System`.
-- **Entity/constraint removal.** Sketches are append-only today: entities are
-  referenced by creation index (`id`) and JSON round-trips depend on that
-  order, so nothing can be removed once committed. This blocks the *mutating*
-  sketch tools (trim/extend a committed line, fillet a committed corner,
-  delete a constraint from a UI). Resolving it means choosing between stable
-  ids with tombstones, id remapping on save, or a generation/handle scheme —
-  decide together with the persistence-versioning question below. Until then,
-  shape geometry with the `geom` toolkit *before* committing.
+- **Entity/constraint removal.** *Resolved.*
+  `RemoveConstraint`/`RemoveEntity`/`RemovePoint` (`removal.go`; design in
+  `docs/removal-design.md`): splice + id renumbering, entity-owned vars
+  retired (marked fixed, never reclaimed — reload compacts), constraint
+  cascade via the `constraintRefs` switch (includes internal `arcRadius`),
+  points kept on entity removal, `RemovePoint` refuses while an entity uses
+  the point. Removed handles are dead. This unblocks the mutating sketch
+  tools (trim/fillet of committed geometry), which still need building.
 - **Tolerances.** Still a fixed solver tolerance. Per-sketch
   tolerance/precision remains open.
-- **Persistence stability.** The JSON schema is not yet versioned. Before anyone
-  depends on it, decide on a version field and compatibility policy.
+- **Persistence stability.** *Partially resolved:* documents carry
+  `"version": 1`; legacy (unversioned) documents load, newer-versioned ones
+  are rejected. Still open: an actual migration story when version 2 arrives,
+  and schema compatibility guarantees.
 - **2D → 3D.** Out of scope for now, but the API shouldn't paint us into a
   corner if profiles later feed extrude/revolve operations.
 

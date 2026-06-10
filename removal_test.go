@@ -1,0 +1,163 @@
+package sketch_test
+
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/lestrrat-3d/sketch"
+	"github.com/lestrrat-3d/sketch/geom"
+	"github.com/stretchr/testify/require"
+)
+
+func TestRemoveConstraint(t *testing.T) {
+	s, w, _, _, _ := newRectangle(t)
+	res := mustSolve(t, s)
+	require.Equal(t, 0, res.DOF, "fully constrained")
+
+	require.True(t, s.RemoveConstraint(w), "width dimension removed")
+	require.False(t, s.RemoveConstraint(w), "second removal is a no-op")
+
+	res = mustSolve(t, s)
+	require.Equal(t, 1, res.DOF, "width is free again")
+}
+
+func TestRemoveEntityCascades(t *testing.T) {
+	s := sketch.New()
+	a := addPt(s, 0, 0)
+	b := addPt(s, 10, 0)
+	s.Fix(a)
+	s.Fix(b)
+	line := addLn(s, a, b)
+
+	center := addPt(s, 5, 5)
+	s.Fix(center)
+	start := addPt(s, 8, 5)
+	end := addPt(s, 5, 8)
+	arc := addArc(s, center, start, end) // auto-adds internal arcRadius
+	s.AddConstraint(sketch.NewTangent(line, arc))
+
+	before := len(s.Constraints())
+	require.True(t, s.RemoveEntity(arc), "arc removed")
+	require.Len(t, s.Constraints(), before-2, "tangent and internal arcRadius cascaded")
+	require.Len(t, s.Entities(), 1, "line remains")
+
+	// The arc's points survive; remove an orphan explicitly.
+	require.True(t, s.RemovePoint(start), "orphaned arc point removable")
+}
+
+func TestRemoveEntityRetiresVars(t *testing.T) {
+	s := sketch.New()
+	o := addPt(s, 0, 0)
+	s.Fix(o)
+	circ := addCir(s, o, 5)
+	require.Equal(t, 1, s.DOF(), "radius is the only free variable")
+
+	require.True(t, s.RemoveEntity(circ), "circle removed")
+	require.Equal(t, 0, s.DOF(), "retired radius var no longer counts")
+}
+
+func TestRemovePointGuards(t *testing.T) {
+	s := sketch.New()
+	a := addPt(s, 0, 0)
+	b := addPt(s, 10, 0)
+	addLn(s, a, b)
+	require.False(t, s.RemovePoint(a), "endpoint of a live line is not removable")
+	require.Len(t, s.Points(), 2, "nothing changed")
+
+	orphan := addPt(s, 3, 4)
+	s.AddConstraint(sketch.NewCoincident(orphan, a))
+	consBefore := len(s.Constraints())
+	require.True(t, s.RemovePoint(orphan), "orphan point removable")
+	require.Len(t, s.Constraints(), consBefore-1, "its constraint cascaded")
+	require.Len(t, s.Points(), 2, "spliced out")
+}
+
+func TestRemoveKeepsUnrelatedConstraints(t *testing.T) {
+	s := sketch.New()
+	a := addPt(s, 0, 0)
+	b := addPt(s, 8, 1)
+	s.Fix(a)
+	line := addLn(s, a, b)
+	d := addDist(s, a, b, 10) // references the points, not the line
+
+	require.True(t, s.RemoveEntity(line), "line removed")
+	require.Contains(t, s.Constraints(), sketch.Constraint(d), "point dimension survives")
+
+	mustSolve(t, s)
+	require.InDelta(t, 10, pointDist(a, b), 1e-6, "dimension still drives the points")
+}
+
+func TestReAddAfterRemove(t *testing.T) {
+	s := sketch.New()
+	g := geom.NewCircle(geom.NewPoint(0, 0), 5)
+	c1 := s.AddCircle(g)
+	require.True(t, s.RemoveEntity(c1), "removed")
+	c2 := s.AddCircle(g)
+	require.NotSame(t, c1, c2, "re-adding creates a fresh instance")
+	require.Len(t, s.Entities(), 1, "one live entity")
+}
+
+func TestRemovalJSONRoundTrip(t *testing.T) {
+	s := sketch.New()
+	o1 := addPt(s, 0, 0)
+	o2 := addPt(s, 20, 0)
+	o3 := addPt(s, 40, 0)
+	s.Fix(o1)
+	s.Fix(o2)
+	s.Fix(o3)
+	c1 := addCir(s, o1, 3)
+	c2 := addCir(s, o2, 4)
+	c3 := addCir(s, o3, 5)
+	s.AddConstraint(sketch.NewRadius(c3, 7)) // references the LAST entity
+
+	require.True(t, s.RemoveEntity(c2), "middle circle removed")
+
+	data, err := json.Marshal(s)
+	require.NoError(t, err, "marshal")
+	require.Contains(t, string(data), `"version":1`, "version written")
+
+	var s2 sketch.Sketch
+	require.NoError(t, json.Unmarshal(data, &s2), "unmarshal")
+	require.Len(t, s2.Entities(), 2, "two circles after removal")
+
+	mustSolve(t, &s2)
+	// The radius dim must still target the (renumbered) third circle.
+	reloaded, ok := s2.Entities()[1].(*sketch.Circle)
+	require.True(t, ok, "renumbered entity is a circle")
+	require.InDelta(t, 7, reloaded.R(), 1e-6, "dimension follows the renumbered id")
+	first, ok := s2.Entities()[0].(*sketch.Circle)
+	require.True(t, ok, "first entity intact")
+	require.InDelta(t, 3, first.R(), 1e-6, "unconstrained circle keeps its radius")
+	_ = c1
+}
+
+func TestJSONVersionGuard(t *testing.T) {
+	s := sketch.New()
+	addPt(s, 1, 2)
+	data, err := json.Marshal(s)
+	require.NoError(t, err, "marshal")
+
+	// Legacy document: no version field at all.
+	var doc map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(data, &doc), "decode to map")
+	delete(doc, "version")
+	legacy, err := json.Marshal(doc)
+	require.NoError(t, err, "re-encode legacy")
+	var s2 sketch.Sketch
+	require.NoError(t, json.Unmarshal(legacy, &s2), "legacy document loads")
+
+	// Future document: rejected loudly.
+	doc["version"] = json.RawMessage("2")
+	future, err := json.Marshal(doc)
+	require.NoError(t, err, "re-encode future")
+	var s3 sketch.Sketch
+	require.ErrorContains(t, json.Unmarshal(future, &s3), "unsupported document version 2")
+}
+
+func TestRemoveSplineGuardsControlPoints(t *testing.T) {
+	s := sketch.New()
+	sp := addSpl(s, [2]float64{0, 0}, [2]float64{2, 4}, [2]float64{8, 4}, [2]float64{10, 0})
+	require.False(t, s.RemovePoint(sp.Control[2]), "control point of a live spline is not removable")
+	require.True(t, s.RemoveEntity(sp), "spline removable")
+	require.True(t, s.RemovePoint(sp.Control[2]), "control point orphaned after spline removal")
+}

@@ -140,10 +140,11 @@ Without it the "2D → 3D someday" door stays shut.
 5. ~~**Drag-solve API**~~ — *done 2026-06* as goal-solve
    (`Solve(WithGoal(…))`; design in `docs/goal-solve-design.md`).
 6. **Offset/fillet/trim** (*geom math layer done 2026-06*; sketch-level
-   mutation blocked on entity removal), then ~~**ellipse**~~ (*done 2026-06*;
-   elliptical arcs and ellipse tangency still open), then
-   **profiles/loop detection**, with ~~**splines**~~ (*v1 done 2026-06*;
-   fit-point and point-on-spline constraints still open).
+   mutation now unblocked by removal — convenience tools still to build),
+   then ~~**ellipse**~~ (*done 2026-06*; elliptical arcs and ellipse tangency
+   still open), then **profiles/loop detection**, with ~~**splines**~~
+   (*v1 done 2026-06*; fit-point and point-on-spline constraints still open).
 
-Splines still deserve a design doc before code, as does entity/constraint
-removal (the prerequisite for mutating sketch tools).
+Entity/constraint removal is *done 2026-06*
+(`RemoveConstraint`/`RemoveEntity`/`RemovePoint`; design in
+`docs/removal-design.md`; documents now carry a schema version).
