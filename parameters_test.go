@@ -139,6 +139,59 @@ func TestUndefinedParameterFailsSolve(t *testing.T) {
 	require.Error(t, err, "expected solve to fail on undefined parameter")
 }
 
+// findBoundDistance returns the sketch's distance dimension bound to expr.
+func findBoundDistance(t *testing.T, s *sketch.Sketch, expr string) *sketch.Distance {
+	t.Helper()
+	for _, c := range s.Constraints() {
+		if dd, ok := c.(*sketch.Distance); ok && sketch.DriverExpr(dd) == expr {
+			return dd
+		}
+	}
+	t.Fatalf("no distance dimension bound to %q", expr)
+	return nil
+}
+
+func TestUnbind(t *testing.T) {
+	s, b, _, d := parametricRect(t)
+	mustSolve(t, s)
+
+	wDim := findBoundDistance(t, s, "w")
+	s.Unbind(wDim)
+	require.Empty(t, sketch.DriverExpr(wDim), "binding cleared")
+
+	// The last applied value (20) stays in place as a literal; parameter
+	// edits no longer reach the unbound dimension (height, still bound to
+	// "w/2", does follow).
+	require.NoError(t, s.Params().Set("w", "70"))
+	mustSolve(t, s)
+	require.InDelta(t, 20, b.X(), 1e-6, "unbound width keeps its literal value")
+	require.InDelta(t, 35, d.Y(), 1e-6, "bound height still follows the parameter")
+}
+
+func TestApplyParameters(t *testing.T) {
+	s, b, _, _ := parametricRect(t)
+	wDim := findBoundDistance(t, s, "w")
+	require.InDelta(t, 0, wDim.Target().Mag(), 1e-12, "bound value not applied before ApplyParameters")
+
+	// The public entry point applies bound values without solving: the
+	// dimension target updates, the geometry stays put.
+	require.NoError(t, s.ApplyParameters())
+	require.InDelta(t, 20, wDim.Target().Mag(), 1e-6, "bound value applied")
+	require.InDelta(t, 5, b.X(), 1e-12, "geometry untouched without a solve")
+}
+
+func TestDeleteParameterInUse(t *testing.T) {
+	s, _, _, _ := parametricRect(t)
+	mustSolve(t, s)
+
+	// Deleting a parameter a bound dimension references leaves the binding
+	// dangling; the next solve must fail cleanly, naming the parameter.
+	s.Params().Delete("w")
+	_, err := s.Solve()
+	require.Error(t, err, "solve must fail once the parameter is gone")
+	require.Contains(t, err.Error(), "w", "error names the missing parameter")
+}
+
 func TestJSONRoundTripWithParameters(t *testing.T) {
 	s, _, _, _ := parametricRect(t)
 	mustSolve(t, s)

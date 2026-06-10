@@ -38,6 +38,36 @@ func TestProfilesSlotAndCircle(t *testing.T) {
 	require.Len(t, profiles[1].Entities, 4, "slot boundary: two arcs, two flanks")
 }
 
+// TestProfilesReflectSolvedGeometry pins that profiles are views over live
+// solver-bound geometry: a dimension edit followed by a solve is reflected in
+// a fresh detection pass, which is what downstream consumers (extrude, export)
+// rely on for parametric behavior.
+func TestProfilesReflectSolvedGeometry(t *testing.T) {
+	s, w, _, _, _ := newRectangle(t)
+	mustSolve(t, s)
+
+	perimeter := func(p *sketch.Profile) float64 {
+		var sum float64
+		for _, e := range p.Entities {
+			l, ok := e.(*sketch.Line)
+			require.True(t, ok, "rectangle profile is all lines")
+			sum += l.Length()
+		}
+		return sum
+	}
+
+	profiles := s.Profiles()
+	require.Len(t, profiles, 1, "one closed profile")
+	require.Len(t, profiles[0].Entities, 4, "four sides")
+	require.InDelta(t, 2*(20+12), perimeter(profiles[0]), 1e-6, "perimeter at width 20")
+
+	w.Set(35)
+	mustSolve(t, s)
+	profiles = s.Profiles()
+	require.Len(t, profiles, 1, "profile survives the edit")
+	require.InDelta(t, 2*(35+12), perimeter(profiles[0]), 1e-6, "perimeter at width 35")
+}
+
 func TestProfilesOpenChainAndConstructionCircle(t *testing.T) {
 	s := sketch.New()
 	a := addPt(s, 0, 0)
