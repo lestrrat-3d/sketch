@@ -247,6 +247,15 @@ parentheses, numeric literals (including scientific notation), constants (`pi`,
 …). Register your own with `table.SetFunc` / `table.SetConst`. See
 [`examples/parametric`](examples/parametric).
 
+## Profiles
+
+`s.Profiles()` detects closed region boundaries: every non-construction circle
+and ellipse, plus every closed loop of lines/arcs connected end-to-end through
+shared points (`geom.Loops` underneath). Open chains and construction geometry
+contribute nothing. Profiles are the input that future extrude/revolve
+operations will consume. Boundaries that cross without sharing a point are not
+subdivided into regions (yet).
+
 ## Solving
 
 ```go
