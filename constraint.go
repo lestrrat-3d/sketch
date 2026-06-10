@@ -202,6 +202,32 @@ func (c *equalRadii) residual(out []float64) []float64 {
 // radius.
 func NewEqualRadius(c1, c2 Circular) Constraint { return &equalRadii{c1, c2} }
 
+// --- ellipse ----------------------------------------------------------------
+
+type pointOnEllipse struct {
+	P *Point
+	E *Ellipse
+}
+
+func (c *pointOnEllipse) residual(out []float64) []float64 {
+	// Sampson distance: |F|/|∇F| for the implicit ellipse equation
+	// F = (x'/rx)² + (y'/ry)² − 1 in the ellipse's local frame. This first-
+	// order approximation of the true point-to-ellipse distance keeps the
+	// residual in length units, per the normalization convention.
+	e := c.E
+	cosr, sinr := math.Cos(e.rot()), math.Sin(e.rot())
+	dx, dy := c.P.x()-e.Center.x(), c.P.y()-e.Center.y()
+	lx := cosr*dx + sinr*dy
+	ly := -sinr*dx + cosr*dy
+	rx2 := math.Max(e.rx()*e.rx(), 1e-12)
+	ry2 := math.Max(e.ry()*e.ry(), 1e-12)
+	fv := lx*lx/rx2 + ly*ly/ry2 - 1
+	return append(out, fv/norm(2*lx/rx2, 2*ly/ry2))
+}
+
+// NewPointOnEllipse forces a point to lie on an ellipse.
+func NewPointOnEllipse(p *Point, e *Ellipse) Constraint { return &pointOnEllipse{p, e} }
+
 // --- tangent ----------------------------------------------------------------
 
 type tangentLineCircle struct {
@@ -512,6 +538,62 @@ func (c *Angle) residual(out []float64) []float64 {
 // for another unit.
 func NewAngle(l1, l2 *Line, a float64) *Angle {
 	return &Angle{dimBase: angleDim(a), L1: l1, L2: l2}
+}
+
+// SemiMajor is an editable dimension on an ellipse's semi-axis along its local
+// x axis (the major axis by convention; not enforced).
+type SemiMajor struct {
+	dimBase
+	E *Ellipse
+}
+
+func (c *SemiMajor) residual(out []float64) []float64 {
+	return append(out, c.E.rx()-c.base()) // length units
+}
+
+// NewSemiMajor constrains an ellipse's semi-axis along its local x axis.
+func NewSemiMajor(e *Ellipse, r float64) *SemiMajor {
+	return &SemiMajor{dimBase: lengthDim(r), E: e}
+}
+
+// SemiMinor is an editable dimension on an ellipse's semi-axis along its local
+// y axis (the minor axis by convention; not enforced).
+type SemiMinor struct {
+	dimBase
+	E *Ellipse
+}
+
+func (c *SemiMinor) residual(out []float64) []float64 {
+	return append(out, c.E.ry()-c.base()) // length units
+}
+
+// NewSemiMinor constrains an ellipse's semi-axis along its local y axis.
+func NewSemiMinor(e *Ellipse, r float64) *SemiMinor {
+	return &SemiMinor{dimBase: lengthDim(r), E: e}
+}
+
+// EllipseRotation is an editable dimension on the rotation of an ellipse's
+// local frame.
+type EllipseRotation struct {
+	dimBase
+	E *Ellipse
+}
+
+func (c *EllipseRotation) residual(out []float64) []float64 {
+	// wrap into (-π, π] so the residual stays continuous, like Angle
+	r := math.Mod(c.E.rot()-c.base(), 2*math.Pi)
+	if r > math.Pi {
+		r -= 2 * math.Pi
+	} else if r <= -math.Pi {
+		r += 2 * math.Pi
+	}
+	return append(out, r)
+}
+
+// NewEllipseRotation constrains the rotation of an ellipse's local frame. The
+// value a is interpreted in the sketch's default angle unit once added.
+func NewEllipseRotation(e *Ellipse, a float64) *EllipseRotation {
+	return &EllipseRotation{dimBase: angleDim(a), E: e}
 }
 
 // --- geometry helpers -------------------------------------------------------

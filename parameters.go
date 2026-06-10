@@ -12,8 +12,8 @@ import (
 // Dimension is a dimensional constraint (distance, radius, angle, …) whose
 // driving value carries a unit and may be set literally or bound to a parameter
 // expression. All of [Distance], [HorizontalDistance], [VerticalDistance],
-// [DistancePointLine], [DistanceLines], [Radius], [Diameter] and [Angle]
-// satisfy it.
+// [DistancePointLine], [DistanceLines], [Radius], [Diameter], [Angle],
+// [SemiMajor], [SemiMinor] and [EllipseRotation] satisfy it.
 type Dimension interface {
 	Constraint
 	// Kind reports the quantity the dimension measures (length or angle).

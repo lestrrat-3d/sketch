@@ -7,8 +7,9 @@ import (
 )
 
 // DXF renders the sketch as a minimal AutoCAD R12 ASCII DXF document
-// containing LINE, CIRCLE and ARC entities. It is intended for interchange
-// with CAD tools; only geometry is exported, not constraints.
+// containing LINE, CIRCLE, ARC and ELLIPSE entities (ELLIPSE is formally
+// R13+, but widely accepted). It is intended for interchange with CAD tools;
+// only geometry is exported, not constraints.
 func (s *Sketch) DXF() (string, error) {
 	var sb strings.Builder
 
@@ -61,6 +62,31 @@ func (s *Sketch) DXF() (string, error) {
 			// DXF arc angles are degrees, measured counter-clockwise.
 			pairf(50, deg(t.StartAngle()))
 			pairf(51, deg(t.EndAngle()))
+		case *Ellipse:
+			// ELLIPSE is an R13+ entity; most modern tools accept it in this
+			// otherwise-R12 stream. Codes: 11/21 = major-axis endpoint
+			// relative to the center, 40 = minor/major ratio (must be ≤ 1, so
+			// pick the longer semi-axis as major), 41/42 = full sweep.
+			major, minor, axis := t.rx(), t.ry(), t.rot()
+			if minor > major {
+				major, minor = minor, major
+				axis += math.Pi / 2
+			}
+			pair(0, "ELLIPSE")
+			pair(8, layer)
+			pairf(10, t.Center.x())
+			pairf(20, t.Center.y())
+			pairf(30, 0)
+			ratio := 1.0
+			if major > 0 {
+				ratio = minor / major
+			}
+			pairf(11, major*math.Cos(axis))
+			pairf(21, major*math.Sin(axis))
+			pairf(31, 0)
+			pairf(40, ratio)
+			pairf(41, 0)
+			pairf(42, 2*math.Pi)
 		}
 	}
 

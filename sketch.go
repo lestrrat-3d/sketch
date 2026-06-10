@@ -32,6 +32,7 @@ type Sketch struct {
 	lnOf  map[*geom.Line]*Line
 	cirOf map[*geom.Circle]*Circle
 	arcOf map[*geom.Arc]*Arc
+	elOf  map[*geom.Ellipse]*Ellipse
 
 	params *param.Table // optional; drives bound dimensions
 	sys    units.System // default length/angle units
@@ -50,6 +51,7 @@ func (s *Sketch) initMaps() {
 	s.lnOf = map[*geom.Line]*Line{}
 	s.cirOf = map[*geom.Circle]*Circle{}
 	s.arcOf = map[*geom.Arc]*Arc{}
+	s.elOf = map[*geom.Ellipse]*Ellipse{}
 }
 
 func (s *Sketch) newVar(v float64) int {
@@ -61,8 +63,8 @@ func (s *Sketch) newVar(v float64) int {
 // Points returns the points in creation order. The slice must not be modified.
 func (s *Sketch) Points() []*Point { return s.points }
 
-// Entities returns the lines, circles and arcs in creation order. The slice
-// must not be modified.
+// Entities returns the lines, circles, arcs and ellipses in creation order.
+// The slice must not be modified.
 func (s *Sketch) Entities() []Entity { return s.ents }
 
 // Constraints returns the constraints in creation order. The slice must not be
@@ -139,7 +141,7 @@ func (p *Point) IsFixed() bool { return p.s.fixed[p.xi] && p.s.fixed[p.yi] }
 
 // --- Entities ---------------------------------------------------------------
 
-// Entity is a line, circle or arc bound to a sketch.
+// Entity is a line, circle, arc or ellipse bound to a sketch.
 type Entity interface {
 	isConstruction() bool
 	entID() int
@@ -272,6 +274,56 @@ func (s *Sketch) AddArc(g *geom.Arc) *Arc {
 	s.cons = append(s.cons, &arcRadius{a})
 	s.arcOf[g] = a
 	return a
+}
+
+// Ellipse is the solver-bound instance of a [geom.Ellipse]. Its semi-axes and
+// rotation are solver unknowns; pin them with [NewSemiMajor], [NewSemiMinor]
+// and [NewEllipseRotation] dimensions (the center is a regular point, grounded
+// with [Sketch.Fix]).
+type Ellipse struct {
+	g              *geom.Ellipse
+	s              *Sketch
+	Center         *Point
+	rxi, ryi, roti int // var indices: semi-axes and rotation
+	id             int
+}
+
+func (e *Ellipse) entity()              {}
+func (e *Ellipse) entID() int           { return e.id }
+func (e *Ellipse) isConstruction() bool { return e.g.Construction }
+
+// Generic returns the context-agnostic geometry this ellipse was committed
+// from.
+func (e *Ellipse) Generic() *geom.Ellipse { return e.g }
+
+// Rx returns the current semi-axis along the ellipse's local x axis.
+func (e *Ellipse) Rx() float64 { return e.s.vars[e.rxi] }
+
+// Ry returns the current semi-axis along the ellipse's local y axis.
+func (e *Ellipse) Ry() float64 { return e.s.vars[e.ryi] }
+
+// Rotation returns the current rotation of the ellipse's local frame, in
+// radians counter-clockwise.
+func (e *Ellipse) Rotation() float64 { return e.s.vars[e.roti] }
+
+func (e *Ellipse) rx() float64  { return e.s.vars[e.rxi] }
+func (e *Ellipse) ry() float64  { return e.s.vars[e.ryi] }
+func (e *Ellipse) rot() float64 { return e.s.vars[e.roti] }
+
+// AddEllipse commits a generic ellipse to the sketch, first committing its
+// center, and returns its solver-bound instance. It is idempotent.
+func (s *Sketch) AddEllipse(g *geom.Ellipse) *Ellipse {
+	if e, ok := s.elOf[g]; ok {
+		return e
+	}
+	e := &Ellipse{
+		g: g, s: s, Center: s.AddPoint(g.Center),
+		rxi: s.newVar(g.Rx), ryi: s.newVar(g.Ry), roti: s.newVar(g.Rotation),
+		id: len(s.ents),
+	}
+	s.ents = append(s.ents, e)
+	s.elOf[g] = e
+	return e
 }
 
 // --- Errors -----------------------------------------------------------------

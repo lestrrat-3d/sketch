@@ -38,6 +38,22 @@ func NewCircle(center *Point, radius float64) *Circle {
 	return &Circle{Center: center, Radius: radius}
 }
 
+// Ellipse is a full ellipse: a center, semi-axis lengths Rx and Ry along its
+// local x and y axes, and the rotation (radians, counter-clockwise) of that
+// local frame in sketch coordinates. Rx is conventionally the major semi-axis
+// but this is not enforced; the axes are simply the local x and y.
+type Ellipse struct {
+	Center       *Point
+	Rx, Ry       float64
+	Rotation     float64
+	Construction bool
+}
+
+// NewEllipse returns an ellipse with the given center, semi-axes and rotation.
+func NewEllipse(center *Point, rx, ry, rotation float64) *Ellipse {
+	return &Ellipse{Center: center, Rx: rx, Ry: ry, Rotation: rotation}
+}
+
 // Arc is a circular arc swept counter-clockwise from Start to End about Center.
 type Arc struct {
 	Center, Start, End *Point

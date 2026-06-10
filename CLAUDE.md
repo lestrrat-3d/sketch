@@ -44,7 +44,7 @@ expected to be built **on top of** this engine, not woven into it.
 
 | File | Responsibility |
 |---|---|
-| `sketch.go` | `Sketch`, solver-bound geometry (`Point`/`Line`/`Circle`/`Arc`) wrapping `geom`, the parameter model, grounding. |
+| `sketch.go` | `Sketch`, solver-bound geometry (`Point`/`Line`/`Circle`/`Arc`/`Ellipse`) wrapping `geom`, the parameter model, grounding. |
 | `compound.go` | Compound shape builders (`AddRectangle`/`AddPolygon`/`AddSlot`): primitives + shape-holding constraints, returned as a grouping handle (handle itself is not serialized). |
 | `constraint.go` | `Constraint` interface and every constraint's residual + the public `New…` constructors. |
 | `solver.go` | Levenberg–Marquardt solver, numerical Jacobian, DOF/redundancy (rank) analysis. |
@@ -116,8 +116,9 @@ nothing on a sketch; `Add…` does all the committing.
 
 ### The parameter model (load-bearing)
 
-All scalar unknowns — point `x`/`y`, circle radius — live in one flat vector on
-the `Sketch` (`vars []float64`, with a parallel `fixed []bool`). Sketch
+All scalar unknowns — point `x`/`y`, circle radius, ellipse semi-axes/rotation
+— live in one flat vector on the `Sketch` (`vars []float64`, with a parallel
+`fixed []bool`). Sketch
 primitives hold **indices** into that vector (and a back-reference to their
 `geom` template). The solver reads/perturbs the vector directly; solving never
 mutates the generic geometry. Grounding (`fixed`) is per-sketch, not a property
@@ -225,9 +226,11 @@ These are unsettled. If you resolve one, record the decision here.
   expressions are serialized in the sketch JSON. The dependency arrow is
   `sketch -> param`, never the reverse. *Possible follow-ups:* parameter units,
   and reporting which parameter a solve failure came from.
-- **Geometry coverage.** Splines/B-splines, ellipses, slots, fillet/chamfer and
-  offset helpers are not yet present. Splines in particular interact with the
-  solver (control points as unknowns).
+- **Geometry coverage.** Splines/B-splines remain the big gap (control points
+  as solver unknowns). Ellipses are in (center point + rx/ry/rotation vars;
+  `NewPointOnEllipse` uses a Sampson-normalized residual — |F|/|∇F| — to stay
+  in length units; tangency-to-ellipse and elliptical arcs are still open).
+  Slots/fillet/chamfer exist as compound builders and `geom` template helpers.
 - **Solver evolution.** Numerical Jacobian is fine at current scale. Open:
   analytic Jacobians for speed/accuracy, equation decomposition (solve
   independent constraint clusters separately), and better diagnostics for

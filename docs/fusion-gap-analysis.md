@@ -11,8 +11,13 @@ with DOF/redundancy counts, `param` table, `units`, SVG/DXF/JSON export.
 
 **Missing**, roughly in order of how often Fusion users reach for them:
 
-- **Ellipse / elliptical arc** — straightforward unknowns (center, two radii,
-  rotation), but adds several new tangent/point-on residual cases.
+- ~~**Ellipse**~~ — *closed 2026-06*: `geom.NewEllipse`/`AddEllipse` with a
+  center point plus semi-axis/rotation unknowns, `NewPointOnEllipse`
+  (Sampson-normalized residual), `NewSemiMajor`/`NewSemiMinor`/
+  `NewEllipseRotation` dimensions, JSON/SVG/DXF support. Still open:
+  **elliptical arcs**, and **tangency to an ellipse** (no closed-form
+  distance; needs a foot-point iteration or an auxiliary contact-point
+  variable).
 - **Splines** — Fusion has fit-point splines and control-point splines. The big
   one architecturally: control points become solver unknowns, and
   point-on-spline / tangent-to-spline residuals need curve evaluation inside
@@ -133,7 +138,8 @@ Without it the "2D → 3D someday" door stays shut.
 5. ~~**Drag-solve API**~~ — *done 2026-06* as goal-solve
    (`Solve(WithGoal(…))`; design in `docs/goal-solve-design.md`).
 6. **Offset/fillet/trim** (*geom math layer done 2026-06*; sketch-level
-   mutation blocked on entity removal), then **ellipse**, then
+   mutation blocked on entity removal), then ~~**ellipse**~~ (*done 2026-06*;
+   elliptical arcs and ellipse tangency still open), then
    **profiles/loop detection**, with **splines** last (largest solver impact).
 
 Splines still deserve a design doc before code, as does entity/constraint

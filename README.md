@@ -85,11 +85,13 @@ Construct generic geometry with `geom.New…`, then commit it with the matching
 | `geom.NewLine(a, b)` | `s.AddLine(l)` | `*sketch.Line` |
 | `geom.NewCircle(center, r)` | `s.AddCircle(c)` | `*sketch.Circle` |
 | `geom.NewArc(center, start, end)` | `s.AddArc(a)` | `*sketch.Arc` |
+| `geom.NewEllipse(center, rx, ry, rot)` | `s.AddEllipse(e)` | `*sketch.Ellipse` (semi-axes and rotation are solved for) |
 
-`AddLine`/`AddCircle`/`AddArc` commit any referenced generic points first and
-return the bound object; all `Add…` are idempotent (a generic primitive maps to
-one bound instance per sketch). A bound handle exposes solved values (`p.X()`,
-`l.Length()`, `c.R()`) and the generic geometry it came from (`p.Generic()`).
+`AddLine`/`AddCircle`/`AddArc`/`AddEllipse` commit any referenced generic
+points first and return the bound object; all `Add…` are idempotent (a generic
+primitive maps to one bound instance per sketch). A bound handle exposes
+solved values (`p.X()`, `l.Length()`, `c.R()`, `e.Rx()`) and the generic
+geometry it came from (`p.Generic()`).
 
 Grounding (per-sketch — the same generic point may be fixed in one sketch and
 free in another):
@@ -135,18 +137,20 @@ Construct a constraint with its `New…` function and commit it with
 
 `NewCoincident`, `NewHorizontal`, `NewVertical`, `NewParallel`,
 `NewPerpendicular`, `NewPointOnLine`, `NewCollinear`, `NewPointOnCircle`,
-`NewMidpoint`, `NewSymmetric`, `NewConcentric`, `NewEqual` (line lengths),
-`NewEqualRadius` (circles and/or arcs), `NewTangent` (line to circle or arc),
-`NewTangentCircles` (circle/arc to circle/arc, internal or external). Tangency
-treats an arc as its full circle — the tangent point is not required to lie
-within the arc's sweep.
+`NewPointOnEllipse`, `NewMidpoint`, `NewSymmetric`, `NewConcentric`,
+`NewEqual` (line lengths), `NewEqualRadius` (circles and/or arcs),
+`NewTangent` (line to circle or arc), `NewTangentCircles` (circle/arc to
+circle/arc, internal or external). Tangency treats an arc as its full circle —
+the tangent point is not required to lie within the arc's sweep. Tangency to
+an ellipse is not supported.
 
 **Dimensional** (editable; each carries a unit and has a `.Set`/`.SetValue`)
 
 `NewDistance`, `NewHorizontalDistance`, `NewVerticalDistance`,
 `NewDistancePointLine` (perpendicular point↔line), `NewDistanceLines`
 (perpendicular line↔line; forces the lines parallel), `NewRadius`,
-`NewDiameter`, `NewAngle` (between two lines).
+`NewDiameter`, `NewAngle` (between two lines), `NewSemiMajor`/`NewSemiMinor`
+(ellipse semi-axes), `NewEllipseRotation`.
 
 Any dimension can be flipped to a **driven (reference) dimension** with
 `.SetDriven(true)`: it stops constraining the geometry and instead reports the

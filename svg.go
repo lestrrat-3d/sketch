@@ -106,6 +106,14 @@ func (s *Sketch) bounds() (bbox, bool) {
 				b.add(p[0], p[1])
 			}
 			any = true
+		case *Ellipse:
+			// Axis-aligned extents of a rotated ellipse.
+			cosr, sinr := math.Cos(t.rot()), math.Sin(t.rot())
+			ex := math.Hypot(t.rx()*cosr, t.ry()*sinr)
+			ey := math.Hypot(t.rx()*sinr, t.ry()*cosr)
+			b.add(t.Center.x()-ex, t.Center.y()-ey)
+			b.add(t.Center.x()+ex, t.Center.y()+ey)
+			any = true
 		}
 	}
 	return b, any
@@ -219,6 +227,15 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 			fmt.Fprintf(&sb,
 				`  <path d="%s" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
 				strings.TrimSpace(d.String()), color(t.isConstruction()), f(cfg.strokeWidth), dash(t.isConstruction()))
+		case *Ellipse:
+			// The y-flip mirrors the plane, so a CCW sketch rotation becomes
+			// CW in SVG coordinates: negate the angle.
+			cx, cy := tx(t.Center.x()), ty(t.Center.y())
+			fmt.Fprintf(&sb,
+				`  <ellipse cx="%s" cy="%s" rx="%s" ry="%s" transform="rotate(%s %s %s)" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
+				f(cx), f(cy), f(t.rx()), f(t.ry()),
+				f(-t.rot()*180/math.Pi), f(cx), f(cy),
+				color(t.isConstruction()), f(cfg.strokeWidth), dash(t.isConstruction()))
 		}
 	}
 

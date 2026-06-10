@@ -21,9 +21,12 @@ type jsonPoint struct {
 }
 
 type jsonEntity struct {
-	Type         string  `json:"type"` // "line" | "circle" | "arc"
+	Type         string  `json:"type"` // "line" | "circle" | "arc" | "ellipse"
 	Points       []int   `json:"points"`
 	Radius       float64 `json:"radius,omitempty"`
+	Rx           float64 `json:"rx,omitempty"`       // ellipse semi-axis (local x)
+	Ry           float64 `json:"ry,omitempty"`       // ellipse semi-axis (local y)
+	Rotation     float64 `json:"rotation,omitempty"` // ellipse frame rotation, radians
 	Construction bool    `json:"construction,omitempty"`
 }
 
@@ -103,6 +106,11 @@ func (s *Sketch) MarshalJSON() ([]byte, error) {
 			js.Entities = append(js.Entities, jsonEntity{
 				Type: "arc", Points: []int{t.Center.id, t.Start.id, t.End.id}, Construction: t.g.Construction,
 			})
+		case *Ellipse:
+			js.Entities = append(js.Entities, jsonEntity{
+				Type: "ellipse", Points: []int{t.Center.id},
+				Rx: t.rx(), Ry: t.ry(), Rotation: t.rot(), Construction: t.g.Construction,
+			})
 		}
 	}
 
@@ -146,6 +154,8 @@ func marshalConstraint(c Constraint) (jsonConstraint, bool) {
 		return jsonConstraint{Type: "concentric", Entities: []int{t.C1.id, t.C2.id}}, true
 	case *pointOnCircle:
 		return jsonConstraint{Type: "point_on_circle", Points: []int{t.P.id}, Entities: []int{t.C.id}}, true
+	case *pointOnEllipse:
+		return jsonConstraint{Type: "point_on_ellipse", Points: []int{t.P.id}, Entities: []int{t.E.id}}, true
 	case *midpoint:
 		return jsonConstraint{Type: "midpoint", Points: []int{t.P.id}, Entities: []int{t.L.id}}, true
 	case *symmetric:
@@ -174,6 +184,12 @@ func marshalConstraint(c Constraint) (jsonConstraint, bool) {
 		return dimJSON("diameter", t, nil, []int{t.C.id}), true
 	case *Angle:
 		return dimJSON("angle", t, nil, []int{t.L1.id, t.L2.id}), true
+	case *SemiMajor:
+		return dimJSON("semi_major", t, nil, []int{t.E.id}), true
+	case *SemiMinor:
+		return dimJSON("semi_minor", t, nil, []int{t.E.id}), true
+	case *EllipseRotation:
+		return dimJSON("ellipse_rotation", t, nil, []int{t.E.id}), true
 	}
 	return jsonConstraint{}, false
 }
@@ -226,6 +242,13 @@ func (s *Sketch) UnmarshalJSON(data []byte) error {
 		}
 		return c, nil
 	}
+	ellipse := func(i int) (*Ellipse, error) {
+		e, ok := s.entByID(i).(*Ellipse)
+		if !ok {
+			return nil, fmt.Errorf("sketch: entity %d is not an ellipse", i)
+		}
+		return e, nil
+	}
 
 	for _, je := range js.Entities {
 		switch je.Type {
@@ -250,13 +273,20 @@ func (s *Sketch) UnmarshalJSON(data []byte) error {
 			g := geom.NewArc(s.points[je.Points[0]].g, s.points[je.Points[1]].g, s.points[je.Points[2]].g)
 			g.Construction = je.Construction
 			s.AddArc(g)
+		case "ellipse":
+			if len(je.Points) != 1 {
+				return fmt.Errorf("sketch: ellipse needs 1 point, got %d", len(je.Points))
+			}
+			g := geom.NewEllipse(s.points[je.Points[0]].g, je.Rx, je.Ry, je.Rotation)
+			g.Construction = je.Construction
+			s.AddEllipse(g)
 		default:
 			return fmt.Errorf("sketch: unknown entity type %q", je.Type)
 		}
 	}
 
 	for _, jc := range js.Constraints {
-		if err := s.rebuildConstraint(jc, line, circle, circular); err != nil {
+		if err := s.rebuildConstraint(jc, line, circle, circular, ellipse); err != nil {
 			return err
 		}
 	}
@@ -274,7 +304,7 @@ func (s *Sketch) entByID(i int) Entity {
 	return s.ents[i]
 }
 
-func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, error), circle func(int) (*Circle, error), circular func(int) (Circular, error)) error {
+func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, error), circle func(int) (*Circle, error), circular func(int) (Circular, error), ellipse func(int) (*Ellipse, error)) error {
 	pt := func(i int) *Point { return s.points[jc.Points[i]] }
 	// dim restores a dimensional constraint's unit/binding, then commits it.
 	dim := func(d Dimension) {
@@ -329,6 +359,25 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 			return err
 		}
 		s.AddConstraint(NewPointOnCircle(pt(0), c))
+	case "point_on_ellipse":
+		e, err := ellipse(jc.Entities[0])
+		if err != nil {
+			return err
+		}
+		s.AddConstraint(NewPointOnEllipse(pt(0), e))
+	case "semi_major", "semi_minor", "ellipse_rotation":
+		e, err := ellipse(jc.Entities[0])
+		if err != nil {
+			return err
+		}
+		switch jc.Type {
+		case "semi_major":
+			dim(NewSemiMajor(e, jc.Value))
+		case "semi_minor":
+			dim(NewSemiMinor(e, jc.Value))
+		case "ellipse_rotation":
+			dim(NewEllipseRotation(e, jc.Value))
+		}
 	case "midpoint":
 		l, err := line(jc.Entities[0])
 		if err != nil {
