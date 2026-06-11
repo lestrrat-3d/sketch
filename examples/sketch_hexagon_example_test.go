@@ -1,18 +1,17 @@
-// Command hexagon builds a regular hexagon entirely from geometric and
-// dimensional constraints — no vertex is positioned by hand beyond a rough
-// initial guess — then solves it and writes SVG, DXF and JSON.
-package main
+package examples_test
 
 import (
 	"fmt"
 	"math"
-	"os"
 
 	"github.com/lestrrat-3d/sketch"
 	"github.com/lestrrat-3d/sketch/geom"
 )
 
-func main() {
+// Example_sketch_hexagon builds a regular hexagon entirely from geometric and
+// dimensional constraints — no vertex is positioned by hand beyond a rough
+// initial guess — then solves it and reports the vertices.
+func Example_sketch_hexagon() {
 	s := sketch.New()
 
 	const side = 30.0
@@ -51,27 +50,27 @@ func main() {
 
 	res, err := s.Solve()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "solve:", err)
-		os.Exit(1)
+		fmt.Printf("failed to solve: %s\n", err)
+		return
 	}
-	fmt.Printf("solved in %d iterations, residual %.2e, DOF %d, redundant %d\n",
-		res.Iterations, res.Residual, res.DOF, res.Redundant)
+
+	// Round for printing only, mapping a residual-sized -0.000 onto +0.000 so
+	// the output stays exact.
+	r := func(v float64) float64 { return math.Round(v*1000)/1000 + 0 }
+	fmt.Printf("DOF %d, redundant %d\n", res.DOF, res.Redundant)
 	for i, p := range pts {
-		fmt.Printf("  p%d = (%7.3f, %7.3f)\n", i, p.X(), p.Y())
+		fmt.Printf("p%d = (%7.3f, %7.3f)\n", i, r(p.X()), r(p.Y()))
 	}
 
-	write := func(name, data string) {
-		if err := os.WriteFile(name, []byte(data), 0o644); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-		fmt.Println("wrote", name)
-	}
+	// The two redundant equations are the hexagon's closure: five 60° turns
+	// and five equal sides already force the sixth of each.
 
-	svg, _ := s.SVG()
-	write("hexagon.svg", svg)
-	dxf, _ := s.DXF()
-	write("hexagon.dxf", dxf)
-	js, _ := s.MarshalJSON()
-	write("hexagon.json", string(js))
+	// Output:
+	// DOF 0, redundant 2
+	// p0 = (  0.000,   0.000)
+	// p1 = ( 30.000,   0.000)
+	// p2 = ( 45.000,  25.981)
+	// p3 = ( 30.000,  51.962)
+	// p4 = (  0.000,  51.962)
+	// p5 = (-15.000,  25.981)
 }
