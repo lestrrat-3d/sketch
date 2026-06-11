@@ -46,6 +46,7 @@ expected to be built **on top of** this engine, not woven into it.
 |---|---|
 | `sketch.go` | `Sketch`, solver-bound geometry (`Point`/`Line`/`Circle`/`Arc`/`Ellipse`) wrapping `geom`, the parameter model, grounding. |
 | `compound.go` | Compound shape builders (`AddRectangle`/`AddPolygon`/`AddSlot`): primitives + shape-holding constraints, returned as a grouping handle (handle itself is not serialized). |
+| `tools.go` | Sketch-modification tools on committed geometry (`Trim`/`Extend`/`Break`, `AddFillet`/`AddChamfer`, `AddMirror`, `AddPatternRect`/`AddPatternCircular`, `AddOffset`): build-then-replace via the `geom` toolkit + `RemoveEntity`. Design in `docs/modification-tools-design.md`. |
 | `profiles.go` | `Sketch.Profiles()`: closed-region boundaries (loops of lines/arcs via `geom.Loops` + standalone circles/ellipses), construction geometry excluded. |
 | `constraint.go` | `Constraint` interface and every constraint's residual + the public `New…` constructors. |
 | `solver.go` | Levenberg–Marquardt solver, numerical Jacobian, DOF/redundancy (rank) analysis. |
@@ -72,10 +73,12 @@ line/circle/arc intersections (arc cases reduce to circle cases filtered by
 generic geometry **before it is committed** — `Fillet`/`Chamfer` replace each
 line's shared endpoint with a fresh contact point and return the connecting
 arc/line. They are the math layer for sketcher tools; the *mutating*
-sketch-level equivalents (trim a committed line, fillet a committed corner)
-are now expressible — shape replacements with the toolkit, `Add` them, then
-`RemoveEntity` the originals — though dedicated convenience tools have not
-been built yet.
+sketch-level equivalents (trim a committed line, fillet a committed corner) are
+now built in `tools.go` (`Trim`/`Extend`/`Break`/`AddFillet`/`AddChamfer`/
+`AddMirror`/`AddPatternRect`/`AddPatternCircular`/`AddOffset`) — shape
+replacements with the toolkit, `Add` them, then `RemoveEntity` the originals.
+`geom/transform.go` adds the mirror/translate/rotate point transforms those
+tools build on.
 
 ### The `units` package (slated for extraction)
 
@@ -289,8 +292,10 @@ These are unsettled. If you resolve one, record the decision here.
   retired (marked fixed, never reclaimed — reload compacts), constraint
   cascade via the `constraintRefs` switch (includes internal `arcRadius`),
   points kept on entity removal, `RemovePoint` refuses while an entity uses
-  the point. Removed handles are dead. This unblocks the mutating sketch
-  tools (trim/fillet of committed geometry), which still need building.
+  the point. Removed handles are dead. This unblocked the mutating sketch
+  tools (trim/extend/break/fillet/chamfer/mirror/pattern/offset of committed
+  geometry), now built in `tools.go` (design in
+  `docs/modification-tools-design.md`).
 - **Tolerances.** Still a fixed solver tolerance. Per-sketch
   tolerance/precision remains open.
 - **Persistence stability.** *Partially resolved:* documents carry
@@ -303,5 +308,7 @@ These are unsettled. If you resolve one, record the decision here.
 ## Status
 
 Core engine + constraint set + solver (with DOF/redundancy analysis) +
-SVG/DXF/JSON export are implemented and tested. Active branch:
+SVG/DXF/JSON export + sketch-modification tools (`tools.go`:
+trim/extend/break/fillet/chamfer/mirror/pattern/offset on committed geometry)
+are implemented and tested. Active branch:
 `claude/2d-sketch-tool-go-c73sfs`.

@@ -92,24 +92,24 @@ Implemented in `diagnose.go` (design: `docs/diagnostics-design.md`), tests in
 
 ## 5. Sketch editing tools (the biggest missing layer)
 
-CLAUDE.md notes these are "expressible" via the geom toolkit + `RemoveEntity`
-but not built. Fusion users live in trim/offset/mirror. Every tool test asserts
-three things: the resulting **geometry** is right, the resulting **constraint
-graph** is right (tangencies/coincidences present, DOF as expected), and a
-subsequent **dimension edit + Solve** behaves parametrically. The third
-assertion is what separates a CAD tool from a drawing program.
+Built in `tools.go` (design in `docs/modification-tools-design.md`); tests in
+`tools_test.go`. Fusion users live in trim/offset/mirror. Every tool test
+asserts three things: the resulting **geometry** is right, the resulting
+**constraint graph** is right (tangencies/coincidences present, DOF as
+expected), and a subsequent **dimension edit + Solve** behaves parametrically.
+The third assertion is what separates a CAD tool from a drawing program.
 
 | Test | Status | Asserts |
 |---|---|---|
-| `TestTrimLineAtIntersection` | [new] | `s.Trim(line, nearPoint)` — committed line crossing a circle: trim removes the segment on `nearPoint`'s side, keeps constraints on the surviving portion, splices coincidence at the cut. |
-| `TestExtendToNextCurve` | [new] | `s.Extend(line, end)` — endpoint extends to the nearest intersecting curve. |
-| `TestBreakAtPoint` | [new] | `s.Break(ent, at)` — one line becomes two sharing a coincident point; dimensions referencing the original resolve sensibly or error explicitly. |
-| `TestFilletCommittedCorner` | [new] | `s.FilletCorner(l1, l2, r)` — replaces the shared endpoint, adds the arc with tangent constraints to both lines + a radius dimension; editing `r` and re-solving keeps tangency (parametric fillet, exactly Fusion's behavior). |
-| `TestChamferCommittedCorner` | [new] | Same shape with distance dimensions. |
-| `TestOffsetChain` | [new] | `s.Offset(entities, d)` — offset a connected chain (lines + arcs) by `d`: the result is a parallel chain bound by an offset **constraint**, so editing the original moves the offset copy (Fusion's offset is constrained, not a frozen copy). Needs a real `OffsetConstraint` — the deepest new solver work in this catalog. |
-| `TestMirror` | [new] | `s.Mirror(entities, axisLine)` — mirrored copies created with symmetric constraints; editing the original re-solves the mirror side. |
-| `TestRectangularPattern` | [new] | `s.PatternRect(entities, nx, ny, dx, dy)` — instances follow the seed. |
-| `TestCircularPattern` | [new] | `s.PatternCircular(entities, center, n)` — equal angular spacing held by constraints; editing the seed propagates. |
+| `TestTrimEndStub` / `TestTrimStartStub` / `TestTrimInteriorRejected` | [exists] | `s.Trim(line, x, y)` — committed line crossing a cutter: trim removes the stub on the pick side and replaces the line; a pick bounded by crossings on both sides is rejected (would split — use Break). |
+| `TestExtendToCutter` | [exists] | `s.Extend(line, end)` — endpoint extends to the nearest entity beyond it. |
+| `TestBreakLine` / `TestBreakArc` | [exists] | `s.Break(ent, x, y)` — one line/arc becomes two sharing the split vertex (and, for arcs, the center); `TestBreakIsParametric` dimensions a half and re-solves. |
+| `TestAddFillet` | [exists] | `s.AddFillet(l1, l2, r)` — removes the corner, adds the arc with tangent constraints to both legs + a radius dimension; editing `Fillet.Radius` and re-solving keeps tangency (parametric fillet). |
+| `TestAddChamfer` | [exists] | `s.AddChamfer(l1, l2, d)` — same shape with setback distance dimensions. |
+| `TestOffsetLine` / `TestOffsetChainMitresCorner` | [exists] | `s.AddOffset(entities, d)` — a parallel chain bound by the new `Offset` **constraint**; corners mitre at the offset intersection and `OffsetGroup.Set(d)` + re-solve moves the copy. |
+| `TestMirrorLine` / `TestMirrorTracksSource` | [exists] | `s.AddMirror(entities, axisLine)` — mirrored copies created with symmetric constraints; moving the original re-solves the mirror side. |
+| `TestPatternRect` / `TestPatternRectTracksSeed` | [exists] | `s.AddPatternRect(entities, nx, ny, dx, dy)` — instances rigid-tied to and following the seed. |
+| `TestPatternCircular` | [exists] | `s.AddPatternCircular(entities, center, n)` — equal angular spacing held by construction-spoke constraints. |
 
 ## 6. Geometry coverage gaps
 

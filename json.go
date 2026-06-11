@@ -191,6 +191,8 @@ func marshalConstraint(c Constraint) (jsonConstraint, bool) {
 		return dimJSON("distance_point_line", t, []int{t.P.id}, []int{t.L.id}), true
 	case *DistanceLines:
 		return dimJSON("distance_lines", t, nil, []int{t.L1.id, t.L2.id}), true
+	case *Offset:
+		return dimJSON("offset", t, nil, []int{t.Src.id, t.Dst.id}), true
 	case *Radius:
 		return dimJSON("radius", t, nil, []int{t.C.id}), true
 	case *Diameter:
@@ -478,6 +480,16 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 			return err
 		}
 		dim(NewDistanceLines(l1, l2, jc.Value))
+	case "offset":
+		src, err := line(jc.Entities[0])
+		if err != nil {
+			return err
+		}
+		dst, err := line(jc.Entities[1])
+		if err != nil {
+			return err
+		}
+		dim(NewOffset(src, dst, jc.Value))
 	case "hdistance":
 		dim(NewHorizontalDistance(pt(0), pt(1), jc.Value))
 	case "vdistance":

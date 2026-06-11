@@ -68,28 +68,30 @@ The geometric set is already close to Fusion's. Remaining gaps:
 ## Sketch-modification tools
 
 These are what make it feel like a sketcher rather than a constraint solver.
-The math layer now lives in `geom` (intersections + template modification);
-the *mutating* versions on committed sketch geometry are blocked on
-entity/constraint removal — sketches are append-only with creation-indexed
-ids (see CLAUDE.md open questions).
+*Closed 2026-06* — all of trim/extend/break, fillet/chamfer, mirror and
+patterns are built in `tools.go` via the build-then-replace pattern (geom
+toolkit + `RemoveEntity`); offset added a new `Offset` constraint. Design in
+`docs/modification-tools-design.md`; tests in `tools_test.go`.
 
-- **Trim / extend / break** — *geom layer closed 2026-06*: line/circle/arc
-  intersections (`LineLineIntersection`, `LineCircleIntersections`,
-  `CircleCircleIntersections`, arc variants via `Arc.Contains`) plus
-  `SplitLineAt`. Sketch-level trim of committed geometry remains open
-  (removal prerequisite).
-- **Offset** — offset a chain of curves with a single driving dimension; in
-  Fusion the offset is itself a constraint, so the offset curve follows the
-  original. (Single line/circle offsets are expressible today via
-  `NewDistanceLines` and concentric + radius; the chain tool remains open.)
-- **Fillet / chamfer** — *geom layer closed 2026-06*: `geom.Fillet` /
-  `geom.Chamfer` shape templates before committing (replace the shared corner
-  with contact points, return the tangent arc / cut line). Committed-geometry
-  versions remain open (removal prerequisite).
-- **Mirror** — creates mirrored copies *with symmetric constraints attached* so
-  they stay linked.
-- **Rectangular / circular patterns** — copies with pattern constraints (count
-  and spacing can be parametric).
+- **Trim / extend / break** — *closed 2026-06*: `Trim`/`Extend`/`Break` on
+  committed geometry (geom layer — `LineLineIntersection`,
+  `LineCircleIntersections`, `CircleCircleIntersections`, arc variants,
+  `SplitLineAt`/`SplitArcAt`, `ClosestPointOnLine` — plus the sketch-level
+  replace tools).
+- **Offset** — *closed 2026-06*: `AddOffset` offsets a chain at a signed
+  distance; the new `Offset` constraint keeps each segment parallel at distance
+  d and mitres shared corners at the offset intersection, so editing
+  `OffsetGroup.Set(d)` moves the copy. (Arc/concentric chain offset still open.)
+- **Fillet / chamfer** — *closed 2026-06*: `AddFillet` / `AddChamfer` on
+  committed corners (arc/cut + tangency/coincidence + editable radius/setback
+  dimensions), wrapping the `geom.Fillet`/`geom.Chamfer` template helpers.
+- **Mirror** — *closed 2026-06*: `AddMirror` creates mirrored copies *with
+  symmetric constraints attached* (plus equal-radius for circles) so they stay
+  linked.
+- **Rectangular / circular patterns** — *closed 2026-06*: `AddPatternRect` /
+  `AddPatternCircular` create copies rigidly tied to the seed by distance /
+  construction-spoke constraints, so the field follows the seed. (A single
+  shared-parameter spacing knob is a recorded follow-up.)
 - **Project / intersect** — out of scope until 3D exists; worth a placeholder
   concept: entities whose geometry is externally driven and fully fixed
   ("reference" entities).
@@ -142,8 +144,9 @@ and loop **area/winding** classification (outer boundary vs hole).
    (`RedundantConstraints()`; conflicting-vs-redundant still open).
 5. ~~**Drag-solve API**~~ — *done 2026-06* as goal-solve
    (`Solve(WithGoal(…))`; design in `docs/goal-solve-design.md`).
-6. **Offset/fillet/trim** (*geom math layer done 2026-06*; sketch-level
-   mutation now unblocked by removal — convenience tools still to build),
+6. ~~**Offset/fillet/trim**~~ — *done 2026-06* (all sketch-modification tools
+   in `tools.go`: trim/extend/break, fillet/chamfer, mirror, patterns, offset;
+   design in `docs/modification-tools-design.md`),
    then ~~**ellipse**~~ (*done 2026-06*; elliptical arcs and ellipse tangency
    still open), then ~~**profiles/loop detection**~~ (*shared-endpoint loops
    done 2026-06*; region subdivision at bare crossings still open), with

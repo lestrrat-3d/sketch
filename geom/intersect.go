@@ -42,6 +42,21 @@ func SegmentIntersection(l1, l2 *Line) (*Point, bool) {
 	return NewPoint(x1+t*d1x, y1+t*d1y), true
 }
 
+// ClosestPointOnLine returns the foot of the perpendicular from p to the
+// infinite line through l, together with the parameter t locating that foot as
+// l.Start + t·(l.End − l.Start). t ∈ [0, 1] means the foot lies within the
+// segment; outside that range it lies on the extension beyond an endpoint. A
+// degenerate (zero-length) line yields l.Start and t = 0.
+func ClosestPointOnLine(l *Line, p *Point) (*Point, float64) {
+	dx, dy := l.End.X-l.Start.X, l.End.Y-l.Start.Y
+	dd := dx*dx + dy*dy
+	if dd == 0 {
+		return NewPoint(l.Start.X, l.Start.Y), 0
+	}
+	t := ((p.X-l.Start.X)*dx + (p.Y-l.Start.Y)*dy) / dd
+	return NewPoint(l.Start.X+t*dx, l.Start.Y+t*dy), t
+}
+
 // LineCircleIntersections returns the points where the infinite line through
 // l meets c: two for a secant, one for a tangent, none for a miss.
 func LineCircleIntersections(l *Line, c *Circle) []*Point {

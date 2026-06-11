@@ -2,18 +2,40 @@ package geom
 
 import "math"
 
-// Modification helpers operate on generic (template) geometry, before it is
-// committed to a sketch. They are the math layer under sketcher tools like
-// trim, fillet and chamfer: build or adjust templates here, then commit the
-// result with the sketch's Add… methods (adding shape-holding constraints as
-// needed). They never touch a sketch — committed sketch geometry cannot be
-// re-topologized today (entities cannot be removed), so these helpers are the
-// supported way to shape geometry first.
+// Modification helpers operate on generic (template) geometry, producing fresh
+// templates rather than mutating a sketch. They are the math layer under
+// sketcher tools like trim, extend, break, fillet and chamfer: build the
+// replacement templates here, then the sketch-level tools commit them with the
+// Add… methods and retire the originals with RemoveEntity (adding shape-holding
+// constraints as needed). They never touch a sketch.
 
 // SplitLineAt splits l at p — assumed to lie on l — returning the two
 // segments (l.Start→p and p→l.End) sharing p. l itself is not modified.
 func SplitLineAt(l *Line, p *Point) (*Line, *Line) {
 	return NewLine(l.Start, p), NewLine(p, l.End)
+}
+
+// SplitArcAt splits arc a at p — assumed to lie within its sweep — returning
+// the two arcs (Start→p and p→End) sharing the center and p. a is not modified.
+func SplitArcAt(a *Arc, p *Point) (*Arc, *Arc) {
+	return NewArc(a.Center, a.Start, p), NewArc(a.Center, p, a.End)
+}
+
+// SplitCircleAt splits circle c at the two points p and q — assumed to lie on
+// c — into the two complementary arcs that together cover the full circle
+// (p→q and q→p, both counter-clockwise). c is not modified.
+func SplitCircleAt(c *Circle, p, q *Point) (*Arc, *Arc) {
+	return NewArc(c.Center, p, q), NewArc(c.Center, q, p)
+}
+
+// ExtendLineTo returns a fresh line that keeps whichever endpoint of l is not
+// end and moves end to target, preserving l's start/end orientation. end must
+// be l.Start or l.End; passing any other point extends from l.End.
+func ExtendLineTo(l *Line, end, target *Point) *Line {
+	if end == l.Start {
+		return NewLine(target, l.End)
+	}
+	return NewLine(l.Start, target)
 }
 
 // sharedCorner identifies the endpoint pointer shared by both lines and the

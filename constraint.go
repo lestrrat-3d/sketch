@@ -479,6 +479,35 @@ func NewDistanceLines(l1, l2 *Line, d float64) *DistanceLines {
 	return &DistanceLines{dimBase: lengthDim(d), L1: l1, L2: l2}
 }
 
+// Offset is an editable signed offset dimension: it drives the destination line
+// Dst to sit at signed perpendicular distance d from the infinite line through
+// the source line Src, with positive d on the left of Src's start→end
+// direction. Unlike [DistanceLines] the side never flips, so it is the building
+// block for parallel offsets — including chains, where a corner point shared by
+// two offset segments is pulled to the intersection of both offsets.
+type Offset struct {
+	dimBase
+	Src, Dst *Line
+}
+
+func (c *Offset) residual(out []float64) []float64 {
+	// Signed perpendicular distance (left-positive) of each Dst endpoint from
+	// the infinite line through Src, minus the signed target. Length units.
+	ax, ay := c.Src.Start.x(), c.Src.Start.y()
+	abx, aby := c.Src.End.x()-ax, c.Src.End.y()-ay
+	n := norm(abx, aby)
+	d := c.base()
+	s1 := (abx*(c.Dst.Start.y()-ay) - aby*(c.Dst.Start.x()-ax)) / n
+	s2 := (abx*(c.Dst.End.y()-ay) - aby*(c.Dst.End.x()-ax)) / n
+	return append(out, s1-d, s2-d)
+}
+
+// NewOffset constrains line dst to be the parallel offset of src at signed
+// distance d (positive on the left of src's direction).
+func NewOffset(src, dst *Line, d float64) *Offset {
+	return &Offset{dimBase: lengthDim(d), Src: src, Dst: dst}
+}
+
 // Radius is an editable radius dimension.
 type Radius struct {
 	dimBase
