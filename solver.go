@@ -436,7 +436,14 @@ func (s *Sketch) jacobian(free []int, m int, eval func([]float64) []float64) [][
 // rank estimates the rank of the hard-constraint Jacobian at the current
 // configuration via Gaussian elimination with partial pivoting.
 func (s *Sketch) rank(free []int, m int) int {
-	J := s.jacobian(free, m, s.residuals)
+	return s.rankOf(free, m, s.residuals)
+}
+
+// rankOf is rank generalized over the residual evaluator, so callers can rank
+// augmented systems (e.g. [Sketch.CheckConstraint] appends a candidate
+// constraint's rows to the hard residuals).
+func (s *Sketch) rankOf(free []int, m int, eval func([]float64) []float64) int {
+	J := s.jacobian(free, m, eval)
 	n := len(free)
 	const eps = 1e-9
 	row := 0

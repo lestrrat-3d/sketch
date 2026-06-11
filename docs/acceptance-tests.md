@@ -65,14 +65,14 @@ everything else to stay put as much as possible.
 
 | Test | Status | Asserts |
 |---|---|---|
-| `TestMinimalMotionOnEdit` | [new spec] | Under-constrained rectangle, edit width 10→12: untouched geometry far away must not drift (max displacement of unrelated points < ε). Promotes the minimum-norm Levenberg step from implementation detail to user-visible promise. |
-| `TestNoFlipOnLargeEdit` | [new spec] | Rectangle width edited 10→500 in one step keeps orientation (no mirror/inversion). May require internal stepping; the test pins the contract. |
-| `TestNearestSolutionPreserved` | [new spec] | A tangent circle on the left side of a line stays left after a re-solve; the solver picks the solution branch nearest the current state. |
-| `TestDragSmoothness` | [gap] | Drag a vertex of a constrained parallelogram through ~50 incremental `WithGoal` targets: every intermediate solve converges, residuals < tol (no mid-drag explosion). |
-| `TestScaleInvariance` | [new spec] | The same sketch at 0.01 mm scale and at 10 m scale (mm base units) both converge to proportionally identical solutions. |
-| `TestSolverNeverReturnsNaN` | [new spec] | Contradictory constraints (distance 5 AND distance 8 between the same points): `Solve` returns an error; vars stay finite — never NaN/Inf. |
-| `TestSolveDeterministic` | [new spec] | Same input → bit-identical output across two runs (no map-order dependence in residual assembly). |
-| `TestSolveOptionsRespected` | [gap] | `WithMaxIterations(1)` on a hard problem returns a non-converged error; `WithTolerance` actually changes acceptance. |
+| `TestMinimalMotionOnEdit` | [exists] | Under-constrained sketch, edit one dimension: the edited bar stretches along its own axis and a satisfied far-away cluster does not drift. Promotes the minimum-norm Levenberg step from implementation detail to user-visible promise. |
+| `TestNoFlipOnLargeEdit` | [exists] | Rectangle width edited 20→500 in one step keeps orientation (no mirror/inversion). |
+| `TestNearestSolutionPreserved` | [exists] | A tangent circle on the left side of a line settles left and stays left across a radius edit; the solver keeps the branch nearest the current state. |
+| `TestDragSmoothness` | [exists] | Drag a vertex of a constrained parallelogram through 50 incremental `WithGoal` targets: every intermediate solve converges with the shape held. |
+| `TestScaleInvariance` | [exists] | The same sketch at 0.01 mm and at metre scale (mm base units) converges to proportionally identical solutions. |
+| `TestSolverNeverReturnsNaN` | [exists] | Contradictory dimensions error with finite vars; a zero-length line never divides into NaN (the `norm()` floor). |
+| `TestSolveDeterministic` | [exists] | Same input → bit-identical output across two runs (no map-order dependence in residual assembly). |
+| `TestSolveOptions` | [exists] | `WithMaxIterations(1)` on a rough sketch returns `ErrNotConverged`; `WithTolerance(1e6)` accepts the initial guess in 0 iterations without moving geometry. |
 | `TestSolvePerformanceEnvelope` | [new spec] | A ~200-entity / ~400-constraint sketch (chained four-bar linkages) solves within a CI-safe budget. Canary for "we now need analytic Jacobians / decomposition" (open question). |
 
 ## 4. Constraint diagnostics (Fusion's over-constrained dialog)
@@ -80,11 +80,14 @@ everything else to stay put as much as possible.
 Fusion **refuses** to add a constraint that would over-constrain, and names the
 conflict. The engine equivalent:
 
+Implemented in `diagnose.go` (design: `docs/diagnostics-design.md`), tests in
+`diagnose_test.go`.
+
 | Test | Status | Asserts |
 |---|---|---|
-| `TestAddConstraintRejectsOverconstraint` | [new] | Proposed: `s.CheckConstraint(c) error` or `s.AddConstraint(c, sketch.WithReject())`. Adding a redundant/conflicting constraint to a fully-constrained sketch returns `ErrOverconstrained` listing the conflicting set; sketch unchanged on rejection. |
-| `TestConflictingVsRedundant` | [new] | Distinguishes the two (open question in CLAUDE.md): duplicate `distance=5, distance=5` → redundant; `distance=5, distance=8` → conflicting. Proposed: `s.Diagnose()` returning `{Redundant, Conflicting []Constraint}`. |
-| `TestRemainingDOFAttribution` | [new] | Fusion colors under-constrained geometry blue. Proposed: `s.FreeEntities()` / `s.IsFullyConstrained(ent)` — a rectangle missing one dimension reports exactly the entities that can still move. |
+| `TestCheckConstraint` | [exists] | `s.CheckConstraint(c)` rank-probes without committing: a consistent duplicate, a contradiction and a constraint between grounded points are all rejected with `ErrOverconstrained`; an independent constraint and a driven dimension pass; the sketch is untouched either way. Still open: listing the conflicting set in the error, and an `AddConstraint` auto-reject option. |
+| `TestDiagnoseRedundant` / `TestDiagnoseConflicting` | [exists] | `s.Diagnose()` partitions dependent constraints: a satisfied duplicate → `Redundant`, a violated one (residual > 1e-8 after the failed solve) → `Conflicting`; creation order blames the later-added constraint in both cases. |
+| `TestFreePoints` | [exists] | `s.FreePoints()` / `Point.IsFullyConstrained()` via Jacobian null-space support: a solved rectangle has none; dropping the width dimension frees exactly the two corners that can slide. Per-entity attribution (`FreeEntities`) still open. |
 | `TestRedundantConstraints` | [exists] | Keep as the regression anchor for the row↔constraint mapping (must mirror `residuals()` exactly, including the driven skip). |
 
 ## 5. Sketch editing tools (the biggest missing layer)
@@ -161,15 +164,18 @@ tool:
 
 ## Priority order
 
-1. **§4 + §3** — over-constraint rejection, conflict diagnosis, minimal-motion
-   / no-flip / nearest-solution. These define the Fusion *feel* and constrain
-   solver evolution before more geometry piles on; cheap to write against the
-   current API and expensive to retrofit.
-2. **§5 `Offset`** — the single biggest feature gap (needs a real constraint
-   type, not just a builder).
-3. **[gap] tier in §1, §2, §8, §9** — closes real holes against existing API;
-   especially `TestJSONRoundTripAllConstraintKinds`, which covers five
-   currently-untested `rebuildConstraint` branches.
+1. ~~**§4 + §3** — over-constraint rejection, conflict diagnosis, solver
+   contracts.~~ *Done:* `diagnose.go` + `diagnose_test.go`, solver contracts
+   in `solver_test.go`.
+2. ~~**[gap] tier in §1, §2, §8, §9** — holes against existing API.~~ *Done:*
+   `constraint_test.go`, `json_test.go`, `svg_test.go`, additions to
+   `parameters_test.go`/`profiles_test.go`.
+3. **§5 editing tools** — `Mirror` (symmetric constraints exist, mostly a
+   builder), then `Trim`/`FilletCorner` (geom toolkit + removal are in place),
+   then `Offset` — the deepest gap (needs a real offset constraint type, not
+   just a builder).
+4. **§6/§7** — construction-geometry setter, profile containment/area, then
+   the remaining geometry ([new] rows in §1/§2).
 
 When a [new] item gets built, move its test description here to [exists] (or
 delete the row if the shipped design diverged and the real tests live in code).

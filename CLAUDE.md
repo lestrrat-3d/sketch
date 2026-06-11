@@ -49,11 +49,12 @@ expected to be built **on top of** this engine, not woven into it.
 | `profiles.go` | `Sketch.Profiles()`: closed-region boundaries (loops of lines/arcs via `geom.Loops` + standalone circles/ellipses), construction geometry excluded. |
 | `constraint.go` | `Constraint` interface and every constraint's residual + the public `New…` constructors. |
 | `solver.go` | Levenberg–Marquardt solver, numerical Jacobian, DOF/redundancy (rank) analysis. |
+| `diagnose.go` | Constraint diagnostics: `Diagnose` (redundant vs conflicting), `CheckConstraint` (pre-commit over-constraint rejection), `FreePoints`/`Point.IsFullyConstrained` (free-DOF attribution). Design in `docs/diagnostics-design.md`. |
 | `svg.go` / `dxf.go` / `json.go` | Exporters / serialization. |
 | `geom/` | **Self-contained** context-agnostic geometry (own package). |
 | `param/` | **Self-contained** parameter & expression engine (own package). |
 | `units/` | **Self-contained** units-of-measure library (own package). |
-| `examples/` | Runnable programs that double as living documentation. |
+| `examples/` | Executable Go examples (`Example_sketch_…` in `package examples_test`, `go test`-verified `// Output:` blocks) that double as living documentation. Never `package main` programs. |
 
 ### The `geom` package (slated for extraction)
 
@@ -250,12 +251,20 @@ These are unsettled. If you resolve one, record the decision here.
   independent constraint clusters separately), and better diagnostics for
   over-constrained sketches (identify *which* constraints conflict, not just a
   count).
-- **Constraint diagnostics & UX.** *Partially resolved.*
-  `Sketch.RedundantConstraints()` identifies the specific redundant
-  constraints (creation order decides: of two duplicates the later one is
-  reported; the row→constraint mapping mirrors `residuals()`). Still open:
-  distinguishing *conflicting* from merely redundant constraints, and pointing
-  at the remaining free DOF (which entities can still move).
+- **Constraint diagnostics & UX.** *Largely resolved* (`diagnose.go`; design
+  in `docs/diagnostics-design.md`). `Sketch.RedundantConstraints()` identifies
+  dependent constraints (creation order decides: of two duplicates the later
+  one is reported; the row→constraint mapping mirrors `residuals()`).
+  `Sketch.Diagnose()` partitions them into redundant (dependent, satisfied)
+  vs conflicting (dependent, violated — residual > 1e-8 at the call-time
+  configuration). `Sketch.CheckConstraint(c)` rank-probes a candidate without
+  committing it and returns `ErrOverconstrained` if any of its equations is
+  dependent — the engine half of Fusion's "refuse the over-constraining
+  gesture". `Sketch.FreePoints()`/`Point.IsFullyConstrained()` attribute the
+  remaining DOF to points via the Jacobian null space (the blue/black
+  coloring answer). Still open: reporting the full conflict *set* (the
+  earlier constraints a conflicting one fights), per-entity constrained
+  status, and an `AddConstraint` option that auto-rejects.
 - **Higher-level interfaces.** A text DSL + CLI, and eventually an interactive
   GUI (e.g. Ebiten), are anticipated layers. They should consume the public API
   only.
