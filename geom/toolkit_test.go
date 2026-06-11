@@ -8,70 +8,62 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func ln(x1, y1, x2, y2 float64) *geom.Line {
-	return geom.NewLine(geom.NewPoint(x1, y1), geom.NewPoint(x2, y2))
-}
-
-func cir(x, y, r float64) *geom.Circle {
-	return geom.NewCircle(geom.NewPoint(x, y), r)
-}
-
 func TestLineLineIntersection(t *testing.T) {
-	p, ok := geom.LineLineIntersection(ln(0, 0, 10, 0), ln(5, -5, 5, 5))
+	p, ok := geom.LineLineIntersection(geom.NewLine(geom.NewPoint(0, 0), geom.NewPoint(10, 0)), geom.NewLine(geom.NewPoint(5, -5), geom.NewPoint(5, 5)))
 	require.True(t, ok, "crossing lines")
 	require.InDelta(t, 5, p.X, 1e-12, "x")
 	require.InDelta(t, 0, p.Y, 1e-12, "y")
 
 	// Beyond the segments, but the infinite lines still cross.
-	p, ok = geom.LineLineIntersection(ln(0, 0, 10, 0), ln(20, -5, 20, 5))
+	p, ok = geom.LineLineIntersection(geom.NewLine(geom.NewPoint(0, 0), geom.NewPoint(10, 0)), geom.NewLine(geom.NewPoint(20, -5), geom.NewPoint(20, 5)))
 	require.True(t, ok, "infinite lines cross")
 	require.InDelta(t, 20, p.X, 1e-12, "x beyond segment")
 
-	_, ok = geom.LineLineIntersection(ln(0, 0, 10, 0), ln(0, 1, 10, 1))
+	_, ok = geom.LineLineIntersection(geom.NewLine(geom.NewPoint(0, 0), geom.NewPoint(10, 0)), geom.NewLine(geom.NewPoint(0, 1), geom.NewPoint(10, 1)))
 	require.False(t, ok, "parallel lines")
 }
 
 func TestSegmentIntersection(t *testing.T) {
-	p, ok := geom.SegmentIntersection(ln(0, 0, 10, 0), ln(5, -5, 5, 5))
+	p, ok := geom.SegmentIntersection(geom.NewLine(geom.NewPoint(0, 0), geom.NewPoint(10, 0)), geom.NewLine(geom.NewPoint(5, -5), geom.NewPoint(5, 5)))
 	require.True(t, ok, "crossing segments")
 	require.InDelta(t, 5, p.X, 1e-12, "x")
 
-	_, ok = geom.SegmentIntersection(ln(0, 0, 10, 0), ln(20, -5, 20, 5))
+	_, ok = geom.SegmentIntersection(geom.NewLine(geom.NewPoint(0, 0), geom.NewPoint(10, 0)), geom.NewLine(geom.NewPoint(20, -5), geom.NewPoint(20, 5)))
 	require.False(t, ok, "crossing point outside segment")
 
-	p, ok = geom.SegmentIntersection(ln(0, 0, 10, 0), ln(10, 0, 10, 5))
+	p, ok = geom.SegmentIntersection(geom.NewLine(geom.NewPoint(0, 0), geom.NewPoint(10, 0)), geom.NewLine(geom.NewPoint(10, 0), geom.NewPoint(10, 5)))
 	require.True(t, ok, "touching endpoints intersect")
 	require.InDelta(t, 10, p.X, 1e-12, "endpoint x")
 }
 
 func TestLineCircleIntersections(t *testing.T) {
-	pts := geom.LineCircleIntersections(ln(-10, 0, 10, 0), cir(0, 0, 5))
+	pts := geom.LineCircleIntersections(geom.NewLine(geom.NewPoint(-10, 0), geom.NewPoint(10, 0)), geom.NewCircle(geom.NewPoint(0, 0), 5))
 	require.Len(t, pts, 2, "secant")
 	require.InDelta(t, -5, pts[0].X, 1e-12, "first hit x")
 	require.InDelta(t, 5, pts[1].X, 1e-12, "second hit x")
 
-	pts = geom.LineCircleIntersections(ln(-10, 5, 10, 5), cir(0, 0, 5))
+	pts = geom.LineCircleIntersections(geom.NewLine(geom.NewPoint(-10, 5), geom.NewPoint(10, 5)), geom.NewCircle(geom.NewPoint(0, 0), 5))
 	require.Len(t, pts, 1, "tangent")
 	require.InDelta(t, 0, pts[0].X, 1e-9, "tangent x")
 	require.InDelta(t, 5, pts[0].Y, 1e-9, "tangent y")
 
-	require.Empty(t, geom.LineCircleIntersections(ln(-10, 6, 10, 6), cir(0, 0, 5)), "miss")
+	require.Empty(t, geom.LineCircleIntersections(geom.NewLine(geom.NewPoint(-10, 6), geom.NewPoint(10, 6)), geom.NewCircle(geom.NewPoint(0, 0), 5)), "miss")
 }
 
 func TestCircleCircleIntersections(t *testing.T) {
-	pts := geom.CircleCircleIntersections(cir(0, 0, 5), cir(8, 0, 5))
+	pts := geom.CircleCircleIntersections(geom.NewCircle(geom.NewPoint(0, 0), 5), geom.NewCircle(geom.NewPoint(8, 0), 5))
 	require.Len(t, pts, 2, "crossing circles")
 	require.InDelta(t, 4, pts[0].X, 1e-12, "x")
 	require.InDelta(t, 3, math.Abs(pts[0].Y), 1e-12, "|y|")
 	require.InDelta(t, -pts[0].Y, pts[1].Y, 1e-12, "symmetric")
 
-	pts = geom.CircleCircleIntersections(cir(0, 0, 5), cir(10, 0, 5))
+	pts = geom.CircleCircleIntersections(geom.NewCircle(geom.NewPoint(0, 0), 5), geom.NewCircle(geom.NewPoint(10, 0), 5))
 	require.Len(t, pts, 1, "externally tangent")
 	require.InDelta(t, 5, pts[0].X, 1e-9, "tangent point")
 
-	require.Empty(t, geom.CircleCircleIntersections(cir(0, 0, 5), cir(20, 0, 5)), "separate")
-	require.Empty(t, geom.CircleCircleIntersections(cir(0, 0, 5), cir(1, 0, 2)), "contained")
-	require.Empty(t, geom.CircleCircleIntersections(cir(0, 0, 5), cir(0, 0, 3)), "concentric")
+	require.Empty(t, geom.CircleCircleIntersections(geom.NewCircle(geom.NewPoint(0, 0), 5), geom.NewCircle(geom.NewPoint(20, 0), 5)), "separate")
+	require.Empty(t, geom.CircleCircleIntersections(geom.NewCircle(geom.NewPoint(0, 0), 5), geom.NewCircle(geom.NewPoint(1, 0), 2)), "contained")
+	require.Empty(t, geom.CircleCircleIntersections(geom.NewCircle(geom.NewPoint(0, 0), 5), geom.NewCircle(geom.NewPoint(0, 0), 3)), "concentric")
 }
 
 func TestArcContains(t *testing.T) {
@@ -87,11 +79,11 @@ func TestArcContains(t *testing.T) {
 func TestArcIntersections(t *testing.T) {
 	quarter := geom.NewArc(geom.NewPoint(0, 0), geom.NewPoint(5, 0), geom.NewPoint(0, 5))
 
-	pts := geom.LineArcIntersections(ln(-10, 0, 10, 0), quarter)
+	pts := geom.LineArcIntersections(geom.NewLine(geom.NewPoint(-10, 0), geom.NewPoint(10, 0)), quarter)
 	require.Len(t, pts, 1, "x-axis meets quarter arc once")
 	require.InDelta(t, 5, pts[0].X, 1e-9, "at the start point")
 
-	pts = geom.CircleArcIntersections(cir(8, 0, 5), quarter)
+	pts = geom.CircleArcIntersections(geom.NewCircle(geom.NewPoint(8, 0), 5), quarter)
 	require.Len(t, pts, 1, "only the upper crossing is on the arc")
 	require.InDelta(t, 4, pts[0].X, 1e-9, "x")
 	require.InDelta(t, 3, pts[0].Y, 1e-9, "y (upper)")
@@ -106,7 +98,7 @@ func TestArcIntersections(t *testing.T) {
 }
 
 func TestSplitLineAt(t *testing.T) {
-	l := ln(0, 0, 10, 0)
+	l := geom.NewLine(geom.NewPoint(0, 0), geom.NewPoint(10, 0))
 	p := geom.NewPoint(4, 0)
 	left, right := geom.SplitLineAt(l, p)
 	require.Same(t, l.Start, left.Start, "left keeps start")
@@ -152,7 +144,7 @@ func TestFilletFailures(t *testing.T) {
 	_, ok = geom.Fillet(l1, l2, 0)
 	require.False(t, ok, "non-positive radius")
 
-	disjoint := ln(20, 0, 30, 0)
+	disjoint := geom.NewLine(geom.NewPoint(20, 0), geom.NewPoint(30, 0))
 	_, ok = geom.Fillet(l1, disjoint, 1)
 	require.False(t, ok, "no shared endpoint")
 

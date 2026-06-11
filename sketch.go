@@ -9,14 +9,19 @@ import (
 	"github.com/lestrrat-3d/sketch/units"
 )
 
-// Sketch instantiates generic [geom] geometry as solver-bound geometry and
-// relates it with constraints. All scalar unknowns (point coordinates, circle
-// radii) live in a single flat parameter vector so the constraint solver can
-// treat the whole sketch as one nonlinear system.
+// Sketch holds solver-bound geometry and the constraints that relate it. All
+// scalar unknowns (point coordinates, circle radii, ellipse axes/rotation) live
+// in a single flat parameter vector so the constraint solver can treat the whole
+// sketch as one nonlinear system.
 //
-// Generic geometry is committed with the Add methods, which map each distinct
-// generic primitive to one solver-bound instance; the same generic geometry can
-// therefore be committed into several independent sketches.
+// Geometry is authored directly against the sketch: [Sketch.AddPoint] takes
+// coordinates and returns a durable [Point] handle; the curve builders
+// ([Sketch.AddLine], [Sketch.AddCircle], [Sketch.AddArc], …) take those points.
+// Topology is expressed by sharing a [Point] between entities. The [geom]
+// package is the transient math/snapshot layer: [Entity] values expose their
+// current geometry as a fresh geom value via their Geometry method, and the
+// modification tools use geom for intermediate math, but geom values are never
+// committed as sketch geometry.
 //
 // A Sketch is not safe for concurrent use.
 type Sketch struct {
@@ -27,14 +32,6 @@ type Sketch struct {
 	ents   []Entity
 	cons   []Constraint
 
-	// generic geometry -> its solver-bound instance in this sketch
-	ptOf  map[*geom.Point]*Point
-	lnOf  map[*geom.Line]*Line
-	cirOf map[*geom.Circle]*Circle
-	arcOf map[*geom.Arc]*Arc
-	elOf  map[*geom.Ellipse]*Ellipse
-	splOf map[*geom.Spline]*Spline
-
 	params *param.Table // optional; drives bound dimensions
 	sys    units.System // default length/angle units
 }
@@ -42,18 +39,7 @@ type Sketch struct {
 // New returns an empty sketch using metric default units (millimetres and
 // degrees); change them with [Sketch.SetUnits].
 func New() *Sketch {
-	s := &Sketch{sys: units.Metric()}
-	s.initMaps()
-	return s
-}
-
-func (s *Sketch) initMaps() {
-	s.ptOf = map[*geom.Point]*Point{}
-	s.lnOf = map[*geom.Line]*Line{}
-	s.cirOf = map[*geom.Circle]*Circle{}
-	s.arcOf = map[*geom.Arc]*Arc{}
-	s.elOf = map[*geom.Ellipse]*Ellipse{}
-	s.splOf = map[*geom.Spline]*Spline{}
+	return &Sketch{sys: units.Metric()}
 }
 
 func (s *Sketch) newVar(v float64) int {
@@ -75,15 +61,15 @@ func (s *Sketch) Constraints() []Constraint { return s.cons }
 
 // --- Point ------------------------------------------------------------------
 
-// Point is the solver-bound instance of a [geom.Point] within a sketch. Its
-// coordinates are unknowns solved for by the constraint solver unless the point
-// is grounded with [Sketch.Fix]. Obtain one by committing
-// generic geometry with [Sketch.AddPoint] (directly or via a line/circle/arc).
+// Point is a solver-bound point. Its coordinates are unknowns solved for by the
+// constraint solver unless the point is grounded with [Sketch.Fix]. Create one
+// with [Sketch.AddPoint] and share it between entities to express topology.
 type Point struct {
-	g      *geom.Point
-	s      *Sketch
-	xi, yi int // indices into Sketch.vars
-	id     int // index into Sketch.points
+	s            *Sketch
+	xi, yi       int // indices into Sketch.vars
+	id           int // index into Sketch.points
+	name         string
+	construction bool
 }
 
 // X returns the point's current (solved) x coordinate.
@@ -95,38 +81,51 @@ func (p *Point) Y() float64 { return p.s.vars[p.yi] }
 // ID returns the stable index of the point within its sketch.
 func (p *Point) ID() int { return p.id }
 
-// Generic returns the context-agnostic geometry this point was committed from.
-func (p *Point) Generic() *geom.Point { return p.g }
+// Name returns the point's optional label.
+func (p *Point) Name() string { return p.name }
+
+// SetName sets the point's optional label.
+func (p *Point) SetName(name string) { p.name = name }
+
+// IsConstruction reports whether the point is construction (reference) geometry.
+func (p *Point) IsConstruction() bool { return p.construction }
+
+// SetConstruction marks the point as construction (reference) geometry or not.
+func (p *Point) SetConstruction(v bool) { p.construction = v }
+
+// Geometry returns a fresh [geom.Point] snapshot at the point's current
+// coordinates.
+func (p *Point) Geometry() *geom.Point { return geom.NewPoint(p.x(), p.y()) }
+
+// DistanceTo returns the Euclidean distance from this point to other, in base
+// units, at the current solved coordinates.
+func (p *Point) DistanceTo(other *Point) float64 { return p.Geometry().DistanceTo(other.Geometry()) }
+
+// DistanceToLine returns the perpendicular distance from this point to the
+// infinite line through l, in base units, at the current solved coordinates.
+func (p *Point) DistanceToLine(l *Line) float64 { return p.Geometry().DistanceToLine(l.Geometry()) }
 
 func (p *Point) x() float64 { return p.s.vars[p.xi] }
 func (p *Point) y() float64 { return p.s.vars[p.yi] }
 
-// AddPoint commits a generic point to the sketch, allocating its solver
-// variables initialised from the generic coordinates, and returns its
-// solver-bound instance. It is idempotent: a generic point already committed to
-// this sketch maps to the same [Point].
-func (s *Sketch) AddPoint(g *geom.Point) *Point {
-	if p, ok := s.ptOf[g]; ok {
-		return p
-	}
-	p := &Point{g: g, s: s, xi: s.newVar(g.X), yi: s.newVar(g.Y), id: len(s.points)}
+// AddPoint adds a point at (x, y), allocating its solver variables, and returns
+// its handle. Share the returned point between entities to make them meet.
+func (s *Sketch) AddPoint(x, y float64) *Point {
+	p := &Point{s: s, xi: s.newVar(x), yi: s.newVar(y), id: len(s.points)}
 	s.points = append(s.points, p)
-	s.ptOf[g] = p
 	return p
 }
 
 // MoveTo moves a point to (x, y). This sets the solver's starting guess for the
-// point and has no effect once constraints pin it down. It does not change the
-// generic geometry the point came from.
+// point and has no effect once constraints pin it down.
 func (p *Point) MoveTo(x, y float64) {
 	p.s.vars[p.xi] = x
 	p.s.vars[p.yi] = y
 }
 
 // Fix grounds a point at its current location so the solver will not move it.
-// Grounding is per-sketch: the same generic point may be fixed in one sketch
-// and free in another. To ground a point at a specific location, move it first:
-// p.MoveTo(x, y) then s.Fix(p).
+// To ground a point at a specific location, move it first: p.MoveTo(x, y) then
+// s.Fix(p).
 func (s *Sketch) Fix(p *Point) {
 	s.fixed[p.xi] = true
 	s.fixed[p.yi] = true
@@ -143,11 +142,13 @@ func (p *Point) IsFixed() bool { return p.s.fixed[p.xi] && p.s.fixed[p.yi] }
 
 // --- Entities ---------------------------------------------------------------
 
-// Entity is a line, circle, arc or ellipse bound to a sketch.
+// Entity is a line, circle, arc, ellipse or spline in a sketch. Construction
+// (reference) status is a per-entity, settable property.
 type Entity interface {
-	isConstruction() bool
-	entID() int
 	entity()
+	entID() int
+	IsConstruction() bool
+	SetConstruction(v bool)
 }
 
 // Circular is a sketch entity with a center point and a radius: a [*Circle] or
@@ -159,51 +160,53 @@ type Circular interface {
 	centerPt() *Point
 }
 
-// Line is the solver-bound instance of a [geom.Line].
+// Line is a straight segment between two sketch points.
 type Line struct {
-	g          *geom.Line
-	s          *Sketch
-	Start, End *Point
-	id         int
+	s            *Sketch
+	Start, End   *Point
+	id           int
+	construction bool
 }
 
-func (l *Line) entity()              {}
-func (l *Line) entID() int           { return l.id }
-func (l *Line) isConstruction() bool { return l.g.Construction }
+func (l *Line) entity()                {}
+func (l *Line) entID() int             { return l.id }
+func (l *Line) IsConstruction() bool   { return l.construction }
+func (l *Line) SetConstruction(v bool) { l.construction = v }
 
-// Generic returns the context-agnostic geometry this line was committed from.
-func (l *Line) Generic() *geom.Line { return l.g }
+// Geometry returns a fresh [geom.Line] snapshot at the line's current
+// coordinates.
+func (l *Line) Geometry() *geom.Line { return geom.NewLine(l.Start.Geometry(), l.End.Geometry()) }
 
 // Length returns the current distance between the line's endpoints.
 func (l *Line) Length() float64 { return math.Hypot(l.End.x()-l.Start.x(), l.End.y()-l.Start.y()) }
 
-// AddLine commits a generic line to the sketch, first committing its endpoints,
-// and returns its solver-bound instance. It is idempotent.
-func (s *Sketch) AddLine(g *geom.Line) *Line {
-	if l, ok := s.lnOf[g]; ok {
-		return l
-	}
-	l := &Line{g: g, s: s, Start: s.AddPoint(g.Start), End: s.AddPoint(g.End), id: len(s.ents)}
+// AngleTo returns the signed directed angle from this line to other, in radians
+// (in (-π, π]) — the same quantity an [Angle] constraint drives.
+func (l *Line) AngleTo(other *Line) float64 { return l.Geometry().AngleTo(other.Geometry()) }
+
+// AddLine adds a line between two points and returns its handle.
+func (s *Sketch) AddLine(start, end *Point) *Line {
+	l := &Line{s: s, Start: start, End: end, id: len(s.ents)}
 	s.ents = append(s.ents, l)
-	s.lnOf[g] = l
 	return l
 }
 
-// Circle is the solver-bound instance of a [geom.Circle].
+// Circle is a full circle with a center point and a solved radius.
 type Circle struct {
-	g      *geom.Circle
-	s      *Sketch
-	Center *Point
-	ri     int // radius index into Sketch.vars
-	id     int
+	s            *Sketch
+	Center       *Point
+	ri           int // radius index into Sketch.vars
+	id           int
+	construction bool
 }
 
-func (c *Circle) entity()              {}
-func (c *Circle) entID() int           { return c.id }
-func (c *Circle) isConstruction() bool { return c.g.Construction }
+func (c *Circle) entity()                {}
+func (c *Circle) entID() int             { return c.id }
+func (c *Circle) IsConstruction() bool   { return c.construction }
+func (c *Circle) SetConstruction(v bool) { c.construction = v }
 
-// Generic returns the context-agnostic geometry this circle was committed from.
-func (c *Circle) Generic() *geom.Circle { return c.g }
+// Geometry returns a fresh [geom.Circle] snapshot at the circle's current state.
+func (c *Circle) Geometry() *geom.Circle { return geom.NewCircle(c.Center.Geometry(), c.r()) }
 
 // R returns the circle's current radius.
 func (c *Circle) R() float64 { return c.s.vars[c.ri] }
@@ -212,34 +215,33 @@ func (c *Circle) r() float64 { return c.s.vars[c.ri] }
 
 func (c *Circle) centerPt() *Point { return c.Center }
 
-// AddCircle commits a generic circle to the sketch, first committing its
-// center, and returns its solver-bound instance. It is idempotent.
-func (s *Sketch) AddCircle(g *geom.Circle) *Circle {
-	if c, ok := s.cirOf[g]; ok {
-		return c
-	}
-	c := &Circle{g: g, s: s, Center: s.AddPoint(g.Center), ri: s.newVar(g.Radius), id: len(s.ents)}
+// AddCircle adds a circle with the given center point and radius, allocating the
+// radius variable, and returns its handle.
+func (s *Sketch) AddCircle(center *Point, r float64) *Circle {
+	c := &Circle{s: s, Center: center, ri: s.newVar(r), id: len(s.ents)}
 	s.ents = append(s.ents, c)
-	s.cirOf[g] = c
 	return c
 }
 
-// Arc is the solver-bound instance of a [geom.Arc]. Its radius is implied by
-// the geometry; an internal constraint keeps the start and end equidistant from
-// the center so the arc stays valid.
+// Arc is a circular arc swept counter-clockwise from Start to End about Center.
+// Its radius is implied by the geometry; an internal constraint keeps the start
+// and end equidistant from the center so the arc stays valid.
 type Arc struct {
-	g                  *geom.Arc
 	s                  *Sketch
 	Center, Start, End *Point
 	id                 int
+	construction       bool
 }
 
-func (a *Arc) entity()              {}
-func (a *Arc) entID() int           { return a.id }
-func (a *Arc) isConstruction() bool { return a.g.Construction }
+func (a *Arc) entity()                {}
+func (a *Arc) entID() int             { return a.id }
+func (a *Arc) IsConstruction() bool   { return a.construction }
+func (a *Arc) SetConstruction(v bool) { a.construction = v }
 
-// Generic returns the context-agnostic geometry this arc was committed from.
-func (a *Arc) Generic() *geom.Arc { return a.g }
+// Geometry returns a fresh [geom.Arc] snapshot at the arc's current state.
+func (a *Arc) Geometry() *geom.Arc {
+	return geom.NewArc(a.Center.Geometry(), a.Start.Geometry(), a.End.Geometry())
+}
 
 // R returns the arc's current radius (distance from center to start).
 func (a *Arc) R() float64 { return math.Hypot(a.Start.x()-a.Center.x(), a.Start.y()-a.Center.y()) }
@@ -265,38 +267,36 @@ func (a *Arc) Sweep() float64 {
 	return d
 }
 
-// AddArc commits a generic arc to the sketch, first committing its points, and
-// adds the internal radius-consistency constraint. It is idempotent.
-func (s *Sketch) AddArc(g *geom.Arc) *Arc {
-	if a, ok := s.arcOf[g]; ok {
-		return a
-	}
-	a := &Arc{g: g, s: s, Center: s.AddPoint(g.Center), Start: s.AddPoint(g.Start), End: s.AddPoint(g.End), id: len(s.ents)}
+// AddArc adds an arc swept counter-clockwise from start to end about center, and
+// the internal radius-consistency constraint. Returns its handle.
+func (s *Sketch) AddArc(center, start, end *Point) *Arc {
+	a := &Arc{s: s, Center: center, Start: start, End: end, id: len(s.ents)}
 	s.ents = append(s.ents, a)
 	s.cons = append(s.cons, &arcRadius{a})
-	s.arcOf[g] = a
 	return a
 }
 
-// Ellipse is the solver-bound instance of a [geom.Ellipse]. Its semi-axes and
-// rotation are solver unknowns; pin them with [NewSemiMajor], [NewSemiMinor]
-// and [NewEllipseRotation] dimensions (the center is a regular point, grounded
-// with [Sketch.Fix]).
+// Ellipse is a full ellipse: a center point plus solved semi-axes and rotation.
+// Pin them with [NewSemiMajor], [NewSemiMinor] and [NewEllipseRotation]
+// dimensions (the center is a regular point, grounded with [Sketch.Fix]).
 type Ellipse struct {
-	g              *geom.Ellipse
 	s              *Sketch
 	Center         *Point
 	rxi, ryi, roti int // var indices: semi-axes and rotation
 	id             int
+	construction   bool
 }
 
-func (e *Ellipse) entity()              {}
-func (e *Ellipse) entID() int           { return e.id }
-func (e *Ellipse) isConstruction() bool { return e.g.Construction }
+func (e *Ellipse) entity()                {}
+func (e *Ellipse) entID() int             { return e.id }
+func (e *Ellipse) IsConstruction() bool   { return e.construction }
+func (e *Ellipse) SetConstruction(v bool) { e.construction = v }
 
-// Generic returns the context-agnostic geometry this ellipse was committed
-// from.
-func (e *Ellipse) Generic() *geom.Ellipse { return e.g }
+// Geometry returns a fresh [geom.Ellipse] snapshot at the ellipse's current
+// state.
+func (e *Ellipse) Geometry() *geom.Ellipse {
+	return geom.NewEllipse(e.Center.Geometry(), e.rx(), e.ry(), e.rot())
+}
 
 // Rx returns the current semi-axis along the ellipse's local x axis.
 func (e *Ellipse) Rx() float64 { return e.s.vars[e.rxi] }
@@ -312,19 +312,15 @@ func (e *Ellipse) rx() float64  { return e.s.vars[e.rxi] }
 func (e *Ellipse) ry() float64  { return e.s.vars[e.ryi] }
 func (e *Ellipse) rot() float64 { return e.s.vars[e.roti] }
 
-// AddEllipse commits a generic ellipse to the sketch, first committing its
-// center, and returns its solver-bound instance. It is idempotent.
-func (s *Sketch) AddEllipse(g *geom.Ellipse) *Ellipse {
-	if e, ok := s.elOf[g]; ok {
-		return e
-	}
+// AddEllipse adds an ellipse with the given center point, semi-axes and rotation
+// (radians), allocating their variables, and returns its handle.
+func (s *Sketch) AddEllipse(center *Point, rx, ry, rotation float64) *Ellipse {
 	e := &Ellipse{
-		g: g, s: s, Center: s.AddPoint(g.Center),
-		rxi: s.newVar(g.Rx), ryi: s.newVar(g.Ry), roti: s.newVar(g.Rotation),
+		s: s, Center: center,
+		rxi: s.newVar(rx), ryi: s.newVar(ry), roti: s.newVar(rotation),
 		id: len(s.ents),
 	}
 	s.ents = append(s.ents, e)
-	s.elOf[g] = e
 	return e
 }
 

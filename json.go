@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/lestrrat-3d/sketch/geom"
 	"github.com/lestrrat-3d/sketch/param"
 	"github.com/lestrrat-3d/sketch/units"
 )
@@ -95,7 +94,7 @@ func (s *Sketch) MarshalJSON() ([]byte, error) {
 	for _, p := range s.points {
 		js.Points = append(js.Points, jsonPoint{
 			X: p.x(), Y: p.y(), Fixed: p.IsFixed(),
-			Name: p.g.Name, Construction: p.g.Construction,
+			Name: p.name, Construction: p.construction,
 		})
 	}
 
@@ -103,23 +102,23 @@ func (s *Sketch) MarshalJSON() ([]byte, error) {
 		switch t := e.(type) {
 		case *Line:
 			js.Entities = append(js.Entities, jsonEntity{
-				Type: "line", Points: []int{t.Start.id, t.End.id}, Construction: t.g.Construction,
+				Type: "line", Points: []int{t.Start.id, t.End.id}, Construction: t.construction,
 			})
 		case *Circle:
 			js.Entities = append(js.Entities, jsonEntity{
-				Type: "circle", Points: []int{t.Center.id}, Radius: t.r(), Construction: t.g.Construction,
+				Type: "circle", Points: []int{t.Center.id}, Radius: t.r(), Construction: t.construction,
 			})
 		case *Arc:
 			js.Entities = append(js.Entities, jsonEntity{
-				Type: "arc", Points: []int{t.Center.id, t.Start.id, t.End.id}, Construction: t.g.Construction,
+				Type: "arc", Points: []int{t.Center.id, t.Start.id, t.End.id}, Construction: t.construction,
 			})
 		case *Ellipse:
 			js.Entities = append(js.Entities, jsonEntity{
 				Type: "ellipse", Points: []int{t.Center.id},
-				Rx: t.rx(), Ry: t.ry(), Rotation: t.rot(), Construction: t.g.Construction,
+				Rx: t.rx(), Ry: t.ry(), Rotation: t.rot(), Construction: t.construction,
 			})
 		case *Spline:
-			je := jsonEntity{Type: "spline", Degree: 3, Construction: t.g.Construction}
+			je := jsonEntity{Type: "spline", Degree: 3, Construction: t.construction}
 			for _, c := range t.Control {
 				je.Points = append(je.Points, c.id)
 			}
@@ -220,7 +219,6 @@ func (s *Sketch) UnmarshalJSON(data []byte) error {
 	}
 
 	*s = Sketch{sys: units.Metric()}
-	s.initMaps()
 	if js.Units != nil {
 		if lu, ok := units.Lookup(js.Units.Length); ok && lu.Kind() == units.Length {
 			s.sys.Length = lu
@@ -231,10 +229,10 @@ func (s *Sketch) UnmarshalJSON(data []byte) error {
 	}
 
 	for _, jp := range js.Points {
-		g := geom.NewPoint(jp.X, jp.Y)
-		g.Name = jp.Name
-		g.Construction = jp.Construction
-		if p := s.AddPoint(g); jp.Fixed {
+		p := s.AddPoint(jp.X, jp.Y)
+		p.SetName(jp.Name)
+		p.SetConstruction(jp.Construction)
+		if jp.Fixed {
 			s.Fix(p)
 		}
 	}
@@ -274,30 +272,22 @@ func (s *Sketch) UnmarshalJSON(data []byte) error {
 			if len(je.Points) != 2 {
 				return fmt.Errorf("sketch: line needs 2 points, got %d", len(je.Points))
 			}
-			g := geom.NewLine(s.points[je.Points[0]].g, s.points[je.Points[1]].g)
-			g.Construction = je.Construction
-			s.AddLine(g)
+			s.AddLine(s.points[je.Points[0]], s.points[je.Points[1]]).SetConstruction(je.Construction)
 		case "circle":
 			if len(je.Points) != 1 {
 				return fmt.Errorf("sketch: circle needs 1 point, got %d", len(je.Points))
 			}
-			g := geom.NewCircle(s.points[je.Points[0]].g, je.Radius)
-			g.Construction = je.Construction
-			s.AddCircle(g)
+			s.AddCircle(s.points[je.Points[0]], je.Radius).SetConstruction(je.Construction)
 		case "arc":
 			if len(je.Points) != 3 {
 				return fmt.Errorf("sketch: arc needs 3 points, got %d", len(je.Points))
 			}
-			g := geom.NewArc(s.points[je.Points[0]].g, s.points[je.Points[1]].g, s.points[je.Points[2]].g)
-			g.Construction = je.Construction
-			s.AddArc(g)
+			s.AddArc(s.points[je.Points[0]], s.points[je.Points[1]], s.points[je.Points[2]]).SetConstruction(je.Construction)
 		case "ellipse":
 			if len(je.Points) != 1 {
 				return fmt.Errorf("sketch: ellipse needs 1 point, got %d", len(je.Points))
 			}
-			g := geom.NewEllipse(s.points[je.Points[0]].g, je.Rx, je.Ry, je.Rotation)
-			g.Construction = je.Construction
-			s.AddEllipse(g)
+			s.AddEllipse(s.points[je.Points[0]], je.Rx, je.Ry, je.Rotation).SetConstruction(je.Construction)
 		case "spline":
 			if je.Degree != 0 && je.Degree != 3 {
 				return fmt.Errorf("sketch: unsupported spline degree %d", je.Degree)
@@ -305,13 +295,11 @@ func (s *Sketch) UnmarshalJSON(data []byte) error {
 			if len(je.Points) < 4 {
 				return fmt.Errorf("sketch: spline needs at least 4 control points, got %d", len(je.Points))
 			}
-			ctrl := make([]*geom.Point, len(je.Points))
+			ctrl := make([]*Point, len(je.Points))
 			for i, pi := range je.Points {
-				ctrl[i] = s.points[pi].g
+				ctrl[i] = s.points[pi]
 			}
-			g := geom.NewSpline(ctrl...)
-			g.Construction = je.Construction
-			s.AddSpline(g)
+			s.AddSpline(ctrl...).SetConstruction(je.Construction)
 		default:
 			return fmt.Errorf("sketch: unknown entity type %q", je.Type)
 		}

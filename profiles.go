@@ -22,8 +22,20 @@ func (s *Sketch) Profiles() []*Profile {
 	var profiles []*Profile
 	var curves []geom.Curve
 	owner := map[geom.Curve]Entity{}
+	// Loop detection keys on shared *geom.Point identity, so map each shared
+	// sketch point to a single geom point: entities meeting at a point then
+	// share that geom point and form a closed chain for geom.Loops.
+	gpt := map[*Point]*geom.Point{}
+	pt := func(p *Point) *geom.Point {
+		if g, ok := gpt[p]; ok {
+			return g
+		}
+		g := p.Geometry()
+		gpt[p] = g
+		return g
+	}
 	for _, e := range s.ents {
-		if e.isConstruction() {
+		if e.IsConstruction() {
 			continue
 		}
 		switch t := e.(type) {
@@ -32,11 +44,13 @@ func (s *Sketch) Profiles() []*Profile {
 		case *Ellipse:
 			profiles = append(profiles, &Profile{Entities: []Entity{t}})
 		case *Line:
-			curves = append(curves, t.g)
-			owner[t.g] = t
+			c := geom.NewLine(pt(t.Start), pt(t.End))
+			curves = append(curves, c)
+			owner[c] = t
 		case *Arc:
-			curves = append(curves, t.g)
-			owner[t.g] = t
+			c := geom.NewArc(pt(t.Center), pt(t.Start), pt(t.End))
+			curves = append(curves, c)
+			owner[c] = t
 		}
 	}
 	for _, loop := range geom.Loops(curves) {

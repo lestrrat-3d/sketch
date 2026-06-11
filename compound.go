@@ -3,16 +3,14 @@ package sketch
 import (
 	"fmt"
 	"math"
-
-	"github.com/lestrrat-3d/sketch/geom"
 )
 
 // Compound constructors build several primitives plus the constraints that
 // hold them in shape, in one call. They are pure sugar over the primitive
-// Add… methods: the created geometry and constraints are ordinary sketch
-// citizens and serialize as such. Only the returned grouping handle is not
-// persisted — reloading a sketch yields the same points, lines, arcs and
-// constraints, without the handle.
+// Add… methods: the created points, entities and constraints are ordinary
+// sketch citizens and serialize as such. Only the returned grouping handle is
+// not persisted — reloading a sketch yields the same geometry and constraints,
+// without the handle.
 
 // Rectangle groups the geometry created by [Sketch.AddRectangle]. Corners run
 // counter-clockwise: A=(x1,y1), B=(x2,y1), C=(x2,y2), D=(x1,y2), with sides
@@ -27,15 +25,15 @@ type Rectangle struct {
 // on AB/CD and vertical constraints on BC/DA. Position, width and height stay
 // free to ground and dimension.
 func (s *Sketch) AddRectangle(x1, y1, x2, y2 float64) *Rectangle {
-	ga, gb := geom.NewPoint(x1, y1), geom.NewPoint(x2, y1)
-	gc, gd := geom.NewPoint(x2, y2), geom.NewPoint(x1, y2)
+	a, b := s.AddPoint(x1, y1), s.AddPoint(x2, y1)
+	c, d := s.AddPoint(x2, y2), s.AddPoint(x1, y2)
 	r := &Rectangle{
-		AB: s.AddLine(geom.NewLine(ga, gb)),
-		BC: s.AddLine(geom.NewLine(gb, gc)),
-		CD: s.AddLine(geom.NewLine(gc, gd)),
-		DA: s.AddLine(geom.NewLine(gd, ga)),
+		A: a, B: b, C: c, D: d,
+		AB: s.AddLine(a, b),
+		BC: s.AddLine(b, c),
+		CD: s.AddLine(c, d),
+		DA: s.AddLine(d, a),
 	}
-	r.A, r.B, r.C, r.D = r.AB.Start, r.BC.Start, r.CD.Start, r.DA.Start
 	s.AddConstraint(NewHorizontal(r.AB), NewHorizontal(r.CD), NewVertical(r.BC), NewVertical(r.DA))
 	return r
 }
@@ -58,22 +56,16 @@ func (s *Sketch) AddPolygon(cx, cy float64, n int, r float64) *Polygon {
 	if n < 3 {
 		panic(fmt.Sprintf("sketch: AddPolygon requires n >= 3, got %d", n))
 	}
-	gc := geom.NewPoint(cx, cy)
-	gv := make([]*geom.Point, n)
-	for i := range gv {
-		a := 2 * math.Pi * float64(i) / float64(n)
-		gv[i] = geom.NewPoint(cx+r*math.Cos(a), cy+r*math.Sin(a))
-	}
-	p := &Polygon{}
+	p := &Polygon{Center: s.AddPoint(cx, cy)}
 	for i := 0; i < n; i++ {
-		p.Sides = append(p.Sides, s.AddLine(geom.NewLine(gv[i], gv[(i+1)%n])))
-		gs := geom.NewLine(gc, gv[i])
-		gs.Construction = true
-		p.Spokes = append(p.Spokes, s.AddLine(gs))
+		a := 2 * math.Pi * float64(i) / float64(n)
+		p.Vertices = append(p.Vertices, s.AddPoint(cx+r*math.Cos(a), cy+r*math.Sin(a)))
 	}
-	p.Center = p.Spokes[0].Start
-	for _, sp := range p.Spokes {
-		p.Vertices = append(p.Vertices, sp.End)
+	for i := 0; i < n; i++ {
+		p.Sides = append(p.Sides, s.AddLine(p.Vertices[i], p.Vertices[(i+1)%n]))
+		spoke := s.AddLine(p.Center, p.Vertices[i])
+		spoke.SetConstruction(true)
+		p.Spokes = append(p.Spokes, spoke)
 	}
 	for i := 1; i < n; i++ {
 		s.AddConstraint(NewEqual(p.Sides[0], p.Sides[i]), NewEqual(p.Spokes[0], p.Spokes[i]))
@@ -107,30 +99,29 @@ func (s *Sketch) AddSlot(x1, y1, x2, y2, r float64) *Slot {
 		panic("sketch: AddSlot requires distinct cap centers")
 	}
 	nx, ny := -dy/n, dx/n // left normal of the c1→c2 axis
-	gc1, gc2 := geom.NewPoint(x1, y1), geom.NewPoint(x2, y2)
-	p1l := geom.NewPoint(x1+r*nx, y1+r*ny)
-	p1r := geom.NewPoint(x1-r*nx, y1-r*ny)
-	p2l := geom.NewPoint(x2+r*nx, y2+r*ny)
-	p2r := geom.NewPoint(x2-r*nx, y2-r*ny)
+	c1, c2 := s.AddPoint(x1, y1), s.AddPoint(x2, y2)
+	p1l := s.AddPoint(x1+r*nx, y1+r*ny)
+	p1r := s.AddPoint(x1-r*nx, y1-r*ny)
+	p2l := s.AddPoint(x2+r*nx, y2+r*ny)
+	p2r := s.AddPoint(x2-r*nx, y2-r*ny)
 	st := &Slot{
+		C1: c1, C2: c2,
 		// Both caps sweep counter-clockwise across the far side of the slot.
-		A1: s.AddArc(geom.NewArc(gc1, p1l, p1r)),
-		A2: s.AddArc(geom.NewArc(gc2, p2r, p2l)),
-		L1: s.AddLine(geom.NewLine(p1r, p2r)),
-		L2: s.AddLine(geom.NewLine(p2l, p1l)),
+		A1: s.AddArc(c1, p1l, p1r),
+		A2: s.AddArc(c2, p2r, p2l),
+		L1: s.AddLine(p1r, p2r),
+		L2: s.AddLine(p2l, p1l),
 	}
-	st.C1, st.C2 = st.A1.Center, st.A2.Center
-	spoke := func(gc, gp *geom.Point, flank *Line) {
-		g := geom.NewLine(gc, gp)
-		g.Construction = true
-		sp := s.AddLine(g)
+	spoke := func(center, contact *Point, flank *Line) {
+		sp := s.AddLine(center, contact)
+		sp.SetConstruction(true)
 		st.Spokes = append(st.Spokes, sp)
 		s.AddConstraint(NewPerpendicular(sp, flank))
 	}
-	spoke(gc1, p1r, st.L1)
-	spoke(gc2, p2r, st.L1)
-	spoke(gc1, p1l, st.L2)
-	spoke(gc2, p2l, st.L2)
+	spoke(c1, p1r, st.L1)
+	spoke(c2, p2r, st.L1)
+	spoke(c1, p1l, st.L2)
+	spoke(c2, p2l, st.L2)
 	s.AddConstraint(NewEqualRadius(st.A1, st.A2))
 	return st
 }

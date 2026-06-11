@@ -5,21 +5,12 @@ import (
 	"testing"
 
 	"github.com/lestrrat-3d/sketch"
-	"github.com/lestrrat-3d/sketch/geom"
 	"github.com/stretchr/testify/require"
 )
 
-func addSpl(s *sketch.Sketch, coords ...[2]float64) *sketch.Spline {
-	ctrl := make([]*geom.Point, len(coords))
-	for i, c := range coords {
-		ctrl[i] = geom.NewPoint(c[0], c[1])
-	}
-	return s.AddSpline(geom.NewSpline(ctrl...))
-}
-
 func TestSplineSolveReshapesCurve(t *testing.T) {
 	s := sketch.New()
-	sp := addSpl(s, [2]float64{0, 0}, [2]float64{2, 4}, [2]float64{8, 4}, [2]float64{9, 1})
+	sp := s.AddSpline(s.AddPoint(0, 0), s.AddPoint(2, 4), s.AddPoint(8, 4), s.AddPoint(9, 1))
 	s.Fix(sp.Control[0])
 
 	// Dimension the last control point to (10, 0): the curve's clamped end
@@ -28,7 +19,8 @@ func TestSplineSolveReshapesCurve(t *testing.T) {
 		sketch.NewHorizontalDistance(sp.Control[0], sp.Control[3], 10),
 		sketch.NewVerticalDistance(sp.Control[0], sp.Control[3], 0),
 	)
-	mustSolve(t, s)
+	_, err := s.Solve()
+	require.NoError(t, err)
 
 	x, y := sp.Eval(1)
 	require.InDelta(t, 10, x, 1e-6, "clamped end follows the solved control point")
@@ -40,7 +32,7 @@ func TestSplineSolveReshapesCurve(t *testing.T) {
 
 func TestSplineControlPointGoal(t *testing.T) {
 	s := sketch.New()
-	sp := addSpl(s, [2]float64{0, 0}, [2]float64{2, 4}, [2]float64{8, 4}, [2]float64{10, 0})
+	sp := s.AddSpline(s.AddPoint(0, 0), s.AddPoint(2, 4), s.AddPoint(8, 4), s.AddPoint(10, 0))
 
 	// Drag an interior control point; the curve follows.
 	res, err := s.Solve(sketch.WithGoal(sp.Control[1], 2, 8))
@@ -49,21 +41,9 @@ func TestSplineControlPointGoal(t *testing.T) {
 	require.InDelta(t, 8, sp.Control[1].Y(), 1e-5, "control point tracked the goal")
 }
 
-func TestSplineAddIdempotent(t *testing.T) {
-	s := sketch.New()
-	g := geom.NewSpline(
-		geom.NewPoint(0, 0), geom.NewPoint(1, 1), geom.NewPoint(2, 1), geom.NewPoint(3, 0),
-	)
-	sp1 := s.AddSpline(g)
-	sp2 := s.AddSpline(g)
-	require.Same(t, sp1, sp2, "same generic spline maps to one instance")
-	require.Len(t, s.Entities(), 1, "one entity")
-	require.Len(t, s.Points(), 4, "control points committed once")
-}
-
 func TestSplineJSONRoundTrip(t *testing.T) {
 	s := sketch.New()
-	sp := addSpl(s, [2]float64{0, 0}, [2]float64{2, 4}, [2]float64{8, 4}, [2]float64{10, 0}, [2]float64{12, -2})
+	sp := s.AddSpline(s.AddPoint(0, 0), s.AddPoint(2, 4), s.AddPoint(8, 4), s.AddPoint(10, 0), s.AddPoint(12, -2))
 	s.Fix(sp.Control[0])
 
 	data, err := json.Marshal(s)
@@ -85,7 +65,7 @@ func TestSplineJSONRoundTrip(t *testing.T) {
 
 func TestSplineExports(t *testing.T) {
 	s := sketch.New()
-	addSpl(s, [2]float64{0, 0}, [2]float64{2, 4}, [2]float64{8, 4}, [2]float64{10, 0})
+	s.AddSpline(s.AddPoint(0, 0), s.AddPoint(2, 4), s.AddPoint(8, 4), s.AddPoint(10, 0))
 
 	svg, err := s.SVG()
 	require.NoError(t, err, "svg")

@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/lestrrat-3d/sketch"
-	"github.com/lestrrat-3d/sketch/geom"
 	"github.com/stretchr/testify/require"
 )
 
@@ -15,9 +14,9 @@ import (
 func TestSVGOptions(t *testing.T) {
 	newLineSketch := func() *sketch.Sketch {
 		s := sketch.New()
-		a := addPt(s, 0, 0)
-		b := addPt(s, 10, 0)
-		addLn(s, a, b)
+		a := s.AddPoint(0, 0)
+		b := s.AddPoint(10, 0)
+		s.AddLine(a, b)
 		return s
 	}
 
@@ -65,21 +64,19 @@ func TestSVGOptions(t *testing.T) {
 	})
 	t.Run("arc segments", func(t *testing.T) {
 		s := sketch.New()
-		o := addPt(s, 0, 0)
-		st := addPt(s, 5, 0)
-		en := addPt(s, 0, 5)
-		addArc(s, o, st, en)
+		o := s.AddPoint(0, 0)
+		st := s.AddPoint(5, 0)
+		en := s.AddPoint(0, 5)
+		s.AddArc(o, st, en)
 		svg, err := s.SVG(sketch.WithArcSegments(4), sketch.WithShowPoints(false))
 		require.NoError(t, err)
 		require.Equal(t, 4, strings.Count(svg, "L"), "4 segments render as 4 line commands")
 	})
 	t.Run("construction color", func(t *testing.T) {
 		s := sketch.New()
-		a := addPt(s, 0, 0)
-		b := addPt(s, 10, 0)
-		g := geom.NewLine(a.Generic(), b.Generic())
-		g.Construction = true
-		s.AddLine(g)
+		a := s.AddPoint(0, 0)
+		b := s.AddPoint(10, 0)
+		s.AddLine(a, b).SetConstruction(true)
 		svg, err := s.SVG(sketch.WithConstruction("#00ff00"), sketch.WithShowPoints(false))
 		require.NoError(t, err)
 		require.Contains(t, svg, `stroke="#00ff00"`, "construction color applied")

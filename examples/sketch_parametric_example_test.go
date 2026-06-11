@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/lestrrat-3d/sketch"
-	"github.com/lestrrat-3d/sketch/geom"
 	"github.com/lestrrat-3d/sketch/param"
 	"github.com/lestrrat-3d/sketch/units"
 )
@@ -16,24 +15,18 @@ import (
 func Example_sketch_parametric() {
 	s := sketch.New()
 
-	// Generic geometry: four corners + a center point for the hole.
-	gA := geom.NewPoint(0, 0)
-	gB := geom.NewPoint(10, 1)
-	gC := geom.NewPoint(9, 6)
-	gD := geom.NewPoint(1, 5)
-	gO := geom.NewPoint(5, 3)
+	// Four corners + a center point for the hole (rough initial guesses).
+	a := s.AddPoint(0, 0)
+	b := s.AddPoint(10, 1)
+	c := s.AddPoint(9, 6)
+	d := s.AddPoint(1, 5)
+	o := s.AddPoint(5, 3)
 
-	// Commit it into the sketch, getting solver-bound handles.
-	a := s.AddPoint(gA)
-	b := s.AddPoint(gB)
-	d := s.AddPoint(gD)
-	o := s.AddPoint(gO)
-
-	ab := s.AddLine(geom.NewLine(gA, gB))
-	bc := s.AddLine(geom.NewLine(gB, gC))
-	dc := s.AddLine(geom.NewLine(gD, gC))
-	ad := s.AddLine(geom.NewLine(gA, gD))
-	hole := s.AddCircle(geom.NewCircle(gO, 1))
+	ab := s.AddLine(a, b)
+	bc := s.AddLine(b, c)
+	dc := s.AddLine(d, c)
+	ad := s.AddLine(a, d)
+	hole := s.AddCircle(o, 1)
 
 	// Geometric constraints: grounded origin, axis-aligned rectangle.
 	a.MoveTo(0, 0)

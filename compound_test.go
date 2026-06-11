@@ -2,6 +2,7 @@ package sketch_test
 
 import (
 	"encoding/json"
+	"math"
 	"testing"
 
 	"github.com/lestrrat-3d/sketch"
@@ -12,10 +13,11 @@ func TestAddRectangle(t *testing.T) {
 	s := sketch.New()
 	r := s.AddRectangle(0, 0, 18, 2) // rough initial size
 	s.Fix(r.A)
-	addDist(s, r.A, r.B, 20)
-	addDist(s, r.A, r.D, 12)
+	s.AddConstraint(sketch.NewDistance(r.A, r.B, 20))
+	s.AddConstraint(sketch.NewDistance(r.A, r.D, 12))
 
-	res := mustSolve(t, s)
+	res, err := s.Solve()
+	require.NoError(t, err)
 	require.Equal(t, 0, res.DOF, "fully constrained")
 	require.InDelta(t, 20, r.C.X(), 1e-6, "c.X")
 	require.InDelta(t, 12, r.C.Y(), 1e-6, "c.Y")
@@ -32,10 +34,11 @@ func TestAddPolygon(t *testing.T) {
 	// Knock a far vertex off the circle so the solve does real work.
 	p.Vertices[3].MoveTo(-4.5, 0.8)
 
-	res := mustSolve(t, s)
+	res, err := s.Solve()
+	require.NoError(t, err)
 	require.Equal(t, 0, res.DOF, "fully constrained")
 	for i, v := range p.Vertices {
-		require.InDeltaf(t, 5, pointDist(p.Center, v), 1e-6, "vertex %d circumradius", i)
+		require.InDeltaf(t, 5, math.Hypot(p.Center.X()-v.X(), p.Center.Y()-v.Y()), 1e-6, "vertex %d circumradius", i)
 	}
 	for i, side := range p.Sides {
 		require.InDeltaf(t, 5, side.Length(), 1e-6, "side %d (hexagon side == r)", i)
@@ -53,9 +56,10 @@ func TestAddSlot(t *testing.T) {
 	s.Fix(sl.C1)
 	s.Fix(sl.C2)
 	require.Equal(t, 1, s.DOF(), "only the radius is free (contact points pinned)")
-	addDist(s, sl.L1.Start, sl.C1, 3) // cap contact point to center == radius
+	s.AddConstraint(sketch.NewDistance(sl.L1.Start, sl.C1, 3)) // cap contact point to center == radius
 
-	res := mustSolve(t, s)
+	res, err := s.Solve()
+	require.NoError(t, err)
 	require.Equal(t, 0, res.DOF, "fully constrained")
 	require.InDelta(t, 3, sl.A1.R(), 1e-6, "cap 1 radius")
 	require.InDelta(t, 3, sl.A2.R(), 1e-6, "cap 2 radius (equal)")
@@ -70,8 +74,9 @@ func TestJSONRoundTripSlot(t *testing.T) {
 	sl := s.AddSlot(0, 0, 10, 0, 3)
 	s.Fix(sl.C1)
 	s.Fix(sl.C2)
-	addDist(s, sl.L1.Start, sl.C1, 3)
-	mustSolve(t, s)
+	s.AddConstraint(sketch.NewDistance(sl.L1.Start, sl.C1, 3))
+	_, err := s.Solve()
+	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
 	require.NoError(t, err, "marshal")
@@ -80,6 +85,7 @@ func TestJSONRoundTripSlot(t *testing.T) {
 	require.Len(t, s2.Entities(), len(s.Entities()), "entities survive")
 	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraints survive (internal ones recreated, not doubled)")
 
-	res := mustSolve(t, &s2)
+	res, err := s2.Solve()
+	require.NoError(t, err)
 	require.Equal(t, 0, res.DOF, "reloaded DOF")
 }

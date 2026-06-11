@@ -213,12 +213,12 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 			fmt.Fprintf(&sb,
 				`  <line x1="%s" y1="%s" x2="%s" y2="%s" stroke="%s" stroke-width="%s"%s/>`+"\n",
 				f(tx(t.Start.x())), f(ty(t.Start.y())), f(tx(t.End.x())), f(ty(t.End.y())),
-				color(t.isConstruction()), f(cfg.strokeWidth), dash(t.isConstruction()))
+				color(t.IsConstruction()), f(cfg.strokeWidth), dash(t.IsConstruction()))
 		case *Circle:
 			fmt.Fprintf(&sb,
 				`  <circle cx="%s" cy="%s" r="%s" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
 				f(tx(t.Center.x())), f(ty(t.Center.y())), f(t.r()),
-				color(t.isConstruction()), f(cfg.strokeWidth), dash(t.isConstruction()))
+				color(t.IsConstruction()), f(cfg.strokeWidth), dash(t.IsConstruction()))
 		case *Arc:
 			pts := arcPolyline(t, cfg.arcSegments)
 			var d strings.Builder
@@ -231,7 +231,7 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 			}
 			fmt.Fprintf(&sb,
 				`  <path d="%s" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
-				strings.TrimSpace(d.String()), color(t.isConstruction()), f(cfg.strokeWidth), dash(t.isConstruction()))
+				strings.TrimSpace(d.String()), color(t.IsConstruction()), f(cfg.strokeWidth), dash(t.IsConstruction()))
 		case *Ellipse:
 			// The y-flip mirrors the plane, so a CCW sketch rotation becomes
 			// CW in SVG coordinates: negate the angle.
@@ -240,7 +240,7 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 				`  <ellipse cx="%s" cy="%s" rx="%s" ry="%s" transform="rotate(%s %s %s)" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
 				f(cx), f(cy), f(t.rx()), f(t.ry()),
 				f(-t.rot()*180/math.Pi), f(cx), f(cy),
-				color(t.isConstruction()), f(cfg.strokeWidth), dash(t.isConstruction()))
+				color(t.IsConstruction()), f(cfg.strokeWidth), dash(t.IsConstruction()))
 		case *Spline:
 			// Sampled polyline, like arcs; cfg.arcSegments governs fidelity.
 			pts := t.Polyline(cfg.arcSegments)
@@ -254,7 +254,7 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 			}
 			fmt.Fprintf(&sb,
 				`  <path d="%s" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
-				strings.TrimSpace(d.String()), color(t.isConstruction()), f(cfg.strokeWidth), dash(t.isConstruction()))
+				strings.TrimSpace(d.String()), color(t.IsConstruction()), f(cfg.strokeWidth), dash(t.IsConstruction()))
 		}
 	}
 

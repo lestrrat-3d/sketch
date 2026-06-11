@@ -44,7 +44,7 @@ expected to be built **on top of** this engine, not woven into it.
 
 | File | Responsibility |
 |---|---|
-| `sketch.go` | `Sketch`, solver-bound geometry (`Point`/`Line`/`Circle`/`Arc`/`Ellipse`) wrapping `geom`, the parameter model, grounding. |
+| `sketch.go` | `Sketch`, solver-bound geometry (`Point`/`Line`/`Circle`/`Arc`/`Ellipse`) authored from points, the parameter model, grounding, construction flag, `Geometry()` snapshots. |
 | `compound.go` | Compound shape builders (`AddRectangle`/`AddPolygon`/`AddSlot`): primitives + shape-holding constraints, returned as a grouping handle (handle itself is not serialized). |
 | `tools.go` | Sketch-modification tools on committed geometry (`Trim`/`Extend`/`Break`, `AddFillet`/`AddChamfer`, `AddMirror`, `AddPatternRect`/`AddPatternCircular`, `AddOffset`): build-then-replace via the `geom` toolkit + `RemoveEntity`. Design in `docs/modification-tools-design.md`. |
 | `profiles.go` | `Sketch.Profiles()`: closed-region boundaries (loops of lines/arcs via `geom.Loops` + standalone circles/ellipses), construction geometry excluded. |
@@ -59,26 +59,26 @@ expected to be built **on top of** this engine, not woven into it.
 
 ### The `geom` package (slated for extraction)
 
-`geom/` holds context-agnostic geometry — plain `Point`/`Line`/`Circle`/`Arc`
-definitions (coordinates + metadata, no sketch, solver or constraints). It is
-the reusable *template* layer: the same generic geometry can be committed into
-several independent sketches, each building its own solver-bound instance. It
-must not import `sketch`; the arrow is `sketch -> geom`, never the reverse.
-Production code is standard-library-only (tests use `testify/require`); intended
-to move to its own module later.
+`geom/` holds **transient geometry** — plain `Point`/`Line`/`Circle`/`Arc`
+definitions, *coordinates only*, no document state (no construction flag, no
+name), no sketch/solver/constraints. It is the engine's `adsk.core` analog: a
+pure math layer and the **snapshot type** that a sketch entity hands back from
+its `Geometry()` accessor. It is **not** an input you hold and commit — sketch
+geometry is authored directly from points (see "Building blocks vs sketch
+geometry" below). It must not import `sketch`; the arrow is `sketch -> geom`,
+never the reverse. Production code is standard-library-only (tests use
+`testify/require`); intended to move to its own module later.
 
-It also carries the **construction toolkit** (`intersect.go`, `modify.go`):
-line/circle/arc intersections (arc cases reduce to circle cases filtered by
-`Arc.Contains`), plus `SplitLineAt`/`Fillet`/`Chamfer`, which operate on
-generic geometry **before it is committed** — `Fillet`/`Chamfer` replace each
-line's shared endpoint with a fresh contact point and return the connecting
-arc/line. They are the math layer for sketcher tools; the *mutating*
-sketch-level equivalents (trim a committed line, fillet a committed corner) are
-now built in `tools.go` (`Trim`/`Extend`/`Break`/`AddFillet`/`AddChamfer`/
-`AddMirror`/`AddPatternRect`/`AddPatternCircular`/`AddOffset`) — shape
-replacements with the toolkit, `Add` them, then `RemoveEntity` the originals.
-`geom/transform.go` adds the mirror/translate/rotate point transforms those
-tools build on.
+It also carries the **construction toolkit** (`intersect.go`, `modify.go`,
+`transform.go`): line/circle/arc intersections (arc cases reduce to circle
+cases filtered by `Arc.Contains`), `ClosestPointOnLine`, `SplitLineAt`/
+`SplitArcAt`, `Fillet`/`Chamfer` (which replace a shared endpoint with fresh
+contact points and return the connecting arc/line), and the `MirrorPoint`/
+`TranslatePoint`/`RotatePoint` transforms. These compute on transient geometry;
+the *mutating* sketch-level tools in `tools.go` (`Trim`/`Extend`/`Break`/
+`AddFillet`/`AddChamfer`/`AddMirror`/`AddPatternRect`/`AddPatternCircular`/
+`AddOffset`) feed them an entity's `Geometry()` snapshot, then build the
+replacement from sketch points and retire the originals with `RemoveEntity`.
 
 ### The `units` package (slated for extraction)
 
@@ -106,32 +106,34 @@ later, so the dependency arrow only ever points *into* it. Keep its production
 code standard-library-only (tests may use `testify/require`) and independently
 testable.
 
-### Generic geometry vs. sketch geometry (load-bearing)
+### Building blocks vs. sketch geometry (load-bearing)
 
-Geometry exists at two layers. **Generic geometry** (`geom.Point`/`Line`/…) is a
-context-agnostic template — constructed with `geom.NewX`, holding only
-coordinates/metadata. **Sketch geometry** (`sketch.Point`/`Line`/…) is the
-solver-bound instance, created only by committing generic geometry with
-`s.AddPoint`/`AddLine`/`AddCircle`/`AddArc`. Each sketch keeps a
-`map[*geom.X]*X` so a generic primitive maps to exactly one bound instance per
-sketch (committing the same line twice, or its shared endpoint, is idempotent);
-the same generic geometry committed into a second sketch yields a fresh,
-independent instance. Constraints reference **sketch** geometry (the bound
-handles), so they never reference un-committed geometry — `AddConstraint` just
-registers them (no geometry cascade needed). Constructors (`geom.NewX`) allocate
-nothing on a sketch; `Add…` does all the committing.
+The model follows Fusion's transient-geometry / sketch-entity split.
+**Transient geometry** (`geom.Point`/`Line`/…) is pure coordinate math: a
+building block for the math layer and the **snapshot** an entity returns from
+`Geometry()`. It carries no document state and is never committed. **Sketch
+geometry** (`sketch.Point`/`Line`/…) is the durable, solver-bound entity, and
+the only handle you hold. You author it directly: `s.AddPoint(x, y)` returns a
+`*Point`; the curve builders `s.AddLine(p1, p2)`/`AddCircle(center, r)`/
+`AddArc(c, s, e)`/`AddEllipse(center, rx, ry, rot)`/`AddSpline(pts…)` take those
+points. **Topology is expressed by sharing a `*Point`** between entities (a
+shared corner is literally one point) — there is no generic-pointer identity
+map and no idempotency; each `Add…` makes a fresh entity. Constraints reference
+**sketch** geometry, so they never reference un-committed geometry —
+`AddConstraint` just registers them. To read an entity's current shape as a
+transient value, call `Geometry()` (a fresh snapshot at the solved coords);
+`geom.NewX` is for math and snapshots, never as sketch input.
 
 ### The parameter model (load-bearing)
 
 All scalar unknowns — point `x`/`y`, circle radius, ellipse semi-axes/rotation
 — live in one flat vector on the `Sketch` (`vars []float64`, with a parallel
-`fixed []bool`). Sketch
-primitives hold **indices** into that vector (and a back-reference to their
-`geom` template). The solver reads/perturbs the vector directly; solving never
-mutates the generic geometry. Grounding (`fixed`) is per-sketch, not a property
-of the generic point. Any new geometry that introduces unknowns must allocate
-them via `newVar` in its `Add…` method and reference them by index so the solver
-sees them automatically.
+`fixed []bool`). Sketch primitives hold **indices** into that vector (no
+geom back-reference). The solver reads/perturbs the vector directly. Grounding
+(`fixed`) is per-point on the sketch (`s.Fix`/`Unfix`); construction status is a
+settable per-entity property (`entity.SetConstruction`). Any new geometry that
+introduces unknowns must allocate them via `newVar` in its `Add…` method and
+reference them by index so the solver sees them automatically.
 
 ### Invariants the solver depends on
 
@@ -205,23 +207,30 @@ sees them automatically.
   `xxx_test` packages** — they exercise only the exported API. If a test needs
   to observe internal state, add a documented exported accessor rather than
   reaching into unexported fields (e.g. `Sketch.Points`, `Point.ID`,
-  `Point.Generic`, `DriverExpr`). No named return values, including in tests.
-- Generic geometry is built with `geom.NewX`; constraints with package-level
-  `New…` functions (the `New` prefix is forced for the dimensional ones because
-  their concrete handle types — `Distance`, `Radius`, `Angle`, … — already own
-  the bare name; keep all constructors consistent). `s.Add…`/`s.AddConstraint`
-  commits.
+  `Point.Geometry`, `DriverExpr`). No named return values, including in tests.
+  Author geometry with the real builders (`s.AddPoint(x,y)`, `s.AddLine(a,b)`,
+  …) directly in tests — do not wrap them in trivial 1:1 helpers; explicit is
+  better.
+- Geometry is authored against the sketch from points (`s.AddPoint` then
+  `s.AddLine`/`AddCircle`/`AddArc`/`AddEllipse`/`AddSpline`); constraints come
+  from package-level `New…` functions (the `New` prefix is forced for the
+  dimensional ones because their concrete handle types — `Distance`, `Radius`,
+  `Angle`, … — already own the bare name; keep all constructors consistent) and
+  are registered with `s.AddConstraint`. `geom.NewX` is only for math/snapshots,
+  never sketch input.
 - Constraints reference **sketch** geometry (`*sketch.Point`/`*sketch.Line`/…),
-  not generic geometry; the residual reads solved values through it. Constraints
-  that relate centers/radii take the sealed `Circular` interface (`*Circle` or
+  not transient `geom` values; the residual reads solved values through it.
+  Constraints that relate centers/radii take the sealed `Circular` interface (`*Circle` or
   `*Arc`); an arc's radius is the derived `dist(Start, Center)`, so such
   residuals need no radius variable.
 - Public dimensional constructors return concrete handles (`*Distance`, etc.)
   with `.Set`/`.SetValue`; geometric constructors return the `Constraint`
   interface.
 - Keep exported API documented with Go doc comments; primitives expose value
-  accessors (`X()`, `Y()`, `R()`, `Generic()`) while index-backed fields stay
-  unexported.
+  accessors (`X()`, `Y()`, `R()`, …), a `Geometry()` snapshot, and measurement
+  queries (`Point.DistanceTo`/`DistanceToLine`, `Line.AngleTo`), while
+  index-backed fields stay unexported. Measurement math lives in `geom`
+  (`geom/measure.go`); the sketch entities delegate through `Geometry()`.
 - New constraints: add the residual, the `New…` constructor, a case in the JSON
   marshal/unmarshal switches, a case in `constraintRefs` (`removal.go` — or
   the removal cascade silently misses it), and a test asserting on the solved
@@ -285,7 +294,11 @@ These are unsettled. If you resolve one, record the decision here.
   not caught. *Open
   follow-ups:* should expressions track kind through arithmetic (catch mm+deg
   mid-expression); should points/coordinates expose unit-carrying accessors;
-  should exporters honour the display `System`.
+  should exporters honour the display `System`. *Note:* the entire read surface
+  — coordinate accessors and the measurement queries (`DistanceTo`/`AngleTo`/…)
+  — currently returns raw base-unit `float64` (mm/radians), matching the
+  solver's currency. Making reads unit-carrying is the deferred all-or-nothing
+  decision above; it should be done across the whole surface, not piecemeal.
 - **Entity/constraint removal.** *Resolved.*
   `RemoveConstraint`/`RemoveEntity`/`RemovePoint` (`removal.go`; design in
   `docs/removal-design.md`): splice + id renumbering, entity-owned vars

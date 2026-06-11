@@ -15,19 +15,17 @@
 //
 // # Example
 //
-//	// Generic geometry lives in the geom package and is committed into a sketch.
-//	ga := geom.NewPoint(0, 0)
-//	gb := geom.NewPoint(7, 2)
-//	gd := geom.NewPoint(-1, 8)
-//
+//	// Geometry is authored from points; sharing a point ties entities together.
 //	s := sketch.New()
-//	ab := s.AddLine(geom.NewLine(ga, gb)) // commits the line and its points
-//	ad := s.AddLine(geom.NewLine(ga, gd))
+//	a := s.AddPoint(0, 0)
+//	b := s.AddPoint(7, 2)
+//	d := s.AddPoint(-1, 8)
+//	ab := s.AddLine(a, b)
+//	ad := s.AddLine(a, d)
 //
-//	ab.Start.MoveTo(0, 0) // move the origin corner and ground it
-//	s.Fix(ab.Start)
-//	w := sketch.NewDistance(ab.Start, ab.End, 100) // driving dimension
-//	h := sketch.NewDistance(ad.Start, ad.End, 60)
+//	s.Fix(a) // ground the shared origin corner
+//	w := sketch.NewDistance(a, b, 100) // driving dimension
+//	h := sketch.NewDistance(a, d, 60)
 //	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewVertical(ad), w, h)
 //
 //	res, err := s.Solve()
@@ -35,5 +33,7 @@
 //	fmt.Println(res.DOF, "degrees of freedom remaining")
 //	svg, _ := s.SVG() // or s.SVG(sketch.WithMargin(20), sketch.WithShowPoints(false))
 //
-// The package has no external dependencies.
+// The geom package is the transient math / snapshot layer (an entity's
+// Geometry method returns a geom value at the current solved coordinates); it
+// is never committed as sketch input.
 package sketch

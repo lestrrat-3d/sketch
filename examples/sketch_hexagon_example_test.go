@@ -5,7 +5,6 @@ import (
 	"math"
 
 	"github.com/lestrrat-3d/sketch"
-	"github.com/lestrrat-3d/sketch/geom"
 )
 
 // Example_sketch_hexagon builds a regular hexagon entirely from geometric and
@@ -17,21 +16,17 @@ func Example_sketch_hexagon() {
 	const side = 30.0
 	const n = 6
 
-	// Generic geometry: vertices (rough guesses on a circle) and edges.
-	gp := make([]*geom.Point, n)
-	for i := range gp {
-		a := float64(i)/float64(n)*2*math.Pi + 0.15 // perturbed
-		gp[i] = geom.NewPoint(40*math.Cos(a)+5, 40*math.Sin(a)-3)
-	}
-
-	// Commit the edges (each pulls in its endpoints) and grab the bound points.
-	lines := make([]*sketch.Line, n)
-	for i := range lines {
-		lines[i] = s.AddLine(geom.NewLine(gp[i], gp[(i+1)%n]))
-	}
+	// Vertices: rough guesses on a circle (perturbed so the solver does work).
 	pts := make([]*sketch.Point, n)
 	for i := range pts {
-		pts[i] = s.AddPoint(gp[i]) // idempotent: returns the already-bound point
+		a := float64(i)/float64(n)*2*math.Pi + 0.15
+		pts[i] = s.AddPoint(40*math.Cos(a)+5, 40*math.Sin(a)-3)
+	}
+
+	// Edges between consecutive vertices, sharing the vertex points.
+	lines := make([]*sketch.Line, n)
+	for i := range lines {
+		lines[i] = s.AddLine(pts[i], pts[(i+1)%n])
 	}
 
 	// Ground one vertex, make the first edge horizontal, and dimension it.

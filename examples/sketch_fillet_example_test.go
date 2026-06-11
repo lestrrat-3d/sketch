@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/lestrrat-3d/sketch"
-	"github.com/lestrrat-3d/sketch/geom"
 )
 
 // Example_sketch_fillet rounds the corner of an L-shaped pair of lines, then
@@ -14,12 +13,13 @@ import (
 func Example_sketch_fillet() {
 	s := sketch.New()
 
-	// Vertical leg A(0,10)->corner; horizontal leg corner->B(10,0).
-	gA, gCorner, gB := geom.NewPoint(0, 10), geom.NewPoint(0, 0), geom.NewPoint(10, 0)
-	a := s.AddPoint(gA)
-	b := s.AddPoint(gB)
-	l1 := s.AddLine(geom.NewLine(gA, gCorner))
-	l2 := s.AddLine(geom.NewLine(gCorner, gB))
+	// Vertical leg A(0,10)->corner; horizontal leg corner->B(10,0). The shared
+	// corner point is what makes the two legs meet.
+	a := s.AddPoint(0, 10)
+	corner := s.AddPoint(0, 0)
+	b := s.AddPoint(10, 0)
+	l1 := s.AddLine(a, corner)
+	l2 := s.AddLine(corner, b)
 
 	f, err := s.AddFillet(l1, l2, 3)
 	if err != nil {

@@ -20,193 +20,196 @@ func TestJSONRoundTripAllConstraintKinds(t *testing.T) {
 		build func(s *sketch.Sketch)
 	}{
 		{"coincident", func(s *sketch.Sketch) {
-			a := addPt(s, 1, 2)
+			a := s.AddPoint(1, 2)
 			s.Fix(a)
-			s.AddConstraint(sketch.NewCoincident(a, addPt(s, 5, 5)))
+			s.AddConstraint(sketch.NewCoincident(a, s.AddPoint(5, 5)))
 		}},
 		{"horizontal", func(s *sketch.Sketch) {
-			a := addPt(s, 0, 0)
+			a := s.AddPoint(0, 0)
 			s.Fix(a)
-			s.AddConstraint(sketch.NewHorizontal(addLn(s, a, addPt(s, 5, 1))))
+			s.AddConstraint(sketch.NewHorizontal(s.AddLine(a, s.AddPoint(5, 1))))
 		}},
 		{"vertical", func(s *sketch.Sketch) {
-			a := addPt(s, 0, 0)
+			a := s.AddPoint(0, 0)
 			s.Fix(a)
-			s.AddConstraint(sketch.NewVertical(addLn(s, a, addPt(s, 1, 5))))
+			s.AddConstraint(sketch.NewVertical(s.AddLine(a, s.AddPoint(1, 5))))
 		}},
 		{"parallel", func(s *sketch.Sketch) {
-			a := addPt(s, 0, 0)
-			b := addPt(s, 10, 0)
+			a := s.AddPoint(0, 0)
+			b := s.AddPoint(10, 0)
 			s.Fix(a)
 			s.Fix(b)
-			c := addPt(s, 0, 5)
+			c := s.AddPoint(0, 5)
 			s.Fix(c)
-			s.AddConstraint(sketch.NewParallel(addLn(s, a, b), addLn(s, c, addPt(s, 8, 7))))
+			s.AddConstraint(sketch.NewParallel(s.AddLine(a, b), s.AddLine(c, s.AddPoint(8, 7))))
 		}},
 		{"perpendicular", func(s *sketch.Sketch) {
-			a := addPt(s, 0, 0)
-			b := addPt(s, 10, 0)
+			a := s.AddPoint(0, 0)
+			b := s.AddPoint(10, 0)
 			s.Fix(a)
 			s.Fix(b)
-			s.AddConstraint(sketch.NewPerpendicular(addLn(s, a, b), addLn(s, a, addPt(s, 1, 5))))
+			s.AddConstraint(sketch.NewPerpendicular(s.AddLine(a, b), s.AddLine(a, s.AddPoint(1, 5))))
 		}},
 		{"pointOnLine", func(s *sketch.Sketch) {
-			a := addPt(s, 0, 0)
-			b := addPt(s, 10, 0)
+			a := s.AddPoint(0, 0)
+			b := s.AddPoint(10, 0)
 			s.Fix(a)
 			s.Fix(b)
-			s.AddConstraint(sketch.NewPointOnLine(addPt(s, 3, 4), addLn(s, a, b)))
+			s.AddConstraint(sketch.NewPointOnLine(s.AddPoint(3, 4), s.AddLine(a, b)))
 		}},
 		{"collinear", func(s *sketch.Sketch) {
-			a := addPt(s, 0, 0)
-			b := addPt(s, 10, 0)
+			a := s.AddPoint(0, 0)
+			b := s.AddPoint(10, 0)
 			s.Fix(a)
 			s.Fix(b)
-			s.AddConstraint(sketch.NewCollinear(addLn(s, a, b), addLn(s, addPt(s, 2, 3), addPt(s, 7, 5))))
+			s.AddConstraint(sketch.NewCollinear(s.AddLine(a, b), s.AddLine(s.AddPoint(2, 3), s.AddPoint(7, 5))))
 		}},
 		{"pointOnCircle", func(s *sketch.Sketch) {
-			o := addPt(s, 0, 0)
+			o := s.AddPoint(0, 0)
 			s.Fix(o)
-			circ := addCir(s, o, 5)
-			s.AddConstraint(sketch.NewRadius(circ, 5), sketch.NewPointOnCircle(addPt(s, 7, 1), circ))
+			circ := s.AddCircle(o, 5)
+			s.AddConstraint(sketch.NewRadius(circ, 5), sketch.NewPointOnCircle(s.AddPoint(7, 1), circ))
 		}},
 		{"midpoint", func(s *sketch.Sketch) {
-			a := addPt(s, 0, 0)
-			b := addPt(s, 10, 0)
+			a := s.AddPoint(0, 0)
+			b := s.AddPoint(10, 0)
 			s.Fix(a)
 			s.Fix(b)
-			s.AddConstraint(sketch.NewMidpoint(addPt(s, 3, 3), addLn(s, a, b)))
+			s.AddConstraint(sketch.NewMidpoint(s.AddPoint(3, 3), s.AddLine(a, b)))
 		}},
 		{"symmetric", func(s *sketch.Sketch) {
-			axA := addPt(s, 0, 0)
-			axB := addPt(s, 0, 10)
+			axA := s.AddPoint(0, 0)
+			axB := s.AddPoint(0, 10)
 			s.Fix(axA)
 			s.Fix(axB)
-			p1 := addPt(s, -3, 4)
+			p1 := s.AddPoint(-3, 4)
 			s.Fix(p1)
-			s.AddConstraint(sketch.NewSymmetric(p1, addPt(s, 5, 1), addLn(s, axA, axB)))
+			s.AddConstraint(sketch.NewSymmetric(p1, s.AddPoint(5, 1), s.AddLine(axA, axB)))
 		}},
 		{"concentric", func(s *sketch.Sketch) {
-			o1 := addPt(s, 0, 0)
+			o1 := s.AddPoint(0, 0)
 			s.Fix(o1)
-			c1 := addCir(s, o1, 5)
-			c2 := addCir(s, addPt(s, 3, 2), 4)
+			c1 := s.AddCircle(o1, 5)
+			c2 := s.AddCircle(s.AddPoint(3, 2), 4)
 			s.AddConstraint(sketch.NewConcentric(c1, c2))
 		}},
 		{"equal", func(s *sketch.Sketch) {
-			a := addPt(s, 0, 0)
-			b := addPt(s, 8, 0)
+			a := s.AddPoint(0, 0)
+			b := s.AddPoint(8, 0)
 			s.Fix(a)
 			s.Fix(b)
-			c := addPt(s, 20, 0)
+			c := s.AddPoint(20, 0)
 			s.Fix(c)
-			s.AddConstraint(sketch.NewEqual(addLn(s, a, b), addLn(s, c, addPt(s, 25, 3))))
+			s.AddConstraint(sketch.NewEqual(s.AddLine(a, b), s.AddLine(c, s.AddPoint(25, 3))))
 		}},
 		{"equalRadius", func(s *sketch.Sketch) {
-			o1 := addPt(s, 0, 0)
+			o1 := s.AddPoint(0, 0)
 			s.Fix(o1)
-			c1 := addCir(s, o1, 7)
-			o2 := addPt(s, 20, 0)
+			c1 := s.AddCircle(o1, 7)
+			o2 := s.AddPoint(20, 0)
 			s.Fix(o2)
-			c2 := addCir(s, o2, 3)
+			c2 := s.AddCircle(o2, 3)
 			s.AddConstraint(sketch.NewRadius(c1, 7), sketch.NewEqualRadius(c1, c2))
 		}},
 		{"pointOnEllipse", func(s *sketch.Sketch) {
-			o := addPt(s, 0, 0)
+			o := s.AddPoint(0, 0)
 			s.Fix(o)
-			e := addEl(s, o, 10, 5, 0)
-			pinEllipse(s, e, 10, 5, 0)
-			s.AddConstraint(sketch.NewPointOnEllipse(addPt(s, 12, 1), e))
+			e := s.AddEllipse(o, 10, 5, 0)
+			s.Fix(e.Center)
+			s.AddConstraint(sketch.NewSemiMajor(e, 10), sketch.NewSemiMinor(e, 5), sketch.NewEllipseRotation(e, 0))
+			s.AddConstraint(sketch.NewPointOnEllipse(s.AddPoint(12, 1), e))
 		}},
 		{"tangentLineCircle", func(s *sketch.Sketch) {
-			a := addPt(s, 0, 0)
-			b := addPt(s, 10, 0)
+			a := s.AddPoint(0, 0)
+			b := s.AddPoint(10, 0)
 			s.Fix(a)
 			s.Fix(b)
-			o := addPt(s, 5, 5)
+			o := s.AddPoint(5, 5)
 			s.Fix(o)
-			s.AddConstraint(sketch.NewTangent(addLn(s, a, b), addCir(s, o, 2)))
+			s.AddConstraint(sketch.NewTangent(s.AddLine(a, b), s.AddCircle(o, 2)))
 		}},
 		{"tangentCirclesExternal", func(s *sketch.Sketch) {
-			o1 := addPt(s, 0, 0)
+			o1 := s.AddPoint(0, 0)
 			s.Fix(o1)
-			c1 := addCir(s, o1, 3)
-			o2 := addPt(s, 10, 0)
+			c1 := s.AddCircle(o1, 3)
+			o2 := s.AddPoint(10, 0)
 			s.Fix(o2)
-			c2 := addCir(s, o2, 2)
+			c2 := s.AddCircle(o2, 2)
 			s.AddConstraint(sketch.NewRadius(c1, 3), sketch.NewTangentCircles(c1, c2, false))
 		}},
 		{"tangentCirclesInternal", func(s *sketch.Sketch) {
-			o1 := addPt(s, 0, 0)
+			o1 := s.AddPoint(0, 0)
 			s.Fix(o1)
-			c1 := addCir(s, o1, 10)
-			o2 := addPt(s, 4, 0)
+			c1 := s.AddCircle(o1, 10)
+			o2 := s.AddPoint(4, 0)
 			s.Fix(o2)
-			c2 := addCir(s, o2, 2)
+			c2 := s.AddCircle(o2, 2)
 			s.AddConstraint(sketch.NewRadius(c1, 10), sketch.NewTangentCircles(c1, c2, true))
 		}},
 		{"distance", func(s *sketch.Sketch) {
-			a := addPt(s, 0, 0)
+			a := s.AddPoint(0, 0)
 			s.Fix(a)
-			addDist(s, a, addPt(s, 4, 1), 5)
+			s.AddConstraint(sketch.NewDistance(a, s.AddPoint(4, 1), 5))
 		}},
 		{"horizontalDistance", func(s *sketch.Sketch) {
-			a := addPt(s, 0, 0)
+			a := s.AddPoint(0, 0)
 			s.Fix(a)
-			s.AddConstraint(sketch.NewHorizontalDistance(a, addPt(s, 3, 1), 4))
+			s.AddConstraint(sketch.NewHorizontalDistance(a, s.AddPoint(3, 1), 4))
 		}},
 		{"verticalDistance", func(s *sketch.Sketch) {
-			a := addPt(s, 0, 0)
+			a := s.AddPoint(0, 0)
 			s.Fix(a)
-			s.AddConstraint(sketch.NewVerticalDistance(a, addPt(s, 1, 2), 3))
+			s.AddConstraint(sketch.NewVerticalDistance(a, s.AddPoint(1, 2), 3))
 		}},
 		{"distancePointLine", func(s *sketch.Sketch) {
-			a := addPt(s, 0, 0)
-			b := addPt(s, 10, 0)
+			a := s.AddPoint(0, 0)
+			b := s.AddPoint(10, 0)
 			s.Fix(a)
 			s.Fix(b)
-			s.AddConstraint(sketch.NewDistancePointLine(addPt(s, 3, 2), addLn(s, a, b), 5))
+			s.AddConstraint(sketch.NewDistancePointLine(s.AddPoint(3, 2), s.AddLine(a, b), 5))
 		}},
 		{"distanceLines", func(s *sketch.Sketch) {
-			a := addPt(s, 0, 0)
-			b := addPt(s, 10, 0)
+			a := s.AddPoint(0, 0)
+			b := s.AddPoint(10, 0)
 			s.Fix(a)
 			s.Fix(b)
-			l2 := addLn(s, addPt(s, 0, 3), addPt(s, 10, 4))
-			s.AddConstraint(sketch.NewDistanceLines(addLn(s, a, b), l2, 6))
+			l2 := s.AddLine(s.AddPoint(0, 3), s.AddPoint(10, 4))
+			s.AddConstraint(sketch.NewDistanceLines(s.AddLine(a, b), l2, 6))
 		}},
 		{"radius", func(s *sketch.Sketch) {
-			o := addPt(s, 0, 0)
+			o := s.AddPoint(0, 0)
 			s.Fix(o)
-			s.AddConstraint(sketch.NewRadius(addCir(s, o, 3), 7))
+			s.AddConstraint(sketch.NewRadius(s.AddCircle(o, 3), 7))
 		}},
 		{"diameter", func(s *sketch.Sketch) {
-			o := addPt(s, 0, 0)
+			o := s.AddPoint(0, 0)
 			s.Fix(o)
-			s.AddConstraint(sketch.NewDiameter(addCir(s, o, 3), 14))
+			s.AddConstraint(sketch.NewDiameter(s.AddCircle(o, 3), 14))
 		}},
 		{"angle", func(s *sketch.Sketch) {
-			a := addPt(s, 0, 0)
-			b := addPt(s, 10, 0)
+			a := s.AddPoint(0, 0)
+			b := s.AddPoint(10, 0)
 			s.Fix(a)
 			s.Fix(b)
-			c := addPt(s, 5, 5)
-			l2 := addLn(s, a, c)
-			s.AddConstraint(sketch.NewAngle(addLn(s, a, b), l2, 45))
-			addDist(s, a, c, 8)
+			c := s.AddPoint(5, 5)
+			l2 := s.AddLine(a, c)
+			s.AddConstraint(sketch.NewAngle(s.AddLine(a, b), l2, 45))
+			s.AddConstraint(sketch.NewDistance(a, c, 8))
 		}},
 		{"semiMajorMinorRotation", func(s *sketch.Sketch) {
-			o := addPt(s, 0, 0)
+			o := s.AddPoint(0, 0)
 			s.Fix(o)
-			e := addEl(s, o, 4, 2, 0.5)
-			pinEllipse(s, e, 10, 5, 30)
+			e := s.AddEllipse(o, 4, 2, 0.5)
+			s.Fix(e.Center)
+			s.AddConstraint(sketch.NewSemiMajor(e, 10), sketch.NewSemiMinor(e, 5), sketch.NewEllipseRotation(e, 30))
 		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			s := sketch.New()
 			tc.build(s)
-			mustSolve(t, s)
+			_, err := s.Solve()
+			require.NoError(t, err)
 
 			data, err := json.Marshal(s)
 			require.NoError(t, err, "marshal")
@@ -214,7 +217,8 @@ func TestJSONRoundTripAllConstraintKinds(t *testing.T) {
 			require.NoError(t, json.Unmarshal(data, &s2), "unmarshal")
 			require.Len(t, s2.Constraints(), len(s.Constraints()), "constraint count survives")
 
-			mustSolve(t, &s2)
+			_, err = s2.Solve()
+			require.NoError(t, err)
 			for i, p := range s.Points() {
 				require.InDeltaf(t, p.X(), s2.Points()[i].X(), 1e-6, "point %d X after reload", i)
 				require.InDeltaf(t, p.Y(), s2.Points()[i].Y(), 1e-6, "point %d Y after reload", i)
@@ -228,8 +232,22 @@ func TestJSONRoundTripAllConstraintKinds(t *testing.T) {
 // reordered ids, re-derived values, double-serialized internal constraints —
 // shows up as a diff here.
 func TestJSONFixedPoint(t *testing.T) {
-	s, _, _, _, _ := newRectangle(t)
-	mustSolve(t, s)
+	s := sketch.New()
+	a := s.AddPoint(0, 0)
+	b := s.AddPoint(18, 2)
+	c := s.AddPoint(17, 11)
+	d := s.AddPoint(1, 13)
+	ab := s.AddLine(a, b)
+	bc := s.AddLine(b, c)
+	dc := s.AddLine(d, c)
+	ad := s.AddLine(a, d)
+	a.MoveTo(0, 0)
+	s.Fix(a)
+	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
+	s.AddConstraint(sketch.NewDistance(a, b, 20))
+	s.AddConstraint(sketch.NewDistance(a, d, 12))
+	_, err := s.Solve()
+	require.NoError(t, err)
 
 	data1, err := json.Marshal(s)
 	require.NoError(t, err, "first marshal")
@@ -244,8 +262,22 @@ func TestJSONFixedPoint(t *testing.T) {
 // coordinates, not just structure: the reloaded sketch is already on the
 // constraint manifold and a zero-iteration solve reports convergence.
 func TestRoundTripPreservesSolvedState(t *testing.T) {
-	s, _, b, _, _ := newRectangle(t)
-	mustSolve(t, s)
+	s := sketch.New()
+	a := s.AddPoint(0, 0)
+	b := s.AddPoint(18, 2)
+	c := s.AddPoint(17, 11)
+	d := s.AddPoint(1, 13)
+	ab := s.AddLine(a, b)
+	bc := s.AddLine(b, c)
+	dc := s.AddLine(d, c)
+	ad := s.AddLine(a, d)
+	a.MoveTo(0, 0)
+	s.Fix(a)
+	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
+	s.AddConstraint(sketch.NewDistance(a, b, 20))
+	s.AddConstraint(sketch.NewDistance(a, d, 12))
+	_, err := s.Solve()
+	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
 	require.NoError(t, err, "marshal")

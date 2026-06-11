@@ -39,21 +39,15 @@ func (s *Sketch) RemoveEntity(e Entity) bool {
 		return false
 	}
 	s.removeConstraintsReferencing(nil, e)
+	// Retire scalar variables owned by the entity itself. Line/Arc/Spline own
+	// none — their coordinates belong to their points, which survive.
 	switch t := e.(type) {
-	case *Line:
-		delete(s.lnOf, t.g)
 	case *Circle:
-		delete(s.cirOf, t.g)
 		s.retireVar(t.ri)
-	case *Arc:
-		delete(s.arcOf, t.g)
 	case *Ellipse:
-		delete(s.elOf, t.g)
 		s.retireVar(t.rxi)
 		s.retireVar(t.ryi)
 		s.retireVar(t.roti)
-	case *Spline:
-		delete(s.splOf, t.g)
 	}
 	s.ents = append(s.ents[:idx], s.ents[idx+1:]...)
 	for i := idx; i < len(s.ents); i++ {
@@ -86,7 +80,6 @@ func (s *Sketch) RemovePoint(p *Point) bool {
 	s.removeConstraintsReferencing(p, nil)
 	s.retireVar(p.xi)
 	s.retireVar(p.yi)
-	delete(s.ptOf, p.g)
 	s.points = append(s.points[:idx], s.points[idx+1:]...)
 	for i := idx; i < len(s.points); i++ {
 		s.points[i].id = i

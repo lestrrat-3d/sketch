@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/lestrrat-3d/sketch"
-	"github.com/lestrrat-3d/sketch/geom"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,8 +27,8 @@ func TestProfilesPolygonExcludesConstruction(t *testing.T) {
 func TestProfilesSlotAndCircle(t *testing.T) {
 	s := sketch.New()
 	s.AddSlot(0, 0, 10, 0, 3) // 2 arcs + 2 flanks + 4 construction spokes
-	o := addPt(s, 30, 0)
-	addCir(s, o, 2)
+	o := s.AddPoint(30, 0)
+	s.AddCircle(o, 2)
 
 	profiles := s.Profiles()
 	require.Len(t, profiles, 2, "slot loop + circle")
@@ -43,8 +42,23 @@ func TestProfilesSlotAndCircle(t *testing.T) {
 // a fresh detection pass, which is what downstream consumers (extrude, export)
 // rely on for parametric behavior.
 func TestProfilesReflectSolvedGeometry(t *testing.T) {
-	s, w, _, _, _ := newRectangle(t)
-	mustSolve(t, s)
+	s := sketch.New()
+	a := s.AddPoint(0, 0)
+	b := s.AddPoint(18, 2)
+	c := s.AddPoint(17, 11)
+	d := s.AddPoint(1, 13)
+	ab := s.AddLine(a, b)
+	bc := s.AddLine(b, c)
+	dc := s.AddLine(d, c)
+	ad := s.AddLine(a, d)
+	a.MoveTo(0, 0)
+	s.Fix(a)
+	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
+	w := sketch.NewDistance(a, b, 20)
+	s.AddConstraint(w)
+	s.AddConstraint(sketch.NewDistance(a, d, 12))
+	_, err := s.Solve()
+	require.NoError(t, err)
 
 	perimeter := func(p *sketch.Profile) float64 {
 		var sum float64
@@ -62,7 +76,8 @@ func TestProfilesReflectSolvedGeometry(t *testing.T) {
 	require.InDelta(t, 2*(20+12), perimeter(profiles[0]), 1e-6, "perimeter at width 20")
 
 	w.Set(35)
-	mustSolve(t, s)
+	_, err = s.Solve()
+	require.NoError(t, err)
 	profiles = s.Profiles()
 	require.Len(t, profiles, 1, "profile survives the edit")
 	require.InDelta(t, 2*(35+12), perimeter(profiles[0]), 1e-6, "perimeter at width 35")
@@ -70,15 +85,13 @@ func TestProfilesReflectSolvedGeometry(t *testing.T) {
 
 func TestProfilesOpenChainAndConstructionCircle(t *testing.T) {
 	s := sketch.New()
-	a := addPt(s, 0, 0)
-	b := addPt(s, 10, 0)
-	c := addPt(s, 10, 10)
-	addLn(s, a, b)
-	addLn(s, b, c) // open chain
+	a := s.AddPoint(0, 0)
+	b := s.AddPoint(10, 0)
+	c := s.AddPoint(10, 10)
+	s.AddLine(a, b)
+	s.AddLine(b, c) // open chain
 
-	g := geom.NewCircle(geom.NewPoint(30, 0), 2)
-	g.Construction = true
-	s.AddCircle(g)
+	s.AddCircle(s.AddPoint(30, 0), 2).SetConstruction(true)
 
 	require.Empty(t, s.Profiles(), "no closed non-construction boundary")
 }

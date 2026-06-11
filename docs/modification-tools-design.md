@@ -21,14 +21,19 @@ like a sketcher rather than a constraint solver.
 
 Every mutating tool follows one pattern:
 
-1. Read the **current solved coordinates** off the bound entities (never the
-   stale generic template coordinates).
-2. Build fresh `geom` templates with the toolkit. Reuse the originals' generic
-   endpoint pointers wherever a vertex must stay shared — committing maps them
-   back to the existing solver points (the `Add…` idempotency keyed on
-   `*geom.X`), so neighbouring geometry stays attached.
-3. Commit the replacements with `Add…`, attach the holding constraints, then
-   retire the originals with `RemoveEntity`/`RemovePoint`.
+1. Read the **current geometry** as a transient `geom` snapshot via each
+   entity's `Geometry()` accessor (never stale template coordinates).
+2. Compute the replacement with the `geom` math toolkit.
+3. Build the new geometry from **sketch points**: reuse the originals'
+   surviving `*sketch.Point` handles wherever a vertex must stay shared (so
+   neighbouring geometry stays attached), and `s.AddPoint` only the genuinely
+   new vertices (split points, fillet contacts). Attach the holding
+   constraints, then retire the originals with `RemoveEntity`/`RemovePoint`.
+
+(Note: this doc predates the pivot to the throwaway-geometry model — the tools
+once reused `*geom.X` template pointers and relied on `Add…` idempotency;
+they now take `*sketch.Point` directly, which is simpler and the reason the
+private `solvedLine`/`solvedCircle`/`solvedArc` helpers are gone.)
 
 | Engine (this change) | Deferred to a future UI |
 |---|---|

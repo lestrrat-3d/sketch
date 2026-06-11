@@ -120,20 +120,38 @@ func TestPrecedenceAndAssociativity(t *testing.T) {
 
 func TestFunctionsAndConstants(t *testing.T) {
 	tb := param.New()
-	require.InDelta(t, 1, mustEval(t, tb, "sin(pi/2)"), 1e-9, "sin(pi/2)")
-	require.InDelta(t, 2, mustEval(t, tb, "sqrt(2)^2"), 1e-9, "sqrt(2)^2")
-	require.InDelta(t, 7, mustEval(t, tb, "max(1, 7, 3)"), 1e-9, "max(1,7,3)")
-	require.InDelta(t, 1, mustEval(t, tb, "min(1, 7, 3)"), 1e-9, "min(1,7,3)")
-	require.InDelta(t, 5, mustEval(t, tb, "hypot(3, 4)"), 1e-9, "hypot(3,4)")
-	require.InDelta(t, 10, mustEval(t, tb, "clamp(12, 0, 10)"), 1e-9, "clamp(12,0,10)")
-	require.InDelta(t, 180, mustEval(t, tb, "deg(pi)"), 1e-9, "deg(pi)")
-	require.InDelta(t, math.Pi/4, mustEval(t, tb, "atan2(1, 1)"), 1e-9, "atan2(1,1)")
+	v, err := tb.Eval("sin(pi/2)")
+	require.NoErrorf(t, err, "eval %q", "sin(pi/2)")
+	require.InDelta(t, 1, v, 1e-9, "sin(pi/2)")
+	v, err = tb.Eval("sqrt(2)^2")
+	require.NoErrorf(t, err, "eval %q", "sqrt(2)^2")
+	require.InDelta(t, 2, v, 1e-9, "sqrt(2)^2")
+	v, err = tb.Eval("max(1, 7, 3)")
+	require.NoErrorf(t, err, "eval %q", "max(1, 7, 3)")
+	require.InDelta(t, 7, v, 1e-9, "max(1,7,3)")
+	v, err = tb.Eval("min(1, 7, 3)")
+	require.NoErrorf(t, err, "eval %q", "min(1, 7, 3)")
+	require.InDelta(t, 1, v, 1e-9, "min(1,7,3)")
+	v, err = tb.Eval("hypot(3, 4)")
+	require.NoErrorf(t, err, "eval %q", "hypot(3, 4)")
+	require.InDelta(t, 5, v, 1e-9, "hypot(3,4)")
+	v, err = tb.Eval("clamp(12, 0, 10)")
+	require.NoErrorf(t, err, "eval %q", "clamp(12, 0, 10)")
+	require.InDelta(t, 10, v, 1e-9, "clamp(12,0,10)")
+	v, err = tb.Eval("deg(pi)")
+	require.NoErrorf(t, err, "eval %q", "deg(pi)")
+	require.InDelta(t, 180, v, 1e-9, "deg(pi)")
+	v, err = tb.Eval("atan2(1, 1)")
+	require.NoErrorf(t, err, "eval %q", "atan2(1, 1)")
+	require.InDelta(t, math.Pi/4, v, 1e-9, "atan2(1,1)")
 }
 
 func TestCustomFunc(t *testing.T) {
 	tb := param.New()
 	tb.SetFunc("double", func(a []float64) (float64, error) { return a[0] * 2, nil })
-	require.InDelta(t, 42, mustEval(t, tb, "double(21)"), 1e-9, "double(21)")
+	v, err := tb.Eval("double(21)")
+	require.NoErrorf(t, err, "eval %q", "double(21)")
+	require.InDelta(t, 42, v, 1e-9, "double(21)")
 }
 
 func TestCycleDetection(t *testing.T) {
@@ -203,7 +221,9 @@ func TestParamShadowsConstant(t *testing.T) {
 	tb := param.New()
 	require.NoError(t, tb.Set("pi", "3")) // parameter named pi shadows the constant
 	require.InDelta(t, 3, tb.MustGet("pi"), 1e-9, "pi param")
-	require.InDelta(t, 6, mustEval(t, tb, "pi * 2"), 1e-9, "uses shadow")
+	v, err := tb.Eval("pi * 2")
+	require.NoErrorf(t, err, "eval %q", "pi * 2")
+	require.InDelta(t, 6, v, 1e-9, "uses shadow")
 }
 
 func TestDeleteAndOrder(t *testing.T) {
@@ -231,13 +251,4 @@ func TestJSONRoundTrip(t *testing.T) {
 	require.Equal(t, []string{"height", "width", "corner_r"}, tb2.Names(), "order preserved")
 	require.InDelta(t, 90, tb2.MustGet("width"), 1e-9, "reloaded width")
 	require.InDelta(t, 7.5, tb2.MustGet("corner_r"), 1e-9, "reloaded corner_r")
-}
-
-// --- helpers ---------------------------------------------------------------
-
-func mustEval(t *testing.T, tb *param.Table, expr string) float64 {
-	t.Helper()
-	v, err := tb.Eval(expr)
-	require.NoErrorf(t, err, "eval %q", expr)
-	return v
 }

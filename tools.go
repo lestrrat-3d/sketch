@@ -9,6 +9,17 @@ import (
 	"github.com/lestrrat-3d/sketch/units"
 )
 
+// Sketch-modification tools mutate committed geometry by the build-then-replace
+// pattern: they read the current geometry via each entity's Geometry snapshot,
+// compute the replacement with the geom math layer, build the new geometry from
+// sketch points (reusing the originals' surviving points so neighbouring
+// geometry stays attached), and retire the originals with RemoveEntity.
+// Constraints that referenced a replaced entity by identity are dropped with it
+// (the removal cascade); constraints on the surviving shared points are kept.
+// Replaced handles are dead.
+
+const epsTool = 1e-9
+
 // Errors returned by the corner-modification tools.
 var (
 	// ErrNoSharedCorner is returned when two lines passed to AddFillet or
@@ -22,69 +33,34 @@ var (
 	ErrChamferInfeasible = errors.New("sketch: chamfer distance does not fit the corner")
 )
 
-// Sketch-modification tools mutate committed geometry by the build-then-replace
-// pattern: they read the current solved coordinates, build fresh generic
-// templates with the geom toolkit, commit the replacements with the Add…
-// methods, and retire the originals with RemoveEntity. Replacement geometry
-// reuses the originals' generic endpoint pointers wherever a vertex is shared,
-// so committing maps it back to the existing solver points (idempotent) and
-// neighbouring geometry stays attached. Constraints that referenced a replaced
-// entity by identity are dropped with it (the removal cascade); constraints on
-// the surviving shared points are kept. Replaced handles are dead.
-
-const epsTool = 1e-9
-
-// solvedLine returns a generic line at l's current solved coordinates.
-func solvedLine(l *Line) *geom.Line {
-	return geom.NewLine(
-		geom.NewPoint(l.Start.x(), l.Start.y()),
-		geom.NewPoint(l.End.x(), l.End.y()),
-	)
-}
-
-// solvedCircle returns a generic circle at c's current solved coordinates.
-func solvedCircle(c *Circle) *geom.Circle {
-	return geom.NewCircle(geom.NewPoint(c.Center.x(), c.Center.y()), c.r())
-}
-
-// solvedArc returns a generic arc at a's current solved coordinates.
-func solvedArc(a *Arc) *geom.Arc {
-	return geom.NewArc(
-		geom.NewPoint(a.Center.x(), a.Center.y()),
-		geom.NewPoint(a.Start.x(), a.Start.y()),
-		geom.NewPoint(a.End.x(), a.End.y()),
-	)
-}
-
 // Break splits a committed line or arc at the projection of (x, y) onto it,
 // replacing the original with two entities that share a fresh vertex point at
-// the split and report them. It returns false (changing nothing) when e is not
-// a line or arc, or the projection falls outside the segment / arc sweep. The
-// original entity handle and any constraints that referenced it are gone;
+// the split and reporting them. It returns false (changing nothing) when e is
+// not a line or arc, or the projection falls outside the segment / arc sweep.
+// The original entity handle and any constraints that referenced it are gone;
 // constraints on the surviving endpoints remain.
 func (s *Sketch) Break(e Entity, x, y float64) (Entity, Entity, bool) {
 	switch t := e.(type) {
 	case *Line:
-		_, param := geom.ClosestPointOnLine(solvedLine(t), geom.NewPoint(x, y))
+		sl := t.Geometry()
+		_, param := geom.ClosestPointOnLine(sl, geom.NewPoint(x, y))
 		if param <= epsTool || param >= 1-epsTool {
 			return nil, nil, false
 		}
-		sl := solvedLine(t)
-		gp := geom.NewPoint(sl.Start.X+param*(sl.End.X-sl.Start.X), sl.Start.Y+param*(sl.End.Y-sl.Start.Y))
-		g1, g2 := geom.SplitLineAt(t.g, gp)
-		l1, l2 := s.AddLine(g1), s.AddLine(g2)
+		mid := s.AddPoint(sl.Start.X+param*(sl.End.X-sl.Start.X), sl.Start.Y+param*(sl.End.Y-sl.Start.Y))
+		l1, l2 := s.AddLine(t.Start, mid), s.AddLine(mid, t.End)
 		s.RemoveEntity(t)
 		return l1, l2, true
 	case *Arc:
-		sa := solvedArc(t)
+		sa := t.Geometry()
 		cx, cy, r := sa.Center.X, sa.Center.Y, sa.Radius()
 		ang := math.Atan2(y-cy, x-cx)
 		split := geom.NewPoint(cx+r*math.Cos(ang), cy+r*math.Sin(ang))
 		if !sa.Contains(split) || near(split, sa.Start) || near(split, sa.End) {
 			return nil, nil, false
 		}
-		g1, g2 := geom.SplitArcAt(t.g, split)
-		a1, a2 := s.AddArc(g1), s.AddArc(g2)
+		mid := s.AddPoint(split.X, split.Y)
+		a1, a2 := s.AddArc(t.Center, t.Start, mid), s.AddArc(t.Center, mid, t.End)
 		s.RemoveEntity(t)
 		return a1, a2, true
 	}
@@ -98,7 +74,7 @@ func (s *Sketch) Break(e Entity, x, y float64) (Entity, Entity, bool) {
 // sits on an interior portion bounded by crossings on both sides (which would
 // split the line — use Break instead). The original handle is dead.
 func (s *Sketch) Trim(l *Line, x, y float64) (*Line, bool) {
-	sl := solvedLine(l)
+	sl := l.Geometry()
 	_, pick := geom.ClosestPointOnLine(sl, geom.NewPoint(x, y))
 	hits := s.lineCrossings(sl, l, true)
 
@@ -119,11 +95,11 @@ func (s *Sketch) Trim(l *Line, x, y float64) (*Line, bool) {
 
 	switch {
 	case loP == nil && hiP != nil: // crossing only above the pick: cut the start stub
-		nl := s.AddLine(geom.NewLine(geom.NewPoint(hiP.X, hiP.Y), l.g.End))
+		nl := s.AddLine(s.AddPoint(hiP.X, hiP.Y), l.End)
 		s.RemoveEntity(l)
 		return nl, true
 	case hiP == nil && loP != nil: // crossing only below the pick: cut the end stub
-		nl := s.AddLine(geom.NewLine(l.g.Start, geom.NewPoint(loP.X, loP.Y)))
+		nl := s.AddLine(l.Start, s.AddPoint(loP.X, loP.Y))
 		s.RemoveEntity(l)
 		return nl, true
 	}
@@ -138,7 +114,7 @@ func (s *Sketch) Extend(l *Line, end *Point) (*Line, bool) {
 	if end != l.Start && end != l.End {
 		return nil, false
 	}
-	sl := solvedLine(l)
+	sl := l.Geometry()
 	hits := s.lineCrossings(sl, l, false)
 
 	fromStart := end == l.Start
@@ -165,14 +141,13 @@ func (s *Sketch) Extend(l *Line, end *Point) (*Line, bool) {
 	if best == nil {
 		return nil, false
 	}
-	tp := geom.NewPoint(best.X, best.Y)
-	var g *geom.Line
+	np := s.AddPoint(best.X, best.Y)
+	var nl *Line
 	if fromStart {
-		g = geom.NewLine(tp, l.g.End)
+		nl = s.AddLine(np, l.End)
 	} else {
-		g = geom.NewLine(l.g.Start, tp)
+		nl = s.AddLine(l.Start, np)
 	}
-	nl := s.AddLine(g)
 	s.RemoveEntity(l)
 	return nl, true
 }
@@ -191,7 +166,7 @@ func (s *Sketch) lineCrossings(sl *geom.Line, skip Entity, segment bool) []*geom
 		}
 		switch t := e.(type) {
 		case *Line:
-			ol := solvedLine(t)
+			ol := t.Geometry()
 			if segment {
 				if p, ok := geom.SegmentIntersection(sl, ol); ok {
 					out = append(out, p)
@@ -206,9 +181,9 @@ func (s *Sketch) lineCrossings(sl *geom.Line, skip Entity, segment bool) []*geom
 				out = append(out, p)
 			}
 		case *Circle:
-			out = append(out, geom.LineCircleIntersections(sl, solvedCircle(t))...)
+			out = append(out, geom.LineCircleIntersections(sl, t.Geometry())...)
 		case *Arc:
-			out = append(out, geom.LineArcIntersections(sl, solvedArc(t))...)
+			out = append(out, geom.LineArcIntersections(sl, t.Geometry())...)
 		}
 	}
 	return out
@@ -246,23 +221,22 @@ func (s *Sketch) AddFillet(l1, l2 *Line, r float64) (*Fillet, error) {
 	far1, far2 := otherSketchEnd(l1, corner), otherSketchEnd(l2, corner)
 
 	cc := geom.NewPoint(corner.x(), corner.y())
-	copy1 := geom.NewLine(geom.NewPoint(far1.x(), far1.y()), cc)
-	copy2 := geom.NewLine(geom.NewPoint(far2.x(), far2.y()), cc)
+	copy1 := geom.NewLine(far1.Geometry(), cc)
+	copy2 := geom.NewLine(far2.Geometry(), cc)
 	arc, ok := geom.Fillet(copy1, copy2, r)
 	if !ok {
 		return nil, ErrFilletInfeasible
 	}
 	c1, c2 := otherEnd(copy1, copy1.Start), otherEnd(copy2, copy2.Start)
-	gt1, gt2 := geom.NewPoint(c1.X, c1.Y), geom.NewPoint(c2.X, c2.Y)
-	gcen := geom.NewPoint(arc.Center.X, arc.Center.Y)
 
-	nL1 := s.AddLine(orientLeg(l1, corner, far1.g, gt1))
-	nL2 := s.AddLine(orientLeg(l2, corner, far2.g, gt2))
-	gArc := geom.NewArc(gcen, gt1, gt2)
+	t1, t2 := s.AddPoint(c1.X, c1.Y), s.AddPoint(c2.X, c2.Y)
+	ctr := s.AddPoint(arc.Center.X, arc.Center.Y)
+	nL1 := s.orientLeg(l1, corner, far1, t1)
+	nL2 := s.orientLeg(l2, corner, far2, t2)
+	nArc := s.AddArc(ctr, t1, t2)
 	if arc.Start != c1 { // geom.Fillet took the minor arc the other way
-		gArc = geom.NewArc(gcen, gt2, gt1)
+		nArc = s.AddArc(ctr, t2, t1)
 	}
-	nArc := s.AddArc(gArc)
 
 	s.AddConstraint(NewTangent(nL1, nArc), NewTangent(nL2, nArc))
 	rad := NewDistance(nArc.Center, nArc.Start, r)
@@ -272,11 +246,7 @@ func (s *Sketch) AddFillet(l1, l2 *Line, r float64) (*Fillet, error) {
 	s.RemoveEntity(l2)
 	s.RemovePoint(corner)
 
-	return &Fillet{
-		Arc: nArc, L1: nL1, L2: nL2,
-		T1: otherSketchEnd(nL1, far1), T2: otherSketchEnd(nL2, far2),
-		Radius: rad,
-	}, nil
+	return &Fillet{Arc: nArc, L1: nL1, L2: nL2, T1: t1, T2: t2, Radius: rad}, nil
 }
 
 // Chamfer groups the geometry created by [Sketch.AddChamfer]: the cut line, the
@@ -307,24 +277,22 @@ func (s *Sketch) AddChamfer(l1, l2 *Line, d float64) (*Chamfer, error) {
 	len2 := math.Hypot(far2.x()-corner.x(), far2.y()-corner.y())
 
 	cc := geom.NewPoint(corner.x(), corner.y())
-	copy1 := geom.NewLine(geom.NewPoint(far1.x(), far1.y()), cc)
-	copy2 := geom.NewLine(geom.NewPoint(far2.x(), far2.y()), cc)
+	copy1 := geom.NewLine(far1.Geometry(), cc)
+	copy2 := geom.NewLine(far2.Geometry(), cc)
 	cut, ok := geom.Chamfer(copy1, copy2, d)
 	if !ok {
 		return nil, ErrChamferInfeasible
 	}
 	c1, c2 := otherEnd(copy1, copy1.Start), otherEnd(copy2, copy2.Start)
-	gt1, gt2 := geom.NewPoint(c1.X, c1.Y), geom.NewPoint(c2.X, c2.Y)
 
-	nL1 := s.AddLine(orientLeg(l1, corner, far1.g, gt1))
-	nL2 := s.AddLine(orientLeg(l2, corner, far2.g, gt2))
-	gCut := geom.NewLine(gt1, gt2)
+	t1, t2 := s.AddPoint(c1.X, c1.Y), s.AddPoint(c2.X, c2.Y)
+	nL1 := s.orientLeg(l1, corner, far1, t1)
+	nL2 := s.orientLeg(l2, corner, far2, t2)
+	nCut := s.AddLine(t1, t2)
 	if cut.Start != c1 {
-		gCut = geom.NewLine(gt2, gt1)
+		nCut = s.AddLine(t2, t1)
 	}
-	nCut := s.AddLine(gCut)
 
-	t1, t2 := otherSketchEnd(nL1, far1), otherSketchEnd(nL2, far2)
 	d1, d2 := NewDistance(far1, t1, len1-d), NewDistance(far2, t2, len2-d)
 	s.AddConstraint(d1, d2)
 
@@ -363,6 +331,15 @@ func otherEnd(l *geom.Line, known *geom.Point) *geom.Point {
 	return l.Start
 }
 
+// orientLeg builds the replacement leg for orig, putting the fresh contact
+// point where the corner used to be and reusing the surviving far point.
+func (s *Sketch) orientLeg(orig *Line, corner, far, contact *Point) *Line {
+	if orig.Start == corner {
+		return s.AddLine(contact, far)
+	}
+	return s.AddLine(far, contact)
+}
+
 // --- mirror -----------------------------------------------------------------
 
 // Mirror groups the geometry created by [Sketch.AddMirror]: the source entities
@@ -384,34 +361,25 @@ type Mirror struct {
 // additionally get [NewEqualRadius], and arcs are reversed to stay
 // counter-clockwise. The sources are left untouched.
 func (s *Sketch) AddMirror(ents []Entity, axis *Line) *Mirror {
-	gaxis := solvedLine(axis)
+	gaxis := axis.Geometry()
 	copyOf := map[*Point]*Point{}
-	p := &Pattern{Seed: ents}
+	grp := &Pattern{Seed: ents}
 	link := func(src *Point) *Point {
 		if cp, ok := copyOf[src]; ok {
 			return cp
 		}
-		mp := geom.MirrorPoint(geom.NewPoint(src.x(), src.y()), gaxis)
-		cp := s.AddPoint(geom.NewPoint(mp.X, mp.Y))
+		mp := geom.MirrorPoint(src.Geometry(), gaxis)
+		cp := s.AddPoint(mp.X, mp.Y)
+		cp.SetConstruction(src.IsConstruction())
 		copyOf[src] = cp
 		c := NewSymmetric(src, cp, axis)
 		s.AddConstraint(c)
-		p.Constraints = append(p.Constraints, c)
+		grp.Constraints = append(grp.Constraints, c)
 		return cp
 	}
 	// Reflection reverses arc sweep, so copies are committed start/end-swapped.
-	s.instantiate(ents, link, true, p)
-	return &Mirror{Originals: ents, Copies: p.Instances, Constraints: p.Constraints}
-}
-
-// orientLeg builds the replacement leg for orig, putting the fresh contact
-// point where the corner used to be and reusing the far endpoint's generic
-// point so the committed leg shares the existing far solver point.
-func orientLeg(orig *Line, corner *Point, farGen, contactGen *geom.Point) *geom.Line {
-	if orig.Start == corner {
-		return geom.NewLine(contactGen, farGen)
-	}
-	return geom.NewLine(farGen, contactGen)
+	s.instantiate(ents, link, true, grp)
+	return &Mirror{Originals: ents, Copies: grp.Instances, Constraints: grp.Constraints}
 }
 
 // --- patterns ---------------------------------------------------------------
@@ -449,7 +417,8 @@ func (s *Sketch) AddPatternRect(ents []Entity, nx, ny int, dx, dy float64) *Patt
 				if cp, ok := copyOf[src]; ok {
 					return cp
 				}
-				cp := s.AddPoint(geom.NewPoint(src.x()+ox, src.y()+oy))
+				cp := s.AddPoint(src.x()+ox, src.y()+oy)
+				cp.SetConstruction(src.IsConstruction())
 				copyOf[src] = cp
 				hd, vd := NewHorizontalDistance(src, cp, ox), NewVerticalDistance(src, cp, oy)
 				s.AddConstraint(hd, vd)
@@ -478,28 +447,27 @@ func (s *Sketch) AddPatternCircular(ents []Entity, center *Point, n int) *Patter
 		if sp, ok := srcSpoke[src]; ok {
 			return sp
 		}
-		g := geom.NewLine(center.g, src.g)
-		g.Construction = true
-		sp := s.AddLine(g)
+		sp := s.AddLine(center, src)
+		sp.SetConstruction(true)
 		srcSpoke[src] = sp
 		p.Spokes = append(p.Spokes, sp)
 		return sp
 	}
 	for k := 1; k < n; k++ {
 		ang := step * float64(k)
-		gcenter := geom.NewPoint(center.x(), center.y())
+		gcenter := center.Geometry()
 		copyOf := map[*Point]*Point{}
 		link := func(src *Point) *Point {
 			if cp, ok := copyOf[src]; ok {
 				return cp
 			}
-			rp := geom.RotatePoint(geom.NewPoint(src.x(), src.y()), gcenter, ang)
-			cp := s.AddPoint(geom.NewPoint(rp.X, rp.Y))
+			rp := geom.RotatePoint(src.Geometry(), gcenter, ang)
+			cp := s.AddPoint(rp.X, rp.Y)
+			cp.SetConstruction(src.IsConstruction())
 			copyOf[src] = cp
 			ssrc := spokeFor(src)
-			gsp := geom.NewLine(center.g, cp.g)
-			gsp.Construction = true
-			scp := s.AddLine(gsp)
+			scp := s.AddLine(center, cp)
+			scp.SetConstruction(true)
 			p.Spokes = append(p.Spokes, scp)
 			eq := NewEqual(ssrc, scp)
 			an := NewAngle(ssrc, scp, 0)
@@ -547,7 +515,7 @@ func (s *Sketch) AddOffset(ents []Entity, d float64) *OffsetGroup {
 		if cp, ok := copyOf[src]; ok {
 			return cp
 		}
-		cp := s.AddPoint(geom.NewPoint(src.x()+d*nx, src.y()+d*ny))
+		cp := s.AddPoint(src.x()+d*nx, src.y()+d*ny)
 		copyOf[src] = cp
 		return cp
 	}
@@ -560,7 +528,7 @@ func (s *Sketch) AddOffset(ents []Entity, d float64) *OffsetGroup {
 		n := math.Hypot(dx, dy)
 		nx, ny := -dy/n, dx/n // left normal of the segment direction
 		qa, qb := offsetPt(l.Start, nx, ny), offsetPt(l.End, nx, ny)
-		dst := s.AddLine(geom.NewLine(qa.g, qb.g))
+		dst := s.AddLine(qa, qb)
 		off := NewOffset(l, dst, d)
 		s.AddConstraint(off)
 		g.Copies = append(g.Copies, dst)
@@ -571,24 +539,30 @@ func (s *Sketch) AddOffset(ents []Entity, d float64) *OffsetGroup {
 
 // instantiate builds one copy of every entity in ents using link to map each
 // source point to its copy, appending the copies (and any radius constraints)
-// to p. swapArc reverses arc orientation (used by mirror, not by patterns).
-func (s *Sketch) instantiate(ents []Entity, link func(*Point) *Point, swapArc bool, p *Pattern) {
+// to grp; copies inherit their source's construction flag. swapArc reverses arc
+// orientation (used by mirror, not by patterns).
+func (s *Sketch) instantiate(ents []Entity, link func(*Point) *Point, swapArc bool, grp *Pattern) {
 	for _, e := range ents {
 		switch t := e.(type) {
 		case *Line:
-			p.Instances = append(p.Instances, s.AddLine(geom.NewLine(link(t.Start).g, link(t.End).g)))
+			cl := s.AddLine(link(t.Start), link(t.End))
+			cl.SetConstruction(t.IsConstruction())
+			grp.Instances = append(grp.Instances, cl)
 		case *Circle:
-			cir := s.AddCircle(geom.NewCircle(link(t.Center).g, t.r()))
+			cir := s.AddCircle(link(t.Center), t.r())
+			cir.SetConstruction(t.IsConstruction())
 			eq := NewEqualRadius(t, cir)
 			s.AddConstraint(eq)
-			p.Constraints = append(p.Constraints, eq)
-			p.Instances = append(p.Instances, cir)
+			grp.Constraints = append(grp.Constraints, eq)
+			grp.Instances = append(grp.Instances, cir)
 		case *Arc:
-			cc, cs, ce := link(t.Center).g, link(t.Start).g, link(t.End).g
+			cc, cs, ce := link(t.Center), link(t.Start), link(t.End)
 			if swapArc {
 				cs, ce = ce, cs
 			}
-			p.Instances = append(p.Instances, s.AddArc(geom.NewArc(cc, cs, ce)))
+			ca := s.AddArc(cc, cs, ce)
+			ca.SetConstruction(t.IsConstruction())
+			grp.Instances = append(grp.Instances, ca)
 		}
 	}
 }

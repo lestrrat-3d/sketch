@@ -11,8 +11,8 @@ import (
 
 func TestBreakLine(t *testing.T) {
 	s := sketch.New()
-	a, b := addPt(s, 0, 0), addPt(s, 10, 0)
-	l := addLn(s, a, b)
+	a, b := s.AddPoint(0, 0), s.AddPoint(10, 0)
+	l := s.AddLine(a, b)
 
 	e1, e2, ok := s.Break(l, 4, 0)
 	require.True(t, ok)
@@ -28,7 +28,7 @@ func TestBreakLine(t *testing.T) {
 
 func TestBreakLineRejectsEndpointPick(t *testing.T) {
 	s := sketch.New()
-	l := addLn(s, addPt(s, 0, 0), addPt(s, 10, 0))
+	l := s.AddLine(s.AddPoint(0, 0), s.AddPoint(10, 0))
 	_, _, ok := s.Break(l, 0, 0) // pick at the start endpoint
 	require.False(t, ok)
 	require.Len(t, s.Entities(), 1, "nothing changed")
@@ -36,7 +36,7 @@ func TestBreakLineRejectsEndpointPick(t *testing.T) {
 
 func TestBreakArc(t *testing.T) {
 	s := sketch.New()
-	arc := addArc(s, addPt(s, 0, 0), addPt(s, 5, 0), addPt(s, 0, 5))
+	arc := s.AddArc(s.AddPoint(0, 0), s.AddPoint(5, 0), s.AddPoint(0, 5))
 
 	e1, e2, ok := s.Break(arc, 4, 4) // pick near the 45° point
 	require.True(t, ok)
@@ -51,9 +51,9 @@ func TestBreakArc(t *testing.T) {
 
 func TestBreakIsParametric(t *testing.T) {
 	s := sketch.New()
-	a, b := addPt(s, 0, 0), addPt(s, 10, 0)
+	a, b := s.AddPoint(0, 0), s.AddPoint(10, 0)
 	s.Fix(a)
-	l := addLn(s, a, b)
+	l := s.AddLine(a, b)
 	e1, _, ok := s.Break(l, 6, 0)
 	require.True(t, ok)
 	l1 := e1.(*sketch.Line)
@@ -61,18 +61,20 @@ func TestBreakIsParametric(t *testing.T) {
 	// Dimension the first half; the shared split vertex must move to satisfy it.
 	d := sketch.NewDistance(l1.Start, l1.End, 6)
 	s.AddConstraint(d)
-	mustSolve(t, s)
+	_, err := s.Solve()
+	require.NoError(t, err)
 	require.InDelta(t, 6, l1.Length(), 1e-6)
 
 	d.Set(3)
-	mustSolve(t, s)
+	_, err = s.Solve()
+	require.NoError(t, err)
 	require.InDelta(t, 3, l1.Length(), 1e-6)
 }
 
 func TestTrimEndStub(t *testing.T) {
 	s := sketch.New()
-	h := addLn(s, addPt(s, -5, 0), addPt(s, 5, 0))
-	addLn(s, addPt(s, 2, -5), addPt(s, 2, 5)) // vertical cutter at x=2
+	h := s.AddLine(s.AddPoint(-5, 0), s.AddPoint(5, 0))
+	s.AddLine(s.AddPoint(2, -5), s.AddPoint(2, 5)) // vertical cutter at x=2
 
 	nl, ok := s.Trim(h, 4, 0) // pick near the right (End) stub
 	require.True(t, ok)
@@ -84,8 +86,8 @@ func TestTrimEndStub(t *testing.T) {
 
 func TestTrimStartStub(t *testing.T) {
 	s := sketch.New()
-	h := addLn(s, addPt(s, -5, 0), addPt(s, 5, 0))
-	addLn(s, addPt(s, 2, -5), addPt(s, 2, 5))
+	h := s.AddLine(s.AddPoint(-5, 0), s.AddPoint(5, 0))
+	s.AddLine(s.AddPoint(2, -5), s.AddPoint(2, 5))
 
 	nl, ok := s.Trim(h, -4, 0) // pick near the left (Start) stub
 	require.True(t, ok)
@@ -95,9 +97,9 @@ func TestTrimStartStub(t *testing.T) {
 
 func TestTrimInteriorRejected(t *testing.T) {
 	s := sketch.New()
-	h := addLn(s, addPt(s, -5, 0), addPt(s, 5, 0))
-	addLn(s, addPt(s, -2, -5), addPt(s, -2, 5)) // cutter left of pick
-	addLn(s, addPt(s, 2, -5), addPt(s, 2, 5))   // cutter right of pick
+	h := s.AddLine(s.AddPoint(-5, 0), s.AddPoint(5, 0))
+	s.AddLine(s.AddPoint(-2, -5), s.AddPoint(-2, 5)) // cutter left of pick
+	s.AddLine(s.AddPoint(2, -5), s.AddPoint(2, 5))   // cutter right of pick
 
 	_, ok := s.Trim(h, 0, 0) // pick on the interior portion
 	require.False(t, ok, "trimming a bounded interior portion would split the line")
@@ -105,15 +107,15 @@ func TestTrimInteriorRejected(t *testing.T) {
 
 func TestTrimNoCrossing(t *testing.T) {
 	s := sketch.New()
-	h := addLn(s, addPt(s, 0, 0), addPt(s, 5, 0))
+	h := s.AddLine(s.AddPoint(0, 0), s.AddPoint(5, 0))
 	_, ok := s.Trim(h, 2, 0)
 	require.False(t, ok)
 }
 
 func TestExtendToCutter(t *testing.T) {
 	s := sketch.New()
-	l := addLn(s, addPt(s, 0, 0), addPt(s, 3, 0))
-	addLn(s, addPt(s, 6, -5), addPt(s, 6, 5)) // cutter at x=6
+	l := s.AddLine(s.AddPoint(0, 0), s.AddPoint(3, 0))
+	s.AddLine(s.AddPoint(6, -5), s.AddPoint(6, 5)) // cutter at x=6
 
 	nl, ok := s.Extend(l, l.End)
 	require.True(t, ok)
@@ -124,8 +126,8 @@ func TestExtendToCutter(t *testing.T) {
 
 func TestExtendNothingBeyond(t *testing.T) {
 	s := sketch.New()
-	l := addLn(s, addPt(s, 0, 0), addPt(s, 3, 0))
-	addLn(s, addPt(s, -6, -5), addPt(s, -6, 5)) // cutter behind the Start end
+	l := s.AddLine(s.AddPoint(0, 0), s.AddPoint(3, 0))
+	s.AddLine(s.AddPoint(-6, -5), s.AddPoint(-6, 5)) // cutter behind the Start end
 
 	_, ok := s.Extend(l, l.End) // nothing beyond the End end
 	require.False(t, ok)
@@ -134,8 +136,8 @@ func TestExtendNothingBeyond(t *testing.T) {
 func TestAddFillet(t *testing.T) {
 	s := sketch.New()
 	// Vertical leg A(0,10)->corner; horizontal leg corner->B(10,0).
-	a, corner, b := addPt(s, 0, 10), addPt(s, 0, 0), addPt(s, 10, 0)
-	l1, l2 := addLn(s, a, corner), addLn(s, corner, b)
+	a, corner, b := s.AddPoint(0, 10), s.AddPoint(0, 0), s.AddPoint(10, 0)
+	l1, l2 := s.AddLine(a, corner), s.AddLine(corner, b)
 
 	f, err := s.AddFillet(l1, l2, 3)
 	require.NoError(t, err)
@@ -144,7 +146,8 @@ func TestAddFillet(t *testing.T) {
 	s.Fix(a)
 	s.Fix(b)
 	s.AddConstraint(sketch.NewVertical(f.L1), sketch.NewHorizontal(f.L2))
-	res := mustSolve(t, s)
+	res, err := s.Solve()
+	require.NoError(t, err)
 	require.Equal(t, 0, res.DOF, "fully constrained after grounding the legs")
 
 	require.InDelta(t, 3, f.Arc.R(), 1e-6)
@@ -157,7 +160,8 @@ func TestAddFillet(t *testing.T) {
 
 	// Editing the radius keeps tangency: center-to-leg distance stays == R.
 	f.Radius.Set(2)
-	mustSolve(t, s)
+	_, err = s.Solve()
+	require.NoError(t, err)
 	require.InDelta(t, 2, f.Arc.R(), 1e-6)
 	require.InDelta(t, 2, f.Arc.Center.X(), 1e-6, "tangent to the vertical leg x=0")
 	require.InDelta(t, 2, f.Arc.Center.Y(), 1e-6, "tangent to the horizontal leg y=0")
@@ -165,8 +169,8 @@ func TestAddFillet(t *testing.T) {
 
 func TestAddFilletNoSharedCorner(t *testing.T) {
 	s := sketch.New()
-	l1 := addLn(s, addPt(s, 0, 0), addPt(s, 1, 0))
-	l2 := addLn(s, addPt(s, 5, 5), addPt(s, 6, 6))
+	l1 := s.AddLine(s.AddPoint(0, 0), s.AddPoint(1, 0))
+	l2 := s.AddLine(s.AddPoint(5, 5), s.AddPoint(6, 6))
 	_, err := s.AddFillet(l1, l2, 1)
 	require.ErrorIs(t, err, sketch.ErrNoSharedCorner)
 	require.Len(t, s.Entities(), 2, "nothing changed")
@@ -174,16 +178,16 @@ func TestAddFilletNoSharedCorner(t *testing.T) {
 
 func TestAddFilletInfeasible(t *testing.T) {
 	s := sketch.New()
-	corner := addPt(s, 0, 0)
-	l1, l2 := addLn(s, addPt(s, 0, 5), corner), addLn(s, corner, addPt(s, 5, 0))
+	corner := s.AddPoint(0, 0)
+	l1, l2 := s.AddLine(s.AddPoint(0, 5), corner), s.AddLine(corner, s.AddPoint(5, 0))
 	_, err := s.AddFillet(l1, l2, 100) // radius far larger than the legs
 	require.ErrorIs(t, err, sketch.ErrFilletInfeasible)
 }
 
 func TestAddChamfer(t *testing.T) {
 	s := sketch.New()
-	a, corner, b := addPt(s, 0, 10), addPt(s, 0, 0), addPt(s, 10, 0)
-	l1, l2 := addLn(s, a, corner), addLn(s, corner, b)
+	a, corner, b := s.AddPoint(0, 10), s.AddPoint(0, 0), s.AddPoint(10, 0)
+	l1, l2 := s.AddLine(a, corner), s.AddLine(corner, b)
 
 	c, err := s.AddChamfer(l1, l2, 3)
 	require.NoError(t, err)
@@ -191,7 +195,8 @@ func TestAddChamfer(t *testing.T) {
 	s.Fix(a)
 	s.Fix(b)
 	s.AddConstraint(sketch.NewVertical(c.L1), sketch.NewHorizontal(c.L2))
-	res := mustSolve(t, s)
+	res, err := s.Solve()
+	require.NoError(t, err)
 	require.Equal(t, 0, res.DOF)
 
 	require.InDelta(t, 0, c.T1.X(), 1e-6)
@@ -202,15 +207,16 @@ func TestAddChamfer(t *testing.T) {
 
 	// D1 is the far-endpoint setback (A->T1); pulling it to 5 puts T1 at (0,5).
 	c.D1.Set(5)
-	mustSolve(t, s)
+	_, err = s.Solve()
+	require.NoError(t, err)
 	require.InDelta(t, 0, c.T1.X(), 1e-6)
 	require.InDelta(t, 5, c.T1.Y(), 1e-6)
 }
 
 func TestAddFilletJSONRoundTrip(t *testing.T) {
 	s := sketch.New()
-	a, corner, b := addPt(s, 0, 10), addPt(s, 0, 0), addPt(s, 10, 0)
-	l1, l2 := addLn(s, a, corner), addLn(s, corner, b)
+	a, corner, b := s.AddPoint(0, 10), s.AddPoint(0, 0), s.AddPoint(10, 0)
+	l1, l2 := s.AddLine(a, corner), s.AddLine(corner, b)
 	_, err := s.AddFillet(l1, l2, 3)
 	require.NoError(t, err)
 
@@ -224,8 +230,8 @@ func TestAddFilletJSONRoundTrip(t *testing.T) {
 
 func TestMirrorLine(t *testing.T) {
 	s := sketch.New()
-	axis := addLn(s, addPt(s, 0, -5), addPt(s, 0, 5)) // the y axis
-	src := addLn(s, addPt(s, 2, 1), addPt(s, 4, 3))
+	axis := s.AddLine(s.AddPoint(0, -5), s.AddPoint(0, 5)) // the y axis
+	src := s.AddLine(s.AddPoint(2, 1), s.AddPoint(4, 3))
 
 	m := s.AddMirror([]sketch.Entity{src}, axis)
 	require.Len(t, m.Copies, 1)
@@ -240,13 +246,13 @@ func TestMirrorLine(t *testing.T) {
 
 func TestMirrorTracksSource(t *testing.T) {
 	s := sketch.New()
-	ax1, ax2 := addPt(s, 0, 0), addPt(s, 0, 5) // grounded y axis
-	axis := addLn(s, ax1, ax2)
+	ax1, ax2 := s.AddPoint(0, 0), s.AddPoint(0, 5) // grounded y axis
+	axis := s.AddLine(ax1, ax2)
 	s.Fix(ax1)
 	s.Fix(ax2)
 
-	p1, p2 := addPt(s, 2, 1), addPt(s, 4, 1)
-	src := addLn(s, p1, p2)
+	p1, p2 := s.AddPoint(2, 1), s.AddPoint(4, 1)
+	src := s.AddLine(p1, p2)
 	m := s.AddMirror([]sketch.Entity{src}, axis)
 	cp := m.Copies[0].(*sketch.Line)
 
@@ -254,7 +260,8 @@ func TestMirrorTracksSource(t *testing.T) {
 	s.Fix(p1)
 	d := sketch.NewHorizontalDistance(p1, p2, 3)
 	s.AddConstraint(d)
-	mustSolve(t, s)
+	_, err := s.Solve()
+	require.NoError(t, err)
 
 	require.InDelta(t, 5, p2.X(), 1e-6, "source moved")
 	require.InDelta(t, -2, cp.Start.X(), 1e-6, "copy tracks p1's mirror")
@@ -263,8 +270,8 @@ func TestMirrorTracksSource(t *testing.T) {
 
 func TestMirrorCircleLinksRadius(t *testing.T) {
 	s := sketch.New()
-	axis := addLn(s, addPt(s, 0, -5), addPt(s, 0, 5))
-	c := addCir(s, addPt(s, 3, 0), 2)
+	axis := s.AddLine(s.AddPoint(0, -5), s.AddPoint(0, 5))
+	c := s.AddCircle(s.AddPoint(3, 0), 2)
 
 	m := s.AddMirror([]sketch.Entity{c}, axis)
 	cp := m.Copies[0].(*sketch.Circle)
@@ -277,11 +284,11 @@ func TestMirrorCircleLinksRadius(t *testing.T) {
 
 func TestMirrorSharedVertex(t *testing.T) {
 	s := sketch.New()
-	axis := addLn(s, addPt(s, 0, -5), addPt(s, 0, 5))
+	axis := s.AddLine(s.AddPoint(0, -5), s.AddPoint(0, 5))
 	// Two lines sharing a vertex at (4,2).
-	shared := addPt(s, 4, 2)
-	l1 := addLn(s, addPt(s, 2, 0), shared)
-	l2 := addLn(s, shared, addPt(s, 6, 0))
+	shared := s.AddPoint(4, 2)
+	l1 := s.AddLine(s.AddPoint(2, 0), shared)
+	l2 := s.AddLine(shared, s.AddPoint(6, 0))
 
 	m := s.AddMirror([]sketch.Entity{l1, l2}, axis)
 	c1, c2 := m.Copies[0].(*sketch.Line), m.Copies[1].(*sketch.Line)
@@ -290,8 +297,8 @@ func TestMirrorSharedVertex(t *testing.T) {
 
 func TestMirrorJSONRoundTrip(t *testing.T) {
 	s := sketch.New()
-	axis := addLn(s, addPt(s, 0, -5), addPt(s, 0, 5))
-	src := addLn(s, addPt(s, 2, 1), addPt(s, 4, 3))
+	axis := s.AddLine(s.AddPoint(0, -5), s.AddPoint(0, 5))
+	src := s.AddLine(s.AddPoint(2, 1), s.AddPoint(4, 3))
 	s.AddMirror([]sketch.Entity{src}, axis)
 
 	data, err := json.Marshal(s)
@@ -304,7 +311,7 @@ func TestMirrorJSONRoundTrip(t *testing.T) {
 
 func TestPatternRect(t *testing.T) {
 	s := sketch.New()
-	seed := addLn(s, addPt(s, 0, 0), addPt(s, 1, 0))
+	seed := s.AddLine(s.AddPoint(0, 0), s.AddPoint(1, 0))
 
 	p := s.AddPatternRect([]sketch.Entity{seed}, 2, 2, 5, 3)
 	require.Len(t, p.Instances, 3, "2x2 grid minus the seed cell")
@@ -318,17 +325,18 @@ func TestPatternRect(t *testing.T) {
 
 func TestPatternRectTracksSeed(t *testing.T) {
 	s := sketch.New()
-	a := addPt(s, 0, 0)
+	a := s.AddPoint(0, 0)
 	s.Fix(a)
-	b := addPt(s, 1, 0)
-	seed := addLn(s, a, b)
+	b := s.AddPoint(1, 0)
+	seed := s.AddLine(a, b)
 	p := s.AddPatternRect([]sketch.Entity{seed}, 2, 1, 5, 0)
 	inst := p.Instances[0].(*sketch.Line)
 
 	// Widen the seed; the copy must follow rigidly (offset stays 5).
 	d := sketch.NewHorizontalDistance(a, b, 2)
 	s.AddConstraint(d)
-	mustSolve(t, s)
+	_, err := s.Solve()
+	require.NoError(t, err)
 	require.InDelta(t, 2, b.X(), 1e-6)
 	require.InDelta(t, 5, inst.Start.X(), 1e-6)
 	require.InDelta(t, 7, inst.End.X(), 1e-6, "copy of b tracks at b+5")
@@ -336,19 +344,20 @@ func TestPatternRectTracksSeed(t *testing.T) {
 
 func TestPatternRectPanics(t *testing.T) {
 	s := sketch.New()
-	seed := addLn(s, addPt(s, 0, 0), addPt(s, 1, 0))
+	seed := s.AddLine(s.AddPoint(0, 0), s.AddPoint(1, 0))
 	require.Panics(t, func() { s.AddPatternRect([]sketch.Entity{seed}, 0, 2, 5, 5) })
 }
 
 func TestPatternCircular(t *testing.T) {
 	s := sketch.New()
-	center := addPt(s, 0, 0)
+	center := s.AddPoint(0, 0)
 	s.Fix(center)
-	c := addCir(s, addPt(s, 5, 0), 1)
+	c := s.AddCircle(s.AddPoint(5, 0), 1)
 
 	p := s.AddPatternCircular([]sketch.Entity{c}, center, 4)
 	require.Len(t, p.Instances, 3)
-	mustSolve(t, s)
+	_, err := s.Solve()
+	require.NoError(t, err)
 
 	c1 := p.Instances[0].(*sketch.Circle) // +90°
 	require.InDelta(t, 0, c1.Center.X(), 1e-6)
@@ -362,14 +371,14 @@ func TestPatternCircular(t *testing.T) {
 
 func TestPatternCircularPanics(t *testing.T) {
 	s := sketch.New()
-	center := addPt(s, 0, 0)
-	c := addCir(s, addPt(s, 5, 0), 1)
+	center := s.AddPoint(0, 0)
+	c := s.AddCircle(s.AddPoint(5, 0), 1)
 	require.Panics(t, func() { s.AddPatternCircular([]sketch.Entity{c}, center, 1) })
 }
 
 func TestPatternRectJSONRoundTrip(t *testing.T) {
 	s := sketch.New()
-	seed := addLn(s, addPt(s, 0, 0), addPt(s, 1, 0))
+	seed := s.AddLine(s.AddPoint(0, 0), s.AddPoint(1, 0))
 	s.AddPatternRect([]sketch.Entity{seed}, 2, 1, 5, 0)
 
 	data, err := json.Marshal(s)
@@ -382,21 +391,23 @@ func TestPatternRectJSONRoundTrip(t *testing.T) {
 
 func TestOffsetLine(t *testing.T) {
 	s := sketch.New()
-	a, b := addPt(s, 0, 0), addPt(s, 10, 0)
+	a, b := s.AddPoint(0, 0), s.AddPoint(10, 0)
 	s.Fix(a)
 	s.Fix(b)
-	src := addLn(s, a, b)
+	src := s.AddLine(a, b)
 
 	// Positive offset is the left normal of +x, i.e. +y.
 	g := s.AddOffset([]sketch.Entity{src}, 2)
 	dst := g.Copies[0].(*sketch.Line)
-	mustSolve(t, s)
+	_, err := s.Solve()
+	require.NoError(t, err)
 	require.InDelta(t, 2, dst.Start.Y(), 1e-6)
 	require.InDelta(t, 2, dst.End.Y(), 1e-6)
 
 	// Editing the distance moves the copy.
 	g.Set(5)
-	mustSolve(t, s)
+	_, err = s.Solve()
+	require.NoError(t, err)
 	require.InDelta(t, 5, dst.Start.Y(), 1e-6)
 	require.InDelta(t, 5, dst.End.Y(), 1e-6)
 }
@@ -404,14 +415,15 @@ func TestOffsetLine(t *testing.T) {
 func TestOffsetChainMitresCorner(t *testing.T) {
 	s := sketch.New()
 	// L-shaped chain: (0,0)->(10,0)->(10,10).
-	p0, p1, p2 := addPt(s, 0, 0), addPt(s, 10, 0), addPt(s, 10, 10)
+	p0, p1, p2 := s.AddPoint(0, 0), s.AddPoint(10, 0), s.AddPoint(10, 10)
 	s.Fix(p0)
 	s.Fix(p1)
 	s.Fix(p2)
-	l1, l2 := addLn(s, p0, p1), addLn(s, p1, p2)
+	l1, l2 := s.AddLine(p0, p1), s.AddLine(p1, p2)
 
 	g := s.AddOffset([]sketch.Entity{l1, l2}, 2)
-	mustSolve(t, s)
+	_, err := s.Solve()
+	require.NoError(t, err)
 
 	d1, d2 := g.Copies[0].(*sketch.Line), g.Copies[1].(*sketch.Line)
 	require.Same(t, d1.End, d2.Start, "offset segments share the corner point")
@@ -422,7 +434,7 @@ func TestOffsetChainMitresCorner(t *testing.T) {
 
 func TestOffsetJSONRoundTrip(t *testing.T) {
 	s := sketch.New()
-	src := addLn(s, addPt(s, 0, 0), addPt(s, 10, 0))
+	src := s.AddLine(s.AddPoint(0, 0), s.AddPoint(10, 0))
 	s.AddOffset([]sketch.Entity{src}, 2)
 
 	data, err := json.Marshal(s)
@@ -435,7 +447,7 @@ func TestOffsetJSONRoundTrip(t *testing.T) {
 
 func TestBreakJSONRoundTrip(t *testing.T) {
 	s := sketch.New()
-	l := addLn(s, addPt(s, 0, 0), addPt(s, 10, 0))
+	l := s.AddLine(s.AddPoint(0, 0), s.AddPoint(10, 0))
 	_, _, ok := s.Break(l, 5, 0)
 	require.True(t, ok)
 

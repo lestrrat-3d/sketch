@@ -10,12 +10,12 @@ import (
 
 func TestGoalProjection(t *testing.T) {
 	s := sketch.New()
-	a := addPt(s, 0, 0)
-	b := addPt(s, 10, 0)
+	a := s.AddPoint(0, 0)
+	b := s.AddPoint(10, 0)
 	s.Fix(a)
 	s.Fix(b)
-	line := addLn(s, a, b)
-	p := addPt(s, 3, 0)
+	line := s.AddLine(a, b)
+	p := s.AddPoint(3, 0)
 	s.AddConstraint(sketch.NewPointOnLine(p, line))
 
 	res, err := s.Solve(sketch.WithGoal(p, 4, 5))
@@ -26,8 +26,22 @@ func TestGoalProjection(t *testing.T) {
 }
 
 func TestGoalConstraintsWin(t *testing.T) {
-	s, _, _, c, _ := newRectangle(t)
-	mustSolve(t, s)
+	s := sketch.New()
+	a := s.AddPoint(0, 0)
+	b := s.AddPoint(18, 2)
+	c := s.AddPoint(17, 11)
+	d := s.AddPoint(1, 13)
+	ab := s.AddLine(a, b)
+	bc := s.AddLine(b, c)
+	dc := s.AddLine(d, c)
+	ad := s.AddLine(a, d)
+	a.MoveTo(0, 0)
+	s.Fix(a)
+	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
+	s.AddConstraint(sketch.NewDistance(a, b, 20))
+	s.AddConstraint(sketch.NewDistance(a, d, 12))
+	_, err := s.Solve()
+	require.NoError(t, err)
 
 	res, err := s.Solve(sketch.WithGoal(c, 30, 30)) // unreachable: w=20, h=12
 	require.NoError(t, err, "unreachable goal is not an error")
@@ -40,7 +54,7 @@ func TestGoalTracking(t *testing.T) {
 	// A lone free point and no constraints: exercises the goal-only path
 	// (no hard residuals) and warm-started tracking across a target path.
 	s := sketch.New()
-	p := addPt(s, 0, 0)
+	p := s.AddPoint(0, 0)
 	for _, tgt := range [][2]float64{{2, 1}, {5, 4}, {5, 9}, {-3, 2}} {
 		res, err := s.Solve(sketch.WithGoal(p, tgt[0], tgt[1]))
 		require.NoError(t, err, "tracking solve")
@@ -53,10 +67,10 @@ func TestGoalTracking(t *testing.T) {
 func TestGoalMultiple(t *testing.T) {
 	// Two goals translate a dimensioned line; length stays constrained.
 	s := sketch.New()
-	a := addPt(s, 0, 0)
-	b := addPt(s, 10, 0)
-	addLn(s, a, b)
-	addDist(s, a, b, 10)
+	a := s.AddPoint(0, 0)
+	b := s.AddPoint(10, 0)
+	s.AddLine(a, b)
+	s.AddConstraint(sketch.NewDistance(a, b, 10))
 
 	res, err := s.Solve(sketch.WithGoal(a, 5, 5), sketch.WithGoal(b, 15, 5))
 	require.NoError(t, err, "two-goal solve")
@@ -65,12 +79,12 @@ func TestGoalMultiple(t *testing.T) {
 	require.InDelta(t, 5, a.Y(), 1e-5, "a.Y")
 	require.InDelta(t, 15, b.X(), 1e-5, "b.X")
 	require.InDelta(t, 5, b.Y(), 1e-5, "b.Y")
-	require.InDelta(t, 10, pointDist(a, b), 1e-6, "length preserved")
+	require.InDelta(t, 10, a.DistanceTo(b), 1e-6, "length preserved")
 }
 
 func TestGoalFixedPointInert(t *testing.T) {
 	s := sketch.New()
-	p := addPt(s, 2, 3)
+	p := s.AddPoint(2, 3)
 	s.Fix(p)
 
 	res, err := s.Solve(sketch.WithGoal(p, 50, 50))
@@ -81,8 +95,22 @@ func TestGoalFixedPointInert(t *testing.T) {
 }
 
 func TestGoalLeavesNoResidue(t *testing.T) {
-	s, _, _, c, _ := newRectangle(t)
-	plain := mustSolve(t, s)
+	s := sketch.New()
+	a := s.AddPoint(0, 0)
+	b := s.AddPoint(18, 2)
+	c := s.AddPoint(17, 11)
+	d := s.AddPoint(1, 13)
+	ab := s.AddLine(a, b)
+	bc := s.AddLine(b, c)
+	dc := s.AddLine(d, c)
+	ad := s.AddLine(a, d)
+	a.MoveTo(0, 0)
+	s.Fix(a)
+	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
+	s.AddConstraint(sketch.NewDistance(a, b, 20))
+	s.AddConstraint(sketch.NewDistance(a, d, 12))
+	plain, err := s.Solve()
+	require.NoError(t, err)
 
 	res, err := s.Solve(sketch.WithGoal(c, 30, 30))
 	require.NoError(t, err, "goal solve")
@@ -92,7 +120,8 @@ func TestGoalLeavesNoResidue(t *testing.T) {
 
 	// A subsequent plain solve does not move geometry.
 	x, y := c.X(), c.Y()
-	mustSolve(t, s)
+	_, err = s.Solve()
+	require.NoError(t, err)
 	require.InDelta(t, x, c.X(), 1e-9, "plain re-solve stable")
 	require.InDelta(t, y, c.Y(), 1e-9, "plain re-solve stable")
 

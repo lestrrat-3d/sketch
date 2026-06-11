@@ -27,13 +27,6 @@ func TestMirrorPoint(t *testing.T) {
 	require.InDelta(t, 1, d.Y, 1e-9)
 }
 
-func TestMirrorPointPreservesConstruction(t *testing.T) {
-	p := geom.NewPoint(1, 1)
-	p.Construction = true
-	axis := geom.NewLine(geom.NewPoint(0, 0), geom.NewPoint(1, 0))
-	require.True(t, geom.MirrorPoint(p, axis).Construction)
-}
-
 func TestTranslatePoint(t *testing.T) {
 	m := geom.TranslatePoint(geom.NewPoint(2, 3), 5, -1)
 	require.InDelta(t, 7, m.X, 1e-9)

@@ -2,13 +2,11 @@ package geom
 
 import "math"
 
-// Point is a 2D point definition. Its coordinates are the template/initial
-// values; committing it to a sketch produces a separate solver point that may
-// move, leaving this Point unchanged.
+// Point is a 2D point: pure transient geometry, a lightweight coordinate
+// wrapper used as math input/output and as the snapshot type returned by a
+// sketch entity's Geometry method. It carries no document state.
 type Point struct {
-	X, Y         float64
-	Name         string
-	Construction bool
+	X, Y float64
 }
 
 // NewPoint returns a point at (x, y).
@@ -16,8 +14,7 @@ func NewPoint(x, y float64) *Point { return &Point{X: x, Y: y} }
 
 // Line is a straight segment between two points.
 type Line struct {
-	Start, End   *Point
-	Construction bool
+	Start, End *Point
 }
 
 // NewLine returns a line between start and end.
@@ -28,9 +25,8 @@ func (l *Line) Length() float64 { return math.Hypot(l.End.X-l.Start.X, l.End.Y-l
 
 // Circle is a full circle defined by a center point and a radius.
 type Circle struct {
-	Center       *Point
-	Radius       float64
-	Construction bool
+	Center *Point
+	Radius float64
 }
 
 // NewCircle returns a circle with the given center and radius.
@@ -43,10 +39,9 @@ func NewCircle(center *Point, radius float64) *Circle {
 // local frame in sketch coordinates. Rx is conventionally the major semi-axis
 // but this is not enforced; the axes are simply the local x and y.
 type Ellipse struct {
-	Center       *Point
-	Rx, Ry       float64
-	Rotation     float64
-	Construction bool
+	Center   *Point
+	Rx, Ry   float64
+	Rotation float64
 }
 
 // NewEllipse returns an ellipse with the given center, semi-axes and rotation.
@@ -57,7 +52,6 @@ func NewEllipse(center *Point, rx, ry, rotation float64) *Ellipse {
 // Arc is a circular arc swept counter-clockwise from Start to End about Center.
 type Arc struct {
 	Center, Start, End *Point
-	Construction       bool
 }
 
 // NewArc returns an arc swept counter-clockwise from start to end about center.

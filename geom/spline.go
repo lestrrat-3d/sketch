@@ -7,8 +7,7 @@ import "fmt"
 // control point and end at the last, with end tangents along the first and
 // last control-polygon legs. Degree is fixed at 3.
 type Spline struct {
-	Control      []*Point
-	Construction bool
+	Control []*Point
 }
 
 // NewSpline returns a cubic B-spline over the given control points. It panics
