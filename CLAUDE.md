@@ -51,6 +51,7 @@ expected to be built **on top of** this engine, not woven into it.
 | `constraint.go` | `Constraint` interface and every constraint's residual + the public `New…` constructors. |
 | `solver.go` | Levenberg–Marquardt solver, numerical Jacobian, DOF/redundancy (rank) analysis. |
 | `diagnose.go` | Constraint diagnostics: `Diagnose` (redundant vs conflicting), `CheckConstraint` (pre-commit over-constraint rejection), `FreePoints`/`Point.IsFullyConstrained` (free-DOF attribution). Design in `docs/diagnostics-design.md`. |
+| `probe.go` | `Sketch.ProbeConfigurations`: multi-solution ambiguity probe — deterministic multi-start search (structured mirrors + splitmix64 restarts) for the discrete configurations a DOF-0 sketch admits. A falsifier: ≥2 found proves ambiguity, 1 never proves uniqueness. Design in `docs/ambiguity-probe-design.md`. |
 | `svg.go` / `dxf.go` / `json.go` | Exporters / serialization. |
 | `geom/` | **Self-contained** context-agnostic geometry (own package). |
 | `param/` | **Self-contained** parameter & expression engine (own package). |
@@ -274,9 +275,16 @@ These are unsettled. If you resolve one, record the decision here.
   dependent — the engine half of Fusion's "refuse the over-constraining
   gesture". `Sketch.FreePoints()`/`Point.IsFullyConstrained()` attribute the
   remaining DOF to points via the Jacobian null space (the blue/black
-  coloring answer). Still open: reporting the full conflict *set* (the
-  earlier constraints a conflicting one fights), per-entity constrained
-  status, and an `AddConstraint` option that auto-rejects.
+  coloring answer). `Sketch.ProbeConfigurations()` (`probe.go`; design in
+  `docs/ambiguity-probe-design.md`) covers the discrete side DOF analysis
+  cannot see: a deterministic multi-start probe that searches for the multiple
+  configurations a fully-constrained sketch may admit (mirror flips, tangent
+  side choices). It is a falsifier — finding ≥2 configurations proves
+  ambiguity; finding 1 never certifies uniqueness. Still open: reporting the
+  full conflict *set* (the earlier constraints a conflicting one fights),
+  per-entity constrained status, an `AddConstraint` option that auto-rejects,
+  probe-level tolerance/budget options, and folding the ellipse rx/ry-swap
+  symmetry into the probe's duplicate metric.
 - **Higher-level interfaces.** A text DSL + CLI, and eventually an interactive
   GUI (e.g. Ebiten), are anticipated layers. They should consume the public API
   only.
