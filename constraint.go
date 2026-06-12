@@ -73,7 +73,9 @@ func (c *parallel) residual(out []float64) []float64 {
 	return append(out, (d1x*d2y-d1y*d2x)/(norm(d1x, d1y)*norm(d2x, d2y)))
 }
 
-// NewParallel forces two lines to be parallel.
+// NewParallel forces two lines to be parallel. Relative direction is not
+// constrained: antiparallel lines (pointing opposite ways) also satisfy it,
+// and the solver keeps whichever the geometry starts closer to.
 func NewParallel(l1, l2 *Line) Constraint { return &parallel{l1, l2} }
 
 type perpendicular struct{ L1, L2 *Line }
@@ -168,6 +170,9 @@ func (c *symmetric) residual(out []float64) []float64 {
 }
 
 // NewSymmetric forces two points to be mirror images across an axis line.
+// Which point ends up on which side of the axis is not constrained — each
+// keeps the side it starts on. The degenerate configuration with both points
+// coincident on the axis also satisfies the constraint.
 func NewSymmetric(p1, p2 *Point, axis *Line) Constraint { return &symmetric{p1, p2, axis} }
 
 // --- concentric -------------------------------------------------------------
@@ -246,8 +251,9 @@ func (c *tangentLineCircle) residual(out []float64) []float64 {
 }
 
 // NewTangent forces a line to be tangent to a circular entity (circle or arc).
-// An arc is treated as its full circle: the tangent point is not required to
-// lie within the arc's sweep.
+// The tangency is unsigned: the circle stays on whichever side of the line it
+// starts. An arc is treated as its full circle: the tangent point is not
+// required to lie within the arc's sweep.
 func NewTangent(l *Line, c Circular) Constraint { return &tangentLineCircle{l, c} }
 
 type tangentCircles struct {
@@ -266,8 +272,10 @@ func (c *tangentCircles) residual(out []float64) []float64 {
 
 // NewTangentCircles forces two circular entities (circles or arcs) to be
 // tangent. When internal is true they are internally tangent (one inside the
-// other); otherwise they are externally tangent. An arc is treated as its full
-// circle: the tangent point is not required to lie within the arc's sweep.
+// other — which one is inside is decided by the radii and starting positions,
+// not by the constraint); otherwise they are externally tangent. An arc is
+// treated as its full circle: the tangent point is not required to lie within
+// the arc's sweep.
 func NewTangentCircles(c1, c2 Circular, internal bool) Constraint {
 	return &tangentCircles{c1, c2, internal}
 }
@@ -538,8 +546,8 @@ func NewDiameter(c *Circle, d float64) *Diameter {
 	return &Diameter{dimBase: lengthDim(d), C: c}
 }
 
-// Angle is an editable angle dimension between two lines, measured from L1 to
-// L2.
+// Angle is an editable signed angle dimension between two lines, measured
+// counterclockwise from L1's start→end direction to L2's.
 type Angle struct {
 	dimBase
 	L1, L2 *Line
@@ -561,10 +569,16 @@ func (c *Angle) residual(out []float64) []float64 {
 	return append(out, r)
 }
 
-// NewAngle constrains the angle from line l1 to line l2. The value a is
-// interpreted in the sketch's default angle unit (degrees for [units.Metric])
-// once added; use [Angle.SetValue] with a typed quantity such as units.Radians
-// for another unit.
+// NewAngle constrains the angle from line l1 to line l2. The angle is signed:
+// it is measured counterclockwise from l1's start→end direction to l2's, so a
+// and -a pin mirror-image configurations and swapping a line's endpoints
+// flips the measurement. Values wrap modulo a full turn (270° ≡ −90°). Unlike
+// an unsigned dimension, a signed angle admits a single configuration — to
+// put the geometry on the other side, negate the value rather than reseeding.
+//
+// The value a is interpreted in the sketch's default angle unit (degrees for
+// [units.Metric]) once added; use [Angle.SetValue] with a typed quantity such
+// as units.Radians for another unit.
 func NewAngle(l1, l2 *Line, a float64) *Angle {
 	return &Angle{dimBase: angleDim(a), L1: l1, L2: l2}
 }
@@ -619,8 +633,10 @@ func (c *EllipseRotation) residual(out []float64) []float64 {
 	return append(out, r)
 }
 
-// NewEllipseRotation constrains the rotation of an ellipse's local frame. The
-// value a is interpreted in the sketch's default angle unit once added.
+// NewEllipseRotation constrains the rotation of an ellipse's local frame: a
+// signed angle measured counterclockwise from the global +x axis, wrapping
+// modulo a full turn. The value a is interpreted in the sketch's default angle
+// unit once added.
 func NewEllipseRotation(e *Ellipse, a float64) *EllipseRotation {
 	return &EllipseRotation{dimBase: angleDim(a), E: e}
 }

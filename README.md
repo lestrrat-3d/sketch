@@ -164,11 +164,20 @@ an ellipse is not supported.
 
 **Dimensional** (editable; each carries a unit and has a `.Set`/`.SetValue`)
 
-`NewDistance`, `NewHorizontalDistance`, `NewVerticalDistance`,
+`NewDistance`, `NewHorizontalDistance`, `NewVerticalDistance` (signed Δx/Δy),
 `NewDistancePointLine` (perpendicular point↔line), `NewDistanceLines`
-(perpendicular line↔line; forces the lines parallel), `NewRadius`,
-`NewDiameter`, `NewAngle` (between two lines), `NewSemiMajor`/`NewSemiMinor`
-(ellipse semi-axes), `NewEllipseRotation`.
+(perpendicular line↔line; forces the lines parallel), `NewOffset` (signed
+parallel offset, positive on the left of the source line's direction),
+`NewRadius`, `NewDiameter`, `NewAngle` (signed, counterclockwise from l1's
+direction to l2's), `NewSemiMajor`/`NewSemiMinor` (ellipse semi-axes),
+`NewEllipseRotation`.
+
+Sign and side conventions matter: signed dimensions (`NewAngle`, `NewOffset`,
+`NewHorizontalDistance`/`NewVerticalDistance`) pin a single configuration per
+value, while unsigned constraints (`NewTangent`, `NewDistancePointLine`,
+`NewDistanceLines`, `NewSymmetric`) keep whichever side the geometry starts
+on. See "Orientation and sign conventions" in the
+[package documentation](https://pkg.go.dev/github.com/lestrrat-3d/sketch).
 
 Any dimension can be flipped to a **driven (reference) dimension** with
 `.SetDriven(true)`: it stops constraining the geometry and instead reports the

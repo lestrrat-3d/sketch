@@ -81,6 +81,15 @@ func defaultSolveConfig() solveConfig {
 // constraints are satisfied. Called with no options it uses sensible defaults;
 // override individual settings with the With… helpers.
 //
+// Solve warm-starts from the current coordinates: the positions geometry was
+// authored at (or moved to with [Point.MoveTo]) are the solver's initial
+// guess, and Solve converges to a valid configuration near them. It does not
+// guarantee the *nearest* one — when the constraints admit several discrete
+// configurations (see "Orientation and sign conventions" in the package doc),
+// the realized branch follows the solver's descent path from the seed. Use
+// [Sketch.ProbeConfigurations] to search for alternative configurations, and
+// pin the intended branch with a signed constraint when one exists.
+//
 // Solve returns [ErrNotConverged] (along with the partial [Result]) if the
 // residuals cannot be driven below the tolerance within the iteration budget,
 // which usually means the sketch is over-constrained or contradictory.

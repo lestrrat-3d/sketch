@@ -36,4 +36,28 @@
 // The geom package is the transient math / snapshot layer (an entity's
 // Geometry method returns a geom value at the current solved coordinates); it
 // is never committed as sketch input.
+//
+// # Orientation and sign conventions
+//
+// Coordinates are Y-up and angles are counterclockwise-positive. Every
+// directional convention in the package derives from these two: "the left of
+// a line" means the left of its start→end direction, and a positive angle
+// turns counterclockwise.
+//
+// Constraints divide into two groups by how they treat sides and branches:
+//
+//   - Signed constraints pin a branch. [NewAngle] (counterclockwise from l1's
+//     direction to l2's), [NewOffset] (positive to the left of src), and
+//     [NewHorizontalDistance]/[NewVerticalDistance] (Δx/Δy) each admit a single
+//     configuration per target value; the mirrored configuration is selected
+//     by negating the value, not by moving the geometry.
+//   - Unsigned and side-relative constraints leave the branch to the geometry:
+//     [NewTangent], [NewDistancePointLine], [NewDistanceLines] and
+//     [NewSymmetric] are satisfied on either side, and the solver keeps
+//     whichever side the geometry starts on. The initial positions (the seed —
+//     see [Sketch.Solve] and [Point.MoveTo]) decide the branch.
+//
+// A fully constrained sketch (DOF 0) built from unsigned constraints can
+// therefore still admit several discrete configurations;
+// [Sketch.ProbeConfigurations] searches for such alternatives.
 package sketch
