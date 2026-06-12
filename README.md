@@ -13,8 +13,8 @@ re-solve, and the geometry updates.
 * Levenberg–Marquardt geometric constraint solver with degrees-of-freedom and
   redundancy analysis.
 * A rich, Fusion-like constraint set.
-* Export to **SVG** (visual inspection), **DXF** R12 (CAD interchange) and
-  **JSON** (lossless save / load round-trip).
+* Export to **SVG** and **PNG** (visual inspection), **DXF** R12 (CAD
+  interchange) and **JSON** (lossless save / load round-trip).
 
 ```go
 import "github.com/lestrrat-3d/sketch"

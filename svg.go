@@ -15,9 +15,20 @@ type SVGOption interface {
 	svgOption()
 }
 
-type svgOption struct{ option.Interface }
+// SVGPNGOption is a rendering option accepted by both [Sketch.SVG] and
+// [Sketch.PNG]: it satisfies [SVGOption] and [PNGOption] simultaneously, so
+// one constructed value can be passed to either exporter. All the shared
+// style options (margin, stroke width, colors, …) return it.
+type SVGPNGOption interface {
+	option.Interface
+	svgOption()
+	pngOption()
+}
 
-func (svgOption) svgOption() {}
+type svgPNGOption struct{ option.Interface }
+
+func (svgPNGOption) svgOption() {}
+func (svgPNGOption) pngOption() {}
 
 type (
 	identMargin       struct{}
@@ -31,28 +42,35 @@ type (
 )
 
 // WithMargin sets the blank border around the geometry, in sketch units.
-func WithMargin(v float64) SVGOption { return svgOption{option.New(identMargin{}, v)} }
+func WithMargin(v float64) SVGPNGOption { return svgPNGOption{option.New(identMargin{}, v)} }
 
 // WithStrokeWidth sets the stroke width, in sketch units.
-func WithStrokeWidth(v float64) SVGOption { return svgOption{option.New(identStrokeWidth{}, v)} }
+func WithStrokeWidth(v float64) SVGPNGOption {
+	return svgPNGOption{option.New(identStrokeWidth{}, v)}
+}
 
 // WithShowPoints toggles drawing a small marker at each point.
-func WithShowPoints(v bool) SVGOption { return svgOption{option.New(identShowPoints{}, v)} }
+func WithShowPoints(v bool) SVGPNGOption { return svgPNGOption{option.New(identShowPoints{}, v)} }
 
 // WithPointRadius sets the point-marker radius, in sketch units.
-func WithPointRadius(v float64) SVGOption { return svgOption{option.New(identPointRadius{}, v)} }
+func WithPointRadius(v float64) SVGPNGOption {
+	return svgPNGOption{option.New(identPointRadius{}, v)}
+}
 
 // WithArcSegments sets the number of polyline segments used to approximate an arc.
-func WithArcSegments(v int) SVGOption { return svgOption{option.New(identArcSegments{}, v)} }
+func WithArcSegments(v int) SVGPNGOption { return svgPNGOption{option.New(identArcSegments{}, v)} }
 
-// WithBackground sets the background fill (e.g. "white"); empty for none.
-func WithBackground(v string) SVGOption { return svgOption{option.New(identBackground{}, v)} }
+// WithBackground sets the background fill (e.g. "white"); empty or "none" for
+// no background ([Sketch.PNG] renders it transparent).
+func WithBackground(v string) SVGPNGOption { return svgPNGOption{option.New(identBackground{}, v)} }
 
 // WithStroke sets the geometry color.
-func WithStroke(v string) SVGOption { return svgOption{option.New(identStroke{}, v)} }
+func WithStroke(v string) SVGPNGOption { return svgPNGOption{option.New(identStroke{}, v)} }
 
 // WithConstruction sets the construction-geometry color.
-func WithConstruction(v string) SVGOption { return svgOption{option.New(identConstruction{}, v)} }
+func WithConstruction(v string) SVGPNGOption {
+	return svgPNGOption{option.New(identConstruction{}, v)}
+}
 
 // svgConfig holds the resolved SVG rendering options.
 type svgConfig struct {
@@ -77,6 +95,33 @@ func defaultSVGConfig() svgConfig {
 		stroke:       "#1a73e8",
 		construction: "#bbbbbb",
 	}
+}
+
+// applyRenderOption folds one shared rendering option into cfg, reporting
+// whether the option was recognized. [Sketch.SVG] and [Sketch.PNG] both
+// resolve their option lists through it.
+func applyRenderOption(cfg *svgConfig, o option.Interface) bool {
+	switch o.Ident().(type) {
+	case identMargin:
+		cfg.margin = option.MustGet[float64](o)
+	case identStrokeWidth:
+		cfg.strokeWidth = option.MustGet[float64](o)
+	case identShowPoints:
+		cfg.showPoints = option.MustGet[bool](o)
+	case identPointRadius:
+		cfg.pointRadius = option.MustGet[float64](o)
+	case identArcSegments:
+		cfg.arcSegments = option.MustGet[int](o)
+	case identBackground:
+		cfg.background = option.MustGet[string](o)
+	case identStroke:
+		cfg.stroke = option.MustGet[string](o)
+	case identConstruction:
+		cfg.construction = option.MustGet[string](o)
+	default:
+		return false
+	}
+	return true
 }
 
 type bbox struct{ minX, minY, maxX, maxY float64 }
@@ -148,24 +193,7 @@ func arcPolyline(a *Arc, segments int) [][2]float64 {
 func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 	cfg := defaultSVGConfig()
 	for _, o := range options {
-		switch o.Ident().(type) {
-		case identMargin:
-			cfg.margin = option.MustGet[float64](o)
-		case identStrokeWidth:
-			cfg.strokeWidth = option.MustGet[float64](o)
-		case identShowPoints:
-			cfg.showPoints = option.MustGet[bool](o)
-		case identPointRadius:
-			cfg.pointRadius = option.MustGet[float64](o)
-		case identArcSegments:
-			cfg.arcSegments = option.MustGet[int](o)
-		case identBackground:
-			cfg.background = option.MustGet[string](o)
-		case identStroke:
-			cfg.stroke = option.MustGet[string](o)
-		case identConstruction:
-			cfg.construction = option.MustGet[string](o)
-		}
+		applyRenderOption(&cfg, o)
 	}
 
 	b, ok := s.bounds()

@@ -52,7 +52,7 @@ expected to be built **on top of** this engine, not woven into it.
 | `solver.go` | Levenberg–Marquardt solver, numerical Jacobian, DOF/redundancy (rank) analysis. |
 | `diagnose.go` | Constraint diagnostics: `Diagnose` (redundant vs conflicting), `CheckConstraint` (pre-commit over-constraint rejection), `FreePoints`/`Point.IsFullyConstrained` (free-DOF attribution). Design in `docs/diagnostics-design.md`. |
 | `probe.go` | `Sketch.ProbeConfigurations`: multi-solution ambiguity probe — deterministic multi-start search (structured mirrors + splitmix64 restarts) for the discrete configurations a DOF-0 sketch admits. A falsifier: ≥2 found proves ambiguity, 1 never proves uniqueness. Design in `docs/ambiguity-probe-design.md`. |
-| `svg.go` / `dxf.go` / `json.go` | Exporters / serialization. |
+| `svg.go` / `png.go` / `dxf.go` / `json.go` | Exporters / serialization. `png.go` is a stdlib-only rasterizer (`image/png`) so agents/tools that read raster images can sanity-check sketches; visually equivalent to the SVG output. |
 | `geom/` | **Self-contained** context-agnostic geometry (own package). |
 | `param/` | **Self-contained** parameter & expression engine (own package). |
 | `units/` | **Self-contained** units-of-measure library (own package). |
@@ -204,6 +204,10 @@ reference them by index so the solver sees them automatically.
   constructors; the consumer folds them into a private `…Config` struct seeded
   from a `default…Config()`. See `svg.go` / `solver.go`. The typed interface
   keeps each option group distinct (an `SVGOption` can't be passed to `Solve`).
+  An option shared by several consumers follows the jwx combined-interface
+  pattern: a concatenated-name interface whose concrete type carries every
+  relevant marker method (`SVGPNGOption` in `svg.go` satisfies both `SVGOption`
+  and `PNGOption`, so one `WithMargin(…)` value flows into either exporter).
 - **Tests use `testify/require`** (never `assert`) and live in **external
   `xxx_test` packages** — they exercise only the exported API. If a test needs
   to observe internal state, add a documented exported accessor rather than
