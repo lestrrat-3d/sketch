@@ -317,4 +317,22 @@ gives the degree-of-freedom and redundancy analysis.
 
 ## License
 
-See the repository for license details.
+This project is **source-available**, not open source. It is licensed under the
+[PolyForm Noncommercial License 1.0.0](LICENSE).
+
+* **Noncommercial use is free.** Individuals, hobby and personal projects,
+  research, education, nonprofits, and government may use, modify, and
+  redistribute it at no cost, subject to the license terms.
+* **Commercial / business use requires a separate license.** Any use by or for
+  a business, or for commercial advantage, is not permitted under the
+  noncommercial license. To obtain a commercial license, reach out on Bluesky
+  at [@lestrrat.bsky.social](https://bsky.app/profile/lestrrat.bsky.social).
+
+Because the license imposes a field-of-use restriction, this project does not
+meet the Open Source Definition and should not be described as "open source".
+
+### Contributions
+
+This repository does **not** accept external pull requests. Keeping sole
+ownership of the code is what makes the dual noncommercial / commercial
+licensing above possible.
