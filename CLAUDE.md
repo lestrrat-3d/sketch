@@ -198,6 +198,11 @@ reference them by index so the solver sees them automatically.
 ## Conventions
 
 - `gofmt`, `go vet`, and `go test ./...` must all be clean before committing.
+- **README code blocks are generated, not hand-written.** They are embedded from
+  the compiled `examples/` tests via `<!-- INCLUDE(file[,Func]) -->` markers and
+  expanded by `internal/cmd/genreadme` (stdlib-only). After changing any example
+  referenced by the README, run `go generate ./...` and commit the regenerated
+  `README.md` with the code. Never edit the embedded blocks by hand.
 - **Optional settings use functional options**, not options structs. Each option
   group defines a typed marker interface (`SVGOption`, `SolveOption`) embedding
   `option.Interface` plus a private wrapper, `ident…` marker structs, and `With…`

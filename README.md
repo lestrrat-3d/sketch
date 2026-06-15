@@ -46,77 +46,127 @@ import "github.com/lestrrat-3d/sketch"
 
 ## Quick start
 
-Geometry comes in two layers. **Generic geometry** (the standalone
-[`geom`](geom) package: `geom.Point`, `geom.Line`, `geom.Circle`, `geom.Arc`) is
-context-agnostic — just coordinates, no solver. You **commit** it into a sketch
-with the `Add…` methods, which return solver-bound handles (`sketch.Point`,
-`sketch.Line`, …). The same generic geometry can be committed into several
-independent sketches.
+You author geometry directly on the sketch from points: `s.AddPoint(x, y)`
+returns a solver-bound `*sketch.Point`, and the curve builders
+(`s.AddLine`/`AddCircle`/`AddArc`/`AddEllipse`/`AddSpline`) take those points.
+Topology is expressed by sharing a point — the corner where two lines meet is
+literally one `*Point`. Constrain the geometry, solve, edit a dimension, and
+re-solve.
 
+<!-- INCLUDE(examples/sketch_readme_example_test.go) -->
 ```go
+package examples_test
+
 import (
-	"github.com/lestrrat-3d/sketch"
-	"github.com/lestrrat-3d/sketch/geom"
+  "fmt"
+
+  "github.com/lestrrat-3d/sketch"
 )
 
-// Generic geometry — reusable, no sketch yet.
-a := geom.NewPoint(0, 0)
-b := geom.NewPoint(18, 2) // rough guesses; the solver finds the exact positions
-c := geom.NewPoint(17, 11)
-d := geom.NewPoint(1, 13)
+// Example_sketch_quickstart builds an axis-aligned rectangle entirely from
+// constraints, edits one dimension and re-solves, then exports the result. It
+// is the smallest end-to-end taste of the engine: author geometry from points,
+// constrain it, solve, edit, re-solve, export.
+func Example_sketch_quickstart() {
+  s := sketch.New()
 
-s := sketch.New()
-ab := s.AddLine(geom.NewLine(a, b)) // commits the line and its two points
-bc := s.AddLine(geom.NewLine(b, c))
-dc := s.AddLine(geom.NewLine(d, c))
-ad := s.AddLine(geom.NewLine(a, d))
+  // Four corners as rough initial guesses; the solver finds the exact spots.
+  // Sharing a *Point between two lines is what makes a corner a corner.
+  a := s.AddPoint(0, 0)
+  b := s.AddPoint(18, 2)
+  c := s.AddPoint(17, 11)
+  d := s.AddPoint(1, 13)
 
-ab.Start.MoveTo(0, 0) // move a corner to the origin and ground it
-s.Fix(ab.Start)
-s.AddConstraint(
-	sketch.NewHorizontal(ab),
-	sketch.NewHorizontal(dc),
-	sketch.NewVertical(ad),
-	sketch.NewVertical(bc),
-)
-width := sketch.NewDistance(ab.Start, ab.End, 20) // driving dimensions
-height := sketch.NewDistance(ad.Start, ad.End, 12)
-s.AddConstraint(width, height)
+  ab := s.AddLine(a, b)
+  bc := s.AddLine(b, c)
+  dc := s.AddLine(d, c)
+  ad := s.AddLine(a, d)
 
-res, err := s.Solve()
-// res.DOF == 0  -> fully constrained; ab.End == (20, 0), bc.End == (20, 12)
+  // Ground one corner at the origin so the sketch can't float away.
+  a.MoveTo(0, 0)
+  s.Fix(a)
 
-width.Set(35) // edit a dimension ...
-s.Solve()     // ... and re-solve: the rectangle is now 35 x 12
+  // Axis-align the four sides.
+  s.AddConstraint(
+    sketch.NewHorizontal(ab),
+    sketch.NewHorizontal(dc),
+    sketch.NewVertical(ad),
+    sketch.NewVertical(bc),
+  )
 
-svg, _ := s.SVG() // defaults; override e.g. s.SVG(sketch.WithMargin(20))
-dxf, _ := s.DXF()
-data, _ := s.MarshalJSON()
-_, _, _ = res, height, c
+  // Driving dimensions: editable values that make the sketch parametric.
+  width := sketch.NewDistance(a, b, 20)
+  height := sketch.NewDistance(a, d, 12)
+  s.AddConstraint(width, height)
+
+  res, err := s.Solve()
+  if err != nil {
+    fmt.Printf("failed to solve: %s\n", err)
+    return
+  }
+  fmt.Printf("DOF=%d b=(%.0f,%.0f) c=(%.0f,%.0f) d=(%.0f,%.0f)\n",
+    res.DOF, b.X(), b.Y(), c.X(), c.Y(), d.X(), d.Y())
+
+  // Edit a dimension and re-solve: the rectangle becomes 35 x 12.
+  width.Set(35)
+  if _, err := s.Solve(); err != nil {
+    fmt.Printf("failed to re-solve: %s\n", err)
+    return
+  }
+  fmt.Printf("after width.Set(35): b=(%.0f,%.0f) c=(%.0f,%.0f)\n",
+    b.X(), b.Y(), c.X(), c.Y())
+
+  // Export the solved sketch in several formats.
+  svg, err := s.SVG()
+  if err != nil {
+    fmt.Printf("failed to render SVG: %s\n", err)
+    return
+  }
+  dxf, err := s.DXF()
+  if err != nil {
+    fmt.Printf("failed to render DXF: %s\n", err)
+    return
+  }
+  data, err := s.MarshalJSON()
+  if err != nil {
+    fmt.Printf("failed to marshal JSON: %s\n", err)
+    return
+  }
+  fmt.Printf("exports non-empty: svg=%t dxf=%t json=%t\n", len(svg) > 0, len(dxf) > 0, len(data) > 0)
+
+  // Output:
+  // DOF=0 b=(20,0) c=(20,12) d=(0,12)
+  // after width.Set(35): b=(35,0) c=(35,12)
+  // exports non-empty: svg=true dxf=true json=true
+}
 ```
+source: [examples/sketch_readme_example_test.go](examples/sketch_readme_example_test.go)
+<!-- END INCLUDE -->
 
-See [`examples/hexagon`](examples/hexagon) for a complete program that builds a
-regular hexagon entirely from constraints and writes SVG/DXF/JSON.
+The code blocks in this README are embedded from compiled, `go test`-verified
+examples — see [Regenerating the README](#regenerating-the-readme). For more
+worked programs — a constraint-built hexagon, a parametric plate, a parametric
+fillet, an ambiguity probe — browse the [`examples`](examples) package.
 
 ## Geometry
 
-Construct generic geometry with `geom.New…`, then commit it with the matching
-`Add…` to get a solver-bound handle:
+Author geometry on the sketch from points; each builder returns a solver-bound
+handle:
 
-| Generic ([`geom`](geom)) | Commit | Bound handle |
-|---|---|---|
-| `geom.NewPoint(x, y)` | `s.AddPoint(p)` | `*sketch.Point` (coordinates are solved for) |
-| `geom.NewLine(a, b)` | `s.AddLine(l)` | `*sketch.Line` |
-| `geom.NewCircle(center, r)` | `s.AddCircle(c)` | `*sketch.Circle` |
-| `geom.NewArc(center, start, end)` | `s.AddArc(a)` | `*sketch.Arc` |
-| `geom.NewEllipse(center, rx, ry, rot)` | `s.AddEllipse(e)` | `*sketch.Ellipse` (semi-axes and rotation are solved for) |
-| `geom.NewSpline(p0, p1, p2, p3, …)` | `s.AddSpline(sp)` | `*sketch.Spline` (clamped cubic B-spline) |
+| Builder | Bound handle |
+|---|---|
+| `s.AddPoint(x, y)` | `*sketch.Point` (coordinates are solved for) |
+| `s.AddLine(p1, p2)` | `*sketch.Line` |
+| `s.AddCircle(center, r)` | `*sketch.Circle` |
+| `s.AddArc(center, start, end)` | `*sketch.Arc` |
+| `s.AddEllipse(center, rx, ry, rot)` | `*sketch.Ellipse` (semi-axes and rotation are solved for) |
+| `s.AddSpline(p0, p1, p2, p3, …)` | `*sketch.Spline` (clamped cubic B-spline) |
 
-`AddLine`/`AddCircle`/`AddArc`/`AddEllipse`/`AddSpline` commit any referenced
-generic points first and return the bound object; all `Add…` are idempotent (a
-generic primitive maps to one bound instance per sketch). A bound handle
-exposes solved values (`p.X()`, `l.Length()`, `c.R()`, `e.Rx()`) and the
-generic geometry it came from (`p.Generic()`).
+The curve builders take points you have already added; sharing a `*Point`
+between entities is how topology is expressed (a shared corner is one point),
+and each `Add…` creates a fresh entity. A bound handle exposes solved values
+(`p.X()`, `l.Length()`, `c.R()`, `e.Rx()`) and a transient [`geom`](geom)
+snapshot of its current shape via `Geometry()`.
 
 A spline's control points are ordinary sketch points: constrain, dimension,
 ground or drag (`WithGoal`) them and the curve follows — the curve itself
@@ -126,8 +176,7 @@ legs, so endpoint attachment is point coincidence and end tangency is a
 `NewParallel` on a construction line over the first leg. `sp.Eval(t)` /
 `sp.Polyline(n)` evaluate the solved curve.
 
-Grounding (per-sketch — the same generic point may be fixed in one sketch and
-free in another):
+Grounding:
 
 * `p.MoveTo(x, y)` — move a point to `(x, y)` (sets the solver's starting guess).
 * `s.Fix(p)` — pin a point at its current location.
@@ -136,8 +185,8 @@ free in another):
 To ground a point at a specific location, move it first: `p.MoveTo(x, y)` then
 `s.Fix(p)`.
 
-Any entity's `.Construction` field can be set to mark it as construction
-geometry (rendered dashed/grey, exported to a separate DXF layer).
+Any entity can be marked as construction geometry with `e.SetConstruction(true)`
+(rendered dashed/grey, exported to a separate DXF layer).
 
 ### Compound shapes
 
@@ -244,26 +293,114 @@ dimension; a bound dimension is re-evaluated against that table before every
 solve, so changing one parameter cascades through everything that depends on it.
 Parameters carry units too:
 
+<!-- INCLUDE(examples/sketch_parametric_example_test.go) -->
 ```go
-p := param.New()
-p.SetValue("width", units.Millimeters(120))       // a typed length
-p.SetExpr("height", "width * 0.6", units.Millimeter)
-p.SetExpr("hole_d", "min(width, height) / 3", units.Millimeter)
+package examples_test
 
-width := sketch.NewDistance(a, b, 0)
-height := sketch.NewDistance(a, d, 0)
-hr := sketch.NewRadius(hole, 0)
-s.AddConstraint(width, height, hr)
-s.Bind(width, p, "width")
-s.Bind(height, p, "height")
-s.Bind(hr, p, "hole_d / 2")
+import (
+  "errors"
+  "fmt"
 
-s.Solve()                              // 120 x 72, hole d 24 (mm)
-p.SetValue("width", units.Inches(8))   // change ONE parameter, in inches ...
-s.Solve()                              // ... 203.2 x 121.9, hole d 40.6 (mm)
+  "github.com/lestrrat-3d/sketch"
+  "github.com/lestrrat-3d/sketch/param"
+  "github.com/lestrrat-3d/sketch/units"
+)
 
-// Calling a dimension's .Set(v) overrides and unbinds it.
+// Example_sketch_parametric drives a sketch from a parameter table: a
+// rectangular plate with a centered hole whose dimensions are all defined by
+// expressions. Changing a single parameter and re-solving updates everything.
+func Example_sketch_parametric() {
+  s := sketch.New()
+
+  // Four corners + a center point for the hole (rough initial guesses).
+  a := s.AddPoint(0, 0)
+  b := s.AddPoint(10, 1)
+  c := s.AddPoint(9, 6)
+  d := s.AddPoint(1, 5)
+  o := s.AddPoint(5, 3)
+
+  ab := s.AddLine(a, b)
+  bc := s.AddLine(b, c)
+  dc := s.AddLine(d, c)
+  ad := s.AddLine(a, d)
+  hole := s.AddCircle(o, 1)
+
+  // Geometric constraints: grounded origin, axis-aligned rectangle.
+  a.MoveTo(0, 0)
+  s.Fix(a)
+  s.AddConstraint(
+    sketch.NewHorizontal(ab),
+    sketch.NewHorizontal(dc),
+    sketch.NewVertical(ad),
+    sketch.NewVertical(bc),
+  )
+
+  // Parameters: a single driving width as a typed length; everything else is
+  // derived from it. Geometry solves in base millimetres regardless of the
+  // units the parameters are expressed in.
+  p := param.New()
+  if err := errors.Join(
+    p.SetValue("width", units.Millimeters(120)),
+    p.SetExpr("height", "width * 0.6", units.Millimeter),
+    p.SetExpr("hole_d", "min(width, height) / 3", units.Millimeter),
+  ); err != nil {
+    fmt.Printf("failed to define parameters: %s\n", err)
+    return
+  }
+
+  // Add each dimension, then bind it to an expression evaluated against p.
+  bind := func(dim sketch.Dimension, expr string) error {
+    s.AddConstraint(dim)
+    return s.Bind(dim, p, expr)
+  }
+  if err := errors.Join(
+    bind(sketch.NewDistance(a, b, 0), "width"),
+    bind(sketch.NewDistance(a, d, 0), "height"),
+    bind(sketch.NewHorizontalDistance(a, o, 0), "width / 2"), // hole centered
+    bind(sketch.NewVerticalDistance(a, o, 0), "height / 2"),
+    bind(sketch.NewRadius(hole, 0), "hole_d / 2"),
+  ); err != nil {
+    fmt.Printf("failed to bind dimensions: %s\n", err)
+    return
+  }
+
+  report := func() error {
+    res, err := s.Solve()
+    if err != nil {
+      return err
+    }
+    w, err := p.GetValue("width")
+    if err != nil {
+      return err
+    }
+    fmt.Printf("width=%s -> plate %.1f x %.1f mm, hole d=%.1f at (%.0f, %.0f), DOF %d\n",
+      w, b.X(), d.Y(), 2*hole.R(), o.X(), o.Y(), res.DOF)
+    return nil
+  }
+
+  if err := report(); err != nil { // width = 120 mm
+    fmt.Printf("failed to solve: %s\n", err)
+    return
+  }
+
+  // Change the one driving parameter — and express it in inches. The units
+  // library converts; height and hole follow automatically.
+  if err := p.SetValue("width", units.Inches(8)); err != nil {
+    fmt.Printf("failed to update width: %s\n", err)
+    return
+  }
+  if err := report(); err != nil {
+    fmt.Printf("failed to solve after edit: %s\n", err)
+    return
+  }
+
+  // Output:
+  // width=120 mm -> plate 120.0 x 72.0 mm, hole d=24.0 at (60, 36), DOF 0
+  // width=8 in -> plate 203.2 x 121.9 mm, hole d=40.6 at (102, 61), DOF 0
+}
 ```
+source: [examples/sketch_parametric_example_test.go](examples/sketch_parametric_example_test.go)
+<!-- END INCLUDE -->
 
 Within an expression, parameters contribute their value in base units and
 numeric literals are dimensionless; the declared unit (the third argument to
@@ -277,8 +414,7 @@ the sketch's JSON, so a parametric sketch reloads still parametric. The
 expression language supports `+ - * / %`, right-associative `^`, unary `±`,
 parentheses, numeric literals (including scientific notation), constants (`pi`,
 `tau`, `e`, `phi`) and functions (`sin`, `sqrt`, `min`/`max`, `hypot`, `clamp`,
-…). Register your own with `table.SetFunc` / `table.SetConst`. See
-[`examples/parametric`](examples/parametric).
+…). Register your own with `table.SetFunc` / `table.SetConst`.
 
 ## Profiles
 
@@ -338,6 +474,118 @@ to consistent units (lengths in length units, angles dimensionless) so the
 system stays well conditioned. A Levenberg–Marquardt least-squares solver with
 a numerical Jacobian drives the residuals to zero; the rank of the Jacobian
 gives the degree-of-freedom and redundancy analysis.
+
+## Regenerating the README
+
+The Go code blocks in this README are not hand-maintained — they are embedded
+from the compiled, `go test`-verified examples in the [`examples`](examples)
+package, so they cannot drift from the real API. Each block lives between a pair
+of markers:
+
+```
+<!-- INCLUDE(examples/sketch_readme_example_test.go) -->
+```go
+package examples_test
+
+import (
+  "fmt"
+
+  "github.com/lestrrat-3d/sketch"
+)
+
+// Example_sketch_quickstart builds an axis-aligned rectangle entirely from
+// constraints, edits one dimension and re-solves, then exports the result. It
+// is the smallest end-to-end taste of the engine: author geometry from points,
+// constrain it, solve, edit, re-solve, export.
+func Example_sketch_quickstart() {
+  s := sketch.New()
+
+  // Four corners as rough initial guesses; the solver finds the exact spots.
+  // Sharing a *Point between two lines is what makes a corner a corner.
+  a := s.AddPoint(0, 0)
+  b := s.AddPoint(18, 2)
+  c := s.AddPoint(17, 11)
+  d := s.AddPoint(1, 13)
+
+  ab := s.AddLine(a, b)
+  bc := s.AddLine(b, c)
+  dc := s.AddLine(d, c)
+  ad := s.AddLine(a, d)
+
+  // Ground one corner at the origin so the sketch can't float away.
+  a.MoveTo(0, 0)
+  s.Fix(a)
+
+  // Axis-align the four sides.
+  s.AddConstraint(
+    sketch.NewHorizontal(ab),
+    sketch.NewHorizontal(dc),
+    sketch.NewVertical(ad),
+    sketch.NewVertical(bc),
+  )
+
+  // Driving dimensions: editable values that make the sketch parametric.
+  width := sketch.NewDistance(a, b, 20)
+  height := sketch.NewDistance(a, d, 12)
+  s.AddConstraint(width, height)
+
+  res, err := s.Solve()
+  if err != nil {
+    fmt.Printf("failed to solve: %s\n", err)
+    return
+  }
+  fmt.Printf("DOF=%d b=(%.0f,%.0f) c=(%.0f,%.0f) d=(%.0f,%.0f)\n",
+    res.DOF, b.X(), b.Y(), c.X(), c.Y(), d.X(), d.Y())
+
+  // Edit a dimension and re-solve: the rectangle becomes 35 x 12.
+  width.Set(35)
+  if _, err := s.Solve(); err != nil {
+    fmt.Printf("failed to re-solve: %s\n", err)
+    return
+  }
+  fmt.Printf("after width.Set(35): b=(%.0f,%.0f) c=(%.0f,%.0f)\n",
+    b.X(), b.Y(), c.X(), c.Y())
+
+  // Export the solved sketch in several formats.
+  svg, err := s.SVG()
+  if err != nil {
+    fmt.Printf("failed to render SVG: %s\n", err)
+    return
+  }
+  dxf, err := s.DXF()
+  if err != nil {
+    fmt.Printf("failed to render DXF: %s\n", err)
+    return
+  }
+  data, err := s.MarshalJSON()
+  if err != nil {
+    fmt.Printf("failed to marshal JSON: %s\n", err)
+    return
+  }
+  fmt.Printf("exports non-empty: svg=%t dxf=%t json=%t\n", len(svg) > 0, len(dxf) > 0, len(data) > 0)
+
+  // Output:
+  // DOF=0 b=(20,0) c=(20,12) d=(0,12)
+  // after width.Set(35): b=(35,0) c=(35,12)
+  // exports non-empty: svg=true dxf=true json=true
+}
+```
+source: [examples/sketch_readme_example_test.go](examples/sketch_readme_example_test.go)
+<!-- END INCLUDE -->
+```
+
+Regenerate every block in place (no network access required) with:
+
+```sh
+go generate ./...
+# or, directly:
+go run ./internal/cmd/genreadme README.md
+```
+
+An optional second argument embeds a single function instead of the whole file:
+`<!-- INCLUDE(examples/foo_example_test.go,Example_sketch_bar) -->`. After
+editing any embedded example, re-run the command and commit the regenerated
+README alongside the code.
 
 ## License
 
