@@ -3,16 +3,40 @@
 A standalone, fully programmable **parametric 2D sketch engine** for Go, in the
 spirit of the sketch environment in Autodesk Fusion.
 
-You build geometry — points, lines, circles, arcs — in code, tie it together
-with geometric and dimensional **constraints**, and a numerical solver moves the
-geometry so that every constraint is satisfied at once. Because dimensions are
-ordinary editable values, sketches are fully parametric: change a dimension,
-re-solve, and the geometry updates.
+You build geometry — points, lines, circles, arcs, ellipses, splines — in code,
+tie it together with geometric and dimensional **constraints**, and a numerical
+solver moves the geometry so that every constraint is satisfied at once. Because
+dimensions are ordinary editable values, sketches are fully parametric: change a
+dimension, re-solve, and the geometry updates.
 
-* Pure Go, **zero dependencies** (standard library only).
+## Why this exists
+
+This engine is built to be **driven by an AI agent as a verification step
+before it acts on real CAD software**. Constraint sketching is easy to get
+subtly wrong — an under- or over-constrained profile, an ambiguous
+configuration that can flip, a dimension that doesn't resolve the way you
+intended. Rather than discover that inside Fusion (or another CAD tool) *after*
+committing to an operation, an agent can reproduce the sketch here first and
+check it programmatically: Does it fully constrain (`DOF == 0`)? Are any
+constraints redundant or conflicting? Does it admit more than one valid
+configuration? Does the solved geometry actually match the intended dimensions?
+Only once the sketch is proven sound does the agent carry the plan into the CAD
+package — and the SVG/PNG exporters let an agent or human eyeball the result
+along the way.
+
+* Pure Go. The production runtime depends only on the standard library plus
+  `github.com/lestrrat-go/option/v3`; the `geom`, `param` and `units`
+  subpackages are standard-library-only and independently extractable.
 * Levenberg–Marquardt geometric constraint solver with degrees-of-freedom and
   redundancy analysis.
-* A rich, Fusion-like constraint set.
+* A rich, Fusion-like constraint set, plus sketch-modification tools
+  (trim/extend/break, fillet/chamfer, mirror, rectangular/circular patterns,
+  offset).
+* Verification diagnostics: redundant/conflicting constraint detection,
+  free-DOF attribution, over-constraint rejection, and a multi-solution
+  ambiguity probe.
+* Units of measure and parameter/expression-driven dimensions.
+* Profile (closed-region) detection.
 * Export to **SVG** and **PNG** (visual inspection), **DXF** R12 (CAD
   interchange) and **JSON** (lossless save / load round-trip).
 
