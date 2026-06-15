@@ -70,10 +70,20 @@ func process(mdPath string) error {
 
 	var out bytes.Buffer
 	lines := strings.Split(string(src), "\n")
+	inFence := false
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
-		m := includeRe.FindStringSubmatch(line)
+
+		// A directive inside a ```-delimited code block is literal text (e.g.
+		// documentation showing the directive syntax), never expanded.
+		var m []string
+		if !inFence {
+			m = includeRe.FindStringSubmatch(line)
+		}
 		if m == nil {
+			if strings.HasPrefix(strings.TrimSpace(line), "```") {
+				inFence = !inFence
+			}
 			out.WriteString(line)
 			if i < len(lines)-1 {
 				out.WriteByte('\n')

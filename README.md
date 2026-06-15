@@ -265,18 +265,48 @@ package. Units are **typed** — you use `units.Millimeter`, `units.Inch`,
 `units.Degree`, … rather than strings — and a `units.Value` knows its own unit
 and converts only through the library (no magnitude relabelling):
 
+<!-- INCLUDE(examples/sketch_units_example_test.go,Example_sketch_units) -->
 ```go
-w := units.Inches(4)
-mm, _ := w.In(units.Millimeter) // 101.6
+// Example_sketch_units shows that dimensions carry typed units while the solver
+// works in base millimetres: a distance set in inches solves to its millimetre
+// equivalent, and conversion happens only through the units library.
+func Example_sketch_units() {
+  // A units.Value knows its own unit and converts through the library.
+  w := units.Inches(4)
+  mm, err := w.In(units.Millimeter)
+  if err != nil {
+    fmt.Printf("failed to convert: %s\n", err)
+    return
+  }
+  fmt.Printf("%s = %.1f mm\n", w, mm)
 
-s := sketch.New()               // default units: mm and degrees
-s.SetUnits(units.Imperial())    // ... or inches and degrees
+  // A dimension carries a unit; internally the solver stays in millimetres.
+  s := sketch.New()
+  a := s.AddPoint(0, 0)
+  b := s.AddPoint(50, 0)
+  a.MoveTo(0, 0)
+  s.Fix(a)
+  s.AddConstraint(sketch.NewHorizontal(s.AddLine(a, b)))
 
-d := sketch.NewDistance(a, b, 0)
-s.AddConstraint(d)
-d.SetValue(units.Inches(4))     // solves to 101.6 mm internally
-s.AddConstraint(sketch.NewAngle(l1, l2, 90)) // 90 in the default angle unit (degrees)
+  d := sketch.NewDistance(a, b, 0)
+  s.AddConstraint(d)
+  if err := d.SetValue(units.Inches(4)); err != nil { // 4 in -> 101.6 mm
+    fmt.Printf("failed to set value: %s\n", err)
+    return
+  }
+  if _, err := s.Solve(); err != nil {
+    fmt.Printf("failed to solve: %s\n", err)
+    return
+  }
+  fmt.Printf("|ab| = %.1f mm\n", b.X())
+
+  // Output:
+  // 4 in = 101.6 mm
+  // |ab| = 101.6 mm
+}
 ```
+source: [examples/sketch_units_example_test.go](examples/sketch_units_example_test.go)
+<!-- END INCLUDE -->
 
 The solver works in base units (millimetre, radian); a dimension's residual
 converts its target with `Target().Base()`. A bare-float constructor value
@@ -427,13 +457,41 @@ subdivided into regions (yet).
 
 ## Solving
 
+Call `Solve` (optionally tuned) and read the result it returns:
+
+<!-- INCLUDE(examples/sketch_solving_example_test.go,Example_sketch_solving) -->
 ```go
-res, err := s.Solve()                                   // default settings
-res, err := s.Solve(                                    // or tune them
+// Example_sketch_solving solves a fully constrained sketch with tuned solver
+// options and reports the fields the solver returns. DOF can also be queried
+// directly, without moving any geometry.
+func Example_sketch_solving() {
+  s := sketch.New()
+  a := s.AddPoint(0, 0)
+  b := s.AddPoint(30, 4)
+  a.MoveTo(0, 0)
+  s.Fix(a)
+  l := s.AddLine(a, b)
+  s.AddConstraint(sketch.NewHorizontal(l))
+  s.AddConstraint(sketch.NewDistance(a, b, 30))
+
+  res, err := s.Solve(
     sketch.WithMaxIterations(200),
     sketch.WithTolerance(1e-10),
-)
+  )
+  if err != nil {
+    fmt.Printf("failed to solve: %s\n", err)
+    return
+  }
+  fmt.Printf("converged=%t DOF=%d redundant=%d\n", res.Converged, res.DOF, res.Redundant)
+  fmt.Printf("s.DOF()=%d\n", s.DOF())
+
+  // Output:
+  // converged=true DOF=0 redundant=0
+  // s.DOF()=0
+}
 ```
+source: [examples/sketch_solving_example_test.go](examples/sketch_solving_example_test.go)
+<!-- END INCLUDE -->
 
 `Solve` reports:
 
@@ -455,9 +513,35 @@ partial result.
 
 `Solve` accepts soft targets — the engine primitive behind drag interactions:
 
+<!-- INCLUDE(examples/sketch_goal_example_test.go,Example_sketch_goal) -->
 ```go
-res, err := s.Solve(sketch.WithGoal(p, x, y)) // pull p toward (x, y)
+// Example_sketch_goal demonstrates a soft target (the primitive behind drag
+// interactions): hard constraints always win, and the goal only pulls whatever
+// freedom is left over.
+func Example_sketch_goal() {
+  s := sketch.New()
+  a := s.AddPoint(0, 0)
+  b := s.AddPoint(2, 2)
+  a.MoveTo(0, 0)
+  s.Fix(a)
+  l := s.AddLine(a, b)
+  s.AddConstraint(sketch.NewHorizontal(l)) // b must stay on the x-axis (y = 0)
+
+  // Drag b toward (7, 5). The horizontal constraint pins y to 0; the goal is
+  // free to pull the remaining x degree of freedom to 7.
+  res, err := s.Solve(sketch.WithGoal(b, 7, 5))
+  if err != nil {
+    fmt.Printf("failed to solve: %s\n", err)
+    return
+  }
+  fmt.Printf("b=(%.0f,%.0f) DOF=%d\n", b.X(), b.Y(), res.DOF)
+
+  // Output:
+  // b=(7,0) DOF=1
+}
 ```
+source: [examples/sketch_goal_example_test.go](examples/sketch_goal_example_test.go)
+<!-- END INCLUDE -->
 
 Constraints always win: the geometry settles at the closest feasible
 configuration, and an unreachable target is not an error. Goals are transient
@@ -484,93 +568,6 @@ of markers:
 
 ```
 <!-- INCLUDE(examples/sketch_readme_example_test.go) -->
-```go
-package examples_test
-
-import (
-  "fmt"
-
-  "github.com/lestrrat-3d/sketch"
-)
-
-// Example_sketch_quickstart builds an axis-aligned rectangle entirely from
-// constraints, edits one dimension and re-solves, then exports the result. It
-// is the smallest end-to-end taste of the engine: author geometry from points,
-// constrain it, solve, edit, re-solve, export.
-func Example_sketch_quickstart() {
-  s := sketch.New()
-
-  // Four corners as rough initial guesses; the solver finds the exact spots.
-  // Sharing a *Point between two lines is what makes a corner a corner.
-  a := s.AddPoint(0, 0)
-  b := s.AddPoint(18, 2)
-  c := s.AddPoint(17, 11)
-  d := s.AddPoint(1, 13)
-
-  ab := s.AddLine(a, b)
-  bc := s.AddLine(b, c)
-  dc := s.AddLine(d, c)
-  ad := s.AddLine(a, d)
-
-  // Ground one corner at the origin so the sketch can't float away.
-  a.MoveTo(0, 0)
-  s.Fix(a)
-
-  // Axis-align the four sides.
-  s.AddConstraint(
-    sketch.NewHorizontal(ab),
-    sketch.NewHorizontal(dc),
-    sketch.NewVertical(ad),
-    sketch.NewVertical(bc),
-  )
-
-  // Driving dimensions: editable values that make the sketch parametric.
-  width := sketch.NewDistance(a, b, 20)
-  height := sketch.NewDistance(a, d, 12)
-  s.AddConstraint(width, height)
-
-  res, err := s.Solve()
-  if err != nil {
-    fmt.Printf("failed to solve: %s\n", err)
-    return
-  }
-  fmt.Printf("DOF=%d b=(%.0f,%.0f) c=(%.0f,%.0f) d=(%.0f,%.0f)\n",
-    res.DOF, b.X(), b.Y(), c.X(), c.Y(), d.X(), d.Y())
-
-  // Edit a dimension and re-solve: the rectangle becomes 35 x 12.
-  width.Set(35)
-  if _, err := s.Solve(); err != nil {
-    fmt.Printf("failed to re-solve: %s\n", err)
-    return
-  }
-  fmt.Printf("after width.Set(35): b=(%.0f,%.0f) c=(%.0f,%.0f)\n",
-    b.X(), b.Y(), c.X(), c.Y())
-
-  // Export the solved sketch in several formats.
-  svg, err := s.SVG()
-  if err != nil {
-    fmt.Printf("failed to render SVG: %s\n", err)
-    return
-  }
-  dxf, err := s.DXF()
-  if err != nil {
-    fmt.Printf("failed to render DXF: %s\n", err)
-    return
-  }
-  data, err := s.MarshalJSON()
-  if err != nil {
-    fmt.Printf("failed to marshal JSON: %s\n", err)
-    return
-  }
-  fmt.Printf("exports non-empty: svg=%t dxf=%t json=%t\n", len(svg) > 0, len(dxf) > 0, len(data) > 0)
-
-  // Output:
-  // DOF=0 b=(20,0) c=(20,12) d=(0,12)
-  // after width.Set(35): b=(35,0) c=(35,12)
-  // exports non-empty: svg=true dxf=true json=true
-}
-```
-source: [examples/sketch_readme_example_test.go](examples/sketch_readme_example_test.go)
 <!-- END INCLUDE -->
 ```
 
