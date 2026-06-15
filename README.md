@@ -144,9 +144,9 @@ source: [examples/sketch_readme_example_test.go](examples/sketch_readme_example_
 <!-- END INCLUDE -->
 
 The code blocks in this README are embedded from compiled, `go test`-verified
-examples — see [Regenerating the README](#regenerating-the-readme). For more
-worked programs — a constraint-built hexagon, a parametric plate, a parametric
-fillet, an ambiguity probe — browse the [`examples`](examples) package.
+examples. For more worked programs — a constraint-built hexagon, a parametric
+plate, a parametric fillet, an ambiguity probe — browse the
+[`examples`](examples) package.
 
 ## Geometry
 
@@ -558,31 +558,6 @@ to consistent units (lengths in length units, angles dimensionless) so the
 system stays well conditioned. A Levenberg–Marquardt least-squares solver with
 a numerical Jacobian drives the residuals to zero; the rank of the Jacobian
 gives the degree-of-freedom and redundancy analysis.
-
-## Regenerating the README
-
-The Go code blocks in this README are not hand-maintained — they are embedded
-from the compiled, `go test`-verified examples in the [`examples`](examples)
-package, so they cannot drift from the real API. Each block lives between a pair
-of markers:
-
-```
-<!-- INCLUDE(examples/sketch_readme_example_test.go) -->
-<!-- END INCLUDE -->
-```
-
-Regenerate every block in place (no network access required) with:
-
-```sh
-go generate ./...
-# or, directly:
-go run ./internal/cmd/genreadme README.md
-```
-
-An optional second argument embeds a single function instead of the whole file:
-`<!-- INCLUDE(examples/foo_example_test.go,Example_sketch_bar) -->`. After
-editing any embedded example, re-run the command and commit the regenerated
-README alongside the code.
 
 ## License
 
