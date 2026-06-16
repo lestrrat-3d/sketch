@@ -27,6 +27,21 @@ type solveOption struct{ option.Interface }
 
 func (solveOption) solveOption() {}
 
+// SolveVerifyOption is accepted by both [Sketch.Solve] and [Sketch.Verify]
+// (the jwx combined-interface pattern, like SVGPNGOption): its concrete type
+// carries both marker methods, so one [WithTolerance] value flows into either
+// — the convergence threshold the solver targets and the threshold Verify
+// judges solvability against are then guaranteed to agree.
+type SolveVerifyOption interface {
+	SolveOption
+	VerifyOption
+}
+
+type solveVerifyOption struct{ option.Interface }
+
+func (solveVerifyOption) solveOption()  {}
+func (solveVerifyOption) verifyOption() {}
+
 type (
 	identMaxIterations struct{}
 	identTolerance     struct{}
@@ -36,8 +51,13 @@ type (
 // WithMaxIterations sets the outer Levenberg–Marquardt iteration budget.
 func WithMaxIterations(v int) SolveOption { return solveOption{option.New(identMaxIterations{}, v)} }
 
-// WithTolerance sets the convergence threshold on the residual norm.
-func WithTolerance(v float64) SolveOption { return solveOption{option.New(identTolerance{}, v)} }
+// WithTolerance sets the convergence threshold on the residual norm. It is
+// accepted by both [Sketch.Solve] (where it is the convergence target) and
+// [Sketch.Verify] (where it is the threshold the Solvable verdict uses), so the
+// two stay consistent.
+func WithTolerance(v float64) SolveVerifyOption {
+	return solveVerifyOption{option.New(identTolerance{}, v)}
+}
 
 // goalTarget is a transient soft target for one point, valid for a single
 // Solve call. See docs/goal-solve-design.md.
@@ -290,71 +310,13 @@ func (s *Sketch) DOF() int {
 // it either holds trivially or conflicts, and removing it never frees
 // geometry. Driven dimensions contribute no equations and never appear. The
 // result is nil when no redundancy exists.
+//
+// To separate the redundant constraints from the conflicting ones, and to learn
+// which earlier constraints each conflicting one fights, call [Sketch.Diagnose]
+// or [Sketch.Verify].
 func (s *Sketch) RedundantConstraints() []Constraint {
-	free := s.freeVars()
-
-	// Map each residual row to the constraint that produced it, mirroring the
-	// iteration (and therefore row) order of residuals().
-	var owners []Constraint
-	var probe []float64
-	for _, c := range s.cons {
-		if d, ok := c.(Dimension); ok && d.Driven() {
-			continue
-		}
-		n0 := len(probe)
-		probe = c.residual(probe)
-		for i := n0; i < len(probe); i++ {
-			owners = append(owners, c)
-		}
-	}
-	m := len(owners)
-	if m == 0 {
-		return nil
-	}
-
-	J := s.jacobian(free, m, s.residuals)
-
-	// Incremental Gram–Schmidt over the Jacobian rows: a row that projects to
-	// (numerically) zero against the rows accepted so far adds no independent
-	// equation, so its constraint is redundant at this configuration.
-	const eps = 1e-9
-	var basis [][]float64
-	flagged := make(map[Constraint]struct{})
-	var out []Constraint
-	for i := 0; i < m; i++ {
-		scale := math.Sqrt(dot(J[i], J[i]))
-		dependent := scale < eps
-		if !dependent {
-			v := append([]float64(nil), J[i]...)
-			for pass := 0; pass < 2; pass++ { // second pass re-orthogonalizes
-				for _, b := range basis {
-					p := dot(v, b)
-					for k := range v {
-						v[k] -= p * b[k]
-					}
-				}
-			}
-			rest := math.Sqrt(dot(v, v))
-			if rest <= eps*scale {
-				dependent = true
-			} else {
-				inv := 1 / rest
-				for k := range v {
-					v[k] *= inv
-				}
-				basis = append(basis, v)
-			}
-		}
-		if !dependent {
-			continue
-		}
-		if _, dup := flagged[owners[i]]; dup {
-			continue
-		}
-		flagged[owners[i]] = struct{}{}
-		out = append(out, owners[i])
-	}
-	return out
+	flagged, _ := s.conflictAnalysis()
+	return flagged
 }
 
 func (s *Sketch) freeVars() []int {

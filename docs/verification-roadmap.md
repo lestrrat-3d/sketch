@@ -75,9 +75,14 @@ algorithms stay above.
   radius, diameter, angle, ellipse axes/rotation; driven (reference) dimensions;
   parameter-bound dimensions (`param` table + expressions).
 - **Diagnostics:** LM solve with DOF/redundancy rank analysis; `Diagnose`
-  (redundant vs conflicting); `CheckConstraint` (add-time over-constraint
-  rejection); `FreePoints`/`Point.IsFullyConstrained`; `ProbeConfigurations`
-  (discrete-ambiguity falsifier).
+  (redundant vs conflicting) with `ConflictSet` attribution (the earlier
+  constraints a violated one fights); `CheckConstraint` (add-time
+  over-constraint rejection); `FreePoints`/`Point.IsFullyConstrained`;
+  `ProbeConfigurations` (discrete-ambiguity falsifier); **`Verify`** — one
+  non-mutating call aggregating all of these into a `VerificationReport`
+  (solvability, DOF, `Status`, redundant constraints, conflict sets, free
+  points, profiles, opt-in ambiguity via `WithProbe`), the agent-facing oracle
+  entry point.
 - **Profiles:** closed loops of shared-endpoint lines/arcs + standalone
   circles/ellipses (construction excluded).
 - **Placement & I/O:** `World`/`Plane` 3D placement with local↔world readout;
@@ -89,7 +94,6 @@ algorithms stay above.
 
 | Item | Why it matters | Effort |
 |---|---|---|
-| **Unified `VerificationReport`** | The agent-facing gap. Signals exist but are scattered across `Solve`/`Diagnose`/`FreePoints`/`ProbeConfigurations`. One call should answer: solvable? DOF? under/fully/over? the *conflict set* (not just the later duplicate)? which entities are still free? ambiguous (with witnesses)? closed profiles? Mostly aggregation + a real conflict-set report. | S–M |
 | **Reference geometry** | The separation keystone (above): locked, externally-sourced 2D entities with source id + staleness. Unblocks faithful verification of sketches-on-faces and projected edges without a solid kernel. | M |
 | **Arc-sweep tangency / point-on-arc pinning** | **Soundness fix.** Tangency currently treats an arc as its full circle (`docs/fusion-gap-analysis.md`: "sweep not enforced"), so the oracle can certify a tangent that does not touch the arc — a false positive. Needs contact-point pinning (and, for splines/ellipses, an aux curve-parameter variable). | S–L |
 

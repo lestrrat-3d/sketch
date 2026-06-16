@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 )
 
 // ErrOverconstrained is returned (wrapped) by [Sketch.CheckConstraint] when a
@@ -39,10 +40,19 @@ type Diagnosis struct {
 // reported. Call it after [Sketch.Solve]: a converged solve leaves dependent-
 // but-satisfied constraints (redundant), a failed solve leaves dependent
 // constraints with residuals the solver could not remove (conflicting).
+//
+// For the conflicting constraints together with the earlier constraints each
+// one fights — the conflict set — call [Sketch.Verify], which reports the same
+// partition plus that attribution.
 func (s *Sketch) Diagnose() *Diagnosis {
+	flagged, conflicts := s.conflictAnalysis()
+	conflicting := make(map[Constraint]struct{}, len(conflicts))
+	for _, cs := range conflicts {
+		conflicting[cs.Constraint] = struct{}{}
+	}
 	d := &Diagnosis{}
-	for _, c := range s.RedundantConstraints() {
-		if maxAbsResidual(c) > conflictTol {
+	for _, c := range flagged {
+		if _, bad := conflicting[c]; bad {
 			d.Conflicting = append(d.Conflicting, c)
 			continue
 		}
@@ -51,14 +61,207 @@ func (s *Sketch) Diagnose() *Diagnosis {
 	return d
 }
 
-func maxAbsResidual(c Constraint) float64 {
-	var worst float64
-	for _, r := range c.residual(nil) {
-		if v := math.Abs(r); v > worst {
-			worst = v
+// ConflictSet reports a conflicting constraint together with the earlier
+// constraints whose equations it fights over the same degrees of freedom. A
+// conflicting constraint is dependent on those earlier constraints (it adds no
+// independent equation) yet violated at the current configuration: the solver
+// cannot satisfy it and them at once. Resolving the conflict means removing or
+// editing the conflicting constraint itself or any of its [ConflictSet.With]
+// members.
+type ConflictSet struct {
+	// Constraint is the conflicting constraint. By creation order it is the
+	// later-added one, mirroring [Sketch.RedundantConstraints].
+	Constraint Constraint
+	// With holds the earlier independent constraints it conflicts with, in
+	// creation order. It is empty when the constraint is violated by grounded
+	// geometry alone (its equation touches no free variable), leaving no other
+	// constraint to fight.
+	With []Constraint
+}
+
+// conflictAnalysis is the shared dependency analysis behind
+// [Sketch.RedundantConstraints], [Sketch.Diagnose] and [Sketch.Verify]. It
+// walks the constraint residual rows in creation order (mirroring residuals(),
+// driven dimensions skipped), flags every constraint that contributes a row
+// linearly dependent on the rows of earlier constraints at the call-time
+// configuration, and for each flagged-and-violated constraint computes its
+// conflict set: the earlier independent constraints whose rows combine to
+// reproduce the violated row's direction.
+//
+// The first result lists every flagged constraint in first-seen order (the
+// redundant and conflicting ones together, exactly what RedundantConstraints
+// reports). The second lists only the conflicting ones (residual above
+// conflictTol) with their attribution. The sketch is not modified.
+func (s *Sketch) conflictAnalysis() ([]Constraint, []ConflictSet) {
+	free := s.freeVars()
+
+	// Map each residual row to the constraint that produced it, mirroring the
+	// iteration (and therefore row) order of residuals().
+	var owners []Constraint
+	var probe []float64
+	for _, c := range s.cons {
+		if d, ok := c.(Dimension); ok && d.Driven() {
+			continue
+		}
+		n0 := len(probe)
+		probe = c.residual(probe)
+		for i := n0; i < len(probe); i++ {
+			owners = append(owners, c)
 		}
 	}
-	return worst
+	m := len(owners)
+	if m == 0 {
+		return nil, nil
+	}
+
+	J := s.jacobian(free, m, s.residuals)
+
+	// Incremental Gram–Schmidt over the Jacobian rows: a row that projects to
+	// (numerically) zero against the rows accepted so far adds no independent
+	// equation, so its constraint is dependent at this configuration. The
+	// original (un-orthogonalized) accepted rows are kept alongside the
+	// orthonormal basis so a dependent row can be expressed as their linear
+	// combination — its conflict set.
+	const eps = 1e-9
+	var basis [][]float64   // orthonormal basis of accepted directions
+	var accRows [][]float64 // accepted original rows, parallel to accIdx
+	var accIdx []int        // owners-row index of each accepted row
+
+	// probe now holds the full residual vector, parallel to owners (same
+	// iteration order), so probe[i] is the residual of row i. A flagged
+	// constraint is conflicting only when one of its own *dependent* rows is
+	// violated — an independent but unsolved row (e.g. the still-free leg of a
+	// partly-dependent multi-row constraint) is a solvability gap, not a
+	// conflict of this constraint.
+	res := probe
+
+	var flagged []Constraint
+	seen := make(map[Constraint]struct{})
+	violated := make(map[Constraint]bool)
+	fights := make(map[Constraint]map[Constraint]struct{})
+	for i := 0; i < m; i++ {
+		scale := math.Sqrt(dot(J[i], J[i]))
+		dependent := scale < eps
+		if !dependent {
+			v := append([]float64(nil), J[i]...)
+			for pass := 0; pass < 2; pass++ { // second pass re-orthogonalizes
+				for _, b := range basis {
+					p := dot(v, b)
+					for k := range v {
+						v[k] -= p * b[k]
+					}
+				}
+			}
+			rest := math.Sqrt(dot(v, v))
+			if rest <= eps*scale {
+				dependent = true
+			} else {
+				inv := 1 / rest
+				for k := range v {
+					v[k] *= inv
+				}
+				basis = append(basis, v)
+				accRows = append(accRows, append([]float64(nil), J[i]...))
+				accIdx = append(accIdx, i)
+			}
+		}
+		if !dependent {
+			continue
+		}
+		c := owners[i]
+		if _, dup := seen[c]; !dup {
+			seen[c] = struct{}{}
+			flagged = append(flagged, c)
+			fights[c] = make(map[Constraint]struct{})
+		}
+		if math.Abs(res[i]) > conflictTol {
+			violated[c] = true
+		}
+		// Attribute this dependent row to the accepted earlier rows it combines.
+		for _, a := range rowCombo(basis, accRows, J[i]) {
+			if owner := owners[accIdx[a]]; owner != c {
+				fights[c][owner] = struct{}{}
+			}
+		}
+	}
+	if len(flagged) == 0 {
+		return nil, nil
+	}
+
+	// Split into redundant (every dependent row satisfied) vs conflicting (a
+	// dependent row violated), building each conflict set in creation order.
+	consIdx := make(map[Constraint]int, len(s.cons))
+	for i, c := range s.cons {
+		consIdx[c] = i
+	}
+	var conflicts []ConflictSet
+	for _, c := range flagged {
+		if !violated[c] {
+			continue // redundant: a consistent duplicate
+		}
+		members := make([]Constraint, 0, len(fights[c]))
+		for f := range fights[c] {
+			members = append(members, f)
+		}
+		sort.Slice(members, func(i, j int) bool { return consIdx[members[i]] < consIdx[members[j]] })
+		conflicts = append(conflicts, ConflictSet{Constraint: c, With: members})
+	}
+	return flagged, conflicts
+}
+
+// rowCombo expresses target as a linear combination of accRows (assumed
+// linearly independent and to span target, which holds because the caller only
+// passes a row already found dependent) and returns the indices into accRows
+// whose coefficient is non-negligible — the accepted rows that actually
+// participate. It returns nil when accRows is empty or target's gradient is
+// numerically zero (a constraint touching no free variable participates with
+// nothing).
+//
+// basis is the orthonormal Gram–Schmidt basis parallel to accRows (basis[a] is
+// accRows[a] orthogonalized against the earlier accepted rows). Resolving the
+// coefficients in that basis turns the system upper-triangular — B[j][a] =
+// basis[j]·accRows[a] is zero for j>a, with diagonal entries equal to the
+// acceptance norms (bounded below by the Gram–Schmidt tolerance) — which is far
+// better conditioned than the normal equations accRows·accRowsᵀ, whose
+// condition number is squared and can go singular for nearly parallel but still
+// independent accepted rows.
+func rowCombo(basis, accRows [][]float64, target []float64) []int {
+	k := len(accRows)
+	if k == 0 {
+		return nil
+	}
+	// Solve B·coef = rhs with B[j][a] = basis[j]·accRows[a] (upper triangular)
+	// and rhs[j] = basis[j]·target.
+	B := make([][]float64, k)
+	rhs := make([]float64, k)
+	for j := 0; j < k; j++ {
+		B[j] = make([]float64, k)
+		for a := 0; a < k; a++ {
+			B[j][a] = dot(basis[j], accRows[a])
+		}
+		rhs[j] = dot(basis[j], target)
+	}
+	coef, ok := solveLinear(B, rhs)
+	if !ok {
+		return nil
+	}
+	maxC := 0.0
+	for _, v := range coef {
+		if av := math.Abs(v); av > maxC {
+			maxC = av
+		}
+	}
+	if maxC == 0 {
+		return nil
+	}
+	thr := math.Max(1e-9, 1e-6*maxC)
+	var out []int
+	for a, v := range coef {
+		if math.Abs(v) >= thr {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // CheckConstraint reports whether committing c would over-constrain the

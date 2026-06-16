@@ -58,7 +58,8 @@ from a solid — the seam is first-class reference geometry), live in
 | `profiles.go` | `Sketch.Profiles()`: closed-region boundaries (loops of lines/arcs via `geom.Loops` + standalone circles/ellipses), construction geometry excluded. |
 | `constraint.go` | `Constraint` interface and every constraint's residual + the public `New…` constructors. |
 | `solver.go` | Levenberg–Marquardt solver, numerical Jacobian, DOF/redundancy (rank) analysis. |
-| `diagnose.go` | Constraint diagnostics: `Diagnose` (redundant vs conflicting), `CheckConstraint` (pre-commit over-constraint rejection), `FreePoints`/`Point.IsFullyConstrained` (free-DOF attribution). Design in `docs/diagnostics-design.md`. |
+| `diagnose.go` | Constraint diagnostics: `conflictAnalysis` (the shared dependency pass behind `RedundantConstraints`/`Diagnose`/`Verify`), `Diagnose` (redundant vs conflicting), `ConflictSet` (a conflicting constraint + the earlier ones it fights), `CheckConstraint` (pre-commit over-constraint rejection), `FreePoints`/`Point.IsFullyConstrained` (free-DOF attribution). Design in `docs/diagnostics-design.md`. |
+| `verify.go` | `Sketch.Verify(...VerifyOption) *VerificationReport`: the headless-oracle aggregation layer — one non-mutating call gathering solvability, DOF, `Status`, redundant constraints, conflict sets, free points, profiles, and (opt-in via `WithProbe`) discrete ambiguity. A pure consumer of the diagnostic building blocks. |
 | `probe.go` | `Sketch.ProbeConfigurations`: multi-solution ambiguity probe — deterministic multi-start search (structured mirrors + splitmix64 restarts) for the discrete configurations a DOF-0 sketch admits. A falsifier: ≥2 found proves ambiguity, 1 never proves uniqueness. Design in `docs/ambiguity-probe-design.md`. |
 | `plane.go` / `world.go` | 3D world & construction planes. `Plane` (datum = `space.Frame` derived from a stored definition), package-level world-frame datum constructors, `World` (owns planes + sketches, plane builders incl. derived `OffsetPlane`, `RemovePlane`). Design in `docs/3d-planes-design.md`. |
 | `svg.go` / `png.go` / `dxf.go` / `json.go` / `json_world.go` | Exporters / serialization. `png.go` is a stdlib-only rasterizer (`image/png`) so agents/tools that read raster images can sanity-check sketches; visually equivalent to the SVG output. `json_world.go` is the v2 `World`/`Plane` serialization + the `kind`-discriminator preflight. |
@@ -275,7 +276,10 @@ reference them by index so the solver sees them automatically.
   An option shared by several consumers follows the jwx combined-interface
   pattern: a concatenated-name interface whose concrete type carries every
   relevant marker method (`SVGPNGOption` in `svg.go` satisfies both `SVGOption`
-  and `PNGOption`, so one `WithMargin(…)` value flows into either exporter).
+  and `PNGOption`, so one `WithMargin(…)` value flows into either exporter;
+  `SolveVerifyOption` in `solver.go` satisfies both `SolveOption` and
+  `VerifyOption`, so one `WithTolerance(…)` value flows into either — keeping the
+  solver's convergence target and `Verify`'s solvability threshold consistent).
 - **Tests use `testify/require`** (never `assert`) and live in **external
   `xxx_test` packages** — they exercise only the exported API. If a test needs
   to observe internal state, add a documented exported accessor rather than
@@ -361,11 +365,19 @@ These are unsettled. If you resolve one, record the decision here.
   cannot see: a deterministic multi-start probe that searches for the multiple
   configurations a fully-constrained sketch may admit (mirror flips, tangent
   side choices). It is a falsifier — finding ≥2 configurations proves
-  ambiguity; finding 1 never certifies uniqueness. Still open: reporting the
-  full conflict *set* (the earlier constraints a conflicting one fights),
-  per-entity constrained status, an `AddConstraint` option that auto-rejects,
-  probe-level tolerance/budget options, and folding the ellipse rx/ry-swap
-  symmetry into the probe's duplicate metric.
+  ambiguity; finding 1 never certifies uniqueness. `Sketch.Verify()`
+  (`verify.go`) aggregates all of the above into one non-mutating
+  `VerificationReport` (solvability, DOF, `Status`, redundant constraints,
+  conflict sets, free points, profiles, opt-in ambiguity via `WithProbe`) for
+  the headless-oracle use case. Conflict sets are reported via `ConflictSet`
+  (`diagnose.go`): for each conflicting constraint, the earlier *independent*
+  constraints whose Jacobian rows linearly combine to reproduce the violated
+  row — a true set, not just the later duplicate. `RedundantConstraints`,
+  `Diagnose` and `Verify` share one `conflictAnalysis` pass so the partition and
+  attribution never diverge. Still open: per-entity (not just per-point)
+  constrained status, an `AddConstraint` option that auto-rejects, probe-level
+  tolerance/budget options, and folding the ellipse rx/ry-swap symmetry into the
+  probe's duplicate metric.
 - **Higher-level interfaces.** A text DSL + CLI, and eventually an interactive
   GUI (e.g. Ebiten), are anticipated layers. They should consume the public API
   only.
@@ -419,5 +431,7 @@ Core engine + constraint set + solver (with DOF/redundancy analysis) +
 SVG/DXF/JSON export + sketch-modification tools (`tools.go`:
 trim/extend/break/fillet/chamfer/mirror/pattern/offset on committed geometry) +
 3D world & construction planes (`space/`, `plane.go`, `world.go`: 2D sketches
-placed on planes in a 3D world, local↔world transform, v2 serialization) are
+placed on planes in a 3D world, local↔world transform, v2 serialization) +
+unified verification (`verify.go`: `Sketch.Verify` aggregating solvability,
+DOF/status, conflict sets, free points, profiles, opt-in ambiguity) are
 implemented and tested.
