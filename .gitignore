@@ -36,3 +36,7 @@ go.work.sum
 /hexagon.dxf
 /hexagon.json
 /plate_*.svg
+
+# Scratch output and agent worktrees
+.tmp/
+.worktrees/
