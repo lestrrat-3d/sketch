@@ -16,6 +16,14 @@ so sketches are fully parametric.
 The library is the foundation. A DSL/CLI, a GUI, and richer geometry are
 expected to be built **on top of** this engine, not woven into it.
 
+The **north-star use case** is a *headless sketch verification oracle*: a coding
+agent authors a sketch and verifies it (solvability, constraint status, conflict
+sets, closed profiles) before a human executes the equivalent in CAD software.
+The roadmap toward that goal, and the **sketch/3D separation contract** (this
+layer verifies against 3D-derived geometry it is *given*; it never *computes* it
+from a solid — the seam is first-class reference geometry), live in
+`docs/verification-roadmap.md`.
+
 ## North-star principles
 
 1. **Library-first, engine at the core.** The constraint engine is the product.

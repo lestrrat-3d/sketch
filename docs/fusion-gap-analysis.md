@@ -5,6 +5,10 @@ Snapshot date: 2026-06-10. Baseline at time of writing: 4 primitives
 (point/line/circle/arc), 15 geometric + 6 dimensional constraints, LM solver
 with DOF/redundancy counts, `param` table, `units`, SVG/DXF/JSON export.
 
+This is the exhaustive feature-by-feature checklist. For the goal-oriented,
+prioritized roadmap toward the headless verification oracle — and the sketch/3D
+separation contract — see `docs/verification-roadmap.md`.
+
 ## Geometry primitives
 
 **Have:** point, line, circle, arc.

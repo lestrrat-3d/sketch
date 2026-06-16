@@ -1,0 +1,133 @@
+# Sketch Verification — Roadmap & Sketch/3D Separation Contract
+
+Supplemental design/roadmap doc. It frames the project's north-star *use case*
+and the architectural contract that keeps it a sketch-only library. It
+complements `docs/fusion-gap-analysis.md` (the feature-by-feature Fusion-parity
+tracker) — this doc is goal-oriented and prioritized; the gap-analysis is the
+exhaustive checklist many items here reference.
+
+## Goal: a headless sketch verification oracle
+
+A coding agent authors a parametric 2D sketch (the kind drawn in the sketch
+environment of CAD software such as Autodesk Fusion) and uses this library to
+**verify the sketch is correct before a human executes the equivalent work in
+the real application**. To serve that, the library must:
+
+1. **Faithfully represent** any sketch a Fusion user/agent could create
+   (geometry, constraints, dimensions, parameters, units, placement).
+2. **Report the signals an agent needs to trust it** — solvability,
+   under/fully/over-constrained status, *which* constraints conflict, remaining
+   free DOF (and the entities holding them), discrete ambiguity, closed
+   profiles, and parameter/unit validity.
+
+**An oracle must never emit a false "valid."** A missing feature (cannot
+represent X) is recoverable; a *false positive* (blesses an invalid sketch) is
+not. Soundness gaps therefore outrank coverage gaps in priority.
+
+## The separation contract (load-bearing)
+
+The library is **sketches only**; a 3D-bodies layer is planned *on top*. That
+split stays clean **if and only if** this library only ever **verifies against**
+3D-derived geometry it is *given*, and **never computes** it:
+
+- **Accept** 3D-derived inputs as snapshots/contracts: a frozen plane frame, a
+  projected edge handed in as a read-only 2D curve with a source id.
+- **Never derive** 2D geometry from a solid (project/intersect, recompute a face
+  frame as a body changes). That needs a B-rep kernel and belongs in the layer
+  above.
+
+**Verdict: feasible — with one caveat.** The split holds as long as the missing
+primitive below is added. The leak points are all *associativity to 3D*, and
+each is clean when this layer holds the *result*, not the *computation*:
+
+| Fusion feature | Clean when… | Breaks the split when… |
+|---|---|---|
+| Sketch on datum/offset/3-point plane | already supported (`World`, `Plane`) | never |
+| Sketch on a body **face** | the face frame is passed as a `Plane` (frozen) | this layer must track the face as the body changes |
+| **Project / include / intersect** 3D edges | the resulting 2D curves are passed as reference geometry | this layer must compute the projection from a solid |
+| Pierce constraint | reduces to coincidence with a supplied reference point | live associativity to a 3D curve is required |
+| Plane through edge / tangent to face | the resolved frame is supplied | the frame must be recomputed from B-rep |
+
+**The one missing primitive that keeps the contract clean: first-class
+reference geometry** — read-only 2D entities (points/curves) whose position is
+**externally fixed**, carrying a **source id** and a **staleness** flag. The
+existing per-entity *construction* flag is **not** this: construction geometry
+is still solver-driven; reference geometry is externally locked. This is the
+"Project/intersect" placeholder already noted in `docs/fusion-gap-analysis.md`.
+With it, "sketch on a face" and "projected edges" become *"you give us the
+snapshot"* — correct layering; auto-recompute-on-body-change is the 3D layer
+re-feeding snapshots.
+
+**Minimal 3D concepts that must live at or below this layer:** orthonormal
+frames/planes (present — `space.Frame`, `Plane`, `World`), reference entities
+with provenance (**missing — the keystone**), and component/world transforms.
+Solid faces, edge topology, NURBS surfaces, and projection/intersection
+algorithms stay above.
+
+## Capabilities today (the oracle baseline)
+
+- **Geometry:** point, line, circle, circular arc, full ellipse, control-point
+  cubic B-spline; per-entity construction flag.
+- **Constraints:** coincident, horizontal/vertical, parallel, perpendicular,
+  collinear, point-on-line/circle/ellipse, midpoint, point-symmetric,
+  concentric, equal-length, equal-radius, tangent (line/arc, arc/arc).
+- **Dimensions:** distance (point/point, H/V, point-line, line-line), offset,
+  radius, diameter, angle, ellipse axes/rotation; driven (reference) dimensions;
+  parameter-bound dimensions (`param` table + expressions).
+- **Diagnostics:** LM solve with DOF/redundancy rank analysis; `Diagnose`
+  (redundant vs conflicting); `CheckConstraint` (add-time over-constraint
+  rejection); `FreePoints`/`Point.IsFullyConstrained`; `ProbeConfigurations`
+  (discrete-ambiguity falsifier).
+- **Profiles:** closed loops of shared-endpoint lines/arcs + standalone
+  circles/ellipses (construction excluded).
+- **Placement & I/O:** `World`/`Plane` 3D placement with local↔world readout;
+  JSON v2 round-trip (sketch + world); SVG/PNG/DXF export; units system.
+
+## Roadmap (prioritized for the verification goal)
+
+### Tier 1 — highest leverage
+
+| Item | Why it matters | Effort |
+|---|---|---|
+| **Unified `VerificationReport`** | The agent-facing gap. Signals exist but are scattered across `Solve`/`Diagnose`/`FreePoints`/`ProbeConfigurations`. One call should answer: solvable? DOF? under/fully/over? the *conflict set* (not just the later duplicate)? which entities are still free? ambiguous (with witnesses)? closed profiles? Mostly aggregation + a real conflict-set report. | S–M |
+| **Reference geometry** | The separation keystone (above): locked, externally-sourced 2D entities with source id + staleness. Unblocks faithful verification of sketches-on-faces and projected edges without a solid kernel. | M |
+| **Arc-sweep tangency / point-on-arc pinning** | **Soundness fix.** Tangency currently treats an arc as its full circle (`docs/fusion-gap-analysis.md`: "sweep not enforced"), so the oracle can certify a tangent that does not touch the arc — a false positive. Needs contact-point pinning (and, for splines/ellipses, an aux curve-parameter variable). | S–L |
+
+### Tier 2 — representation fidelity
+
+| Item | Why it matters | Effort |
+|---|---|---|
+| **Profile/region engine** | `Profiles()` is boundary-loop detection, not face detection: it misses bare crossings (subdivision noted open in `docs/fusion-gap-analysis.md`), nested loops/holes, containment, winding/area, and self-intersection. Profiles are the artifact extrude/revolve consume, so closure/region correctness is core to verification. | XL |
+| **Constraint/dimension parity** | Represent arbitrary sketches: H/V between points, entity-level symmetry, generalized midpoint, concentric arcs, unified Equal across line/arc, entity Fix/ground, coincident point-to-entity; arc radius/diameter & arc-length dims, tangent-edge distance, angle-quadrant selection, ordinate/baseline/chained dims. | S–L |
+| **Curve parity** | Elliptical arcs (tracked), fit-point/closed splines, point-on/tangent-to spline (spline v2, tracked), conic/NURBS import representation, sketch text outlines, explicit sketch-point entities. | M–XL |
+
+### Tier 3 — important, second wave
+
+| Item | Why it matters | Effort |
+|---|---|---|
+| **Importers / round-trip fidelity** | Verify an *existing* sketch, not only one authored in this API (see the workflow question below). DXF/SVG recover geometry only — constraints need a Fusion-export→JSON bridge. | L–XL |
+| **Unit-aware expression algebra** | `param` evaluates base-unit magnitudes; a kind error hidden inside a compound expression (`width + angle`) is not caught. | L |
+| **World/global parameters & parameter-driven planes** | Real models share user parameters across sketches and drive construction planes. `World` keeps params per-sketch today. | M |
+| **Solver robustness & export fidelity** | Analytic Jacobian rows / decomposition / conditioning reports for large agent-generated sketches; world-space DXF; display-unit metadata on exports. | L–M |
+
+## Open workflow question (reorders the roadmap)
+
+How does a sketch *enter* the oracle?
+
+- **Authored directly in this Go API** → no importer needed; the roadmap above
+  stands as-is.
+- **Agent generates a Fusion script, then verifies the result** → an
+  **importer/bridge is must-have** (jumps to Tier 1), and DXF/SVG **cannot carry
+  constraints**, so a Fusion-export→our-JSON path is required to verify
+  constraint *intent*, not just geometry.
+
+Resolve this before committing to Tier-3 ordering.
+
+## Relationship to other docs
+
+- `docs/fusion-gap-analysis.md` — exhaustive feature-by-feature Fusion-parity
+  tracker; the source of truth for which individual items are done/open.
+- `docs/3d-planes-design.md` — the `World`/`Plane` placement layer this
+  separation contract builds on (and where the reference-geometry seam attaches).
+- `docs/diagnostics-design.md`, `docs/ambiguity-probe-design.md` — the diagnostic
+  building blocks a `VerificationReport` aggregates.
