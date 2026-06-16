@@ -1,9 +1,16 @@
 package sketch
 
 import (
+	"errors"
 	"fmt"
 	"math"
 )
+
+// ErrInvalidShape is returned by the compound shape builders ([Sketch.AddPolygon],
+// [Sketch.AddSlot]) and the pattern tools ([Sketch.AddPatternRect],
+// [Sketch.AddPatternCircular]) when given counts or coordinates that cannot form
+// the requested shape.
+var ErrInvalidShape = errors.New("sketch: invalid shape parameters")
 
 // Compound constructors build several primitives plus the constraints that
 // hold them in shape, in one call. They are pure sugar over the primitive
@@ -20,7 +27,8 @@ type Rectangle struct {
 	AB, BC, CD, DA *Line
 }
 
-// AddRectangle builds an axis-aligned rectangle between two opposite corners:
+// AddRectangle builds a rectangle aligned to the sketch's plane-local axes,
+// between two opposite corners:
 // four lines sharing corner points, held rectangular by horizontal constraints
 // on AB/CD and vertical constraints on BC/DA. Position, width and height stay
 // free to ground and dimension.
@@ -46,15 +54,15 @@ type Polygon struct {
 	Spokes   []*Line // construction lines center→vertex that hold regularity
 }
 
-// AddPolygon builds a regular n-sided polygon (n ≥ 3; panics otherwise)
-// centered at (cx, cy) with circumradius r and its first vertex at angle 0.
-// Regularity is held by construction "spoke" lines from the center to every
-// vertex constrained equal, plus all sides constrained equal — the standard
-// sketcher formulation. The polygon keeps 4 degrees of freedom (position,
-// rotation, size) to ground and dimension.
-func (s *Sketch) AddPolygon(cx, cy float64, n int, r float64) *Polygon {
+// AddPolygon builds a regular n-sided polygon centered at (cx, cy) with
+// circumradius r and its first vertex at angle 0. Regularity is held by
+// construction "spoke" lines from the center to every vertex constrained equal,
+// plus all sides constrained equal — the standard sketcher formulation. The
+// polygon keeps 4 degrees of freedom (position, rotation, size) to ground and
+// dimension. It returns [ErrInvalidShape] when n < 3.
+func (s *Sketch) AddPolygon(cx, cy float64, n int, r float64) (*Polygon, error) {
 	if n < 3 {
-		panic(fmt.Sprintf("sketch: AddPolygon requires n >= 3, got %d", n))
+		return nil, fmt.Errorf("%w: AddPolygon requires n >= 3, got %d", ErrInvalidShape, n)
 	}
 	p := &Polygon{Center: s.AddPoint(cx, cy)}
 	for i := 0; i < n; i++ {
@@ -70,7 +78,7 @@ func (s *Sketch) AddPolygon(cx, cy float64, n int, r float64) *Polygon {
 	for i := 1; i < n; i++ {
 		s.AddConstraint(NewEqual(p.Sides[0], p.Sides[i]), NewEqual(p.Spokes[0], p.Spokes[i]))
 	}
-	return p
+	return p, nil
 }
 
 // Slot groups the geometry created by [Sketch.AddSlot].
@@ -90,13 +98,13 @@ type Slot struct {
 // plain tangent constraint — also pins the contact point, so the caps stay
 // semicircular instead of sliding along the flanks. The slot keeps 5 degrees
 // of freedom (both centers and the radius) to ground and dimension; pin the
-// width by dimensioning a cap contact point to its center. Panics if the two
-// centers coincide.
-func (s *Sketch) AddSlot(x1, y1, x2, y2, r float64) *Slot {
+// width by dimensioning a cap contact point to its center. It returns
+// [ErrInvalidShape] if the two centers coincide.
+func (s *Sketch) AddSlot(x1, y1, x2, y2, r float64) (*Slot, error) {
 	dx, dy := x2-x1, y2-y1
 	n := math.Hypot(dx, dy)
 	if n == 0 {
-		panic("sketch: AddSlot requires distinct cap centers")
+		return nil, fmt.Errorf("%w: AddSlot requires distinct cap centers", ErrInvalidShape)
 	}
 	nx, ny := -dy/n, dx/n // left normal of the c1→c2 axis
 	c1, c2 := s.AddPoint(x1, y1), s.AddPoint(x2, y2)
@@ -123,5 +131,5 @@ func (s *Sketch) AddSlot(x1, y1, x2, y2, r float64) *Slot {
 	spoke(c1, p1l, st.L2)
 	spoke(c2, p2l, st.L2)
 	s.AddConstraint(NewEqualRadius(st.A1, st.A2))
-	return st
+	return st, nil
 }

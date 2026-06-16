@@ -170,20 +170,10 @@ func (s *Sketch) bounds() (bbox, bool) {
 }
 
 // arcPolyline samples the arc counter-clockwise from start to end.
+// arcPolyline samples an arc for rendering. The sampling math lives in geom
+// (geom/sample.go) so the exporters and the world-space sampler agree exactly.
 func arcPolyline(a *Arc, segments int) [][2]float64 {
-	if segments < 2 {
-		segments = 2
-	}
-	cx, cy := a.Center.x(), a.Center.y()
-	r := a.R()
-	start := a.StartAngle()
-	sweep := a.Sweep()
-	pts := make([][2]float64, segments+1)
-	for i := 0; i <= segments; i++ {
-		ang := start + sweep*float64(i)/float64(segments)
-		pts[i] = [2]float64{cx + r*math.Cos(ang), cy + r*math.Sin(ang)}
-	}
-	return pts
+	return a.Geometry().Polyline(segments)
 }
 
 // SVG renders the sketch to an SVG document. The y-axis is flipped so the

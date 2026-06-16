@@ -172,35 +172,15 @@ func (s *Sketch) PNG(options ...PNGOption) ([]byte, error) {
 }
 
 // circlePolyline samples the full circle counter-clockwise.
+// circlePolyline and ellipsePolyline sample for rasterizing. The sampling math
+// lives in geom (geom/sample.go) so the exporters and the world-space sampler
+// agree exactly.
 func circlePolyline(c *Circle, segments int) [][2]float64 {
-	if segments < 2 {
-		segments = 2
-	}
-	cx, cy, r := c.Center.x(), c.Center.y(), c.r()
-	pts := make([][2]float64, segments+1)
-	for i := 0; i <= segments; i++ {
-		ang := 2 * math.Pi * float64(i) / float64(segments)
-		pts[i] = [2]float64{cx + r*math.Cos(ang), cy + r*math.Sin(ang)}
-	}
-	return pts
+	return c.Geometry().Polyline(segments)
 }
 
-// ellipsePolyline samples the full ellipse counter-clockwise, applying its
-// local-frame rotation.
 func ellipsePolyline(e *Ellipse, segments int) [][2]float64 {
-	if segments < 2 {
-		segments = 2
-	}
-	cx, cy := e.Center.x(), e.Center.y()
-	rx, ry := e.rx(), e.ry()
-	cosr, sinr := math.Cos(e.rot()), math.Sin(e.rot())
-	pts := make([][2]float64, segments+1)
-	for i := 0; i <= segments; i++ {
-		ang := 2 * math.Pi * float64(i) / float64(segments)
-		lx, ly := rx*math.Cos(ang), ry*math.Sin(ang)
-		pts[i] = [2]float64{cx + lx*cosr - ly*sinr, cy + lx*sinr + ly*cosr}
-	}
-	return pts
+	return e.Geometry().Polyline(segments)
 }
 
 // parseRenderColor resolves the color strings the renderers accept: #rgb and

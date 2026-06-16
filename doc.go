@@ -39,10 +39,13 @@
 //
 // # Orientation and sign conventions
 //
-// Coordinates are Y-up and angles are counterclockwise-positive. Every
-// directional convention in the package derives from these two: "the left of
-// a line" means the left of its start→end direction, and a positive angle
-// turns counterclockwise.
+// A sketch's coordinates are plane-local (u, v): Y-up and angles
+// counterclockwise-positive, in the frame of the construction plane the sketch
+// is drawn on (the world XY datum by default — see [Plane] and [World]). World
+// (x, y, z) coordinates are a derived read-out via [Point.World]. Every
+// directional convention in the package derives from the plane-local frame:
+// "the left of a line" means the left of its start→end direction, and a
+// positive angle turns counterclockwise.
 //
 // Constraints divide into two groups by how they treat sides and branches:
 //

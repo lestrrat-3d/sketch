@@ -31,7 +31,9 @@ func (sp *Spline) Geometry() *geom.Spline {
 	for i, p := range sp.Control {
 		ctrl[i] = p.Geometry()
 	}
-	return geom.NewSpline(ctrl...)
+	// The control points are already validated (AddSpline requires >= 4), so
+	// build the snapshot directly rather than re-validating through NewSpline.
+	return &geom.Spline{Control: ctrl}
 }
 
 // Eval returns the curve point at parameter t ∈ [0, 1] (clamped), using the
@@ -53,14 +55,14 @@ func (sp *Spline) controlCoords() [][2]float64 {
 	return pts
 }
 
-// AddSpline adds a cubic B-spline over the given control points (at least 4;
-// panics otherwise) and returns its handle. Share control points with other
-// geometry to relate them.
-func (s *Sketch) AddSpline(control ...*Point) *Spline {
+// AddSpline adds a cubic B-spline over the given control points and returns its
+// handle. Share control points with other geometry to relate them. It returns
+// [ErrInvalidShape] with fewer than 4 control points.
+func (s *Sketch) AddSpline(control ...*Point) (*Spline, error) {
 	if len(control) < 4 {
-		panic(fmt.Sprintf("sketch: AddSpline requires at least 4 control points, got %d", len(control)))
+		return nil, fmt.Errorf("%w: AddSpline requires at least 4 control points, got %d", ErrInvalidShape, len(control))
 	}
 	sp := &Spline{s: s, Control: append([]*Point(nil), control...), id: len(s.ents)}
 	s.ents = append(s.ents, sp)
-	return sp
+	return sp, nil
 }

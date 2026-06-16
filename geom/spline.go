@@ -1,6 +1,9 @@
 package geom
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // Spline is an open cubic B-spline defined by its control points, using a
 // clamped uniform knot vector. Clamping makes the curve start at the first
@@ -10,13 +13,17 @@ type Spline struct {
 	Control []*Point
 }
 
-// NewSpline returns a cubic B-spline over the given control points. It panics
-// with fewer than 4 control points.
-func NewSpline(control ...*Point) *Spline {
+// ErrTooFewControlPoints is returned by [NewSpline] when given fewer than the
+// four control points a cubic B-spline requires.
+var ErrTooFewControlPoints = errors.New("geom: a cubic B-spline requires at least 4 control points")
+
+// NewSpline returns a cubic B-spline over the given control points. It returns
+// [ErrTooFewControlPoints] with fewer than 4 control points.
+func NewSpline(control ...*Point) (*Spline, error) {
 	if len(control) < 4 {
-		panic(fmt.Sprintf("geom: NewSpline requires at least 4 control points, got %d", len(control)))
+		return nil, fmt.Errorf("%w, got %d", ErrTooFewControlPoints, len(control))
 	}
-	return &Spline{Control: control}
+	return &Spline{Control: control}, nil
 }
 
 // Eval returns the curve point at parameter t ∈ [0, 1] (clamped).

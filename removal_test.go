@@ -132,7 +132,7 @@ func TestRemovalJSONRoundTrip(t *testing.T) {
 
 	data, err := json.Marshal(s)
 	require.NoError(t, err, "marshal")
-	require.Contains(t, string(data), `"version":1`, "version written")
+	require.Contains(t, string(data), `"version":2`, "version written")
 
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2), "unmarshal")
@@ -166,16 +166,17 @@ func TestJSONVersionGuard(t *testing.T) {
 	require.NoError(t, json.Unmarshal(legacy, &s2), "legacy document loads")
 
 	// Future document: rejected loudly.
-	doc["version"] = json.RawMessage("2")
+	doc["version"] = json.RawMessage("3")
 	future, err := json.Marshal(doc)
 	require.NoError(t, err, "re-encode future")
 	var s3 sketch.Sketch
-	require.ErrorContains(t, json.Unmarshal(future, &s3), "unsupported document version 2")
+	require.ErrorContains(t, json.Unmarshal(future, &s3), "unsupported document version 3")
 }
 
 func TestRemoveSplineGuardsControlPoints(t *testing.T) {
 	s := sketch.New()
-	sp := s.AddSpline(s.AddPoint(0, 0), s.AddPoint(2, 4), s.AddPoint(8, 4), s.AddPoint(10, 0))
+	sp, err := s.AddSpline(s.AddPoint(0, 0), s.AddPoint(2, 4), s.AddPoint(8, 4), s.AddPoint(10, 0))
+	require.NoError(t, err)
 	require.False(t, s.RemovePoint(sp.Control[2]), "control point of a live spline is not removable")
 	require.True(t, s.RemoveEntity(sp), "spline removable")
 	require.True(t, s.RemovePoint(sp.Control[2]), "control point orphaned after spline removal")

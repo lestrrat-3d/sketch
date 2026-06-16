@@ -27,7 +27,8 @@ func TestAddRectangle(t *testing.T) {
 
 func TestAddPolygon(t *testing.T) {
 	s := sketch.New()
-	p := s.AddPolygon(0, 0, 6, 5)
+	p, err := s.AddPolygon(0, 0, 6, 5)
+	require.NoError(t, err)
 	s.Fix(p.Center)
 	s.Fix(p.Vertices[0]) // at (5, 0): pins rotation and size
 
@@ -45,14 +46,16 @@ func TestAddPolygon(t *testing.T) {
 	}
 }
 
-func TestAddPolygonPanics(t *testing.T) {
+func TestAddPolygonInvalid(t *testing.T) {
 	s := sketch.New()
-	require.Panics(t, func() { s.AddPolygon(0, 0, 2, 5) }, "n < 3")
+	_, err := s.AddPolygon(0, 0, 2, 5)
+	require.ErrorIs(t, err, sketch.ErrInvalidShape, "n < 3")
 }
 
 func TestAddSlot(t *testing.T) {
 	s := sketch.New()
-	sl := s.AddSlot(0, 0, 10, 0, 2) // built at radius 2, driven to 3 below
+	sl, err := s.AddSlot(0, 0, 10, 0, 2) // built at radius 2, driven to 3 below
+	require.NoError(t, err)
 	s.Fix(sl.C1)
 	s.Fix(sl.C2)
 	require.Equal(t, 1, s.DOF(), "only the radius is free (contact points pinned)")
@@ -71,11 +74,12 @@ func TestAddSlot(t *testing.T) {
 
 func TestJSONRoundTripSlot(t *testing.T) {
 	s := sketch.New()
-	sl := s.AddSlot(0, 0, 10, 0, 3)
+	sl, err := s.AddSlot(0, 0, 10, 0, 3)
+	require.NoError(t, err)
 	s.Fix(sl.C1)
 	s.Fix(sl.C2)
 	s.AddConstraint(sketch.NewDistance(sl.L1.Start, sl.C1, 3))
-	_, err := s.Solve()
+	_, err = s.Solve()
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)

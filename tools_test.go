@@ -313,7 +313,8 @@ func TestPatternRect(t *testing.T) {
 	s := sketch.New()
 	seed := s.AddLine(s.AddPoint(0, 0), s.AddPoint(1, 0))
 
-	p := s.AddPatternRect([]sketch.Entity{seed}, 2, 2, 5, 3)
+	p, err := s.AddPatternRect([]sketch.Entity{seed}, 2, 2, 5, 3)
+	require.NoError(t, err)
 	require.Len(t, p.Instances, 3, "2x2 grid minus the seed cell")
 
 	// First instance is cell (1,0): the seed shifted by (5,0).
@@ -329,23 +330,25 @@ func TestPatternRectTracksSeed(t *testing.T) {
 	s.Fix(a)
 	b := s.AddPoint(1, 0)
 	seed := s.AddLine(a, b)
-	p := s.AddPatternRect([]sketch.Entity{seed}, 2, 1, 5, 0)
+	p, err := s.AddPatternRect([]sketch.Entity{seed}, 2, 1, 5, 0)
+	require.NoError(t, err)
 	inst := p.Instances[0].(*sketch.Line)
 
 	// Widen the seed; the copy must follow rigidly (offset stays 5).
 	d := sketch.NewHorizontalDistance(a, b, 2)
 	s.AddConstraint(d)
-	_, err := s.Solve()
+	_, err = s.Solve()
 	require.NoError(t, err)
 	require.InDelta(t, 2, b.X(), 1e-6)
 	require.InDelta(t, 5, inst.Start.X(), 1e-6)
 	require.InDelta(t, 7, inst.End.X(), 1e-6, "copy of b tracks at b+5")
 }
 
-func TestPatternRectPanics(t *testing.T) {
+func TestPatternRectInvalid(t *testing.T) {
 	s := sketch.New()
 	seed := s.AddLine(s.AddPoint(0, 0), s.AddPoint(1, 0))
-	require.Panics(t, func() { s.AddPatternRect([]sketch.Entity{seed}, 0, 2, 5, 5) })
+	_, err := s.AddPatternRect([]sketch.Entity{seed}, 0, 2, 5, 5)
+	require.ErrorIs(t, err, sketch.ErrInvalidShape)
 }
 
 func TestPatternCircular(t *testing.T) {
@@ -354,9 +357,10 @@ func TestPatternCircular(t *testing.T) {
 	s.Fix(center)
 	c := s.AddCircle(s.AddPoint(5, 0), 1)
 
-	p := s.AddPatternCircular([]sketch.Entity{c}, center, 4)
+	p, err := s.AddPatternCircular([]sketch.Entity{c}, center, 4)
+	require.NoError(t, err)
 	require.Len(t, p.Instances, 3)
-	_, err := s.Solve()
+	_, err = s.Solve()
 	require.NoError(t, err)
 
 	c1 := p.Instances[0].(*sketch.Circle) // +90°
@@ -369,17 +373,19 @@ func TestPatternCircular(t *testing.T) {
 	require.InDelta(t, 0, c2.Center.Y(), 1e-6)
 }
 
-func TestPatternCircularPanics(t *testing.T) {
+func TestPatternCircularInvalid(t *testing.T) {
 	s := sketch.New()
 	center := s.AddPoint(0, 0)
 	c := s.AddCircle(s.AddPoint(5, 0), 1)
-	require.Panics(t, func() { s.AddPatternCircular([]sketch.Entity{c}, center, 1) })
+	_, err := s.AddPatternCircular([]sketch.Entity{c}, center, 1)
+	require.ErrorIs(t, err, sketch.ErrInvalidShape)
 }
 
 func TestPatternRectJSONRoundTrip(t *testing.T) {
 	s := sketch.New()
 	seed := s.AddLine(s.AddPoint(0, 0), s.AddPoint(1, 0))
-	s.AddPatternRect([]sketch.Entity{seed}, 2, 1, 5, 0)
+	_, err := s.AddPatternRect([]sketch.Entity{seed}, 2, 1, 5, 0)
+	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
 	require.NoError(t, err)
@@ -397,9 +403,10 @@ func TestOffsetLine(t *testing.T) {
 	src := s.AddLine(a, b)
 
 	// Positive offset is the left normal of +x, i.e. +y.
-	g := s.AddOffset([]sketch.Entity{src}, 2)
+	g, err := s.AddOffset([]sketch.Entity{src}, 2)
+	require.NoError(t, err)
 	dst := g.Copies[0].(*sketch.Line)
-	_, err := s.Solve()
+	_, err = s.Solve()
 	require.NoError(t, err)
 	require.InDelta(t, 2, dst.Start.Y(), 1e-6)
 	require.InDelta(t, 2, dst.End.Y(), 1e-6)
@@ -412,6 +419,29 @@ func TestOffsetLine(t *testing.T) {
 	require.InDelta(t, 5, dst.End.Y(), 1e-6)
 }
 
+func TestOffsetZeroLengthErrors(t *testing.T) {
+	s := sketch.New()
+	p := s.AddPoint(0, 0)
+	src := s.AddLine(p, p) // zero length: no offset direction
+	_, err := s.AddOffset([]sketch.Entity{src}, 2)
+	require.ErrorIs(t, err, sketch.ErrInvalidShape)
+}
+
+func TestOffsetZeroLengthIsAtomic(t *testing.T) {
+	s := sketch.New()
+	good := s.AddLine(s.AddPoint(0, 0), s.AddPoint(10, 0))
+	z := s.AddPoint(5, 5)
+	bad := s.AddLine(z, z) // zero length, second in the chain
+	pts, ents, cons := len(s.Points()), len(s.Entities()), len(s.Constraints())
+
+	_, err := s.AddOffset([]sketch.Entity{good, bad}, 2)
+	require.ErrorIs(t, err, sketch.ErrInvalidShape)
+	// A failed AddOffset must leave the sketch untouched (no partial geometry).
+	require.Equal(t, pts, len(s.Points()), "no points added")
+	require.Equal(t, ents, len(s.Entities()), "no entities added")
+	require.Equal(t, cons, len(s.Constraints()), "no constraints added")
+}
+
 func TestOffsetChainMitresCorner(t *testing.T) {
 	s := sketch.New()
 	// L-shaped chain: (0,0)->(10,0)->(10,10).
@@ -421,8 +451,9 @@ func TestOffsetChainMitresCorner(t *testing.T) {
 	s.Fix(p2)
 	l1, l2 := s.AddLine(p0, p1), s.AddLine(p1, p2)
 
-	g := s.AddOffset([]sketch.Entity{l1, l2}, 2)
-	_, err := s.Solve()
+	g, err := s.AddOffset([]sketch.Entity{l1, l2}, 2)
+	require.NoError(t, err)
+	_, err = s.Solve()
 	require.NoError(t, err)
 
 	d1, d2 := g.Copies[0].(*sketch.Line), g.Copies[1].(*sketch.Line)
@@ -435,7 +466,8 @@ func TestOffsetChainMitresCorner(t *testing.T) {
 func TestOffsetJSONRoundTrip(t *testing.T) {
 	s := sketch.New()
 	src := s.AddLine(s.AddPoint(0, 0), s.AddPoint(10, 0))
-	s.AddOffset([]sketch.Entity{src}, 2)
+	_, err := s.AddOffset([]sketch.Entity{src}, 2)
+	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
 	require.NoError(t, err)

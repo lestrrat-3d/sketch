@@ -68,9 +68,9 @@ func (s *Sketch) AddChamfer(l1, l2 *Line, d float64) (*Chamfer, error)
 
 // Copy tools: copies linked to the seed by constraints.
 func (s *Sketch) AddMirror(ents []Entity, axis *Line) *Mirror
-func (s *Sketch) AddPatternRect(ents []Entity, nx, ny int, dx, dy float64) *Pattern
-func (s *Sketch) AddPatternCircular(ents []Entity, center *Point, n int) *Pattern
-func (s *Sketch) AddOffset(ents []Entity, d float64) *OffsetGroup
+func (s *Sketch) AddPatternRect(ents []Entity, nx, ny int, dx, dy float64) (*Pattern, error)
+func (s *Sketch) AddPatternCircular(ents []Entity, center *Point, n int) (*Pattern, error)
+func (s *Sketch) AddOffset(ents []Entity, d float64) (*OffsetGroup, error)
 ```
 
 ## Mechanics per tool

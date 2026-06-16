@@ -46,18 +46,37 @@ type jsonSystem struct {
 	Angle  string `json:"angle"`
 }
 
-// jsonVersion is the current sketch document schema version. Documents
-// without a version field (legacy, effectively version 0) still load;
-// documents from a newer schema are rejected rather than mis-loaded.
-const jsonVersion = 1
+// jsonVersion is the current document schema version. Version-2 documents carry
+// an explicit "kind" ("sketch" or "world") and placement. Legacy documents
+// (version absent/0/1, no "kind") still load as world-XY sketches; documents
+// from a newer schema are rejected rather than mis-loaded.
+const jsonVersion = 2
 
-type jsonSketch struct {
-	Version     int              `json:"version"`
+// Document kind discriminators (the top-level "kind" field).
+const (
+	kindSketch = "sketch"
+	kindWorld  = "world"
+)
+
+// jsonSketchBody is the kind/version-less payload shared by a standalone sketch
+// document and a sketch element inside a world document. Decoding goes through
+// (*Sketch).buildFromBody for both, so reference validation and constraint
+// reconstruction live in exactly one place.
+type jsonSketchBody struct {
 	Points      []jsonPoint      `json:"points"`
 	Entities    []jsonEntity     `json:"entities"`
 	Constraints []jsonConstraint `json:"constraints"`
 	Units       *jsonSystem      `json:"units,omitempty"`
 	Parameters  *param.Table     `json:"parameters,omitempty"`
+}
+
+// jsonSketchDoc is a standalone (engine-only) sketch document: the shared body
+// plus a kind/version wrapper and an inline world-frame datum plane.
+type jsonSketchDoc struct {
+	Kind    string `json:"kind,omitempty"`
+	Version int    `json:"version"`
+	jsonSketchBody
+	Plane *jsonPlane `json:"plane,omitempty"`
 }
 
 // dimJSON builds the serialized form of a dimensional constraint.
@@ -87,12 +106,30 @@ func restoreDim(d Dimension, jc jsonConstraint) {
 }
 
 // MarshalJSON implements [json.Marshaler], producing a portable, reloadable
-// description of the sketch.
+// standalone sketch document (kind "sketch") with the sketch's plane inlined.
+// The plane must be a world-frame datum; a sketch on a derived (world-owned)
+// plane must be serialized through its [World] instead.
 func (s *Sketch) MarshalJSON() ([]byte, error) {
-	js := jsonSketch{Version: jsonVersion}
+	body, err := s.marshalBody()
+	if err != nil {
+		return nil, err
+	}
+	jp, err := inlinePlaneJSON(s.plane())
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(jsonSketchDoc{
+		Kind: kindSketch, Version: jsonVersion,
+		jsonSketchBody: body, Plane: jp,
+	})
+}
+
+// marshalBody builds the shared, placement-free payload of a sketch.
+func (s *Sketch) marshalBody() (jsonSketchBody, error) {
+	var body jsonSketchBody
 
 	for _, p := range s.points {
-		js.Points = append(js.Points, jsonPoint{
+		body.Points = append(body.Points, jsonPoint{
 			X: p.x(), Y: p.y(), Fixed: p.IsFixed(),
 			Name: p.name, Construction: p.construction,
 		})
@@ -101,19 +138,19 @@ func (s *Sketch) MarshalJSON() ([]byte, error) {
 	for _, e := range s.ents {
 		switch t := e.(type) {
 		case *Line:
-			js.Entities = append(js.Entities, jsonEntity{
+			body.Entities = append(body.Entities, jsonEntity{
 				Type: "line", Points: []int{t.Start.id, t.End.id}, Construction: t.construction,
 			})
 		case *Circle:
-			js.Entities = append(js.Entities, jsonEntity{
+			body.Entities = append(body.Entities, jsonEntity{
 				Type: "circle", Points: []int{t.Center.id}, Radius: t.r(), Construction: t.construction,
 			})
 		case *Arc:
-			js.Entities = append(js.Entities, jsonEntity{
+			body.Entities = append(body.Entities, jsonEntity{
 				Type: "arc", Points: []int{t.Center.id, t.Start.id, t.End.id}, Construction: t.construction,
 			})
 		case *Ellipse:
-			js.Entities = append(js.Entities, jsonEntity{
+			body.Entities = append(body.Entities, jsonEntity{
 				Type: "ellipse", Points: []int{t.Center.id},
 				Rx: t.rx(), Ry: t.ry(), Rotation: t.rot(), Construction: t.construction,
 			})
@@ -122,7 +159,7 @@ func (s *Sketch) MarshalJSON() ([]byte, error) {
 			for _, c := range t.Control {
 				je.Points = append(je.Points, c.id)
 			}
-			js.Entities = append(js.Entities, je)
+			body.Entities = append(body.Entities, je)
 		}
 	}
 
@@ -132,18 +169,18 @@ func (s *Sketch) MarshalJSON() ([]byte, error) {
 		}
 		jc, ok := marshalConstraint(c)
 		if !ok {
-			return nil, fmt.Errorf("sketch: cannot serialize constraint %T", c)
+			return jsonSketchBody{}, fmt.Errorf("sketch: cannot serialize constraint %T", c)
 		}
-		js.Constraints = append(js.Constraints, jc)
+		body.Constraints = append(body.Constraints, jc)
 	}
 
-	js.Units = &jsonSystem{Length: s.sys.Length.Symbol(), Angle: s.sys.Angle.Symbol()}
+	body.Units = &jsonSystem{Length: s.sys.Length.Symbol(), Angle: s.sys.Angle.Symbol()}
 
 	if s.params != nil && len(s.params.Names()) > 0 {
-		js.Parameters = s.params
+		body.Parameters = s.params
 	}
 
-	return json.Marshal(js)
+	return body, nil
 }
 
 func marshalConstraint(c Constraint) (jsonConstraint, bool) {
@@ -208,27 +245,72 @@ func marshalConstraint(c Constraint) (jsonConstraint, bool) {
 	return jsonConstraint{}, false
 }
 
-// UnmarshalJSON implements [json.Unmarshaler], rebuilding the sketch in place.
+// UnmarshalJSON implements [json.Unmarshaler], rebuilding the sketch in place
+// from a standalone sketch document. It rejects a world document and a
+// missing-kind document carrying v2-only keys, and requires a plane for a v2
+// "sketch" document; a legacy document (no kind, version absent/0/1) loads as a
+// world-XY sketch.
 func (s *Sketch) UnmarshalJSON(data []byte) error {
-	var js jsonSketch
-	if err := json.Unmarshal(data, &js); err != nil {
+	pf, err := preflight(data)
+	if err != nil {
 		return err
 	}
-	if js.Version > jsonVersion {
-		return fmt.Errorf("sketch: unsupported document version %d (this build reads up to %d)", js.Version, jsonVersion)
+	if pf.version > jsonVersion {
+		return fmt.Errorf("sketch: unsupported document version %d (this build reads up to %d)", pf.version, jsonVersion)
+	}
+	switch pf.kind {
+	case kindWorld:
+		return fmt.Errorf("%w: got a world document, want a sketch", ErrWrongDocumentKind)
+	case kindSketch, "":
+		// handled below
+	default:
+		return fmt.Errorf("%w: unknown kind %q", ErrWrongDocumentKind, pf.kind)
+	}
+	if pf.version >= 2 && pf.kind == "" {
+		return fmt.Errorf("%w: a version %d document requires a \"kind\"", ErrWrongDocumentKind, pf.version)
+	}
+	if pf.kind == "" && (pf.has("plane") || pf.has("planes") || pf.has("sketches")) {
+		return fmt.Errorf("%w: a legacy (kind-less) document must not carry a v2-only key", ErrWrongDocumentKind)
 	}
 
-	*s = Sketch{sys: units.Metric()}
-	if js.Units != nil {
-		if lu, ok := units.Lookup(js.Units.Length); ok && lu.Kind() == units.Length {
+	var doc jsonSketchDoc
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return err
+	}
+
+	var plane *Plane
+	switch pf.kind {
+	case kindSketch:
+		if doc.Plane == nil {
+			return ErrMissingPlane
+		}
+		plane, err = standalonePlaneFromJSON(*doc.Plane)
+		if err != nil {
+			return err
+		}
+	default: // legacy: a 2D sketch is a world-XY sketch
+		plane = WorldXY()
+	}
+
+	*s = Sketch{sys: units.Metric(), pl: plane}
+	return s.buildFromBody(doc.jsonSketchBody)
+}
+
+// buildFromBody rebuilds the sketch's geometry, constraints, units and
+// parameters from a decoded body. The sketch's vars/points/ents/cons slices
+// must already be empty (a fresh *s); placement and version are handled by the
+// caller.
+func (s *Sketch) buildFromBody(body jsonSketchBody) error {
+	if body.Units != nil {
+		if lu, ok := units.Lookup(body.Units.Length); ok && lu.Kind() == units.Length {
 			s.sys.Length = lu
 		}
-		if au, ok := units.Lookup(js.Units.Angle); ok && au.Kind() == units.Angle {
+		if au, ok := units.Lookup(body.Units.Angle); ok && au.Kind() == units.Angle {
 			s.sys.Angle = au
 		}
 	}
 
-	for _, jp := range js.Points {
+	for _, jp := range body.Points {
 		p := s.AddPoint(jp.X, jp.Y)
 		p.SetName(jp.Name)
 		p.SetConstruction(jp.Construction)
@@ -266,53 +348,54 @@ func (s *Sketch) UnmarshalJSON(data []byte) error {
 		return e, nil
 	}
 
-	for _, je := range js.Entities {
+	for _, je := range body.Entities {
+		ps, err := s.pointsRef(je.Points)
+		if err != nil {
+			return err
+		}
 		switch je.Type {
 		case "line":
-			if len(je.Points) != 2 {
-				return fmt.Errorf("sketch: line needs 2 points, got %d", len(je.Points))
+			if len(ps) != 2 {
+				return fmt.Errorf("sketch: line needs 2 points, got %d", len(ps))
 			}
-			s.AddLine(s.points[je.Points[0]], s.points[je.Points[1]]).SetConstruction(je.Construction)
+			s.AddLine(ps[0], ps[1]).SetConstruction(je.Construction)
 		case "circle":
-			if len(je.Points) != 1 {
-				return fmt.Errorf("sketch: circle needs 1 point, got %d", len(je.Points))
+			if len(ps) != 1 {
+				return fmt.Errorf("sketch: circle needs 1 point, got %d", len(ps))
 			}
-			s.AddCircle(s.points[je.Points[0]], je.Radius).SetConstruction(je.Construction)
+			s.AddCircle(ps[0], je.Radius).SetConstruction(je.Construction)
 		case "arc":
-			if len(je.Points) != 3 {
-				return fmt.Errorf("sketch: arc needs 3 points, got %d", len(je.Points))
+			if len(ps) != 3 {
+				return fmt.Errorf("sketch: arc needs 3 points, got %d", len(ps))
 			}
-			s.AddArc(s.points[je.Points[0]], s.points[je.Points[1]], s.points[je.Points[2]]).SetConstruction(je.Construction)
+			s.AddArc(ps[0], ps[1], ps[2]).SetConstruction(je.Construction)
 		case "ellipse":
-			if len(je.Points) != 1 {
-				return fmt.Errorf("sketch: ellipse needs 1 point, got %d", len(je.Points))
+			if len(ps) != 1 {
+				return fmt.Errorf("sketch: ellipse needs 1 point, got %d", len(ps))
 			}
-			s.AddEllipse(s.points[je.Points[0]], je.Rx, je.Ry, je.Rotation).SetConstruction(je.Construction)
+			s.AddEllipse(ps[0], je.Rx, je.Ry, je.Rotation).SetConstruction(je.Construction)
 		case "spline":
 			if je.Degree != 0 && je.Degree != 3 {
 				return fmt.Errorf("sketch: unsupported spline degree %d", je.Degree)
 			}
-			if len(je.Points) < 4 {
-				return fmt.Errorf("sketch: spline needs at least 4 control points, got %d", len(je.Points))
+			sp, err := s.AddSpline(ps...) // AddSpline validates the >= 4 count
+			if err != nil {
+				return err
 			}
-			ctrl := make([]*Point, len(je.Points))
-			for i, pi := range je.Points {
-				ctrl[i] = s.points[pi]
-			}
-			s.AddSpline(ctrl...).SetConstruction(je.Construction)
+			sp.SetConstruction(je.Construction)
 		default:
 			return fmt.Errorf("sketch: unknown entity type %q", je.Type)
 		}
 	}
 
-	for _, jc := range js.Constraints {
+	for _, jc := range body.Constraints {
 		if err := s.rebuildConstraint(jc, line, circle, circular, ellipse); err != nil {
 			return err
 		}
 	}
 
-	if js.Parameters != nil {
-		s.params = js.Parameters
+	if body.Parameters != nil {
+		s.params = body.Parameters
 	}
 	return nil
 }
@@ -324,7 +407,68 @@ func (s *Sketch) entByID(i int) Entity {
 	return s.ents[i]
 }
 
+// pointRef returns the point with id i, or an error if i is out of range. The
+// v2 decoder validates every reference through this before indexing, so a
+// malformed document errors rather than panicking.
+func (s *Sketch) pointRef(i int) (*Point, error) {
+	if i < 0 || i >= len(s.points) {
+		return nil, fmt.Errorf("sketch: point id %d out of range", i)
+	}
+	return s.points[i], nil
+}
+
+// pointsRef resolves a list of point ids, validating each.
+func (s *Sketch) pointsRef(ids []int) ([]*Point, error) {
+	out := make([]*Point, len(ids))
+	for k, i := range ids {
+		p, err := s.pointRef(i)
+		if err != nil {
+			return nil, err
+		}
+		out[k] = p
+	}
+	return out, nil
+}
+
+// constraintArity is the exact {points, entities} a serialized constraint of
+// each type must carry. The decoder validates argument counts against it before
+// indexing, so a malformed document (too few or too many refs) errors instead
+// of panicking or silently dropping extras. A type missing here simply skips the
+// count check (and is caught by the switch's default); the round-trip test
+// exercises every kind, so a stale entry surfaces there.
+var constraintArity = map[string][2]int{
+	"coincident": {2, 0}, "horizontal": {0, 1}, "vertical": {0, 1},
+	"parallel": {0, 2}, "perpendicular": {0, 2}, "equal_lines": {0, 2},
+	"collinear": {0, 2}, "angle": {0, 2}, "point_on_line": {1, 1},
+	"point_on_circle": {1, 1}, "point_on_ellipse": {1, 1}, "midpoint": {1, 1},
+	"symmetric": {2, 1}, "concentric": {0, 2}, "equal_radii": {0, 2},
+	"tangent_line_circle": {0, 2}, "tangent_circles": {0, 2},
+	"distance": {2, 0}, "hdistance": {2, 0}, "vdistance": {2, 0},
+	"distance_point_line": {1, 1}, "distance_lines": {0, 2}, "offset": {0, 2},
+	"radius": {0, 1}, "diameter": {0, 1},
+	"semi_major": {0, 1}, "semi_minor": {0, 1}, "ellipse_rotation": {0, 1},
+}
+
 func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, error), circle func(int) (*Circle, error), circular func(int) (Circular, error), ellipse func(int) (*Ellipse, error)) error {
+	// Validate references before indexing: enough arguments for the type, and
+	// every point/entity id in range.
+	if a, ok := constraintArity[jc.Type]; ok {
+		if len(jc.Points) != a[0] || len(jc.Entities) != a[1] {
+			return fmt.Errorf("sketch: constraint %q needs exactly %d point(s) and %d entity(ies), got %d and %d",
+				jc.Type, a[0], a[1], len(jc.Points), len(jc.Entities))
+		}
+	}
+	for _, i := range jc.Points {
+		if i < 0 || i >= len(s.points) {
+			return fmt.Errorf("sketch: constraint %q references point id %d out of range", jc.Type, i)
+		}
+	}
+	for _, i := range jc.Entities {
+		if i < 0 || i >= len(s.ents) {
+			return fmt.Errorf("sketch: constraint %q references entity id %d out of range", jc.Type, i)
+		}
+	}
+
 	pt := func(i int) *Point { return s.points[jc.Points[i]] }
 	// dim restores a dimensional constraint's unit/binding, then commits it.
 	dim := func(d Dimension) {

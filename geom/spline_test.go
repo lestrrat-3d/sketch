@@ -9,10 +9,11 @@ import (
 )
 
 func TestSplineEndpoints(t *testing.T) {
-	sp := geom.NewSpline(
+	sp, err := geom.NewSpline(
 		geom.NewPoint(0, 0), geom.NewPoint(2, 5), geom.NewPoint(8, 5),
 		geom.NewPoint(10, 0), geom.NewPoint(12, -3),
 	)
+	require.NoError(t, err)
 	x, y := sp.Eval(0)
 	require.InDelta(t, 0, x, 1e-12, "start x")
 	require.InDelta(t, 0, y, 1e-12, "start y")
@@ -28,10 +29,11 @@ func TestSplineBezierOracle(t *testing.T) {
 	p1 := [2]float64{0, 3}
 	p2 := [2]float64{3, 3}
 	p3 := [2]float64{3, 0}
-	sp := geom.NewSpline(
+	sp, err := geom.NewSpline(
 		geom.NewPoint(p0[0], p0[1]), geom.NewPoint(p1[0], p1[1]),
 		geom.NewPoint(p2[0], p2[1]), geom.NewPoint(p3[0], p3[1]),
 	)
+	require.NoError(t, err)
 	bezier := func(a, b, c, d, t float64) float64 {
 		u := 1 - t
 		return u*u*u*a + 3*u*u*t*b + 3*u*t*t*c + t*t*t*d
@@ -46,9 +48,10 @@ func TestSplineBezierOracle(t *testing.T) {
 func TestSplineSymmetry(t *testing.T) {
 	// Control polygon symmetric about x=5: the curve midpoint lies on the
 	// symmetry axis.
-	sp := geom.NewSpline(
+	sp, err := geom.NewSpline(
 		geom.NewPoint(0, 0), geom.NewPoint(2, 4), geom.NewPoint(8, 4), geom.NewPoint(10, 0),
 	)
+	require.NoError(t, err)
 	x, _ := sp.Eval(0.5)
 	require.InDelta(t, 5, x, 1e-12, "midpoint on symmetry axis")
 }
@@ -61,14 +64,16 @@ func TestSplineKnots(t *testing.T) {
 	require.InDelta(t, 2.0/3, k6[5], 1e-12, "6 points: second interior knot")
 }
 
-func TestSplinePanics(t *testing.T) {
-	require.Panics(t, func() { geom.NewSpline(geom.NewPoint(0, 0), geom.NewPoint(1, 1), geom.NewPoint(2, 2)) }, "needs 4 control points")
+func TestSplineTooFewControlPoints(t *testing.T) {
+	_, err := geom.NewSpline(geom.NewPoint(0, 0), geom.NewPoint(1, 1), geom.NewPoint(2, 2))
+	require.ErrorIs(t, err, geom.ErrTooFewControlPoints, "needs 4 control points")
 }
 
 func TestSplinePolyline(t *testing.T) {
-	sp := geom.NewSpline(
+	sp, err := geom.NewSpline(
 		geom.NewPoint(0, 0), geom.NewPoint(2, 4), geom.NewPoint(8, 4), geom.NewPoint(10, 0),
 	)
+	require.NoError(t, err)
 	pts := sp.Polyline(16)
 	require.Len(t, pts, 17, "segments+1 samples")
 	require.InDelta(t, 0, math.Hypot(pts[0][0], pts[0][1]), 1e-12, "starts at first control point")

@@ -52,8 +52,10 @@ expected to be built **on top of** this engine, not woven into it.
 | `solver.go` | Levenberg–Marquardt solver, numerical Jacobian, DOF/redundancy (rank) analysis. |
 | `diagnose.go` | Constraint diagnostics: `Diagnose` (redundant vs conflicting), `CheckConstraint` (pre-commit over-constraint rejection), `FreePoints`/`Point.IsFullyConstrained` (free-DOF attribution). Design in `docs/diagnostics-design.md`. |
 | `probe.go` | `Sketch.ProbeConfigurations`: multi-solution ambiguity probe — deterministic multi-start search (structured mirrors + splitmix64 restarts) for the discrete configurations a DOF-0 sketch admits. A falsifier: ≥2 found proves ambiguity, 1 never proves uniqueness. Design in `docs/ambiguity-probe-design.md`. |
-| `svg.go` / `png.go` / `dxf.go` / `json.go` | Exporters / serialization. `png.go` is a stdlib-only rasterizer (`image/png`) so agents/tools that read raster images can sanity-check sketches; visually equivalent to the SVG output. |
-| `geom/` | **Self-contained** context-agnostic geometry (own package). |
+| `plane.go` / `world.go` | 3D world & construction planes. `Plane` (datum = `space.Frame` derived from a stored definition), package-level world-frame datum constructors, `World` (owns planes + sketches, plane builders incl. derived `OffsetPlane`, `RemovePlane`). Design in `docs/3d-planes-design.md`. |
+| `svg.go` / `png.go` / `dxf.go` / `json.go` / `json_world.go` | Exporters / serialization. `png.go` is a stdlib-only rasterizer (`image/png`) so agents/tools that read raster images can sanity-check sketches; visually equivalent to the SVG output. `json_world.go` is the v2 `World`/`Plane` serialization + the `kind`-discriminator preflight. |
+| `geom/` | **Self-contained** context-agnostic 2D geometry (own package). |
+| `space/` | **Self-contained** 3D coordinate math (own package): `Vec3` + orthonormal `Frame` with the local↔world transform. |
 | `param/` | **Self-contained** parameter & expression engine (own package). |
 | `units/` | **Self-contained** units-of-measure library (own package). |
 | `examples/` | Executable Go examples (`Example_sketch_…` in `package examples_test`, `go test`-verified `// Output:` blocks) that double as living documentation. Never `package main` programs. |
@@ -80,6 +82,51 @@ the *mutating* sketch-level tools in `tools.go` (`Trim`/`Extend`/`Break`/
 `AddFillet`/`AddChamfer`/`AddMirror`/`AddPatternRect`/`AddPatternCircular`/
 `AddOffset`) feed them an entity's `Geometry()` snapshot, then build the
 replacement from sketch points and retire the originals with `RemoveEntity`.
+
+### The `space` package (slated for extraction)
+
+`space/` is the 3D analog of `geom`: a self-contained coordinate-math layer with
+no document state. It holds `Vec3` and the orthonormal right-handed `Frame`
+(origin + unit axes `U`,`V`; normal `N()` = `U`×`V`, derived not stored). The
+local↔world transform lives **only** here (`Frame.ToWorldUV`/`ToWorld`/`ToLocal`,
+the inverse being the transpose — never a matrix solve). It imports nothing but
+stdlib (not even `geom`); the arrow is `sketch -> space`, never the reverse.
+
+- **Frames are ALWAYS orthonormal**, enforced at the boundary: `NewFrame`
+  orthonormalizes and returns `ErrDegenerateFrame` on zero/collinear axes; the
+  zero value `Frame{}` is invalid (`IsValid` is false) and every public consumer
+  of a caller-supplied frame rejects it (`PlaneFromFrame`). Don't add a path that
+  stores an unvalidated frame.
+- `Vec3.Normalize` returns `(Vec3, bool)` — it never fabricates a unit vector
+  from zero. This is **not** the solver's `norm()` floor; don't conflate them.
+
+### The world & planes (`plane.go`/`world.go`)
+
+The 2D solver is **untouched**: a `Sketch` still solves in plane-local 2D. A
+`Plane` carries a `space.Frame` *computed from a stored definition* (its
+provenance — the single source of truth; `Frame()` recomputes, no memoization).
+A `World` owns planes (datums at ids 0/1/2) + sketches and is the multi-sketch
+serialization root; the engine stays usable standalone (`sketch.NewOn(plane)` on
+an owner-less world-frame datum). Load-bearing rules:
+
+- **Placement is mandatory but nil-safe.** `Sketch.plane()` defaults a nil
+  placement to `WorldXY()` (zero-value/unmarshal safety net) — but a v2
+  `kind:"sketch"` document with no `plane` is **rejected** (`ErrMissingPlane`),
+  not defaulted.
+- **Standalone/owner-less planes are world-frame datums only** (XY/XZ/YZ,
+  `PlaneFromFrame`, `PlaneFromPoints`). Derived planes (`OffsetPlane`) exist
+  **only** through a `World` (a base reference needs an owner + id). `NewOn`
+  returns an error (`ErrWorldOwnedPlane`/`ErrPlaneRemoved`) for a world-owned or
+  removed plane.
+- **`RemovePlane` mirrors `RemovePoint`**: refuses standard datums and in-use
+  planes (a sketch on it, or another plane's base), else splices + renumbers ids
+  densely and **tombstones** the handle (`removed=true`, `owner=nil`, `id=-1`).
+  A tombstone is distinct from a live standalone plane and is rejected
+  everywhere (`owns` checks `w.planes[p.id]==p`).
+- World coordinates are a read-only derived surface (`Point.World`,
+  `Sketch.WorldPolyline`), raw base-unit mm like the rest of the read surface.
+  `WorldPolyline` samples via the centralized curve samplers in `geom/sample.go`
+  (the exporters delegate to the same math; their output is unchanged).
 
 ### The `units` package (slated for extraction)
 
@@ -183,10 +230,18 @@ reference them by index so the solver sees them automatically.
   Removal splices and renumbers the later ids (`removal.go`), so marshalled
   documents stay dense and coherent; `UnmarshalJSON` recreates in order so the
   indices line up. Never let an `id` field and slice position diverge.
-- The document carries `"version": 1` (`jsonVersion`). Absent (legacy) and
-  current versions load; newer versions are rejected with an error rather
-  than mis-loaded. Bump `jsonVersion` and add read-side migration for schema
-  changes.
+- The document carries `"version": 2` (`jsonVersion`) and an explicit `"kind"`
+  (`"sketch"` | `"world"`). Both loaders **preflight** the raw top-level object
+  (today's typed unmarshal ignores unknown fields, so a world doc fed to
+  `Sketch.UnmarshalJSON` would otherwise rebuild empty): a v2 doc requires
+  `kind`; a wrong/unknown `kind` is `ErrWrongDocumentKind`; a legacy (kind-less,
+  version absent/0/1) doc must carry no v2-only key (`plane`/`planes`/`sketches`)
+  and loads as a world-XY sketch. Both shapes decode their payload through one
+  shared `jsonSketchBody` (`buildFromBody`) so reference handling lives in one
+  place. A plane serializes its **definition** (recomputed on load, never trusted
+  from disk); a world's derived `offset{base_id}` must reference an **earlier**
+  plane. Newer versions are rejected. Bump `jsonVersion` + add read-side
+  migration for schema changes.
 - **Internal constraints** (those implementing `internalConstraint`, e.g. the
   arc radius-consistency constraint auto-added by `AddArc`) are *not* serialized
   — they're recreated by the constructor on load. New auto-added constraints
@@ -236,15 +291,24 @@ reference them by index so the solver sees them automatically.
 - Public dimensional constructors return concrete handles (`*Distance`, etc.)
   with `.Set`/`.SetValue`; geometric constructors return the `Constraint`
   interface.
+- **Public constructors validate input by returning errors, never panicking.**
+  The shape/pattern builders (`AddPolygon`/`AddSlot`/`AddSpline`/
+  `AddPatternRect`/`AddPatternCircular` → `ErrInvalidShape`), `NewOn`
+  (`ErrWorldOwnedPlane`/`ErrPlaneRemoved`), and the plane/frame constructors
+  (`space.ErrDegenerateFrame`, `geom.ErrTooFewControlPoints`) all return
+  `(…, error)`. Only pure math kernels whose precondition is guaranteed by their
+  constructor (`geom.EvalCubicBSpline`/`SampleCubicBSpline`) may still panic —
+  like an out-of-range index, not input validation.
 - Keep exported API documented with Go doc comments; primitives expose value
   accessors (`X()`, `Y()`, `R()`, …), a `Geometry()` snapshot, and measurement
   queries (`Point.DistanceTo`/`DistanceToLine`, `Line.AngleTo`), while
   index-backed fields stay unexported. Measurement math lives in `geom`
   (`geom/measure.go`); the sketch entities delegate through `Geometry()`.
 - New constraints: add the residual, the `New…` constructor, a case in the JSON
-  marshal/unmarshal switches, a case in `constraintRefs` (`removal.go` — or
-  the removal cascade silently misses it), and a test asserting on the solved
-  geometry.
+  marshal/unmarshal switches, an arg-count entry in `constraintArity`
+  (`json.go` — so the decoder validates references before indexing), a case in
+  `constraintRefs` (`removal.go` — or the removal cascade silently misses it),
+  and a test asserting on the solved geometry.
 
 ## Open design questions (the "many variables")
 
@@ -332,13 +396,20 @@ These are unsettled. If you resolve one, record the decision here.
   `"version": 1`; legacy (unversioned) documents load, newer-versioned ones
   are rejected. Still open: an actual migration story when version 2 arrives,
   and schema compatibility guarantees.
-- **2D → 3D.** Out of scope for now, but the API shouldn't paint us into a
-  corner if profiles later feed extrude/revolve operations.
+- **2D → 3D.** *Partially resolved* (`plane.go`/`world.go`/`space/`; design in
+  `docs/3d-planes-design.md`). 2D sketches now live on construction planes inside
+  a 3D `World`, with a bidirectional local↔world transform (`Point.World`,
+  `Sketch.WorldPolyline`). The 2D solver is unchanged — 3D is a placement layer.
+  Still **out of scope**: surfaces (NURBS/analytic), free 3D-sketch geometry
+  (points with a `z` var), cross-sketch/cross-plane constraints (the `planeDef`
+  recompute is the seam), and 3D rendering/projection + world DXF. Profiles
+  feeding extrude/revolve remain a future consumer of `Sketch.WorldPolyline`.
 
 ## Status
 
 Core engine + constraint set + solver (with DOF/redundancy analysis) +
 SVG/DXF/JSON export + sketch-modification tools (`tools.go`:
-trim/extend/break/fillet/chamfer/mirror/pattern/offset on committed geometry)
-are implemented and tested. Active branch:
-`claude/2d-sketch-tool-go-c73sfs`.
+trim/extend/break/fillet/chamfer/mirror/pattern/offset on committed geometry) +
+3D world & construction planes (`space/`, `plane.go`, `world.go`: 2D sketches
+placed on planes in a 3D world, local↔world transform, v2 serialization) are
+implemented and tested.

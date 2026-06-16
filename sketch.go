@@ -2,10 +2,12 @@ package sketch
 
 import (
 	"errors"
+	"fmt"
 	"math"
 
 	"github.com/lestrrat-3d/sketch/geom"
 	"github.com/lestrrat-3d/sketch/param"
+	"github.com/lestrrat-3d/sketch/space"
 	"github.com/lestrrat-3d/sketch/units"
 )
 
@@ -34,12 +36,51 @@ type Sketch struct {
 
 	params *param.Table // optional; drives bound dimensions
 	sys    units.System // default length/angle units
+	pl     *Plane       // placement; nil reads as the world XY datum
 }
 
-// New returns an empty sketch using metric default units (millimetres and
-// degrees); change them with [Sketch.SetUnits].
-func New() *Sketch {
-	return &Sketch{sys: units.Metric()}
+// New returns an empty sketch placed on the world XY datum plane, using metric
+// default units (millimetres and degrees); change the units with
+// [Sketch.SetUnits].
+func New() *Sketch { return newSketch(WorldXY()) }
+
+// NewOn returns an empty sketch placed on plane, for engine-only (world-less)
+// use. plane must be a live, owner-less plane (a world-frame datum from
+// [WorldXY]/[PlaneFromFrame]/[PlaneFromPoints]): it returns [ErrWorldOwnedPlane]
+// for a world-owned plane (use [World.Sketch] for those) and [ErrPlaneRemoved]
+// for a removed plane. A nil plane is normalized to the world XY datum (so
+// NewOn(nil) equals New()).
+func NewOn(plane *Plane) (*Sketch, error) {
+	if plane == nil {
+		plane = WorldXY()
+	}
+	if plane.removed {
+		return nil, ErrPlaneRemoved
+	}
+	if plane.owner != nil {
+		return nil, ErrWorldOwnedPlane
+	}
+	return newSketch(plane), nil
+}
+
+// newSketch is the shared constructor for [New]/[NewOn]/[World.Sketch].
+func newSketch(plane *Plane) *Sketch {
+	return &Sketch{sys: units.Metric(), pl: plane}
+}
+
+// Plane returns the construction plane the sketch is drawn on. A sketch created
+// without an explicit placement reads as the world XY datum.
+func (s *Sketch) Plane() *Plane { return s.plane() }
+
+// plane returns the sketch's placement, defaulting a nil placement to the world
+// XY datum. The nil default is a zero-value/unmarshal safety net so world
+// read-out never dereferences a nil plane; it is not a license for a v2 document
+// to omit placement (the loader rejects that).
+func (s *Sketch) plane() *Plane {
+	if s.pl == nil {
+		return WorldXY()
+	}
+	return s.pl
 }
 
 func (s *Sketch) newVar(v float64) int {
@@ -58,6 +99,62 @@ func (s *Sketch) Entities() []Entity { return s.ents }
 // Constraints returns the constraints in creation order. The slice must not be
 // modified.
 func (s *Sketch) Constraints() []Constraint { return s.cons }
+
+// worldPolylineSegments is the per-curve sampling density of [Sketch.WorldPolyline].
+const worldPolylineSegments = 32
+
+// WorldPolyline samples entity e in world space: its plane-local polyline (the
+// same curve-sampling math the exporters use) lifted through the sketch plane's
+// frame. It is the additive 3D read path for placing 2D geometry in 3D; it does
+// not change what the 2D exporters emit. e must be a live entity of this sketch
+// ([ErrForeignEntity] otherwise); it errors for a degenerate or removed plane
+// (well-formed planes never error) and for an unsupported entity type.
+func (s *Sketch) WorldPolyline(e Entity) ([]space.Vec3, error) {
+	local, err := s.localPolyline(e)
+	if err != nil {
+		return nil, err
+	}
+	f, err := s.plane().Frame()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]space.Vec3, len(local))
+	for i, p := range local {
+		out[i] = f.ToWorldUV(p[0], p[1])
+	}
+	return out, nil
+}
+
+// localPolyline samples entity e (which must belong to this sketch) into
+// plane-local 2D points via the centralized geom samplers (geom/sample.go).
+func (s *Sketch) localPolyline(e Entity) ([][2]float64, error) {
+	if !s.ownsEntity(e) {
+		return nil, ErrForeignEntity
+	}
+	switch t := e.(type) {
+	case *Line:
+		return t.Geometry().Polyline(), nil
+	case *Circle:
+		return t.Geometry().Polyline(worldPolylineSegments), nil
+	case *Arc:
+		return t.Geometry().Polyline(worldPolylineSegments), nil
+	case *Ellipse:
+		return t.Geometry().Polyline(worldPolylineSegments), nil
+	case *Spline:
+		return t.Polyline(worldPolylineSegments), nil
+	}
+	return nil, fmt.Errorf("sketch: entity type %T cannot be sampled", e)
+}
+
+// ownsEntity reports whether e is a live entity of this sketch (id in range and
+// the slot still holds it), mirroring how removed handles are treated as dead.
+func (s *Sketch) ownsEntity(e Entity) bool {
+	if e == nil {
+		return false
+	}
+	id := e.entID()
+	return id >= 0 && id < len(s.ents) && s.ents[id] == e
+}
 
 // --- Point ------------------------------------------------------------------
 
@@ -96,6 +193,25 @@ func (p *Point) SetConstruction(v bool) { p.construction = v }
 // Geometry returns a fresh [geom.Point] snapshot at the point's current
 // coordinates.
 func (p *Point) Geometry() *geom.Point { return geom.NewPoint(p.x(), p.y()) }
+
+// World returns the point's world-space coordinates: its plane-local (x, y)
+// lifted through the sketch plane's frame, in base units (millimetres). For a
+// degenerate or removed plane it returns the zero vector; use [Point.WorldErr]
+// to detect that case (well-formed planes never error).
+func (p *Point) World() space.Vec3 {
+	f, err := p.s.plane().Frame()
+	if err != nil {
+		return space.Vec3{}
+	}
+	return f.ToWorldUV(p.x(), p.y())
+}
+
+// WorldErr reports any error computing the sketch plane's frame — only possible
+// for a degenerate or removed plane. It is nil for a well-formed plane.
+func (p *Point) WorldErr() error {
+	_, err := p.s.plane().Frame()
+	return err
+}
 
 // DistanceTo returns the Euclidean distance from this point to other, in base
 // units, at the current solved coordinates.
@@ -329,3 +445,7 @@ func (s *Sketch) AddEllipse(center *Point, rx, ry, rotation float64) *Ellipse {
 // ErrNotConverged is returned by [Sketch.Solve] when the solver fails to drive
 // all constraints to within tolerance within the iteration budget.
 var ErrNotConverged = errors.New("sketch: constraint solver did not converge")
+
+// ErrForeignEntity is returned by [Sketch.WorldPolyline] when the entity is nil,
+// a removed (dead) handle, or belongs to a different sketch.
+var ErrForeignEntity = errors.New("sketch: entity is not a live member of this sketch")

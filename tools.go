@@ -152,7 +152,7 @@ func (s *Sketch) Extend(l *Line, end *Point) (*Line, bool) {
 	return nl, true
 }
 
-// lineCrossings returns the world-frame intersection points of sl with every
+// lineCrossings returns the plane-local intersection points of sl with every
 // entity except skip. When segment is true, line cutters are intersected as
 // bounded segments (for trimming); otherwise the infinite line through sl is
 // used and a line cutter contributes a point only where it falls within the
@@ -400,10 +400,11 @@ type Pattern struct {
 // holds a copy whose points are tied to the seed's corresponding points by
 // horizontal and vertical distance dimensions (and an equal-radius constraint
 // per circle), so the whole grid follows when the seed is moved or resized.
-// Panics if nx or ny is below 1. Supports lines, circles and arcs.
-func (s *Sketch) AddPatternRect(ents []Entity, nx, ny int, dx, dy float64) *Pattern {
+// It returns [ErrInvalidShape] if nx or ny is below 1. Supports lines, circles
+// and arcs.
+func (s *Sketch) AddPatternRect(ents []Entity, nx, ny int, dx, dy float64) (*Pattern, error) {
 	if nx < 1 || ny < 1 {
-		panic(fmt.Sprintf("sketch: AddPatternRect requires nx,ny >= 1, got %d,%d", nx, ny))
+		return nil, fmt.Errorf("%w: AddPatternRect requires nx,ny >= 1, got %d,%d", ErrInvalidShape, nx, ny)
 	}
 	p := &Pattern{Seed: ents}
 	for j := 0; j < ny; j++ {
@@ -428,17 +429,17 @@ func (s *Sketch) AddPatternRect(ents []Entity, nx, ny int, dx, dy float64) *Patt
 			s.instantiate(ents, link, false, p)
 		}
 	}
-	return p
+	return p, nil
 }
 
 // AddPatternCircular copies the seed entities n times at equal angular steps
 // (2π/n) about center; cell 0 is the seed. Each copy point is tied to its
 // source by a construction spoke from center constrained equal in length and at
-// the instance's angle, so the ring follows when the seed is moved. Panics if n
-// is below 2. Supports lines, circles and arcs.
-func (s *Sketch) AddPatternCircular(ents []Entity, center *Point, n int) *Pattern {
+// the instance's angle, so the ring follows when the seed is moved. It returns
+// [ErrInvalidShape] if n is below 2. Supports lines, circles and arcs.
+func (s *Sketch) AddPatternCircular(ents []Entity, center *Point, n int) (*Pattern, error) {
 	if n < 2 {
-		panic(fmt.Sprintf("sketch: AddPatternCircular requires n >= 2, got %d", n))
+		return nil, fmt.Errorf("%w: AddPatternCircular requires n >= 2, got %d", ErrInvalidShape, n)
 	}
 	step := 2 * math.Pi / float64(n)
 	p := &Pattern{Seed: ents}
@@ -478,7 +479,7 @@ func (s *Sketch) AddPatternCircular(ents []Entity, center *Point, n int) *Patter
 		}
 		s.instantiate(ents, link, false, p)
 	}
-	return p
+	return p, nil
 }
 
 // --- offset -----------------------------------------------------------------
@@ -507,8 +508,20 @@ func (g *OffsetGroup) Set(d float64) {
 // constraint; offset segments that meet at a shared source corner share a
 // single offset point, which the two constraints pull to the offset
 // intersection — so editing the distance keeps a mitred chain. Non-line
-// entities in ents are skipped.
-func (s *Sketch) AddOffset(ents []Entity, d float64) *OffsetGroup {
+// entities in ents are skipped. It returns [ErrInvalidShape] if a source line
+// has zero length (no defined offset direction).
+func (s *Sketch) AddOffset(ents []Entity, d float64) (*OffsetGroup, error) {
+	// Validate every source line up front so a failure leaves the sketch
+	// unchanged (no partial geometry committed).
+	for _, e := range ents {
+		l, ok := e.(*Line)
+		if !ok {
+			continue
+		}
+		if math.Hypot(l.End.x()-l.Start.x(), l.End.y()-l.Start.y()) == 0 {
+			return nil, fmt.Errorf("%w: AddOffset source line has zero length", ErrInvalidShape)
+		}
+	}
 	g := &OffsetGroup{Source: ents}
 	copyOf := map[*Point]*Point{}
 	offsetPt := func(src *Point, nx, ny float64) *Point {
@@ -525,8 +538,8 @@ func (s *Sketch) AddOffset(ents []Entity, d float64) *OffsetGroup {
 			continue
 		}
 		dx, dy := l.End.x()-l.Start.x(), l.End.y()-l.Start.y()
-		n := math.Hypot(dx, dy)
-		nx, ny := -dy/n, dx/n // left normal of the segment direction
+		n := math.Hypot(dx, dy) // nonzero: validated above
+		nx, ny := -dy/n, dx/n   // left normal of the segment direction
 		qa, qb := offsetPt(l.Start, nx, ny), offsetPt(l.End, nx, ny)
 		dst := s.AddLine(qa, qb)
 		off := NewOffset(l, dst, d)
@@ -534,7 +547,7 @@ func (s *Sketch) AddOffset(ents []Entity, d float64) *OffsetGroup {
 		g.Copies = append(g.Copies, dst)
 		g.Offsets = append(g.Offsets, off)
 	}
-	return g
+	return g, nil
 }
 
 // instantiate builds one copy of every entity in ents using link to map each

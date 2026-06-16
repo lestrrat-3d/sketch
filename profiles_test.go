@@ -17,7 +17,8 @@ func TestProfilesRectangle(t *testing.T) {
 
 func TestProfilesPolygonExcludesConstruction(t *testing.T) {
 	s := sketch.New()
-	p := s.AddPolygon(0, 0, 6, 5) // 6 sides + 6 construction spokes
+	p, err := s.AddPolygon(0, 0, 6, 5) // 6 sides + 6 construction spokes
+	require.NoError(t, err)
 	profiles := s.Profiles()
 	require.Len(t, profiles, 1, "spokes are construction, only the hull closes")
 	require.Len(t, profiles[0].Entities, 6, "hexagon sides")
@@ -26,7 +27,8 @@ func TestProfilesPolygonExcludesConstruction(t *testing.T) {
 
 func TestProfilesSlotAndCircle(t *testing.T) {
 	s := sketch.New()
-	s.AddSlot(0, 0, 10, 0, 3) // 2 arcs + 2 flanks + 4 construction spokes
+	_, err := s.AddSlot(0, 0, 10, 0, 3) // 2 arcs + 2 flanks + 4 construction spokes
+	require.NoError(t, err)
 	o := s.AddPoint(30, 0)
 	s.AddCircle(o, 2)
 
