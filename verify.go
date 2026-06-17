@@ -90,6 +90,41 @@ type VerificationReport struct {
 	// preconditions). It is nil otherwise; a nil Probe is not a uniqueness
 	// claim. See [Sketch.ProbeConfigurations].
 	Probe *ProbeResult
+	// StaleReferences and StaleReferencePoints list the reference geometry whose
+	// 3D source has changed since its snapshot was taken (see [Sketch.MarkStale]).
+	// Points are tracked separately because a pierce point is not an [Entity].
+	StaleReferences      []Entity
+	StaleReferencePoints []*Point
+	// Stale is true when any reference geometry is stale — verifying against an
+	// outdated snapshot is untrustworthy.
+	Stale bool
+	// BrokenReferences lists entities failing the reference lock-integrity check:
+	// a reference entity whose defining points were rewired, are not all
+	// reference-locked, or whose owned vars are not fixed — plus any entity (even
+	// a normal one) whose defining point is a foreign/dead handle.
+	BrokenReferences []Entity
+	// ForeignHandles is true when any point or entity reachable from the sketch's
+	// entities or constraints is not live-owned by this sketch (e.g. a constraint
+	// to a reference point of another sketch). Cross-sketch references are
+	// unsupported; this surfaces them rather than silently trusting them.
+	ForeignHandles bool
+}
+
+// Trustworthy reports the canonical oracle verdict: the sketch is solvable, fully
+// constrained, free of conflicting and redundant constraints, has no stale or
+// broken reference geometry, no foreign handles, and — if the ambiguity probe
+// ran — is not ambiguous. It is the single check an agent should gate on; a
+// stale or broken-reference sketch never reads as a clean pass through it, even
+// when [VerificationReport.Status] is [FullyConstrained].
+func (r *VerificationReport) Trustworthy() bool {
+	return r.Solvable &&
+		r.Status == FullyConstrained &&
+		len(r.Conflicts) == 0 &&
+		len(r.Redundant) == 0 &&
+		!r.Stale &&
+		len(r.BrokenReferences) == 0 &&
+		!r.ForeignHandles &&
+		(r.Probe == nil || !r.Probe.Ambiguous())
 }
 
 // VerifyOption tunes [Sketch.Verify]. Construct values with the With… helpers.
@@ -143,6 +178,16 @@ func (s *Sketch) Verify(options ...VerifyOption) *VerificationReport {
 
 	rep := &VerificationReport{}
 
+	// Reference integrity + reachability first: it is nil-safe, and a nil/corrupt
+	// or foreign operand would otherwise panic the residual/profile/staleness
+	// analysis below (a foreign entity such as &Line{} can have nil endpoints).
+	// Such a sketch is untrustworthy regardless, so report the broken/foreign
+	// handles and skip the analysis.
+	if nilCorrupt := s.scanReferenceIntegrity(rep); nilCorrupt || rep.ForeignHandles {
+		rep.Status = Overconstrained
+		return rep
+	}
+
 	r := s.residuals(nil)
 	rep.Residual = math.Sqrt(dot(r, r))
 	rep.Solvable = rep.Residual <= tolerance
@@ -174,6 +219,8 @@ func (s *Sketch) Verify(options ...VerifyOption) *VerificationReport {
 			rep.Probe = pr
 		}
 	}
+
+	s.scanReferenceStaleness(rep)
 
 	return rep
 }

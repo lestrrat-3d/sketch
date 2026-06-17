@@ -31,6 +31,12 @@ var (
 	// ErrChamferInfeasible is returned when the chamfer setback is not positive,
 	// the legs are collinear, or the setback exceeds either leg.
 	ErrChamferInfeasible = errors.New("sketch: chamfer distance does not fit the corner")
+	// ErrReferenceGeometry is returned by the modification tools (AddFillet,
+	// AddChamfer, AddPatternRect, AddPatternCircular, AddOffset) when an input is
+	// reference geometry, which is externally locked and must not be modified or
+	// re-derived. Trim/Extend/Break report it by returning false, and AddMirror
+	// (which has no error return) by returning nil.
+	ErrReferenceGeometry = errors.New("sketch: cannot modify reference geometry")
 )
 
 // Break splits a committed line or arc at the projection of (x, y) onto it,
@@ -40,6 +46,9 @@ var (
 // The original entity handle and any constraints that referenced it are gone;
 // constraints on the surviving endpoints remain.
 func (s *Sketch) Break(e Entity, x, y float64) (Entity, Entity, bool) {
+	if e != nil && e.IsReference() {
+		return nil, nil, false // reference geometry is locked; cannot be split
+	}
 	switch t := e.(type) {
 	case *Line:
 		sl := t.Geometry()
@@ -74,6 +83,9 @@ func (s *Sketch) Break(e Entity, x, y float64) (Entity, Entity, bool) {
 // sits on an interior portion bounded by crossings on both sides (which would
 // split the line — use Break instead). The original handle is dead.
 func (s *Sketch) Trim(l *Line, x, y float64) (*Line, bool) {
+	if l.IsReference() {
+		return nil, false // reference geometry is locked; cannot be trimmed
+	}
 	sl := l.Geometry()
 	_, pick := geom.ClosestPointOnLine(sl, geom.NewPoint(x, y))
 	hits := s.lineCrossings(sl, l, true)
@@ -111,6 +123,9 @@ func (s *Sketch) Trim(l *Line, x, y float64) (*Line, bool) {
 // returning the lengthened line. It returns false (changing nothing) when end
 // is neither endpoint or no entity lies beyond it. The original handle is dead.
 func (s *Sketch) Extend(l *Line, end *Point) (*Line, bool) {
+	if l.IsReference() {
+		return nil, false // reference geometry is locked; cannot be extended
+	}
 	if end != l.Start && end != l.End {
 		return nil, false
 	}
@@ -214,6 +229,9 @@ type Fillet struct {
 // surviving far endpoints are kept. Returns [ErrNoSharedCorner] or
 // [ErrFilletInfeasible] without modifying the sketch.
 func (s *Sketch) AddFillet(l1, l2 *Line, r float64) (*Fillet, error) {
+	if l1.IsReference() || l2.IsReference() {
+		return nil, ErrReferenceGeometry
+	}
 	corner := sharedPoint(l1, l2)
 	if corner == nil {
 		return nil, ErrNoSharedCorner
@@ -268,6 +286,9 @@ type Chamfer struct {
 // [Sketch.AddFillet]. Returns [ErrNoSharedCorner] or [ErrChamferInfeasible]
 // without modifying the sketch.
 func (s *Sketch) AddChamfer(l1, l2 *Line, d float64) (*Chamfer, error) {
+	if l1.IsReference() || l2.IsReference() {
+		return nil, ErrReferenceGeometry
+	}
 	corner := sharedPoint(l1, l2)
 	if corner == nil {
 		return nil, ErrNoSharedCorner
@@ -353,14 +374,28 @@ type Mirror struct {
 	Constraints []Constraint
 }
 
+// containsReference reports whether any entity is reference geometry.
+func containsReference(ents []Entity) bool {
+	for _, e := range ents {
+		if e != nil && e.IsReference() {
+			return true
+		}
+	}
+	return false
+}
+
 // AddMirror reflects each entity across the infinite line through axis,
 // creating a linked copy. Lines, circles and arcs are supported (other entity
 // kinds are skipped). Copies share a mirror point wherever their sources share
 // a vertex, so a connected source chain mirrors to a connected copy. Each
 // source point and its copy are tied with [NewSymmetric] (about axis); circles
 // additionally get [NewEqualRadius], and arcs are reversed to stay
-// counter-clockwise. The sources are left untouched.
+// counter-clockwise. The sources are left untouched. Returns nil if any source
+// or the axis is reference geometry.
 func (s *Sketch) AddMirror(ents []Entity, axis *Line) *Mirror {
+	if containsReference(ents) || axis.IsReference() {
+		return nil // reference geometry is locked; cannot be mirrored
+	}
 	gaxis := axis.Geometry()
 	copyOf := map[*Point]*Point{}
 	grp := &Pattern{Seed: ents}
@@ -403,6 +438,9 @@ type Pattern struct {
 // It returns [ErrInvalidShape] if nx or ny is below 1. Supports lines, circles
 // and arcs.
 func (s *Sketch) AddPatternRect(ents []Entity, nx, ny int, dx, dy float64) (*Pattern, error) {
+	if containsReference(ents) {
+		return nil, ErrReferenceGeometry
+	}
 	if nx < 1 || ny < 1 {
 		return nil, fmt.Errorf("%w: AddPatternRect requires nx,ny >= 1, got %d,%d", ErrInvalidShape, nx, ny)
 	}
@@ -438,6 +476,9 @@ func (s *Sketch) AddPatternRect(ents []Entity, nx, ny int, dx, dy float64) (*Pat
 // the instance's angle, so the ring follows when the seed is moved. It returns
 // [ErrInvalidShape] if n is below 2. Supports lines, circles and arcs.
 func (s *Sketch) AddPatternCircular(ents []Entity, center *Point, n int) (*Pattern, error) {
+	if containsReference(ents) {
+		return nil, ErrReferenceGeometry
+	}
 	if n < 2 {
 		return nil, fmt.Errorf("%w: AddPatternCircular requires n >= 2, got %d", ErrInvalidShape, n)
 	}
@@ -511,6 +552,9 @@ func (g *OffsetGroup) Set(d float64) {
 // entities in ents are skipped. It returns [ErrInvalidShape] if a source line
 // has zero length (no defined offset direction).
 func (s *Sketch) AddOffset(ents []Entity, d float64) (*OffsetGroup, error) {
+	if containsReference(ents) {
+		return nil, ErrReferenceGeometry
+	}
 	// Validate every source line up front so a failure leaves the sketch
 	// unchanged (no partial geometry committed).
 	for _, e := range ents {

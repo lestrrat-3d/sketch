@@ -62,6 +62,7 @@ func (s *Sketch) RemoveEntity(e Entity) bool {
 		return false
 	}
 	s.removeConstraintsReferencing(nil, e)
+	delete(s.refSeals, e) // drop any reference topology seal
 	// Retire scalar variables owned by the entity itself. Line/Arc/Spline own
 	// none — their coordinates belong to their points, which survive.
 	switch t := e.(type) {
@@ -231,8 +232,17 @@ func constraintRefs(c Constraint) ([]*Point, []Entity) {
 	case *equalRadii:
 		return nil, []Entity{t.C1, t.C2}
 	case *tangentLineCircle:
+		// The cached endpoint-tangency contact (shared) is a point this
+		// constraint reads, so it must be enumerated for the removal cascade and
+		// the Verify reachability check.
+		if t.shared != nil {
+			return []*Point{t.shared}, []Entity{t.L, t.C}
+		}
 		return nil, []Entity{t.L, t.C}
 	case *tangentCircles:
+		if t.shared != nil {
+			return []*Point{t.shared}, []Entity{t.C1, t.C2}
+		}
 		return nil, []Entity{t.C1, t.C2}
 	case *arcRadius:
 		return nil, []Entity{t.a}

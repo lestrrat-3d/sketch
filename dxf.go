@@ -34,7 +34,10 @@ func (s *Sketch) DXF() (string, error) {
 
 	for _, e := range s.ents {
 		layer := "0"
-		if e.IsConstruction() {
+		switch {
+		case e.IsReference():
+			layer = "REFERENCE"
+		case e.IsConstruction():
 			layer = "CONSTRUCTION"
 		}
 		switch t := e.(type) {

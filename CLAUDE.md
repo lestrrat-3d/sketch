@@ -59,7 +59,8 @@ from a solid — the seam is first-class reference geometry), live in
 | `constraint.go` | `Constraint` interface and every constraint's residual + the public `New…` constructors. |
 | `solver.go` | Levenberg–Marquardt solver, numerical Jacobian, DOF/redundancy (rank) analysis. |
 | `diagnose.go` | Constraint diagnostics: `conflictAnalysis` (the shared dependency pass behind `RedundantConstraints`/`Diagnose`/`Verify`), `Diagnose` (redundant vs conflicting), `ConflictSet` (a conflicting constraint + the earlier ones it fights), `CheckConstraint` (pre-commit over-constraint rejection), `FreePoints`/`Point.IsFullyConstrained` (free-DOF attribution). Design in `docs/diagnostics-design.md`. |
-| `verify.go` | `Sketch.Verify(...VerifyOption) *VerificationReport`: the headless-oracle aggregation layer — one non-mutating call gathering solvability, DOF, `Status`, redundant constraints, conflict sets, free points, profiles, and (opt-in via `WithProbe`) discrete ambiguity. A pure consumer of the diagnostic building blocks. |
+| `verify.go` | `Sketch.Verify(...VerifyOption) *VerificationReport`: the headless-oracle aggregation layer — one non-mutating call gathering solvability, DOF, `Status`, redundant constraints, conflict sets, free points, profiles, stale/broken/foreign reference signals, `Trustworthy()`, and (opt-in via `WithProbe`) discrete ambiguity. A pure consumer of the diagnostic building blocks. |
+| `reference.go` | Reference geometry — the sketch/3D separation keystone: read-only, externally-locked 2D snapshots of 3D-derived geometry (`AddReferencePoint`/`AddReferenceLine`/`AddReferenceArc`/`AddReferenceCircle`) carrying a `source` id + staleness; locked via `fixed[]`, a topology seal (`refSeals`), `RefreshReference`/`RefreshReferenceCircle`/`MarkStale`, and the Verify integrity/staleness/reachability scan. Design in `docs/reference-geometry-design.md`. |
 | `probe.go` | `Sketch.ProbeConfigurations`: multi-solution ambiguity probe — deterministic multi-start search (structured mirrors + splitmix64 restarts) for the discrete configurations a DOF-0 sketch admits. A falsifier: ≥2 found proves ambiguity, 1 never proves uniqueness. Design in `docs/ambiguity-probe-design.md`. |
 | `plane.go` / `world.go` | 3D world & construction planes. `Plane` (datum = `space.Frame` derived from a stored definition), package-level world-frame datum constructors, `World` (owns planes + sketches, plane builders incl. derived `OffsetPlane`, `RemovePlane`). Design in `docs/3d-planes-design.md`. |
 | `svg.go` / `png.go` / `dxf.go` / `json.go` / `json_world.go` | Exporters / serialization. `png.go` is a stdlib-only rasterizer (`image/png`) so agents/tools that read raster images can sanity-check sketches; visually equivalent to the SVG output. `json_world.go` is the v2 `World`/`Plane` serialization + the `kind`-discriminator preflight. |
@@ -438,10 +439,16 @@ These are unsettled. If you resolve one, record the decision here.
   `docs/3d-planes-design.md`). 2D sketches now live on construction planes inside
   a 3D `World`, with a bidirectional local↔world transform (`Point.World`,
   `Sketch.WorldPolyline`). The 2D solver is unchanged — 3D is a placement layer.
-  Still **out of scope**: surfaces (NURBS/analytic), free 3D-sketch geometry
-  (points with a `z` var), cross-sketch/cross-plane constraints (the `planeDef`
-  recompute is the seam), and 3D rendering/projection + world DXF. Profiles
-  feeding extrude/revolve remain a future consumer of `Sketch.WorldPolyline`.
+  The **sketch/3D separation keystone is in place**: reference geometry
+  (`reference.go`, design in `docs/reference-geometry-design.md`) holds frozen
+  snapshots of 3D-derived geometry (projected edges, pierced vertices) — locked,
+  with a source id + staleness — so this layer verifies *against* given 3D
+  geometry and never *computes* it. Still **out of scope** (above this layer):
+  surfaces (NURBS/analytic), free 3D-sketch geometry (points with a `z` var),
+  cross-sketch/cross-plane constraints (the `planeDef` recompute is the seam),
+  3D rendering, and the projection/intersection algorithms that *produce* the
+  reference snapshots. Profiles feeding extrude/revolve remain a future consumer
+  of `Sketch.WorldPolyline`.
 
 ## Status
 
@@ -451,5 +458,7 @@ trim/extend/break/fillet/chamfer/mirror/pattern/offset on committed geometry) +
 3D world & construction planes (`space/`, `plane.go`, `world.go`: 2D sketches
 placed on planes in a 3D world, local↔world transform, v2 serialization) +
 unified verification (`verify.go`: `Sketch.Verify` aggregating solvability,
-DOF/status, conflict sets, free points, profiles, opt-in ambiguity) are
-implemented and tested.
+DOF/status, conflict sets, free points, profiles, opt-in ambiguity) +
+reference geometry (`reference.go`: locked, externally-sourced 2D snapshots with
+provenance + staleness — the sketch/3D separation keystone) are implemented and
+tested.

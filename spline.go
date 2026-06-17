@@ -17,12 +17,28 @@ type Spline struct {
 	Control      []*Point
 	id           int
 	construction bool
+	refState     // reference splines are a follow-up; stale derived from control points
 }
 
-func (sp *Spline) entity()                {}
-func (sp *Spline) entID() int             { return sp.id }
-func (sp *Spline) IsConstruction() bool   { return sp.construction }
-func (sp *Spline) SetConstruction(v bool) { sp.construction = v }
+func (sp *Spline) entity()              {}
+func (sp *Spline) entID() int           { return sp.id }
+func (sp *Spline) IsConstruction() bool { return sp.construction }
+func (sp *Spline) SetConstruction(v bool) {
+	if !sp.reference {
+		sp.construction = v
+	}
+}
+
+// IsStale reports whether any control point is stale (derived; reference splines
+// are not yet authorable).
+func (sp *Spline) IsStale() bool {
+	for _, p := range sp.Control {
+		if p.IsStale() {
+			return true
+		}
+	}
+	return false
+}
 
 // Geometry returns a fresh [geom.Spline] snapshot over the spline's current
 // control-point coordinates.

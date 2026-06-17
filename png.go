@@ -100,6 +100,10 @@ func (s *Sketch) PNG(options ...PNGOption) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sketch: construction: %w", err)
 	}
+	reference, err := parseRenderColor(cfg.reference)
+	if err != nil {
+		return nil, fmt.Errorf("sketch: reference: %w", err)
+	}
 
 	img := image.NewNRGBA(image.Rect(0, 0, pw, ph))
 	if background.A > 0 {
@@ -126,7 +130,10 @@ func (s *Sketch) PNG(options ...PNGOption) ([]byte, error) {
 	width := cfg.strokeWidth * scale
 	for _, e := range s.ents {
 		col := stroke
-		if e.IsConstruction() {
+		switch {
+		case e.IsReference():
+			col = reference
+		case e.IsConstruction():
 			col = construction
 		}
 		switch t := e.(type) {

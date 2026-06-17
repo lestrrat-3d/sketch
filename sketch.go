@@ -34,9 +34,10 @@ type Sketch struct {
 	ents   []Entity
 	cons   []Constraint
 
-	params *param.Table // optional; drives bound dimensions
-	sys    units.System // default length/angle units
-	pl     *Plane       // placement; nil reads as the world XY datum
+	params   *param.Table        // optional; drives bound dimensions
+	sys      units.System        // default length/angle units
+	pl       *Plane              // placement; nil reads as the world XY datum
+	refSeals map[Entity][]*Point // reference entity -> its construction-time defining points (topology seal)
 }
 
 // New returns an empty sketch placed on the world XY datum plane, using metric
@@ -149,7 +150,7 @@ func (s *Sketch) localPolyline(e Entity) ([][2]float64, error) {
 // ownsEntity reports whether e is a live entity of this sketch (id in range and
 // the slot still holds it), mirroring how removed handles are treated as dead.
 func (s *Sketch) ownsEntity(e Entity) bool {
-	if e == nil {
+	if isNilEntity(e) { // also catches a typed-nil interface, whose entID() would panic
 		return false
 	}
 	id := e.entID()
@@ -167,7 +168,12 @@ type Point struct {
 	id           int // index into Sketch.points
 	name         string
 	construction bool
+	refState     // reference-geometry provenance (stale = coordinate freshness)
 }
+
+// IsStale reports whether this reference point's coordinates may be out of date
+// with its 3D source (always false for non-reference points).
+func (p *Point) IsStale() bool { return p.stale }
 
 // X returns the point's current (solved) x coordinate.
 func (p *Point) X() float64 { return p.s.vars[p.xi] }
@@ -184,11 +190,16 @@ func (p *Point) Name() string { return p.name }
 // SetName sets the point's optional label.
 func (p *Point) SetName(name string) { p.name = name }
 
-// IsConstruction reports whether the point is construction (reference) geometry.
+// IsConstruction reports whether the point is construction geometry.
 func (p *Point) IsConstruction() bool { return p.construction }
 
-// SetConstruction marks the point as construction (reference) geometry or not.
-func (p *Point) SetConstruction(v bool) { p.construction = v }
+// SetConstruction marks the point as construction geometry or not. It is a
+// no-op on reference geometry (the two categories are mutually exclusive).
+func (p *Point) SetConstruction(v bool) {
+	if !p.reference {
+		p.construction = v
+	}
+}
 
 // Geometry returns a fresh [geom.Point] snapshot at the point's current
 // coordinates.
@@ -233,8 +244,13 @@ func (s *Sketch) AddPoint(x, y float64) *Point {
 }
 
 // MoveTo moves a point to (x, y). This sets the solver's starting guess for the
-// point and has no effect once constraints pin it down.
+// point and has no effect once constraints pin it down. It is a no-op on
+// reference geometry, whose coordinates are externally locked — re-feed those
+// with [Sketch.RefreshReference].
 func (p *Point) MoveTo(x, y float64) {
+	if p.reference {
+		return
+	}
 	p.s.vars[p.xi] = x
 	p.s.vars[p.yi] = y
 }
@@ -247,8 +263,13 @@ func (s *Sketch) Fix(p *Point) {
 	s.fixed[p.yi] = true
 }
 
-// Unfix releases a previously grounded point so the solver may move it again.
+// Unfix releases a previously grounded point so the solver may move it again. It
+// is a no-op on reference geometry, whose lock cannot be lifted through the
+// grounding API.
 func (s *Sketch) Unfix(p *Point) {
+	if p.reference {
+		return
+	}
 	s.fixed[p.xi] = false
 	s.fixed[p.yi] = false
 }
@@ -259,12 +280,17 @@ func (p *Point) IsFixed() bool { return p.s.fixed[p.xi] && p.s.fixed[p.yi] }
 // --- Entities ---------------------------------------------------------------
 
 // Entity is a line, circle, arc, ellipse or spline in a sketch. Construction
-// (reference) status is a per-entity, settable property.
+// status is a settable per-entity property; reference status (externally-locked
+// 3D-snapshot geometry with a source id and staleness) is set at creation by the
+// AddReference… constructors and is read-only.
 type Entity interface {
 	entity()
 	entID() int
 	IsConstruction() bool
 	SetConstruction(v bool)
+	IsReference() bool
+	Source() string
+	IsStale() bool
 }
 
 // Circular is a sketch entity with a center point and a radius: a [*Circle] or
@@ -282,12 +308,21 @@ type Line struct {
 	Start, End   *Point
 	id           int
 	construction bool
+	refState     // stale derived from the endpoints
 }
 
-func (l *Line) entity()                {}
-func (l *Line) entID() int             { return l.id }
-func (l *Line) IsConstruction() bool   { return l.construction }
-func (l *Line) SetConstruction(v bool) { l.construction = v }
+func (l *Line) entity()              {}
+func (l *Line) entID() int           { return l.id }
+func (l *Line) IsConstruction() bool { return l.construction }
+func (l *Line) SetConstruction(v bool) {
+	if !l.reference {
+		l.construction = v
+	}
+}
+
+// IsStale reports whether either endpoint is stale (a line owns no coordinate of
+// its own, so its staleness is derived).
+func (l *Line) IsStale() bool { return l.Start.IsStale() || l.End.IsStale() }
 
 // Geometry returns a fresh [geom.Line] snapshot at the line's current
 // coordinates.
@@ -314,12 +349,21 @@ type Circle struct {
 	ri           int // radius index into Sketch.vars
 	id           int
 	construction bool
+	refState     // stale = radius freshness (center staleness is the center point's)
 }
 
-func (c *Circle) entity()                {}
-func (c *Circle) entID() int             { return c.id }
-func (c *Circle) IsConstruction() bool   { return c.construction }
-func (c *Circle) SetConstruction(v bool) { c.construction = v }
+func (c *Circle) entity()              {}
+func (c *Circle) entID() int           { return c.id }
+func (c *Circle) IsConstruction() bool { return c.construction }
+func (c *Circle) SetConstruction(v bool) {
+	if !c.reference {
+		c.construction = v
+	}
+}
+
+// IsStale reports whether the circle's center or its radius is out of date with
+// the 3D source.
+func (c *Circle) IsStale() bool { return c.Center.IsStale() || c.stale }
 
 // Geometry returns a fresh [geom.Circle] snapshot at the circle's current state.
 func (c *Circle) Geometry() *geom.Circle { return geom.NewCircle(c.Center.Geometry(), c.r()) }
@@ -347,12 +391,20 @@ type Arc struct {
 	Center, Start, End *Point
 	id                 int
 	construction       bool
+	refState           // stale derived from center/start/end
 }
 
-func (a *Arc) entity()                {}
-func (a *Arc) entID() int             { return a.id }
-func (a *Arc) IsConstruction() bool   { return a.construction }
-func (a *Arc) SetConstruction(v bool) { a.construction = v }
+func (a *Arc) entity()              {}
+func (a *Arc) entID() int           { return a.id }
+func (a *Arc) IsConstruction() bool { return a.construction }
+func (a *Arc) SetConstruction(v bool) {
+	if !a.reference {
+		a.construction = v
+	}
+}
+
+// IsStale reports whether any defining point is stale (derived).
+func (a *Arc) IsStale() bool { return a.Center.IsStale() || a.Start.IsStale() || a.End.IsStale() }
 
 // Geometry returns a fresh [geom.Arc] snapshot at the arc's current state.
 func (a *Arc) Geometry() *geom.Arc {
@@ -401,12 +453,21 @@ type Ellipse struct {
 	rxi, ryi, roti int // var indices: semi-axes and rotation
 	id             int
 	construction   bool
+	refState       // reference ellipses are a follow-up; stale derived from center
 }
 
-func (e *Ellipse) entity()                {}
-func (e *Ellipse) entID() int             { return e.id }
-func (e *Ellipse) IsConstruction() bool   { return e.construction }
-func (e *Ellipse) SetConstruction(v bool) { e.construction = v }
+func (e *Ellipse) entity()              {}
+func (e *Ellipse) entID() int           { return e.id }
+func (e *Ellipse) IsConstruction() bool { return e.construction }
+func (e *Ellipse) SetConstruction(v bool) {
+	if !e.reference {
+		e.construction = v
+	}
+}
+
+// IsStale reports whether the ellipse's center is stale (derived; reference
+// ellipses are not yet authorable).
+func (e *Ellipse) IsStale() bool { return e.Center.IsStale() }
 
 // Geometry returns a fresh [geom.Ellipse] snapshot at the ellipse's current
 // state.

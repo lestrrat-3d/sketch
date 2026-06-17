@@ -39,6 +39,7 @@ type (
 	identBackground   struct{}
 	identStroke       struct{}
 	identConstruction struct{}
+	identReference    struct{}
 )
 
 // WithMargin sets the blank border around the geometry, in sketch units.
@@ -72,6 +73,11 @@ func WithConstruction(v string) SVGPNGOption {
 	return svgPNGOption{option.New(identConstruction{}, v)}
 }
 
+// WithReference sets the reference-geometry (externally-locked snapshot) color.
+func WithReference(v string) SVGPNGOption {
+	return svgPNGOption{option.New(identReference{}, v)}
+}
+
 // svgConfig holds the resolved SVG rendering options.
 type svgConfig struct {
 	margin       float64
@@ -82,6 +88,7 @@ type svgConfig struct {
 	background   string
 	stroke       string
 	construction string
+	reference    string
 }
 
 func defaultSVGConfig() svgConfig {
@@ -94,6 +101,7 @@ func defaultSVGConfig() svgConfig {
 		background:   "white",
 		stroke:       "#1a73e8",
 		construction: "#bbbbbb",
+		reference:    "#e8731a",
 	}
 }
 
@@ -118,6 +126,8 @@ func applyRenderOption(cfg *svgConfig, o option.Interface) bool {
 		cfg.stroke = option.MustGet[string](o)
 	case identConstruction:
 		cfg.construction = option.MustGet[string](o)
+	case identReference:
+		cfg.reference = option.MustGet[string](o)
 	default:
 		return false
 	}
@@ -212,14 +222,17 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 		fmt.Fprintf(&sb, `  <rect width="100%%" height="100%%" fill="%s"/>`+"\n", cfg.background)
 	}
 
-	color := func(construction bool) string {
-		if construction {
+	color := func(e Entity) string {
+		switch {
+		case e.IsReference():
+			return cfg.reference
+		case e.IsConstruction():
 			return cfg.construction
 		}
 		return cfg.stroke
 	}
-	dash := func(construction bool) string {
-		if construction {
+	dash := func(e Entity) string {
+		if e.IsConstruction() { // reference geometry renders solid, like real geometry
 			return fmt.Sprintf(` stroke-dasharray="%s,%s"`, f(cfg.strokeWidth*4), f(cfg.strokeWidth*3))
 		}
 		return ""
@@ -231,12 +244,12 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 			fmt.Fprintf(&sb,
 				`  <line x1="%s" y1="%s" x2="%s" y2="%s" stroke="%s" stroke-width="%s"%s/>`+"\n",
 				f(tx(t.Start.x())), f(ty(t.Start.y())), f(tx(t.End.x())), f(ty(t.End.y())),
-				color(t.IsConstruction()), f(cfg.strokeWidth), dash(t.IsConstruction()))
+				color(t), f(cfg.strokeWidth), dash(t))
 		case *Circle:
 			fmt.Fprintf(&sb,
 				`  <circle cx="%s" cy="%s" r="%s" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
 				f(tx(t.Center.x())), f(ty(t.Center.y())), f(t.r()),
-				color(t.IsConstruction()), f(cfg.strokeWidth), dash(t.IsConstruction()))
+				color(t), f(cfg.strokeWidth), dash(t))
 		case *Arc:
 			pts := arcPolyline(t, cfg.arcSegments)
 			var d strings.Builder
@@ -249,7 +262,7 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 			}
 			fmt.Fprintf(&sb,
 				`  <path d="%s" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
-				strings.TrimSpace(d.String()), color(t.IsConstruction()), f(cfg.strokeWidth), dash(t.IsConstruction()))
+				strings.TrimSpace(d.String()), color(t), f(cfg.strokeWidth), dash(t))
 		case *Ellipse:
 			// The y-flip mirrors the plane, so a CCW sketch rotation becomes
 			// CW in SVG coordinates: negate the angle.
@@ -258,7 +271,7 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 				`  <ellipse cx="%s" cy="%s" rx="%s" ry="%s" transform="rotate(%s %s %s)" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
 				f(cx), f(cy), f(t.rx()), f(t.ry()),
 				f(-t.rot()*180/math.Pi), f(cx), f(cy),
-				color(t.IsConstruction()), f(cfg.strokeWidth), dash(t.IsConstruction()))
+				color(t), f(cfg.strokeWidth), dash(t))
 		case *Spline:
 			// Sampled polyline, like arcs; cfg.arcSegments governs fidelity.
 			pts := t.Polyline(cfg.arcSegments)
@@ -272,7 +285,7 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 			}
 			fmt.Fprintf(&sb,
 				`  <path d="%s" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
-				strings.TrimSpace(d.String()), color(t.IsConstruction()), f(cfg.strokeWidth), dash(t.IsConstruction()))
+				strings.TrimSpace(d.String()), color(t), f(cfg.strokeWidth), dash(t))
 		}
 	}
 

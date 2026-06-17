@@ -17,6 +17,9 @@ type jsonPoint struct {
 	Fixed        bool    `json:"fixed,omitempty"`
 	Name         string  `json:"name,omitempty"`
 	Construction bool    `json:"construction,omitempty"`
+	Reference    bool    `json:"reference,omitempty"`
+	Source       string  `json:"source,omitempty"`
+	Stale        bool    `json:"stale,omitempty"`
 }
 
 type jsonEntity struct {
@@ -28,6 +31,9 @@ type jsonEntity struct {
 	Rotation     float64 `json:"rotation,omitempty"` // ellipse frame rotation, radians
 	Degree       int     `json:"degree,omitempty"`   // spline degree (always 3 today)
 	Construction bool    `json:"construction,omitempty"`
+	Reference    bool    `json:"reference,omitempty"`
+	Source       string  `json:"source,omitempty"`
+	Stale        bool    `json:"stale,omitempty"` // reference circle radius freshness only
 }
 
 type jsonConstraint struct {
@@ -132,6 +138,7 @@ func (s *Sketch) marshalBody() (jsonSketchBody, error) {
 		body.Points = append(body.Points, jsonPoint{
 			X: p.x(), Y: p.y(), Fixed: p.IsFixed(),
 			Name: p.name, Construction: p.construction,
+			Reference: p.reference, Source: p.source, Stale: p.stale,
 		})
 	}
 
@@ -140,14 +147,17 @@ func (s *Sketch) marshalBody() (jsonSketchBody, error) {
 		case *Line:
 			body.Entities = append(body.Entities, jsonEntity{
 				Type: "line", Points: []int{t.Start.id, t.End.id}, Construction: t.construction,
+				Reference: t.reference, Source: t.source,
 			})
 		case *Circle:
 			body.Entities = append(body.Entities, jsonEntity{
 				Type: "circle", Points: []int{t.Center.id}, Radius: t.r(), Construction: t.construction,
+				Reference: t.reference, Source: t.source, Stale: t.stale, // circle: radius freshness
 			})
 		case *Arc:
 			body.Entities = append(body.Entities, jsonEntity{
 				Type: "arc", Points: []int{t.Center.id, t.Start.id, t.End.id}, Construction: t.construction,
+				Reference: t.reference, Source: t.source,
 			})
 		case *Ellipse:
 			body.Entities = append(body.Entities, jsonEntity{
@@ -313,6 +323,17 @@ func (s *Sketch) buildFromBody(body jsonSketchBody) error {
 	for _, jp := range body.Points {
 		p := s.AddPoint(jp.X, jp.Y)
 		p.SetName(jp.Name)
+		if jp.Reference {
+			if jp.Construction {
+				return fmt.Errorf("sketch: point cannot be both reference and construction")
+			}
+			p.reference = true
+			p.source = jp.Source
+			p.stale = jp.Stale
+			s.fixed[p.xi] = true // reference geometry is locked
+			s.fixed[p.yi] = true
+			continue
+		}
 		p.SetConstruction(jp.Construction)
 		if jp.Fixed {
 			s.Fix(p)
@@ -352,6 +373,48 @@ func (s *Sketch) buildFromBody(body jsonSketchBody) error {
 		ps, err := s.pointsRef(je.Points)
 		if err != nil {
 			return err
+		}
+		if je.Reference {
+			if je.Construction {
+				return fmt.Errorf("sketch: entity cannot be both reference and construction")
+			}
+			// The reference constructors require reference-locked points and seal
+			// the topology, so a corrupt document (reference entity on free points)
+			// is rejected here.
+			switch je.Type {
+			case "line":
+				if len(ps) != 2 {
+					return fmt.Errorf("sketch: line needs 2 points, got %d", len(ps))
+				}
+				if je.Stale {
+					return fmt.Errorf("sketch: reference line staleness is derived, not stored")
+				}
+				if _, err := s.AddReferenceLine(ps[0], ps[1], je.Source); err != nil {
+					return err
+				}
+			case "arc":
+				if len(ps) != 3 {
+					return fmt.Errorf("sketch: arc needs 3 points, got %d", len(ps))
+				}
+				if je.Stale {
+					return fmt.Errorf("sketch: reference arc staleness is derived, not stored")
+				}
+				if _, err := s.AddReferenceArc(ps[0], ps[1], ps[2], je.Source); err != nil {
+					return err
+				}
+			case "circle":
+				if len(ps) != 1 {
+					return fmt.Errorf("sketch: circle needs 1 point, got %d", len(ps))
+				}
+				c, err := s.AddReferenceCircle(ps[0], je.Radius, je.Source)
+				if err != nil {
+					return err
+				}
+				c.stale = je.Stale // restore radius staleness
+			default:
+				return fmt.Errorf("sketch: reference geometry of kind %q is not supported", je.Type)
+			}
+			continue
 		}
 		switch je.Type {
 		case "line":

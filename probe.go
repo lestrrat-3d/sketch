@@ -82,7 +82,18 @@ func (c *Configuration) PointXY(p *Point) (float64, float64) {
 // want driven dimensions refreshed. Typical use: Apply each configuration in
 // turn and export via [Sketch.SVG] or [Sketch.PNG] to compare the
 // alternatives visually.
-func (c *Configuration) Apply() { copy(c.s.vars, c.vars) }
+//
+// Only free variables are restored: fixed/grounded values (including locked
+// reference geometry that may have been refreshed since the probe ran) are left
+// as they are, so an old configuration can never revert reference coordinates.
+func (c *Configuration) Apply() {
+	for i := range c.vars {
+		if i < len(c.s.fixed) && c.s.fixed[i] {
+			continue
+		}
+		c.s.vars[i] = c.vars[i]
+	}
+}
 
 // ProbeResult is the outcome of [Sketch.ProbeConfigurations].
 type ProbeResult struct {

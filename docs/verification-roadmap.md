@@ -48,19 +48,19 @@ each is clean when this layer holds the *result*, not the *computation*:
 | Pierce constraint | reduces to coincidence with a supplied reference point | live associativity to a 3D curve is required |
 | Plane through edge / tangent to face | the resolved frame is supplied | the frame must be recomputed from B-rep |
 
-**The one missing primitive that keeps the contract clean: first-class
-reference geometry** — read-only 2D entities (points/curves) whose position is
-**externally fixed**, carrying a **source id** and a **staleness** flag. The
-existing per-entity *construction* flag is **not** this: construction geometry
-is still solver-driven; reference geometry is externally locked. This is the
-"Project/intersect" placeholder already noted in `docs/fusion-gap-analysis.md`.
-With it, "sketch on a face" and "projected edges" become *"you give us the
-snapshot"* — correct layering; auto-recompute-on-body-change is the 3D layer
-re-feeding snapshots.
+**The primitive that keeps the contract clean — now present: first-class
+reference geometry** (`reference.go`, design in
+`docs/reference-geometry-design.md`) — read-only 2D entities (points/curves)
+whose position is **externally locked**, carrying a **source id** and a
+**staleness** flag. The per-entity *construction* flag is **not** this:
+construction geometry is solver-driven; reference geometry is externally locked.
+"Sketch on a face" and "projected edges" are now *"you give us the snapshot"* —
+correct layering; auto-recompute-on-body-change is the 3D layer re-feeding
+snapshots via `RefreshReference`/`MarkStale`.
 
 **Minimal 3D concepts that must live at or below this layer:** orthonormal
 frames/planes (present — `space.Frame`, `Plane`, `World`), reference entities
-with provenance (**missing — the keystone**), and component/world transforms.
+with provenance (**present — the keystone**), and component/world transforms.
 Solid faces, edge topology, NURBS surfaces, and projection/intersection
 algorithms stay above.
 
@@ -91,14 +91,20 @@ algorithms stay above.
   circles/ellipses (construction excluded).
 - **Placement & I/O:** `World`/`Plane` 3D placement with local↔world readout;
   JSON v2 round-trip (sketch + world); SVG/PNG/DXF export; units system.
+- **Reference geometry:** the separation keystone — read-only, externally-locked
+  2D snapshots of 3D-derived geometry (`AddReferencePoint`/`Line`/`Arc`/`Circle`)
+  carrying a source id + staleness, verified *against* (pierce/coincidence,
+  projected-edge profiles) but never computed. `Verify` reports stale/broken/
+  foreign references and a `Trustworthy()` verdict that refuses an out-of-date
+  snapshot. Design in `docs/reference-geometry-design.md`.
 
 ## Roadmap (prioritized for the verification goal)
 
 ### Tier 1 — highest leverage
 
-| Item | Why it matters | Effort |
-|---|---|---|
-| **Reference geometry** | The separation keystone (above): locked, externally-sourced 2D entities with source id + staleness. Unblocks faithful verification of sketches-on-faces and projected edges without a solid kernel. | M |
+*All Tier-1 items are shipped* (unified `VerificationReport`, arc-sweep tangency
+soundness, and reference geometry — the separation keystone). The frontier is now
+Tier-2 representation fidelity.
 
 ### Tier 2 — representation fidelity
 
@@ -117,18 +123,13 @@ algorithms stay above.
 | **World/global parameters & parameter-driven planes** | Real models share user parameters across sketches and drive construction planes. `World` keeps params per-sketch today. | M |
 | **Solver robustness & export fidelity** | Analytic Jacobian rows / decomposition / conditioning reports for large agent-generated sketches; world-space DXF; display-unit metadata on exports. | L–M |
 
-## Open workflow question (reorders the roadmap)
+## Workflow: how a sketch enters the oracle (resolved)
 
-How does a sketch *enter* the oracle?
-
-- **Authored directly in this Go API** → no importer needed; the roadmap above
-  stands as-is.
-- **Agent generates a Fusion script, then verifies the result** → an
-  **importer/bridge is must-have** (jumps to Tier 1), and DXF/SVG **cannot carry
-  constraints**, so a Fusion-export→our-JSON path is required to verify
-  constraint *intent*, not just geometry.
-
-Resolve this before committing to Tier-3 ordering.
+Sketches are **authored directly in this Go API** — the tool prototypes the
+parametric-sketch approach before a human builds the equivalent Fusion add-in. So
+no importer is needed and the roadmap above stands as written: **importers stay
+Tier 3** (a Fusion-export→our-JSON bridge would only be a must-have if sketches
+*entered* from Fusion scripts, which they do not).
 
 ## Relationship to other docs
 

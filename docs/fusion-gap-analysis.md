@@ -99,9 +99,12 @@ toolkit + `RemoveEntity`); offset added a new `Offset` constraint. Design in
   `AddPatternCircular` create copies rigidly tied to the seed by distance /
   construction-spoke constraints, so the field follows the seed. (A single
   shared-parameter spacing knob is a recorded follow-up.)
-- **Project / intersect** — out of scope until 3D exists; worth a placeholder
-  concept: entities whose geometry is externally driven and fully fixed
-  ("reference" entities).
+- ~~**Project / intersect**~~ — the *representation* is in: **reference
+  geometry** (`reference.go`) — read-only, externally-locked entities with a
+  source id + staleness, the snapshot a `Project`/`Include`/`Intersect` would
+  hand in. Computing the projection from a solid stays above this layer (the
+  separation contract); here you author the resulting 2D curve/point as
+  reference geometry and verify against it.
 
 ## Solver & diagnostics
 
