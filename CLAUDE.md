@@ -55,11 +55,11 @@ from a solid — the seam is first-class reference geometry), live in
 | `sketch.go` | `Sketch`, solver-bound geometry (`Point`/`Line`/`Circle`/`Arc`/`Ellipse`) authored from points, the parameter model, grounding, construction flag, `Geometry()` snapshots. |
 | `compound.go` | Compound shape builders (`AddRectangle`/`AddPolygon`/`AddSlot`): primitives + shape-holding constraints, returned as a grouping handle (handle itself is not serialized). |
 | `tools.go` | Sketch-modification tools on committed geometry (`Trim`/`Extend`/`Break`, `AddFillet`/`AddChamfer`, `AddMirror`, `AddPatternRect`/`AddPatternCircular`, `AddOffset`): build-then-replace via the `geom` toolkit + `RemoveEntity`. Design in `docs/modification-tools-design.md`. |
-| `profiles.go` | `Sketch.Profiles()`: closed-region boundaries (loops of lines/arcs via `geom.Loops` + standalone circles/ellipses), construction geometry excluded. |
+| `profiles.go` | `Sketch.Profiles()`: closed planar regions via the `geom` arrangement engine — bare-crossing subdivision, holes/nesting, net area, and per-region validity (self-intersecting/degenerate). `Profile` carries `Outer`/`Holes` (`BoundaryEdge`s, whole or fragment), `Area`, `Valid`, `SelfIntersecting`; construction excluded, reference geometry included. Internal `buildProfiles` also surfaces arrangement degeneracy to `Verify`. |
 | `constraint.go` | `Constraint` interface and every constraint's residual + the public `New…` constructors. |
 | `solver.go` | Levenberg–Marquardt solver, numerical Jacobian, DOF/redundancy (rank) analysis. |
 | `diagnose.go` | Constraint diagnostics: `conflictAnalysis` (the shared dependency pass behind `RedundantConstraints`/`Diagnose`/`Verify`), `Diagnose` (redundant vs conflicting), `ConflictSet` (a conflicting constraint + the earlier ones it fights), `CheckConstraint` (pre-commit over-constraint rejection), `FreePoints`/`Point.IsFullyConstrained` (free-DOF attribution). Design in `docs/diagnostics-design.md`. |
-| `verify.go` | `Sketch.Verify(...VerifyOption) *VerificationReport`: the headless-oracle aggregation layer — one non-mutating call gathering solvability, DOF, `Status`, redundant constraints, conflict sets, free points, profiles, stale/broken/foreign reference signals, `Trustworthy()`, and (opt-in via `WithProbe`) discrete ambiguity. A pure consumer of the diagnostic building blocks. |
+| `verify.go` | `Sketch.Verify(...VerifyOption) *VerificationReport`: the headless-oracle aggregation layer — one non-mutating call gathering solvability, DOF, `Status`, redundant constraints, conflict sets, free points, profiles + their validity (`ProfilesValid`/`InvalidProfiles` — self-intersecting/degenerate regions gate `Trustworthy()`), stale/broken/foreign reference signals, `Trustworthy()`, and (opt-in via `WithProbe`) discrete ambiguity. A pure consumer of the diagnostic building blocks. |
 | `reference.go` | Reference geometry — the sketch/3D separation keystone: read-only, externally-locked 2D snapshots of 3D-derived geometry (`AddReferencePoint`/`AddReferenceLine`/`AddReferenceArc`/`AddReferenceCircle`) carrying a `source` id + staleness; locked via `fixed[]`, a topology seal (`refSeals`), `RefreshReference`/`RefreshReferenceCircle`/`MarkStale`, and the Verify integrity/staleness/reachability scan. Design in `docs/reference-geometry-design.md`. |
 | `probe.go` | `Sketch.ProbeConfigurations`: multi-solution ambiguity probe — deterministic multi-start search (structured mirrors + splitmix64 restarts) for the discrete configurations a DOF-0 sketch admits. A falsifier: ≥2 found proves ambiguity, 1 never proves uniqueness. Design in `docs/ambiguity-probe-design.md`. |
 | `plane.go` / `world.go` | 3D world & construction planes. `Plane` (datum = `space.Frame` derived from a stored definition), package-level world-frame datum constructors, `World` (owns planes + sketches, plane builders incl. derived `OffsetPlane`, `RemovePlane`). Design in `docs/3d-planes-design.md`. |
@@ -92,6 +92,18 @@ the *mutating* sketch-level tools in `tools.go` (`Trim`/`Extend`/`Break`/
 `AddFillet`/`AddChamfer`/`AddMirror`/`AddPatternRect`/`AddPatternCircular`/
 `AddOffset`) feed them an entity's `Geometry()` snapshot, then build the
 replacement from sketch points and retire the originals with `RemoveEntity`.
+
+It also holds the **planar-arrangement / region engine** (`region.go`,
+`arrange.go`, `area.go`): `geom.Regions(curves, closed)` builds a polyline-
+approximated planar arrangement of lines/arcs/circles/ellipses, splitting at bare
+crossings, and returns the bounded `Region`s (each an outer boundary loop +
+holes, with a net `Area` and source-curve `BoundaryEdge` back-references) plus
+soundness signals — `SelfIntersections` (only for a single simple closed loop —
+every shared vertex degree 2 — judged on the pruned core, so a branched/
+subdivided wire is *not* flagged) and `Degenerate` (collinear-overlap or near-
+tangent uncertainty). Region area is exact for line/arc/circle (shoelace + exact
+circular-segment correction), sampled for ellipses. `Sketch.Profiles()` is its
+consumer.
 
 ### The `space` package (slated for extraction)
 
@@ -458,7 +470,11 @@ trim/extend/break/fillet/chamfer/mirror/pattern/offset on committed geometry) +
 3D world & construction planes (`space/`, `plane.go`, `world.go`: 2D sketches
 placed on planes in a 3D world, local↔world transform, v2 serialization) +
 unified verification (`verify.go`: `Sketch.Verify` aggregating solvability,
-DOF/status, conflict sets, free points, profiles, opt-in ambiguity) +
+DOF/status, conflict sets, free points, profiles + profile validity, opt-in
+ambiguity) +
 reference geometry (`reference.go`: locked, externally-sourced 2D snapshots with
-provenance + staleness — the sketch/3D separation keystone) are implemented and
-tested.
+provenance + staleness — the sketch/3D separation keystone) +
+the profile/region engine (`geom/arrange.go` + `profiles.go`: planar
+arrangement of sketch geometry into closed regions with bare-crossing
+subdivision, holes/nesting, net area, and self-intersection/degeneracy validity
+gating `Trustworthy()`) are implemented and tested.

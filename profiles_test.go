@@ -1,6 +1,7 @@
 package sketch_test
 
 import (
+	"math"
 	"testing"
 
 	"github.com/lestrrat-3d/sketch"
@@ -34,9 +35,22 @@ func TestProfilesSlotAndCircle(t *testing.T) {
 
 	profiles := s.Profiles()
 	require.Len(t, profiles, 2, "slot loop + circle")
-	// The circle is registered first (closed primitives), then the chain.
-	require.Len(t, profiles[0].Entities, 1, "circle stands alone")
-	require.Len(t, profiles[1].Entities, 4, "slot boundary: two arcs, two flanks")
+	// Two disjoint regions: the slot boundary (two arcs + two flanks) and the
+	// standalone circle (one entity). Both are valid.
+	var slot, circle *sketch.Profile
+	for _, p := range profiles {
+		switch len(p.Entities) {
+		case 1:
+			circle = p
+		case 4:
+			slot = p
+		}
+		require.True(t, p.Valid, "both regions are clean")
+	}
+	require.NotNil(t, circle, "the circle is its own region")
+	require.NotNil(t, slot, "the slot boundary closes")
+	_, ok := circle.Entities[0].(*sketch.Circle)
+	require.True(t, ok, "the lone region is the circle")
 }
 
 // TestProfilesReflectSolvedGeometry pins that profiles are views over live
@@ -83,6 +97,89 @@ func TestProfilesReflectSolvedGeometry(t *testing.T) {
 	profiles = s.Profiles()
 	require.Len(t, profiles, 1, "profile survives the edit")
 	require.InDelta(t, 2*(35+12), perimeter(profiles[0]), 1e-6, "perimeter at width 35")
+}
+
+func TestProfilesPlateWithHole(t *testing.T) {
+	s := sketch.New()
+	s.AddRectangle(0, 0, 10, 10)
+	s.AddCircle(s.AddPoint(5, 5), 2) // fully inside
+
+	profiles := s.Profiles()
+	require.Len(t, profiles, 2, "the plate (with a hole) and the inner disk")
+	var plate, disk *sketch.Profile
+	for _, p := range profiles {
+		if len(p.Holes) == 1 {
+			plate = p
+		} else {
+			disk = p
+		}
+	}
+	require.NotNil(t, plate, "plate carries the circular hole")
+	require.NotNil(t, disk, "the disk is a separate region")
+	require.Len(t, plate.Entities, 4, "plate outer is four sides")
+	require.InDelta(t, 100-math.Pi*4, plate.Area, 1e-2, "plate net area = square minus disk")
+	require.InDelta(t, math.Pi*4, disk.Area, 1e-2, "disk area")
+	require.True(t, plate.Valid)
+	_, ok := plate.Holes[0][0].Entity.(*sketch.Circle)
+	require.True(t, ok, "the hole boundary is the circle")
+	require.False(t, plate.Holes[0][0].Partial, "an uncut circle hole is a whole edge, not a fragment")
+	for _, e := range disk.Outer {
+		require.False(t, e.Partial, "the uncut disk boundary is whole")
+	}
+}
+
+func TestProfilesLoneCircleWhole(t *testing.T) {
+	s := sketch.New()
+	s.AddCircle(s.AddPoint(0, 0), 3)
+	profiles := s.Profiles()
+	require.Len(t, profiles, 1, "one disk region")
+	require.Len(t, profiles[0].Entities, 1, "the circle")
+	require.InDelta(t, math.Pi*9, profiles[0].Area, 1e-2)
+	require.True(t, profiles[0].Valid)
+	for _, e := range profiles[0].Outer {
+		require.False(t, e.Partial, "an uncut circle is a whole boundary")
+	}
+}
+
+func TestProfilesBareCrossingSubdivision(t *testing.T) {
+	s := sketch.New()
+	s.AddRectangle(0, 0, 6, 4)
+	s.AddRectangle(3, 2, 9, 6) // overlaps in [3,6]x[2,4]
+
+	profiles := s.Profiles()
+	require.Len(t, profiles, 3, "two L-shapes and the overlap")
+	var total float64
+	var sawPartial bool
+	for _, p := range profiles {
+		require.True(t, p.Valid)
+		total += p.Area
+		for _, e := range p.Outer {
+			if e.Partial {
+				sawPartial = true
+			}
+		}
+	}
+	require.InDelta(t, 24+24-6, total, 1e-9, "areas partition the union")
+	require.True(t, sawPartial, "split edges are reported as fragments")
+}
+
+func TestProfilesSelfIntersectingInvalid(t *testing.T) {
+	s := sketch.New()
+	a := s.AddPoint(0, 0)
+	b := s.AddPoint(4, 4)
+	c := s.AddPoint(4, 0)
+	d := s.AddPoint(0, 4)
+	s.AddLine(a, b)
+	s.AddLine(b, c)
+	s.AddLine(c, d)
+	s.AddLine(d, a) // bowtie: a-b crosses c-d
+
+	profiles := s.Profiles()
+	require.NotEmpty(t, profiles)
+	for _, p := range profiles {
+		require.True(t, p.SelfIntersecting, "boundary self-crosses")
+		require.False(t, p.Valid, "a self-intersecting region is not a valid profile")
+	}
 }
 
 func TestProfilesOpenChainAndConstructionCircle(t *testing.T) {

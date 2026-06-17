@@ -87,8 +87,10 @@ algorithms stay above.
   (solvability, DOF, `Status`, redundant constraints, conflict sets, free
   points, profiles, opt-in ambiguity via `WithProbe`), the agent-facing oracle
   entry point.
-- **Profiles:** closed loops of shared-endpoint lines/arcs + standalone
-  circles/ellipses (construction excluded).
+- **Profiles/regions:** a planar arrangement of all non-construction geometry
+  into closed regions — bare-crossing subdivision, holes/nesting, net area,
+  winding/orientation, and self-intersection/degeneracy validity that gates the
+  oracle verdict (construction excluded; reference geometry included).
 - **Placement & I/O:** `World`/`Plane` 3D placement with local↔world readout;
   JSON v2 round-trip (sketch + world); SVG/PNG/DXF export; units system.
 - **Reference geometry:** the separation keystone — read-only, externally-locked
@@ -110,8 +112,8 @@ Tier-2 representation fidelity.
 
 | Item | Why it matters | Effort |
 |---|---|---|
-| **Profile/region engine** | `Profiles()` is boundary-loop detection, not face detection: it misses bare crossings (subdivision noted open in `docs/fusion-gap-analysis.md`), nested loops/holes, containment, winding/area, and self-intersection. Profiles are the artifact extrude/revolve consume, so closure/region correctness is core to verification. | XL |
-| **Constraint/dimension parity** | Represent arbitrary sketches: H/V between points, entity-level symmetry, generalized midpoint, concentric arcs, unified Equal across line/arc, entity Fix/ground, coincident point-to-entity; arc radius/diameter & arc-length dims, tangent-edge distance, angle-quadrant selection, ordinate/baseline/chained dims. | S–L |
+| ~~**Profile/region engine**~~ — *shipped* | `Profiles()` now runs a planar arrangement (`geom.Regions`): bare-crossing subdivision, nested loops/holes + containment, winding/orientation, net area, and **self-intersection detection** (a malformed region reports `Valid=false` and gates `Verify().Trustworthy()`), plus a degeneracy (coincident-edge / near-tangent) uncertainty signal. The oracle no longer blesses a self-intersecting or unresolvable profile. Open follow-ups: splines in profiles, exact ellipse-fragment area, an analytic (non-sampled) arrangement. | XL |
+| **Constraint/dimension parity** *(in progress)* | A first batch shipped (H/V between points, generalized midpoint, radius/diameter & concentric on arcs). Remaining: entity-level symmetry, unified Equal across line/arc, entity Fix/ground, coincident point-to-entity, arc-length dim (deferred — needs a continuous-sweep aux var), tangent-edge distance, angle-quadrant selection, ordinate/baseline/chained dims. | S–L |
 | **Curve parity** | Elliptical arcs (tracked), fit-point/closed splines, point-on/tangent-to spline (spline v2, tracked), conic/NURBS import representation, sketch text outlines, explicit sketch-point entities. | M–XL |
 
 ### Tier 3 — important, second wave

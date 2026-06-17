@@ -85,6 +85,16 @@ type VerificationReport struct {
 	// Profiles lists the closed-region boundaries detected in the sketch's
 	// non-construction geometry (see [Sketch.Profiles]).
 	Profiles []*Profile
+	// InvalidProfiles lists the detected profiles that failed region validity —
+	// self-intersecting, degenerate (zero-area), or produced by an unresolvable
+	// arrangement. A subset of Profiles. Such a region cannot be extruded.
+	InvalidProfiles []*Profile
+	// ProfilesValid is true when every detected region is a valid profile and the
+	// arrangement resolved cleanly. It is vacuously true when no geometry forms a
+	// region (an open sketch has no regions, which is not itself invalid), but
+	// false when the arrangement was degenerate even if that produced no region.
+	// Mirrors the Stale trust-signal shape.
+	ProfilesValid bool
 	// Probe holds the discrete-ambiguity probe result, populated only when
 	// [WithProbe] is passed and the sketch is solvable with DOF 0 (the probe's
 	// preconditions). It is nil otherwise; a nil Probe is not a uniqueness
@@ -112,10 +122,11 @@ type VerificationReport struct {
 
 // Trustworthy reports the canonical oracle verdict: the sketch is solvable, fully
 // constrained, free of conflicting and redundant constraints, has no stale or
-// broken reference geometry, no foreign handles, and — if the ambiguity probe
-// ran — is not ambiguous. It is the single check an agent should gate on; a
-// stale or broken-reference sketch never reads as a clean pass through it, even
-// when [VerificationReport.Status] is [FullyConstrained].
+// broken reference geometry, no foreign handles, every detected region is a
+// valid profile, and — if the ambiguity probe ran — is not ambiguous. It is the
+// single check an agent should gate on; a stale, broken-reference, or
+// self-intersecting sketch never reads as a clean pass through it, even when
+// [VerificationReport.Status] is [FullyConstrained].
 func (r *VerificationReport) Trustworthy() bool {
 	return r.Solvable &&
 		r.Status == FullyConstrained &&
@@ -124,6 +135,7 @@ func (r *VerificationReport) Trustworthy() bool {
 		!r.Stale &&
 		len(r.BrokenReferences) == 0 &&
 		!r.ForeignHandles &&
+		r.ProfilesValid &&
 		(r.Probe == nil || !r.Probe.Ambiguous())
 }
 
@@ -154,8 +166,9 @@ func WithProbe(opts ...ProbeOption) VerifyOption {
 // Verify aggregates the sketch's verification signals into a single
 // [VerificationReport]: solvability, degrees of freedom, the redundant and
 // conflicting constraints (with each conflict's set), the still-free points,
-// the closed profiles, and — with [WithProbe] — discrete configuration
-// ambiguity.
+// the closed profiles and their validity (self-intersecting / degenerate
+// regions are reported and gate [VerificationReport.Trustworthy]), and — with
+// [WithProbe] — discrete configuration ambiguity.
 //
 // Like [Sketch.DOF] and [Sketch.Diagnose], Verify analyses the call-time
 // configuration and does not move any geometry; call [Sketch.Solve] first so
@@ -209,7 +222,15 @@ func (s *Sketch) Verify(options ...VerifyOption) *VerificationReport {
 	}
 
 	rep.FreePoints = s.FreePoints()
-	rep.Profiles = s.Profiles()
+	profiles, degenerate, _ := s.buildProfiles()
+	rep.Profiles = profiles
+	rep.ProfilesValid = !degenerate
+	for _, p := range profiles {
+		if !p.Valid {
+			rep.InvalidProfiles = append(rep.InvalidProfiles, p)
+			rep.ProfilesValid = false
+		}
+	}
 	rep.Status = classifyStatus(rep)
 
 	// The probe's preconditions are exactly solvable && DOF 0; guarding here

@@ -46,6 +46,37 @@ func TestVerifyFullyConstrained(t *testing.T) {
 	require.Empty(t, rep.Conflicts)
 	require.Empty(t, rep.FreePoints)
 	require.Len(t, rep.Profiles, 1, "the rectangle is one closed profile")
+	require.True(t, rep.ProfilesValid, "the region is a valid profile")
+	require.Empty(t, rep.InvalidProfiles)
+	require.True(t, rep.Trustworthy(), "a clean, fully-constrained rectangle is trustworthy")
+}
+
+func TestVerifySelfIntersectingUntrustworthy(t *testing.T) {
+	// A fully-constrained, solvable bowtie: structurally clean, but its boundary
+	// self-intersects, so the oracle must refuse to bless it.
+	s := sketch.New()
+	a := s.AddPoint(0, 0)
+	b := s.AddPoint(4, 4)
+	c := s.AddPoint(4, 0)
+	d := s.AddPoint(0, 4)
+	for _, p := range []*sketch.Point{a, b, c, d} {
+		s.Fix(p)
+	}
+	s.AddLine(a, b)
+	s.AddLine(b, c)
+	s.AddLine(c, d)
+	s.AddLine(d, a) // a-b crosses c-d
+
+	if _, err := s.Solve(); err != nil {
+		t.Fatalf("solve: %v", err)
+	}
+	rep := s.Verify()
+	require.True(t, rep.Solvable)
+	require.Equal(t, 0, rep.DOF)
+	require.Equal(t, sketch.FullyConstrained, rep.Status, "structurally fully constrained")
+	require.False(t, rep.ProfilesValid, "the boundary self-intersects")
+	require.NotEmpty(t, rep.InvalidProfiles, "the offending region is reported")
+	require.False(t, rep.Trustworthy(), "a self-intersecting sketch is not trustworthy")
 }
 
 func TestVerifyRedundant(t *testing.T) {

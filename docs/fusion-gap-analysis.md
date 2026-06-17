@@ -142,13 +142,18 @@ toolkit + `RemoveEntity`); offset added a new `Offset` constraint. Design in
 ## Profiles & regions
 
 Fusion's whole reason for sketching is closed profiles that feed extrude.
-*Partially closed*: `geom.Loops` finds closed chains of lines/arcs
-connected by shared endpoint identity, and `Sketch.Profiles()` returns those
-loops plus every non-construction circle/ellipse as `Profile` values. Still
-open: **region subdivision at bare crossings** — boundaries that intersect
-without sharing a point are not split into faces (the curve-splitting math
-exists in `geom`'s intersection toolkit; the subdivision algorithm does not),
-and loop **area/winding** classification (outer boundary vs hole).
+*Closed:* `Sketch.Profiles()` runs the `geom` planar-arrangement engine
+(`geom.Regions`) over all non-construction lines/arcs/circles/ellipses.
+**Bare-crossing subdivision** (boundaries that intersect without sharing a point
+are split into faces), **holes/nesting** (a shape inside another is a hole + a
+separate region), **net area** and **winding/orientation** (outer CCW, holes CW)
+are all in. Each `Profile` carries `Outer`/`Holes` boundary edges (whole or
+fragment), `Area`, and validity: a **self-intersecting** boundary (a simple
+closed loop crossing itself) or a **degenerate** arrangement (coincident edges,
+near-tangent uncertainty) reports `Valid=false` and makes
+`VerificationReport.Trustworthy()` false. *Open:* splines in profiles; exact
+ellipse-fragment area (currently sampled); an analytic (non-sampled) arrangement
+for tighter tolerance on near-tangencies.
 
 ## Parameters
 
@@ -172,8 +177,8 @@ and loop **area/winding** classification (outer boundary vs hole).
    in `tools.go`: trim/extend/break, fillet/chamfer, mirror, patterns, offset;
    design in `docs/modification-tools-design.md`),
    then ~~**ellipse**~~ (*done*; elliptical arcs and ellipse tangency
-   still open), then ~~**profiles/loop detection**~~ (*shared-endpoint loops
-   done*; region subdivision at bare crossings still open), with
+   still open), then ~~**profiles/region engine**~~ (*done* — bare-crossing
+   subdivision, holes/nesting, area, self-intersection validity), with
    ~~**splines**~~ (*v1 done*; fit-point and point-on-spline
    constraints still open).
 
