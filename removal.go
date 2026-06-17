@@ -14,6 +14,29 @@ func (s *Sketch) RemoveConstraint(c Constraint) bool {
 	for i, cc := range s.cons {
 		if cc == c {
 			s.cons = append(s.cons[:i], s.cons[i+1:]...)
+			// Retire aux vars only once the last occurrence is gone: a handle
+			// committed more than once shares a single set of aux variables.
+			if !containsConstraint(s.cons, c) {
+				s.retireConstraintVars(c)
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// retireConstraintVars grounds any auxiliary variables a constraint owns (e.g.
+// an arc tangency's sweep slack) when its last occurrence is removed, mirroring
+// how entity-owned variables are retired.
+func (s *Sketch) retireConstraintVars(c Constraint) {
+	if r, ok := c.(interface{ retireVars(*Sketch) }); ok {
+		r.retireVars(s)
+	}
+}
+
+func containsConstraint(cs []Constraint, c Constraint) bool {
+	for _, cc := range cs {
+		if cc == c {
 			return true
 		}
 	}
@@ -96,6 +119,7 @@ func (s *Sketch) retireVar(i int) { s.fixed[i] = true }
 // include the given point or entity (either may be nil).
 func (s *Sketch) removeConstraintsReferencing(p *Point, e Entity) {
 	kept := s.cons[:0]
+	var removed []Constraint
 	for _, c := range s.cons {
 		pts, ents := constraintRefs(c)
 		hit := false
@@ -117,9 +141,18 @@ func (s *Sketch) removeConstraintsReferencing(p *Point, e Entity) {
 		}
 		if !hit {
 			kept = append(kept, c)
+			continue
 		}
+		removed = append(removed, c)
 	}
 	s.cons = kept
+	// Retire aux vars of fully-removed constraints (a duplicate handle whose
+	// other occurrence survives in kept keeps its aux vars).
+	for _, c := range removed {
+		if !containsConstraint(s.cons, c) {
+			s.retireConstraintVars(c)
+		}
+	}
 }
 
 // renumberEntity rewrites an entity's id after a splice.

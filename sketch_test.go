@@ -205,8 +205,10 @@ func TestTangentLineArc(t *testing.T) {
 
 	center := s.AddPoint(5, 5)
 	s.Fix(center)
-	start := s.AddPoint(8, 5) // bad initial radius (3)
-	end := s.AddPoint(5, 8)
+	// The arc spans the bottom of the circle so the downward tangent contact
+	// lies within its sweep; seeded at the wrong radius (~4.24).
+	start := s.AddPoint(2, 2) // ~225°
+	end := s.AddPoint(8, 2)   // ~315°
 	arc := s.AddArc(center, start, end)
 	s.AddConstraint(sketch.NewTangent(line, arc))
 
@@ -581,8 +583,9 @@ func TestJSONRoundTripArcTangent(t *testing.T) {
 
 	center := s.AddPoint(5, 5)
 	s.Fix(center)
-	start := s.AddPoint(8, 5)
-	end := s.AddPoint(5, 8)
+	// Arc spans the bottom so the downward tangent contact is within the sweep.
+	start := s.AddPoint(2, 2)
+	end := s.AddPoint(8, 2)
 	arc := s.AddArc(center, start, end)
 
 	o := s.AddPoint(20, 0)

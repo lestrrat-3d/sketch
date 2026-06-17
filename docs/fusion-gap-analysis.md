@@ -43,8 +43,11 @@ The geometric set is already close to Fusion's. Remaining gaps:
 
 - ~~**Tangent: line–arc, arc–arc, arc–circle**~~ — *closed 2026-06*: the
   `Circular` interface (`*Circle` | `*Arc`) generalized `NewTangent`,
-  `NewTangentCircles` and `NewEqualRadius` to accept arcs. Tangency treats an
-  arc as its full circle (sweep not enforced).
+  `NewTangentCircles` and `NewEqualRadius` to accept arcs. Arc tangency
+  **enforces the sweep**: shared-endpoint (fillet) tangency is a clean
+  perpendicular/collinear equality, and interior tangency adds a slack-encoded
+  in-sweep inequality, so a line tangent to the full circle but not touching the
+  arc is reported unsolvable (no false-positive tangency).
 - **Point-on-arc / point-on-curve** generalization (eventually
   point-on-spline). The `Circular` interface is the natural vehicle for
   `pointOnCircle`/`concentric`/`Radius`/`Diameter` too.

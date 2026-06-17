@@ -85,8 +85,20 @@ func (s *Sketch) unitFor(k units.Kind) units.Unit {
 // their kind here.
 func (s *Sketch) AddConstraint(cs ...Constraint) {
 	for _, c := range cs {
+		// Re-adding an already-committed handle is a no-op: a constraint must
+		// appear at most once, or it would double-count its residual and (for
+		// aux-backed constraints) its solver variables.
+		if containsConstraint(s.cons, c) {
+			continue
+		}
 		if d, ok := c.(interface{ resolveUnit(*Sketch) }); ok {
 			d.resolveUnit(s)
+		}
+		// A constraint that needs auxiliary solver variables (e.g. an arc
+		// tangency's sweep slack) allocates them here — the same hook shape as
+		// resolveUnit. It runs on load too, since rebuild goes through AddConstraint.
+		if a, ok := c.(interface{ allocVars(*Sketch) }); ok {
+			a.allocVars(s)
 		}
 		s.cons = append(s.cons, c)
 	}

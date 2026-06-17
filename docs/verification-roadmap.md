@@ -70,7 +70,11 @@ algorithms stay above.
   cubic B-spline; per-entity construction flag.
 - **Constraints:** coincident, horizontal/vertical, parallel, perpendicular,
   collinear, point-on-line/circle/ellipse, midpoint, point-symmetric,
-  concentric, equal-length, equal-radius, tangent (line/arc, arc/arc).
+  concentric, equal-length, equal-radius, tangent (line/arc, arc/arc) with
+  **arc-sweep enforcement** — the contact must lie within the arc's sweep
+  (interior tangency via a slack-encoded inequality, shared-endpoint tangency via
+  a perpendicular/collinear equality), so a tangent that touches only the full
+  circle (not the arc) is reported unsolvable rather than falsely blessed.
 - **Dimensions:** distance (point/point, H/V, point-line, line-line), offset,
   radius, diameter, angle, ellipse axes/rotation; driven (reference) dimensions;
   parameter-bound dimensions (`param` table + expressions).
@@ -95,7 +99,6 @@ algorithms stay above.
 | Item | Why it matters | Effort |
 |---|---|---|
 | **Reference geometry** | The separation keystone (above): locked, externally-sourced 2D entities with source id + staleness. Unblocks faithful verification of sketches-on-faces and projected edges without a solid kernel. | M |
-| **Arc-sweep tangency / point-on-arc pinning** | **Soundness fix.** Tangency currently treats an arc as its full circle (`docs/fusion-gap-analysis.md`: "sweep not enforced"), so the oracle can certify a tangent that does not touch the arc — a false positive. Needs contact-point pinning (and, for splines/ellipses, an aux curve-parameter variable). | S–L |
 
 ### Tier 2 — representation fidelity
 

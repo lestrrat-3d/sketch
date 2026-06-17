@@ -192,6 +192,15 @@ settable per-entity property (`entity.SetConstruction`). Any new geometry that
 introduces unknowns must allocate them via `newVar` in its `Add…` method and
 reference them by index so the solver sees them automatically.
 
+A **constraint** may also own auxiliary variables when it genuinely needs them
+(the arc-tangency sweep slack is the only case today). It allocates them in an
+`allocVars(*Sketch)` method — a hook `AddConstraint` calls (the same shape as
+`resolveUnit`), so it runs on initial commit and on load (rebuild goes through
+`AddConstraint`). Aux vars are retired on removal via a `retireVars(*Sketch)`
+hook and are **not serialized** — they are recomputed from the solved geometry
+when `allocVars` re-runs on load. This is the deliberate, narrow exception to
+"constraints own no vars"; ship it only with the constraint that needs it.
+
 ### Invariants the solver depends on
 
 - **Residuals are unit-normalized.** Length-like residuals are in length units;
@@ -299,7 +308,16 @@ reference them by index so the solver sees them automatically.
   not transient `geom` values; the residual reads solved values through it.
   Constraints that relate centers/radii take the sealed `Circular` interface (`*Circle` or
   `*Arc`); an arc's radius is the derived `dist(Start, Center)`, so such
-  residuals need no radius variable.
+  residuals need no radius variable. **Arc tangency enforces the sweep** (the
+  tangent must touch the arc, not just its full circle, or the oracle would
+  bless a tangent that misses it). Two cases in `constraint.go`:
+  *endpoint tangency* — operands that share the contact point (the fillet/slot
+  case, detected by shared `*Point`) — is one clean equality (line ⊥ radius, or
+  centers collinear, at the shared point), no aux var. *Interior tangency* pins
+  tangency to the full circle **and** adds a slack-encoded inequality
+  (`dot(contactDir, midDir) ≥ cos(sweep/2)`) keeping the contact in the sweep.
+  The slack is an auxiliary solver variable (see the parameter-model note on the
+  `allocVars` hook).
 - Public dimensional constructors return concrete handles (`*Distance`, etc.)
   with `.Set`/`.SetValue`; geometric constructors return the `Constraint`
   interface.
