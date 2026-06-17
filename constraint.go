@@ -62,6 +62,28 @@ func (c *vertical) residual(out []float64) []float64 {
 // NewVertical forces a line to be vertical.
 func NewVertical(l *Line) Constraint { return &vertical{l} }
 
+type horizontalPoints struct{ P1, P2 *Point }
+
+func (c *horizontalPoints) residual(out []float64) []float64 {
+	return append(out, c.P1.y()-c.P2.y()) // length units
+}
+
+// NewHorizontalPoints forces two points to share a y coordinate (the segment
+// between them is horizontal). Unlike [NewHorizontal] it needs no line entity,
+// so it applies to bare points or the endpoints of different entities.
+func NewHorizontalPoints(p1, p2 *Point) Constraint { return &horizontalPoints{p1, p2} }
+
+type verticalPoints struct{ P1, P2 *Point }
+
+func (c *verticalPoints) residual(out []float64) []float64 {
+	return append(out, c.P1.x()-c.P2.x()) // length units
+}
+
+// NewVerticalPoints forces two points to share an x coordinate (the segment
+// between them is vertical). Unlike [NewVertical] it needs no line entity, so it
+// applies to bare points or the endpoints of different entities.
+func NewVerticalPoints(p1, p2 *Point) Constraint { return &verticalPoints{p1, p2} }
+
 // --- parallel / perpendicular ----------------------------------------------
 
 type parallel struct{ L1, L2 *Line }
@@ -151,6 +173,20 @@ func (c *midpoint) residual(out []float64) []float64 {
 // NewMidpoint forces a point to be the midpoint of a line.
 func NewMidpoint(p *Point, l *Line) Constraint { return &midpoint{p, l} }
 
+type midpointOf struct{ Mid, P1, P2 *Point }
+
+func (c *midpointOf) residual(out []float64) []float64 {
+	return append(out,
+		c.Mid.x()-(c.P1.x()+c.P2.x())/2,
+		c.Mid.y()-(c.P1.y()+c.P2.y())/2,
+	)
+}
+
+// NewMidpointOf forces mid to be the midpoint of the segment between p1 and p2.
+// Unlike [NewMidpoint] it takes a bare point pair rather than a line entity, so
+// it relates points that no single [Line] connects.
+func NewMidpointOf(mid, p1, p2 *Point) Constraint { return &midpointOf{mid, p1, p2} }
+
 type symmetric struct {
 	P1, P2 *Point
 	Axis   *Line
@@ -177,14 +213,15 @@ func NewSymmetric(p1, p2 *Point, axis *Line) Constraint { return &symmetric{p1, 
 
 // --- concentric -------------------------------------------------------------
 
-type concentric struct{ C1, C2 *Circle }
+type concentric struct{ C1, C2 Circular }
 
 func (c *concentric) residual(out []float64) []float64 {
-	return (&coincident{c.C1.Center, c.C2.Center}).residual(out)
+	return (&coincident{c.C1.centerPt(), c.C2.centerPt()}).residual(out)
 }
 
-// NewConcentric forces two circles to share a center.
-func NewConcentric(c1, c2 *Circle) Constraint { return &concentric{c1, c2} }
+// NewConcentric forces two circular entities (circles or arcs) to share a
+// center.
+func NewConcentric(c1, c2 Circular) Constraint { return &concentric{c1, c2} }
 
 // --- equal ------------------------------------------------------------------
 
@@ -746,30 +783,36 @@ func NewOffset(src, dst *Line, d float64) *Offset {
 // Radius is an editable radius dimension.
 type Radius struct {
 	dimBase
-	C *Circle
+	C Circular
 }
 
 func (c *Radius) residual(out []float64) []float64 {
-	return append(out, c.C.r()-c.base())
+	return append(out, c.C.R()-c.base())
 }
 
-// NewRadius constrains a circle's radius.
-func NewRadius(c *Circle, r float64) *Radius {
+// NewRadius constrains a circular entity's radius. It accepts a [*Circle] or an
+// [*Arc] (an arc's radius is the distance from its center to its endpoints). For
+// an arc the start point must not coincide with the center: a zero-radius arc
+// has no radius gradient, so the solver cannot grow it toward a positive target.
+func NewRadius(c Circular, r float64) *Radius {
 	return &Radius{dimBase: lengthDim(r), C: c}
 }
 
 // Diameter is an editable diameter dimension.
 type Diameter struct {
 	dimBase
-	C *Circle
+	C Circular
 }
 
 func (c *Diameter) residual(out []float64) []float64 {
-	return append(out, 2*c.C.r()-c.base())
+	return append(out, 2*c.C.R()-c.base())
 }
 
-// NewDiameter constrains a circle's diameter.
-func NewDiameter(c *Circle, d float64) *Diameter {
+// NewDiameter constrains a circular entity's diameter. It accepts a [*Circle] or
+// an [*Arc]. As with [NewRadius], an arc operand must have a nonzero radius (its
+// start must not coincide with its center) or the solver has no gradient to act
+// on.
+func NewDiameter(c Circular, d float64) *Diameter {
 	return &Diameter{dimBase: lengthDim(d), C: c}
 }
 

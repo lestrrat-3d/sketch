@@ -34,6 +34,16 @@ func TestJSONRoundTripAllConstraintKinds(t *testing.T) {
 			s.Fix(a)
 			s.AddConstraint(sketch.NewVertical(s.AddLine(a, s.AddPoint(1, 5))))
 		}},
+		{"horizontalPoints", func(s *sketch.Sketch) {
+			a := s.AddPoint(0, 4)
+			s.Fix(a)
+			s.AddConstraint(sketch.NewHorizontalPoints(a, s.AddPoint(6, -2)))
+		}},
+		{"verticalPoints", func(s *sketch.Sketch) {
+			a := s.AddPoint(3, 0)
+			s.Fix(a)
+			s.AddConstraint(sketch.NewVerticalPoints(a, s.AddPoint(-1, 7)))
+		}},
 		{"parallel", func(s *sketch.Sketch) {
 			a := s.AddPoint(0, 0)
 			b := s.AddPoint(10, 0)
@@ -77,6 +87,13 @@ func TestJSONRoundTripAllConstraintKinds(t *testing.T) {
 			s.Fix(b)
 			s.AddConstraint(sketch.NewMidpoint(s.AddPoint(3, 3), s.AddLine(a, b)))
 		}},
+		{"midpointOf", func(s *sketch.Sketch) {
+			a := s.AddPoint(0, 0)
+			b := s.AddPoint(10, 6)
+			s.Fix(a)
+			s.Fix(b)
+			s.AddConstraint(sketch.NewMidpointOf(s.AddPoint(2, 2), a, b))
+		}},
 		{"symmetric", func(s *sketch.Sketch) {
 			axA := s.AddPoint(0, 0)
 			axB := s.AddPoint(0, 10)
@@ -92,6 +109,13 @@ func TestJSONRoundTripAllConstraintKinds(t *testing.T) {
 			c1 := s.AddCircle(o1, 5)
 			c2 := s.AddCircle(s.AddPoint(3, 2), 4)
 			s.AddConstraint(sketch.NewConcentric(c1, c2))
+		}},
+		{"concentricArcs", func(s *sketch.Sketch) {
+			o1 := s.AddPoint(0, 0)
+			s.Fix(o1)
+			a1 := s.AddArc(o1, s.AddPoint(3, 0), s.AddPoint(0, 3))
+			a2 := s.AddArc(s.AddPoint(5, 5), s.AddPoint(7, 5), s.AddPoint(5, 7))
+			s.AddConstraint(sketch.NewConcentric(a1, a2))
 		}},
 		{"equal", func(s *sketch.Sketch) {
 			a := s.AddPoint(0, 0)
@@ -185,6 +209,16 @@ func TestJSONRoundTripAllConstraintKinds(t *testing.T) {
 			o := s.AddPoint(0, 0)
 			s.Fix(o)
 			s.AddConstraint(sketch.NewDiameter(s.AddCircle(o, 3), 14))
+		}},
+		{"radiusOnArc", func(s *sketch.Sketch) {
+			o := s.AddPoint(0, 0)
+			s.Fix(o)
+			s.AddConstraint(sketch.NewRadius(s.AddArc(o, s.AddPoint(3, 0), s.AddPoint(0, 3)), 7))
+		}},
+		{"diameterOnArc", func(s *sketch.Sketch) {
+			o := s.AddPoint(0, 0)
+			s.Fix(o)
+			s.AddConstraint(sketch.NewDiameter(s.AddArc(o, s.AddPoint(3, 0), s.AddPoint(0, 3)), 14))
 		}},
 		{"angle", func(s *sketch.Sketch) {
 			a := s.AddPoint(0, 0)

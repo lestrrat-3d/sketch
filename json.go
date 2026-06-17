@@ -201,6 +201,10 @@ func marshalConstraint(c Constraint) (jsonConstraint, bool) {
 		return jsonConstraint{Type: "horizontal", Entities: []int{t.L.id}}, true
 	case *vertical:
 		return jsonConstraint{Type: "vertical", Entities: []int{t.L.id}}, true
+	case *horizontalPoints:
+		return jsonConstraint{Type: "horizontal_points", Points: []int{t.P1.id, t.P2.id}}, true
+	case *verticalPoints:
+		return jsonConstraint{Type: "vertical_points", Points: []int{t.P1.id, t.P2.id}}, true
 	case *parallel:
 		return jsonConstraint{Type: "parallel", Entities: []int{t.L1.id, t.L2.id}}, true
 	case *perpendicular:
@@ -210,13 +214,15 @@ func marshalConstraint(c Constraint) (jsonConstraint, bool) {
 	case *collinear:
 		return jsonConstraint{Type: "collinear", Entities: []int{t.L1.id, t.L2.id}}, true
 	case *concentric:
-		return jsonConstraint{Type: "concentric", Entities: []int{t.C1.id, t.C2.id}}, true
+		return jsonConstraint{Type: "concentric", Entities: []int{t.C1.entID(), t.C2.entID()}}, true
 	case *pointOnCircle:
 		return jsonConstraint{Type: "point_on_circle", Points: []int{t.P.id}, Entities: []int{t.C.id}}, true
 	case *pointOnEllipse:
 		return jsonConstraint{Type: "point_on_ellipse", Points: []int{t.P.id}, Entities: []int{t.E.id}}, true
 	case *midpoint:
 		return jsonConstraint{Type: "midpoint", Points: []int{t.P.id}, Entities: []int{t.L.id}}, true
+	case *midpointOf:
+		return jsonConstraint{Type: "midpoint_of", Points: []int{t.Mid.id, t.P1.id, t.P2.id}}, true
 	case *symmetric:
 		return jsonConstraint{Type: "symmetric", Points: []int{t.P1.id, t.P2.id}, Entities: []int{t.Axis.id}}, true
 	case *equalLines:
@@ -240,9 +246,9 @@ func marshalConstraint(c Constraint) (jsonConstraint, bool) {
 	case *Offset:
 		return dimJSON("offset", t, nil, []int{t.Src.id, t.Dst.id}), true
 	case *Radius:
-		return dimJSON("radius", t, nil, []int{t.C.id}), true
+		return dimJSON("radius", t, nil, []int{t.C.entID()}), true
 	case *Diameter:
-		return dimJSON("diameter", t, nil, []int{t.C.id}), true
+		return dimJSON("diameter", t, nil, []int{t.C.entID()}), true
 	case *Angle:
 		return dimJSON("angle", t, nil, []int{t.L1.id, t.L2.id}), true
 	case *SemiMajor:
@@ -501,10 +507,12 @@ func (s *Sketch) pointsRef(ids []int) ([]*Point, error) {
 // exercises every kind, so a stale entry surfaces there.
 var constraintArity = map[string][2]int{
 	"coincident": {2, 0}, "horizontal": {0, 1}, "vertical": {0, 1},
+	"horizontal_points": {2, 0}, "vertical_points": {2, 0},
 	"parallel": {0, 2}, "perpendicular": {0, 2}, "equal_lines": {0, 2},
 	"collinear": {0, 2}, "angle": {0, 2}, "point_on_line": {1, 1},
 	"point_on_circle": {1, 1}, "point_on_ellipse": {1, 1}, "midpoint": {1, 1},
-	"symmetric": {2, 1}, "concentric": {0, 2}, "equal_radii": {0, 2},
+	"midpoint_of": {3, 0},
+	"symmetric":   {2, 1}, "concentric": {0, 2}, "equal_radii": {0, 2},
 	"tangent_line_circle": {0, 2}, "tangent_circles": {0, 2},
 	"distance": {2, 0}, "hdistance": {2, 0}, "vdistance": {2, 0},
 	"distance_point_line": {1, 1}, "distance_lines": {0, 2}, "offset": {0, 2},
@@ -541,6 +549,12 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 	switch jc.Type {
 	case "coincident":
 		s.AddConstraint(NewCoincident(pt(0), pt(1)))
+	case "horizontal_points":
+		s.AddConstraint(NewHorizontalPoints(pt(0), pt(1)))
+	case "vertical_points":
+		s.AddConstraint(NewVerticalPoints(pt(0), pt(1)))
+	case "midpoint_of":
+		s.AddConstraint(NewMidpointOf(pt(0), pt(1), pt(2)))
 	case "horizontal":
 		l, err := line(jc.Entities[0])
 		if err != nil {
@@ -618,11 +632,11 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		}
 		s.AddConstraint(NewSymmetric(pt(0), pt(1), l))
 	case "concentric":
-		c1, err := circle(jc.Entities[0])
+		c1, err := circular(jc.Entities[0])
 		if err != nil {
 			return err
 		}
-		c2, err := circle(jc.Entities[1])
+		c2, err := circular(jc.Entities[1])
 		if err != nil {
 			return err
 		}
@@ -690,13 +704,13 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 	case "vdistance":
 		dim(NewVerticalDistance(pt(0), pt(1), jc.Value))
 	case "radius":
-		c, err := circle(jc.Entities[0])
+		c, err := circular(jc.Entities[0])
 		if err != nil {
 			return err
 		}
 		dim(NewRadius(c, jc.Value))
 	case "diameter":
-		c, err := circle(jc.Entities[0])
+		c, err := circular(jc.Entities[0])
 		if err != nil {
 			return err
 		}

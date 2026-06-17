@@ -209,6 +209,10 @@ func constraintRefs(c Constraint) ([]*Point, []Entity) {
 		return nil, []Entity{t.L}
 	case *vertical:
 		return nil, []Entity{t.L}
+	case *horizontalPoints:
+		return []*Point{t.P1, t.P2}, nil
+	case *verticalPoints:
+		return []*Point{t.P1, t.P2}, nil
 	case *parallel:
 		return nil, []Entity{t.L1, t.L2}
 	case *perpendicular:
@@ -225,6 +229,8 @@ func constraintRefs(c Constraint) ([]*Point, []Entity) {
 		return []*Point{t.P}, []Entity{t.E}
 	case *midpoint:
 		return []*Point{t.P}, []Entity{t.L}
+	case *midpointOf:
+		return []*Point{t.Mid, t.P1, t.P2}, nil
 	case *symmetric:
 		return []*Point{t.P1, t.P2}, []Entity{t.Axis}
 	case *equalLines:
