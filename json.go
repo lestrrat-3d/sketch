@@ -253,6 +253,8 @@ func marshalConstraint(c Constraint) (jsonConstraint, bool) {
 		return dimJSON("radius", t, nil, []int{t.C.entID()}), true
 	case *Diameter:
 		return dimJSON("diameter", t, nil, []int{t.C.entID()}), true
+	case *ArcLength:
+		return dimJSON("arc_length", t, nil, []int{t.A.id}), true
 	case *Angle:
 		return dimJSON("angle", t, nil, []int{t.L1.id, t.L2.id}), true
 	case *SemiMajor:
@@ -521,7 +523,7 @@ var constraintArity = map[string][2]int{
 	"tangent_line_circle": {0, 2}, "tangent_circles": {0, 2},
 	"distance": {2, 0}, "hdistance": {2, 0}, "vdistance": {2, 0},
 	"distance_point_line": {1, 1}, "distance_lines": {0, 2}, "offset": {0, 2},
-	"radius": {0, 1}, "diameter": {0, 1},
+	"radius": {0, 1}, "diameter": {0, 1}, "arc_length": {0, 1},
 	"semi_major": {0, 1}, "semi_minor": {0, 1}, "ellipse_rotation": {0, 1},
 }
 
@@ -748,6 +750,16 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 			return err
 		}
 		dim(NewDiameter(c, jc.Value))
+	case "arc_length":
+		c, err := circular(jc.Entities[0])
+		if err != nil {
+			return err
+		}
+		arc, ok := c.(*Arc)
+		if !ok {
+			return fmt.Errorf("sketch: arc_length requires an arc, got %T", c)
+		}
+		dim(NewArcLength(arc, jc.Value))
 	default:
 		return fmt.Errorf("sketch: unknown constraint type %q", jc.Type)
 	}

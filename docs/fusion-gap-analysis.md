@@ -67,9 +67,10 @@ The geometric set is already close to Fusion's. Remaining gaps:
   equal radius). Arc symmetry is still open — a reflection reverses an arc's
   sweep, so it must swap and mirror the endpoints, not yet modelled.
 - **Equal for line↔arc mixed** — Fusion's "equal" across a line and an arc
-  equates line length to arc *length*, which needs the same continuous-sweep aux
-  variable as the deferred arc-length dimension. Line-line (length) and
-  circle/arc-radius equality already exist (`NewEqual`/`NewEqualRadius`).
+  equates line length to arc *length*. Now feasible by composing the arc-length
+  aux variable (`NewArcLength`) with a line's length — a small follow-up. Line-
+  line (length) and circle/arc-radius equality already exist
+  (`NewEqual`/`NewEqualRadius`).
 - ~~**Fix/ground a whole entity**~~ — *closed*: `Sketch.FixEntity`/`UnfixEntity`/
   `EntityFixed` ground all of an entity's variables (points + circle radius /
   ellipse axes); `UnfixEntity` leaves shared reference-locked points untouched.
@@ -79,10 +80,13 @@ The geometric set is already close to Fusion's. Remaining gaps:
 
 ### Dimensional gaps
 
-- **Arc length dimension.** *Deferred:* a sound `R·sweep` residual needs a
-  continuous unwrapped-sweep auxiliary variable (the `Sweep()` wrap at 0/2π is
-  discontinuous), the same machinery the tangency sweep slack uses — its own
-  design pass, like point-on-arc.
+- ~~**Arc length dimension**~~ — *closed*: `NewArcLength`. The discontinuous
+  `R·Sweep()` is replaced by an auxiliary unwrapped-sweep variable driving
+  `R·theta = L`, pinned to the geometry by a branch-selecting wrapped-angle
+  coupling row — `(Δ − theta)` wrapped into `(−π, π]`, dimensionless, like the
+  Angle dimension — reusing the tangency sweep slack's `allocVars`/`retireVars`
+  lifecycle. Drive-only in v1 (a driven dimension contributes no residual, which
+  would orphan the aux var); driven/reference arc-length is a follow-up.
 - ~~**Distance point↔line**~~ — *closed*: `NewDistancePointLine`.
 - ~~**Distance line↔line**~~ — *closed*: `NewDistanceLines` (two
   residuals; forces parallelism, no separate parallel constraint needed).

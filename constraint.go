@@ -854,6 +854,90 @@ func NewDiameter(c Circular, d float64) *Diameter {
 	return &Diameter{dimBase: lengthDim(d), C: c}
 }
 
+// ArcLength is an editable dimension on an arc's swept length (radius × sweep
+// angle). Driving the swept length cannot use the naive residual R·Sweep() − L
+// because Sweep() jumps from 2π to 0 as the end crosses the start (a
+// discontinuous Jacobian). Instead the dimension owns one auxiliary solver
+// variable — the *unwrapped* sweep angle theta — driving R·theta = L and pinning
+// theta to the geometry with a continuous coupling row (see allocVars/residual).
+//
+// ArcLength is drive-only: it always drives and cannot be made a driven
+// (reference/measuring) dimension, because a driven dimension contributes no
+// residual rows, which would leave its auxiliary variable unconstrained. A
+// driven arc-length dimension is a follow-up.
+type ArcLength struct {
+	dimBase
+	A     *Arc
+	s     *Sketch // set by allocVars, for theta access
+	theta int     // unwrapped-sweep aux var index; -1 = not yet allocated
+}
+
+// NewArcLength constrains an arc's swept length — its radius times its
+// counter-clockwise sweep angle. The value is interpreted in the sketch's
+// default length unit once added. The arc must have a nonzero radius (its start
+// must not coincide with its center), like [NewRadius].
+func NewArcLength(a *Arc, length float64) *ArcLength {
+	return &ArcLength{dimBase: lengthDim(length), A: a, theta: -1}
+}
+
+func (c *ArcLength) allocVars(s *Sketch) {
+	c.s = s
+	if c.theta >= 0 {
+		return // idempotent: re-adding the handle must not leak a second aux var
+	}
+	c.theta = s.newVar(c.A.Sweep()) // seed to the current (solved) sweep
+}
+
+func (c *ArcLength) retireVars(s *Sketch) {
+	if c.theta >= 0 {
+		s.retireVar(c.theta)
+		c.theta = -1 // reset so re-adding the handle allocates a fresh aux var
+	}
+}
+
+// Driven reports false always: arc-length is drive-only (see the type doc).
+func (c *ArcLength) Driven() bool { return false }
+
+// SetDriven is a no-op: arc-length cannot be a driven dimension (see the type
+// doc). It overrides the embedded dimBase so a deserialized driven flag cannot
+// silently orphan the auxiliary variable.
+func (c *ArcLength) SetDriven(bool) {}
+
+func (c *ArcLength) residual(out []float64) []float64 {
+	cx, cy := c.A.Center.x(), c.A.Center.y()
+	sx0, sy0 := c.A.Start.x()-cx, c.A.Start.y()-cy
+	ex, ey := c.A.End.x()-cx, c.A.End.y()-cy
+	r := norm(sx0, sy0)
+	if c.theta < 0 {
+		// Pre-commit (CheckConstraint rank probe): the base row only, before
+		// allocVars runs. The wrap is irrelevant for a single-point rank check.
+		return append(out, r*c.A.Sweep()-c.base())
+	}
+	theta := c.s.vars[c.theta]
+	// Row 0: drive the swept length (length units), via the unwrapped sweep.
+	out = append(out, r*theta-c.base())
+	// Row 1 (dimensionless): pin theta to the geometry's unwrapped sweep. Δ is
+	// the principal signed angle from the start ray to the end ray; the residual
+	// is (Δ − theta) wrapped into (−π, π], so it is zero only at the correct
+	// branch (theta ≡ Δ mod 2π) — NOT at the antipodal theta ≡ Δ + π — with a
+	// clean ∂/∂theta = −1 at the solution. (A plain sin(Δ − theta) would vanish on
+	// the wrong branch too.) Δ's atan2 jumps 2π at a half-turn (a semicircle
+	// target), but the mod-2π wrap absorbs that jump, so row 1 stays continuous
+	// there. The residual is only discontinuous if theta would have to move more
+	// than π from Δ's branch — which never happens while the end is free (end and
+	// theta move together, keeping Δ − theta near 0). This mirrors the Angle
+	// dimension's wrapped-angle residual.
+	cross := sx0*ey - sy0*ex
+	dot := sx0*ex + sy0*ey
+	r1 := math.Mod(math.Atan2(cross, dot)-theta, 2*math.Pi)
+	if r1 > math.Pi {
+		r1 -= 2 * math.Pi
+	} else if r1 <= -math.Pi {
+		r1 += 2 * math.Pi
+	}
+	return append(out, r1)
+}
+
 // Angle is an editable signed angle dimension between two lines, measured
 // counterclockwise from L1's start→end direction to L2's.
 type Angle struct {

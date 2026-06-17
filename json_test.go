@@ -2,6 +2,7 @@ package sketch_test
 
 import (
 	"encoding/json"
+	"math"
 	"testing"
 
 	"github.com/lestrrat-3d/sketch"
@@ -243,6 +244,13 @@ func TestJSONRoundTripAllConstraintKinds(t *testing.T) {
 			o := s.AddPoint(0, 0)
 			s.Fix(o)
 			s.AddConstraint(sketch.NewDiameter(s.AddArc(o, s.AddPoint(3, 0), s.AddPoint(0, 3)), 14))
+		}},
+		{"arcLength", func(s *sketch.Sketch) {
+			o := s.AddPoint(0, 0)
+			start := s.AddPoint(4, 0)
+			s.Fix(o)
+			s.Fix(start)
+			s.AddConstraint(sketch.NewArcLength(s.AddArc(o, start, s.AddPoint(0, 4)), 3*math.Pi))
 		}},
 		{"angle", func(s *sketch.Sketch) {
 			a := s.AddPoint(0, 0)

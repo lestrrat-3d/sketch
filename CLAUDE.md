@@ -206,7 +206,8 @@ introduces unknowns must allocate them via `newVar` in its `Add…` method and
 reference them by index so the solver sees them automatically.
 
 A **constraint** may also own auxiliary variables when it genuinely needs them
-(the arc-tangency sweep slack is the only case today). It allocates them in an
+(the arc-tangency sweep slack, and the arc-length dimension's unwrapped-sweep
+variable). It allocates them in an
 `allocVars(*Sketch)` method — a hook `AddConstraint` calls (the same shape as
 `resolveUnit`), so it runs on initial commit and on load (rebuild goes through
 `AddConstraint`). Aux vars are retired on removal via a `retireVars(*Sketch)`

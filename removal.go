@@ -272,6 +272,8 @@ func constraintRefs(c Constraint) ([]*Point, []Entity) {
 		return nil, []Entity{t.C}
 	case *Diameter:
 		return nil, []Entity{t.C}
+	case *ArcLength:
+		return nil, []Entity{t.A}
 	case *Angle:
 		return nil, []Entity{t.L1, t.L2}
 	case *SemiMajor:
