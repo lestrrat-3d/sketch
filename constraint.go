@@ -211,6 +211,44 @@ func (c *symmetric) residual(out []float64) []float64 {
 // coincident on the axis also satisfies the constraint.
 func NewSymmetric(p1, p2 *Point, axis *Line) Constraint { return &symmetric{p1, p2, axis} }
 
+type symmetricLines struct {
+	L1, L2 *Line
+	Axis   *Line
+}
+
+func (c *symmetricLines) residual(out []float64) []float64 {
+	// Endpoint-for-endpoint mirror: Start↔Start and End↔End across the axis.
+	out = (&symmetric{c.L1.Start, c.L2.Start, c.Axis}).residual(out)
+	out = (&symmetric{c.L1.End, c.L2.End, c.Axis}).residual(out)
+	return out
+}
+
+// NewSymmetricLines forces line l2 to be the mirror image of l1 across the axis,
+// matched endpoint-for-endpoint (l1.Start↔l2.Start, l1.End↔l2.End). To mirror
+// with the opposite endpoint correspondence, swap l2's endpoints when authoring.
+// The axis must be a non-degenerate (non-zero-length) line.
+func NewSymmetricLines(l1, l2, axis *Line) Constraint { return &symmetricLines{l1, l2, axis} }
+
+type symmetricCircles struct {
+	C1, C2 *Circle
+	Axis   *Line
+}
+
+func (c *symmetricCircles) residual(out []float64) []float64 {
+	// Centers mirror across the axis, and the radii are equal.
+	out = (&symmetric{c.C1.Center, c.C2.Center, c.Axis}).residual(out)
+	return append(out, c.C1.R()-c.C2.R()) // length units
+}
+
+// NewSymmetricCircles forces two circles to be mirror images across the axis:
+// their centers are symmetric and their radii equal. The axis must be a
+// non-degenerate line. (Arc symmetry is a follow-up: a reflection reverses an
+// arc's sweep direction, so mirroring an arc must also swap and mirror its
+// endpoints — not yet modelled.)
+func NewSymmetricCircles(c1, c2 *Circle, axis *Line) Constraint {
+	return &symmetricCircles{c1, c2, axis}
+}
+
 // --- concentric -------------------------------------------------------------
 
 type concentric struct{ C1, C2 Circular }

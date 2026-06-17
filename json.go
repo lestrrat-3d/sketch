@@ -225,6 +225,10 @@ func marshalConstraint(c Constraint) (jsonConstraint, bool) {
 		return jsonConstraint{Type: "midpoint_of", Points: []int{t.Mid.id, t.P1.id, t.P2.id}}, true
 	case *symmetric:
 		return jsonConstraint{Type: "symmetric", Points: []int{t.P1.id, t.P2.id}, Entities: []int{t.Axis.id}}, true
+	case *symmetricLines:
+		return jsonConstraint{Type: "symmetric_lines", Entities: []int{t.L1.id, t.L2.id, t.Axis.id}}, true
+	case *symmetricCircles:
+		return jsonConstraint{Type: "symmetric_circles", Entities: []int{t.C1.id, t.C2.id, t.Axis.id}}, true
 	case *equalLines:
 		return jsonConstraint{Type: "equal_lines", Entities: []int{t.L1.id, t.L2.id}}, true
 	case *equalRadii:
@@ -512,7 +516,8 @@ var constraintArity = map[string][2]int{
 	"collinear": {0, 2}, "angle": {0, 2}, "point_on_line": {1, 1},
 	"point_on_circle": {1, 1}, "point_on_ellipse": {1, 1}, "midpoint": {1, 1},
 	"midpoint_of": {3, 0},
-	"symmetric":   {2, 1}, "concentric": {0, 2}, "equal_radii": {0, 2},
+	"symmetric":   {2, 1}, "symmetric_lines": {0, 3}, "symmetric_circles": {0, 3},
+	"concentric": {0, 2}, "equal_radii": {0, 2},
 	"tangent_line_circle": {0, 2}, "tangent_circles": {0, 2},
 	"distance": {2, 0}, "hdistance": {2, 0}, "vdistance": {2, 0},
 	"distance_point_line": {1, 1}, "distance_lines": {0, 2}, "offset": {0, 2},
@@ -631,6 +636,34 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 			return err
 		}
 		s.AddConstraint(NewSymmetric(pt(0), pt(1), l))
+	case "symmetric_lines":
+		l1, err := line(jc.Entities[0])
+		if err != nil {
+			return err
+		}
+		l2, err := line(jc.Entities[1])
+		if err != nil {
+			return err
+		}
+		axis, err := line(jc.Entities[2])
+		if err != nil {
+			return err
+		}
+		s.AddConstraint(NewSymmetricLines(l1, l2, axis))
+	case "symmetric_circles":
+		c1, err := circle(jc.Entities[0])
+		if err != nil {
+			return err
+		}
+		c2, err := circle(jc.Entities[1])
+		if err != nil {
+			return err
+		}
+		axis, err := line(jc.Entities[2])
+		if err != nil {
+			return err
+		}
+		s.AddConstraint(NewSymmetricCircles(c1, c2, axis))
 	case "concentric":
 		c1, err := circular(jc.Entities[0])
 		if err != nil {

@@ -62,12 +62,17 @@ The geometric set is already close to Fusion's. Remaining gaps:
 - **Point-on-arc / point-on-curve** generalization (eventually
   point-on-spline). Still open: confining the contact to an arc's sweep needs
   the same continuous-sweep auxiliary variable the tangency constraint uses.
-- **Symmetric for lines/circles/arcs** — point symmetry exists; Fusion symmetry
-  applies to whole entities.
-- **Equal for line↔arc mixed** — Fusion's "equal" works across lines and
-  arcs/circles.
-- **Fix/ground as a constraint-like toggle on any entity** — per-point
-  grounding exists; this is mostly API surface.
+- ~~**Symmetric for whole entities**~~ — *partially closed*: `NewSymmetricLines`
+  (endpoint-for-endpoint mirror) and `NewSymmetricCircles` (centers symmetric +
+  equal radius). Arc symmetry is still open — a reflection reverses an arc's
+  sweep, so it must swap and mirror the endpoints, not yet modelled.
+- **Equal for line↔arc mixed** — Fusion's "equal" across a line and an arc
+  equates line length to arc *length*, which needs the same continuous-sweep aux
+  variable as the deferred arc-length dimension. Line-line (length) and
+  circle/arc-radius equality already exist (`NewEqual`/`NewEqualRadius`).
+- ~~**Fix/ground a whole entity**~~ — *closed*: `Sketch.FixEntity`/`UnfixEntity`/
+  `EntityFixed` ground all of an entity's variables (points + circle radius /
+  ellipse axes); `UnfixEntity` leaves shared reference-locked points untouched.
 - **Coincident point-to-entity** — Fusion's coincident subsumes
   point-on-line/point-on-curve under one name; the pieces exist, this is
   naming/UX for the future DSL.

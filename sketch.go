@@ -277,6 +277,90 @@ func (s *Sketch) Unfix(p *Point) {
 // IsFixed reports whether the point is grounded.
 func (p *Point) IsFixed() bool { return p.s.fixed[p.xi] && p.s.fixed[p.yi] }
 
+// entityPoints returns an entity's defining points (endpoints, center, control
+// points). entitySizeVars returns the extra solver variables an entity owns
+// beyond its points — a circle's radius, an ellipse's semi-axes and rotation. An
+// arc's radius is derived from its points, so it owns no size variable.
+func (s *Sketch) entityPoints(e Entity) []*Point {
+	switch t := e.(type) {
+	case *Line:
+		return []*Point{t.Start, t.End}
+	case *Circle:
+		return []*Point{t.Center}
+	case *Arc:
+		return []*Point{t.Center, t.Start, t.End}
+	case *Ellipse:
+		return []*Point{t.Center}
+	case *Spline:
+		return t.Control
+	}
+	return nil
+}
+
+func (s *Sketch) entitySizeVars(e Entity) []int {
+	switch t := e.(type) {
+	case *Circle:
+		return []int{t.ri}
+	case *Ellipse:
+		return []int{t.rxi, t.ryi, t.roti}
+	}
+	return nil
+}
+
+// FixEntity grounds all of an entity's variables — its defining points and any
+// size variables (a circle's radius, an ellipse's semi-axes and rotation) — so
+// the solver holds the whole entity rigid at its current shape and location. It
+// is the entity-level counterpart of [Sketch.Fix].
+func (s *Sketch) FixEntity(e Entity) {
+	for _, p := range s.entityPoints(e) {
+		s.fixed[p.xi] = true
+		s.fixed[p.yi] = true
+	}
+	for _, i := range s.entitySizeVars(e) {
+		s.fixed[i] = true
+	}
+}
+
+// UnfixEntity releases an entity's variables previously grounded with
+// [Sketch.FixEntity]. It is a no-op on reference geometry; it also leaves any
+// reference-locked point the entity happens to share untouched, since a
+// reference lock cannot be lifted through the grounding API.
+func (s *Sketch) UnfixEntity(e Entity) {
+	if e.IsReference() {
+		return
+	}
+	for _, p := range s.entityPoints(e) {
+		if p.reference {
+			continue // a shared, externally-locked reference point keeps its lock
+		}
+		s.fixed[p.xi] = false
+		s.fixed[p.yi] = false
+	}
+	for _, i := range s.entitySizeVars(e) {
+		s.fixed[i] = false
+	}
+}
+
+// EntityFixed reports whether all of an entity's variables are grounded.
+func (s *Sketch) EntityFixed(e Entity) bool {
+	pts := s.entityPoints(e)
+	sz := s.entitySizeVars(e)
+	if len(pts) == 0 && len(sz) == 0 {
+		return false
+	}
+	for _, p := range pts {
+		if !s.fixed[p.xi] || !s.fixed[p.yi] {
+			return false
+		}
+	}
+	for _, i := range sz {
+		if !s.fixed[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // --- Entities ---------------------------------------------------------------
 
 // Entity is a line, circle, arc, ellipse or spline in a sketch. Construction
