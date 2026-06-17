@@ -156,6 +156,61 @@ func (c *pointOnCircle) residual(out []float64) []float64 {
 // NewPointOnCircle forces a point to lie on a circle.
 func NewPointOnCircle(p *Point, c *Circle) Constraint { return &pointOnCircle{p, c} }
 
+// pointOnArc confines a point to an arc: on the arc's circle, AND within its
+// sweep. The sweep confinement reuses the interior-tangency machinery — a
+// slack-encoded inequality keeping the point's direction from the center inside
+// the arc's sweep — so a point on the full circle but off the arc is reported
+// unsolvable rather than blessed (the same soundness arc tangency enforces).
+type pointOnArc struct {
+	P     *Point
+	A     *Arc
+	s     *Sketch // set by allocVars, for slack access
+	slack int     // sweep slack var index; -1 = not yet allocated
+}
+
+// NewPointOnArc forces a point to lie on an arc — on its circle and within its
+// counter-clockwise sweep. A point that lies on the arc's full circle but
+// outside the sweep is reported unsolvable, not on the arc.
+func NewPointOnArc(p *Point, a *Arc) Constraint { return &pointOnArc{P: p, A: a, slack: -1} }
+
+func (c *pointOnArc) contactDir() (float64, float64) {
+	dx := c.P.x() - c.A.Center.x()
+	dy := c.P.y() - c.A.Center.y()
+	n := norm(dx, dy)
+	return dx / n, dy / n
+}
+
+func (c *pointOnArc) allocVars(s *Sketch) {
+	c.s = s
+	if c.slack >= 0 {
+		return // idempotent: re-adding the handle must not leak a second slack
+	}
+	ux, uy := c.contactDir()
+	c.slack = s.newVar(slackFor(arcInSweepExcess(c.A, ux, uy)))
+}
+
+func (c *pointOnArc) retireVars(s *Sketch) {
+	if c.slack >= 0 {
+		s.retireVar(c.slack)
+		c.slack = -1 // reset so re-adding the handle allocates a fresh slack
+	}
+}
+
+func (c *pointOnArc) residual(out []float64) []float64 {
+	dx := c.P.x() - c.A.Center.x()
+	dy := c.P.y() - c.A.Center.y()
+	out = append(out, norm(dx, dy)-c.A.R()) // on the circle, length units
+	// Gating the sweep row on the slack keeps a committed constraint's arity
+	// constant (the finite-difference Jacobian requires it); a pre-commit probe
+	// (CheckConstraint) sees only the on-circle row.
+	if c.slack >= 0 {
+		ux, uy := c.contactDir()
+		w := c.s.vars[c.slack]
+		out = append(out, arcInSweepExcess(c.A, ux, uy)-w*w)
+	}
+	return out
+}
+
 // --- midpoint / symmetric ---------------------------------------------------
 
 type midpoint struct {

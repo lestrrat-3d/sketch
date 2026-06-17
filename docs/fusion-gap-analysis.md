@@ -59,9 +59,10 @@ The geometric set is already close to Fusion's. Remaining gaps:
   remain).
 - ~~**Midpoint of a bare point pair**~~ — *closed*: `NewMidpointOf(mid,
   p1, p2)` complements the line-entity `NewMidpoint`.
-- **Point-on-arc / point-on-curve** generalization (eventually
-  point-on-spline). Still open: confining the contact to an arc's sweep needs
-  the same continuous-sweep auxiliary variable the tangency constraint uses.
+- ~~**Point-on-arc**~~ — *closed*: `NewPointOnArc` confines a point to the arc's
+  circle **and** its sweep, reusing the interior-tangency slack-encoded sweep
+  inequality, so a point on the full circle but off the arc is reported
+  unsolvable. Point-on-spline (and a unified coincident-to-curve) remain open.
 - ~~**Symmetric for whole entities**~~ — *partially closed*: `NewSymmetricLines`
   (endpoint-for-endpoint mirror) and `NewSymmetricCircles` (centers symmetric +
   equal radius). Arc symmetry is still open — a reflection reverses an arc's

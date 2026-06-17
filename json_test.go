@@ -81,6 +81,16 @@ func TestJSONRoundTripAllConstraintKinds(t *testing.T) {
 			circ := s.AddCircle(o, 5)
 			s.AddConstraint(sketch.NewRadius(circ, 5), sketch.NewPointOnCircle(s.AddPoint(7, 1), circ))
 		}},
+		{"pointOnArc", func(s *sketch.Sketch) {
+			o := s.AddPoint(0, 0)
+			start := s.AddPoint(5, 0)
+			end := s.AddPoint(0, 5)
+			s.Fix(o)
+			s.Fix(start)
+			s.Fix(end)
+			arc := s.AddArc(o, start, end)
+			s.AddConstraint(sketch.NewPointOnArc(s.AddPoint(3, 3), arc))
+		}},
 		{"midpoint", func(s *sketch.Sketch) {
 			a := s.AddPoint(0, 0)
 			b := s.AddPoint(10, 0)
