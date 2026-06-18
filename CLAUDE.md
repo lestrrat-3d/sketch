@@ -377,8 +377,10 @@ These are unsettled. If you resolve one, record the decision here.
   **Elliptical arcs** are in as a geometry primitive (`AddEllipticalArc`:
   center + start/end points + rx/ry/rotation vars, two internal on-ellipse
   constraints pinning the endpoints, eccentric-angle sweep, sampled-bulge area
-  in the arrangement; constraints/dimensions *on* an elliptical arc and
-  tangency-to-ellipse are still open).
+  in the arrangement). Its shape is dimensionable via the sealed `Elliptical`
+  interface (`NewSemiMajor`/`NewSemiMinor`/`NewEllipseRotation` accept a
+  `*Ellipse` or an `*EllipticalArc`). Still open: point-on/tangency confined to
+  an elliptical arc's sweep, and tangency-to-ellipse.
   Slots/fillet/chamfer exist as compound builders and `geom` template helpers.
 - **Solver evolution.** Numerical Jacobian is fine at current scale. Open:
   analytic Jacobians for speed/accuracy, equation decomposition (solve

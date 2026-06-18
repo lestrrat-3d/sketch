@@ -265,11 +265,11 @@ func marshalConstraint(c Constraint) (jsonConstraint, bool) {
 	case *Angle:
 		return dimJSON("angle", t, nil, []int{t.L1.id, t.L2.id}), true
 	case *SemiMajor:
-		return dimJSON("semi_major", t, nil, []int{t.E.id}), true
+		return dimJSON("semi_major", t, nil, []int{t.E.entID()}), true
 	case *SemiMinor:
-		return dimJSON("semi_minor", t, nil, []int{t.E.id}), true
+		return dimJSON("semi_minor", t, nil, []int{t.E.entID()}), true
 	case *EllipseRotation:
-		return dimJSON("ellipse_rotation", t, nil, []int{t.E.id}), true
+		return dimJSON("ellipse_rotation", t, nil, []int{t.E.entID()}), true
 	}
 	return jsonConstraint{}, false
 }
@@ -636,9 +636,9 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		}
 		s.AddConstraint(NewPointOnEllipse(pt(0), e))
 	case "semi_major", "semi_minor", "ellipse_rotation":
-		e, err := ellipse(jc.Entities[0])
-		if err != nil {
-			return err
+		e, ok := s.entByID(jc.Entities[0]).(Elliptical)
+		if !ok {
+			return fmt.Errorf("sketch: %s requires an ellipse or elliptical arc", jc.Type)
 		}
 		switch jc.Type {
 		case "semi_major":

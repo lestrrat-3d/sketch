@@ -392,6 +392,18 @@ type Circular interface {
 	centerPt() *Point
 }
 
+// Elliptical is a sketch entity whose shape is an ellipse: a [*Ellipse] or an
+// [*EllipticalArc]. The semi-axis and rotation dimensions ([NewSemiMajor],
+// [NewSemiMinor], [NewEllipseRotation]) accept either; for an elliptical arc
+// they constrain its underlying ellipse's shape (not its sweep). Like
+// [Circular], it exposes the value accessors a consumer needs.
+type Elliptical interface {
+	Entity
+	Rx() float64
+	Ry() float64
+	Rotation() float64
+}
+
 // Line is a straight segment between two sketch points.
 type Line struct {
 	s            *Sketch

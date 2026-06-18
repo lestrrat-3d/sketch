@@ -1053,15 +1053,16 @@ func NewAngle(l1, l2 *Line, a float64) *Angle {
 // x axis (the major axis by convention; not enforced).
 type SemiMajor struct {
 	dimBase
-	E *Ellipse
+	E Elliptical
 }
 
 func (c *SemiMajor) residual(out []float64) []float64 {
-	return append(out, c.E.rx()-c.base()) // length units
+	return append(out, c.E.Rx()-c.base()) // length units
 }
 
-// NewSemiMajor constrains an ellipse's semi-axis along its local x axis.
-func NewSemiMajor(e *Ellipse, r float64) *SemiMajor {
+// NewSemiMajor constrains the semi-axis along an ellipse's local x axis. It
+// accepts a [*Ellipse] or an [*EllipticalArc].
+func NewSemiMajor(e Elliptical, r float64) *SemiMajor {
 	return &SemiMajor{dimBase: lengthDim(r), E: e}
 }
 
@@ -1069,15 +1070,16 @@ func NewSemiMajor(e *Ellipse, r float64) *SemiMajor {
 // y axis (the minor axis by convention; not enforced).
 type SemiMinor struct {
 	dimBase
-	E *Ellipse
+	E Elliptical
 }
 
 func (c *SemiMinor) residual(out []float64) []float64 {
-	return append(out, c.E.ry()-c.base()) // length units
+	return append(out, c.E.Ry()-c.base()) // length units
 }
 
-// NewSemiMinor constrains an ellipse's semi-axis along its local y axis.
-func NewSemiMinor(e *Ellipse, r float64) *SemiMinor {
+// NewSemiMinor constrains the semi-axis along an ellipse's local y axis. It
+// accepts a [*Ellipse] or an [*EllipticalArc].
+func NewSemiMinor(e Elliptical, r float64) *SemiMinor {
 	return &SemiMinor{dimBase: lengthDim(r), E: e}
 }
 
@@ -1085,12 +1087,12 @@ func NewSemiMinor(e *Ellipse, r float64) *SemiMinor {
 // local frame.
 type EllipseRotation struct {
 	dimBase
-	E *Ellipse
+	E Elliptical
 }
 
 func (c *EllipseRotation) residual(out []float64) []float64 {
 	// wrap into (-π, π] so the residual stays continuous, like Angle
-	r := math.Mod(c.E.rot()-c.base(), 2*math.Pi)
+	r := math.Mod(c.E.Rotation()-c.base(), 2*math.Pi)
 	if r > math.Pi {
 		r -= 2 * math.Pi
 	} else if r <= -math.Pi {
@@ -1102,8 +1104,8 @@ func (c *EllipseRotation) residual(out []float64) []float64 {
 // NewEllipseRotation constrains the rotation of an ellipse's local frame: a
 // signed angle measured counterclockwise from the global +x axis, wrapping
 // modulo a full turn. The value a is interpreted in the sketch's default angle
-// unit once added.
-func NewEllipseRotation(e *Ellipse, a float64) *EllipseRotation {
+// unit once added. It accepts a [*Ellipse] or an [*EllipticalArc].
+func NewEllipseRotation(e Elliptical, a float64) *EllipseRotation {
 	return &EllipseRotation{dimBase: angleDim(a), E: e}
 }
 
