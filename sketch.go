@@ -402,6 +402,7 @@ type Elliptical interface {
 	Rx() float64
 	Ry() float64
 	Rotation() float64
+	centerPt() *Point
 }
 
 // Line is a straight segment between two sketch points.
@@ -591,6 +592,8 @@ func (e *Ellipse) rx() float64  { return e.s.vars[e.rxi] }
 func (e *Ellipse) ry() float64  { return e.s.vars[e.ryi] }
 func (e *Ellipse) rot() float64 { return e.s.vars[e.roti] }
 
+func (e *Ellipse) centerPt() *Point { return e.Center }
+
 // AddEllipse adds an ellipse with the given center point, semi-axes and rotation
 // (radians), allocating their variables, and returns its handle.
 func (s *Sketch) AddEllipse(center *Point, rx, ry, rotation float64) *Ellipse {
@@ -645,6 +648,8 @@ func (e *EllipticalArc) Rotation() float64 { return e.s.vars[e.roti] }
 func (e *EllipticalArc) rx() float64  { return e.s.vars[e.rxi] }
 func (e *EllipticalArc) ry() float64  { return e.s.vars[e.ryi] }
 func (e *EllipticalArc) rot() float64 { return e.s.vars[e.roti] }
+
+func (e *EllipticalArc) centerPt() *Point { return e.Center }
 
 // StartParam, EndParam and Sweep return the endpoints' eccentric angles and the
 // counter-clockwise eccentric-angle sweep in (0, 2π].

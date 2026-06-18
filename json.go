@@ -246,6 +246,8 @@ func marshalConstraint(c Constraint) (jsonConstraint, bool) {
 		return jsonConstraint{Type: "tangent_line_circle", Entities: []int{t.L.id, t.C.entID()}}, true
 	case *tangentCircles:
 		return jsonConstraint{Type: "tangent_circles", Entities: []int{t.C1.entID(), t.C2.entID()}, Flag: t.Internal}, true
+	case *tangentLineEllipse:
+		return jsonConstraint{Type: "tangent_ellipse", Entities: []int{t.L.id, t.E.entID()}}, true
 	case *Distance:
 		return dimJSON("distance", t, []int{t.P1.id, t.P2.id}, nil), true
 	case *HorizontalDistance:
@@ -389,6 +391,13 @@ func (s *Sketch) buildFromBody(body jsonSketchBody) error {
 		}
 		return e, nil
 	}
+	elliptical := func(i int) (Elliptical, error) {
+		e, ok := s.entByID(i).(Elliptical)
+		if !ok {
+			return nil, fmt.Errorf("sketch: entity %d is not an ellipse or elliptical arc", i)
+		}
+		return e, nil
+	}
 
 	for _, je := range body.Entities {
 		ps, err := s.pointsRef(je.Points)
@@ -478,7 +487,7 @@ func (s *Sketch) buildFromBody(body jsonSketchBody) error {
 	}
 
 	for _, jc := range body.Constraints {
-		if err := s.rebuildConstraint(jc, line, circle, circular, ellipse); err != nil {
+		if err := s.rebuildConstraint(jc, line, circle, circular, ellipse, elliptical); err != nil {
 			return err
 		}
 	}
@@ -535,14 +544,14 @@ var constraintArity = map[string][2]int{
 	"midpoint_of": {3, 0},
 	"symmetric":   {2, 1}, "symmetric_lines": {0, 3}, "symmetric_circles": {0, 3},
 	"concentric": {0, 2}, "equal_radii": {0, 2},
-	"tangent_line_circle": {0, 2}, "tangent_circles": {0, 2},
+	"tangent_line_circle": {0, 2}, "tangent_circles": {0, 2}, "tangent_ellipse": {0, 2},
 	"distance": {2, 0}, "hdistance": {2, 0}, "vdistance": {2, 0},
 	"distance_point_line": {1, 1}, "distance_lines": {0, 2}, "offset": {0, 2},
 	"radius": {0, 1}, "diameter": {0, 1}, "arc_length": {0, 1},
 	"semi_major": {0, 1}, "semi_minor": {0, 1}, "ellipse_rotation": {0, 1},
 }
 
-func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, error), circle func(int) (*Circle, error), circular func(int) (Circular, error), ellipse func(int) (*Ellipse, error)) error {
+func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, error), circle func(int) (*Circle, error), circular func(int) (Circular, error), ellipse func(int) (*Ellipse, error), elliptical func(int) (Elliptical, error)) error {
 	// Validate references before indexing: enough arguments for the type, and
 	// every point/entity id in range.
 	if a, ok := constraintArity[jc.Type]; ok {
@@ -737,6 +746,16 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 			return err
 		}
 		s.AddConstraint(NewTangentCircles(c1, c2, jc.Flag))
+	case "tangent_ellipse":
+		l, err := line(jc.Entities[0])
+		if err != nil {
+			return err
+		}
+		e, err := elliptical(jc.Entities[1])
+		if err != nil {
+			return err
+		}
+		s.AddConstraint(NewTangentEllipse(l, e))
 	case "distance":
 		dim(NewDistance(pt(0), pt(1), jc.Value))
 	case "distance_point_line":

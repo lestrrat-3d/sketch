@@ -381,8 +381,15 @@ These are unsettled. If you resolve one, record the decision here.
   interface (`NewSemiMajor`/`NewSemiMinor`/`NewEllipseRotation` accept a
   `*Ellipse` or an `*EllipticalArc`). A point can be confined to an elliptical
   arc with `NewPointOnEllipticalArc` (on the ellipse via the Sampson residual,
-  within the eccentric sweep via a slack inequality, mirroring `pointOnArc`).
-  Still open: tangency to an ellipse / elliptical arc.
+  within the eccentric sweep via a slack inequality, mirroring `pointOnArc`). A
+  line can be made tangent to an ellipse or elliptical arc with
+  `NewTangentEllipse` (sealed `Elliptical` operand, mirroring `NewTangent` for
+  circles): the closed-form condition `√((u·rx)²+(v·ry)²)=|c|` on the line's
+  local-frame normal — no foot-point iteration — plus, for an arc, the same
+  slack inequality confining the contact to the eccentric sweep (and an
+  endpoint-tangency branch when the line shares a boundary point).
+  Still open: tangency between two conics (ellipse–ellipse / ellipse–circle, no
+  closed form).
   Slots/fillet/chamfer exist as compound builders and `geom` template helpers.
 - **Solver evolution.** Numerical Jacobian is fine at current scale. Open:
   analytic Jacobians for speed/accuracy, equation decomposition (solve

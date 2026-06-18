@@ -261,6 +261,11 @@ func constraintRefs(c Constraint) ([]*Point, []Entity) {
 			return []*Point{t.shared}, []Entity{t.L, t.C}
 		}
 		return nil, []Entity{t.L, t.C}
+	case *tangentLineEllipse:
+		if t.shared != nil {
+			return []*Point{t.shared}, []Entity{t.L, t.E}
+		}
+		return nil, []Entity{t.L, t.E}
 	case *tangentCircles:
 		if t.shared != nil {
 			return []*Point{t.shared}, []Entity{t.C1, t.C2}

@@ -744,6 +744,178 @@ func sharedPointCirculars(c1, c2 Circular) *Point {
 	return nil
 }
 
+// --- tangent to an ellipse ---------------------------------------------------
+//
+// A line is tangent to a local-frame ellipse x²/rx² + y²/ry² = 1 iff
+// (u·rx)² + (v·ry)² = c², where (u, v) is the line's unit normal expressed in
+// the ellipse's rotated frame and c the signed center-to-line distance. The
+// length-normalized residual is √((u·rx)² + (v·ry)²) − |c| — a closed form, so
+// (unlike point-to-ellipse distance) no foot-point iteration is needed. The two
+// cases mirror tangentLineCircle:
+//
+//   - Endpoint tangency — line shares a boundary point with an elliptical arc:
+//     the line is ⊥ the ellipse's outward normal at that point. No aux var.
+//   - Interior tangency — the contact is the determined tangent point. For an
+//     elliptical arc a slack-encoded inequality keeps that contact inside the
+//     eccentric-angle sweep, exactly like pointOnEllipticalArc.
+
+type tangentLineEllipse struct {
+	L      *Line
+	E      Elliptical
+	shared *Point  // shared contact endpoint (endpoint tangency); nil otherwise
+	s      *Sketch // set by allocVars, for slack access
+	slack  int     // sweep slack var index; -1 = none (full ellipse or endpoint)
+}
+
+// NewTangentEllipse forces a line to be tangent to an elliptical entity (an
+// [*Ellipse] or [*EllipticalArc]). The tangency is unsigned: the ellipse stays
+// on whichever side of the line it starts. For an elliptical arc the contact
+// point must lie within the arc's eccentric-angle sweep — a line tangent to the
+// arc's full ellipse but not touching the swept portion is reported unsolvable.
+// When the line shares an endpoint with the arc, tangency is enforced at that
+// shared point.
+func NewTangentEllipse(l *Line, e Elliptical) Constraint {
+	t := &tangentLineEllipse{L: l, E: e, slack: -1}
+	if a, ok := e.(*EllipticalArc); ok {
+		t.shared = sharedPointLineEllipticalArc(l, a)
+	}
+	return t
+}
+
+func (c *tangentLineEllipse) allocVars(s *Sketch) {
+	c.s = s
+	a, ok := c.E.(*EllipticalArc)
+	// Idempotent: skip a full ellipse / endpoint tangency, or a slack already
+	// allocated (re-adding the same handle must not leak a second aux var).
+	if !ok || c.shared != nil || c.slack >= 0 {
+		return
+	}
+	ux, uy := c.contactEccentricDir()
+	c.slack = s.newVar(slackFor(ellipticalArcSweepExcess(a, ux, uy)))
+}
+
+func (c *tangentLineEllipse) retireVars(s *Sketch) {
+	if c.slack >= 0 {
+		s.retireVar(c.slack)
+		c.slack = -1 // reset so re-adding the handle allocates a fresh slack
+	}
+}
+
+// localNormal returns the line's unit normal in the ellipse's rotated local
+// frame (u, v) and the signed perpendicular distance h = (center − A)·n from the
+// ellipse center to the line (the tangentLineCircle convention). ok is false for
+// a degenerate (zero-length) line.
+func (c *tangentLineEllipse) localNormal() (float64, float64, float64, bool) {
+	l := c.L
+	ax, ay := l.Start.x(), l.Start.y()
+	abx, aby := l.End.x()-ax, l.End.y()-ay
+	ablen := norm(abx, aby)
+	if math.Hypot(abx, aby) < 1e-9 {
+		return 0, 0, 0, false
+	}
+	nx, ny := -aby/ablen, abx/ablen
+	ctr := c.E.centerPt()
+	h := (abx*(ctr.y()-ay) - aby*(ctr.x()-ax)) / ablen
+	cosr, sinr := math.Cos(c.E.Rotation()), math.Sin(c.E.Rotation())
+	u := cosr*nx + sinr*ny
+	v := -sinr*nx + cosr*ny
+	return u, v, h, true
+}
+
+// ellipseContactDir returns the eccentric unit direction (cos θ, sin θ) of the
+// tangent contact point for local-frame line normal (u, v) at signed distance h.
+// The contact lies on the −h side of the center (the line itself is at +(−h)·n),
+// so the eccentric direction is (−h·u·rx, −h·v·ry) normalized — matching the
+// (lx/rx, ly/ry)-normalized convention pointOnEllipticalArc.eccentricDir uses.
+func ellipseContactDir(u, v, h, rx, ry float64) (float64, float64) {
+	ex, ey := -h*u*rx, -h*v*ry
+	n := norm(ex, ey)
+	return ex / n, ey / n
+}
+
+func (c *tangentLineEllipse) contactEccentricDir() (float64, float64) {
+	u, v, h, ok := c.localNormal()
+	if !ok {
+		return 1, 0
+	}
+	return ellipseContactDir(u, v, h, c.E.Rx(), c.E.Ry())
+}
+
+func (c *tangentLineEllipse) residual(out []float64) []float64 {
+	a, isArc := c.E.(*EllipticalArc)
+	rx, ry := c.E.Rx(), c.E.Ry()
+	// A degenerate ellipse (a zero/near-zero semi-axis — a segment or a point) has
+	// no well-defined tangent line, so tangency to it must never be blessed. Axes
+	// are ordinary solver vars (not guaranteed positive), so the test is on
+	// magnitude. Floored above the solver tolerance (1e-10).
+	degenerateEllipse := math.Abs(rx) < 1e-9 || math.Abs(ry) < 1e-9
+
+	// Endpoint tangency: line ⊥ the ellipse's outward normal at the shared
+	// boundary point — cos of the line/normal angle, zero when perpendicular
+	// (dimensionless). A degenerate line or ellipse is never tangent.
+	if isArc && c.shared != nil {
+		l := c.L
+		abx, aby := l.End.x()-l.Start.x(), l.End.y()-l.Start.y()
+		ablen := norm(abx, aby)
+		if degenerateEllipse || math.Hypot(abx, aby) < 1e-9 {
+			return append(out, 1)
+		}
+		nx, ny := ellipseNormalAt(c.shared, c.E)
+		return append(out, (abx*nx+aby*ny)/(ablen*norm(nx, ny)))
+	}
+
+	// Interior tangency. A degenerate line (no direction) or degenerate ellipse
+	// makes the tangency row a clearly-nonzero positive value (floored to 1 and
+	// sign-independent via hypot, so it cannot read as ~0 for a zero/negative
+	// semi-axis) that is never blessed; the contact then falls back to (1, 0).
+	// Otherwise it is √((u·rx)²+(v·ry)²) − |h|. The row count is unchanged either
+	// way, so the per-constraint arity stays constant for the finite-difference
+	// Jacobian.
+	u, v, h, ok := c.localNormal()
+	if !ok || degenerateEllipse {
+		out = append(out, math.Max(math.Hypot(rx, ry), 1))
+	} else {
+		out = append(out, math.Hypot(u*rx, v*ry)-math.Abs(h))
+	}
+
+	// Once the sweep slack is allocated, confine the contact within the arc's
+	// eccentric sweep via the slack-encoded inequality dot(u, m) - cos(half) = w*w.
+	// Gating the sweep row on the slack keeps a committed constraint's arity
+	// constant (the finite-difference Jacobian requires it), while a pre-commit
+	// probe (CheckConstraint) sees only the tangency row.
+	if c.slack >= 0 {
+		ux, uy := ellipseContactDir(u, v, h, rx, ry)
+		w := c.s.vars[c.slack]
+		out = append(out, ellipticalArcSweepExcess(a, ux, uy)-w*w)
+	}
+	return out
+}
+
+// ellipseNormalAt returns the ellipse's outward normal at the point p (assumed
+// on the ellipse), in world coordinates: the local gradient (lx/rx², ly/ry²)
+// rotated back to world. Not unit-length; callers normalize.
+func ellipseNormalAt(p *Point, e Elliptical) (float64, float64) {
+	ctr := e.centerPt()
+	cosr, sinr := math.Cos(e.Rotation()), math.Sin(e.Rotation())
+	dx, dy := p.x()-ctr.x(), p.y()-ctr.y()
+	lx := cosr*dx + sinr*dy
+	ly := -sinr*dx + cosr*dy
+	gx := lx / (e.Rx() * e.Rx())
+	gy := ly / (e.Ry() * e.Ry())
+	return cosr*gx - sinr*gy, sinr*gx + cosr*gy
+}
+
+// sharedPointLineEllipticalArc returns the point the line and elliptical arc
+// share as an endpoint (the contact for endpoint tangency), or nil if none.
+func sharedPointLineEllipticalArc(l *Line, a *EllipticalArc) *Point {
+	for _, lp := range []*Point{l.Start, l.End} {
+		if lp == a.Start || lp == a.End {
+			return lp
+		}
+	}
+	return nil
+}
+
 // --- dimensional constraints ------------------------------------------------
 
 // dimBase is embedded by every dimensional constraint. It holds the driving

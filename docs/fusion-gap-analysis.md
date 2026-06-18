@@ -28,10 +28,17 @@ separation contract — see `docs/verification-roadmap.md`.
   `NewSemiMinor`/`NewEllipseRotation` widened to the sealed `Elliptical`
   interface accepting a `*Ellipse` or `*EllipticalArc`), and **sweep-confined
   point-on** (`NewPointOnEllipticalArc` — Sampson on-ellipse + eccentric-sweep
-  slack inequality, like `pointOnArc`). Still open (follow-ups): tangency on an
-  elliptical arc / **tangency to an ellipse** (no closed-form distance; a
-  foot-point iteration or an auxiliary contact-point variable), reference
-  elliptical arcs, and trim/split.
+  slack inequality, like `pointOnArc`), and **line tangency to an ellipse /
+  elliptical arc** (`NewTangentEllipse`). Point-to-ellipse *distance* has no
+  closed form, but line tangency does: the line's unit normal in the ellipse's
+  local frame `(u,v)` and signed center distance `c` are tangent iff
+  `(u·rx)²+(v·ry)²=c²`, giving the length-normalized residual
+  `√((u·rx)²+(v·ry)²)−|c|` with no foot-point iteration. For an arc the contact's
+  eccentric direction is confined to the sweep by the same slack inequality, and
+  a shared boundary point switches to endpoint (line ⊥ ellipse-normal) tangency.
+  Still open (follow-ups): conic–conic tangency (ellipse–ellipse /
+  ellipse–circle, genuinely no closed form), reference elliptical arcs, and
+  trim/split.
 - ~~**Splines**~~ — *v1 closed*: control-point clamped cubic
   B-splines (`geom.NewSpline`/`AddSpline`); control points are ordinary
   sketch points, so constraints/dimensions/goals reshape the curve with no
