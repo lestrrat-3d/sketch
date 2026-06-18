@@ -42,9 +42,13 @@ separation contract — see `docs/verification-roadmap.md`.
 - ~~**Splines**~~ — *v1 closed*: control-point clamped cubic
   B-splines (`geom.NewSpline`/`AddSpline`); control points are ordinary
   sketch points, so constraints/dimensions/goals reshape the curve with no
-  new solver machinery (design: `docs/spline-design.md`). Still open:
-  fit-point splines, point-on/tangent-to-spline constraints (v2
-  aux-parameter design recorded in the design doc), closed/periodic splines.
+  new solver machinery (design: `docs/spline-design.md`). **Point-on-spline**
+  (`NewPointOnSpline`) is in: the existential `P=S(t)` with the foot parameter
+  `t` a bounded aux variable (slack-encoded `[0,1]` box) and robust foot-point
+  re-seeding on load; `CheckConstraint` probes aux-var constraints in committed
+  form (temporarily allocating their vars, then rolling back). Still open:
+  tangent-to-spline (same bounded-`t` machinery + `S'(t)`), fit-point splines,
+  closed/periodic splines.
 - ~~**Slot** (straight)~~ — *closed*: `AddSlot` (two arcs + two flanks;
   equal cap radii + perpendicular construction spokes at the contact points —
   perpendicularity implies tangency *and* pins the contact point, which a plain
@@ -79,7 +83,8 @@ The geometric set is already close to Fusion's. Remaining gaps:
 - ~~**Point-on-arc**~~ — *closed*: `NewPointOnArc` confines a point to the arc's
   circle **and** its sweep, reusing the interior-tangency slack-encoded sweep
   inequality, so a point on the full circle but off the arc is reported
-  unsolvable. Point-on-spline (and a unified coincident-to-curve) remain open.
+  unsolvable. Point-on-spline is closed (`NewPointOnSpline`); a unified
+  coincident-to-curve remains open.
 - ~~**Symmetric for whole entities**~~ — *partially closed*: `NewSymmetricLines`
   (endpoint-for-endpoint mirror) and `NewSymmetricCircles` (centers symmetric +
   equal radius). Arc symmetry is still open — a reflection reverses an arc's
@@ -206,8 +211,8 @@ for tighter tolerance on near-tangencies.
    then ~~**ellipse**~~ (*done*; the elliptical-arc primitive is in too —
    ellipse tangency still open), then ~~**profiles/region engine**~~ (*done* — bare-crossing
    subdivision, holes/nesting, area, self-intersection validity), with
-   ~~**splines**~~ (*v1 done*; fit-point and point-on-spline
-   constraints still open).
+   ~~**splines**~~ (*v1 done*, plus point-on-spline; fit-point and
+   tangent-to-spline constraints still open).
 
 Entity/constraint removal is *done*
 (`RemoveConstraint`/`RemoveEntity`/`RemovePoint`; design in

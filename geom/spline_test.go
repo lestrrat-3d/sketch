@@ -69,6 +69,27 @@ func TestSplineTooFewControlPoints(t *testing.T) {
 	require.ErrorIs(t, err, geom.ErrTooFewControlPoints, "needs 4 control points")
 }
 
+func TestNearestParamCubicBSpline(t *testing.T) {
+	ctrl := [][2]float64{{0, 0}, {2, 4}, {8, 4}, {10, 0}}
+	// A point exactly on the curve recovers its own parameter.
+	for _, want := range []float64{0, 0.25, 0.5, 0.75, 1} {
+		x, y := geom.EvalCubicBSpline(ctrl, want)
+		require.InDelta(t, want, geom.NearestParamCubicBSpline(ctrl, x, y), 1e-3,
+			"recover the parameter of an on-curve point at t=%v", want)
+	}
+	// A point off the curve projects to (at least) the nearest sampled point.
+	tp := geom.NearestParamCubicBSpline(ctrl, 5, 10)
+	px, py := geom.EvalCubicBSpline(ctrl, tp)
+	best := math.Inf(1)
+	for i := 0; i <= 200; i++ {
+		qx, qy := geom.EvalCubicBSpline(ctrl, float64(i)/200)
+		if d := math.Hypot(5-qx, 10-qy); d < best {
+			best = d
+		}
+	}
+	require.LessOrEqual(t, math.Hypot(5-px, 10-py), best+1e-9, "foot is the nearest point")
+}
+
 func TestSplinePolyline(t *testing.T) {
 	sp, err := geom.NewSpline(
 		geom.NewPoint(0, 0), geom.NewPoint(2, 4), geom.NewPoint(8, 4), geom.NewPoint(10, 0),

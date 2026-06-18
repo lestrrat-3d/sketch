@@ -370,8 +370,20 @@ These are unsettled. If you resolve one, record the decision here.
   and reporting which parameter a solve failure came from.
 - **Geometry coverage.** *Largely resolved.* Splines are in as clamped
   uniform cubic B-splines whose control points are ordinary sketch points (no
-  new solver machinery; see `docs/spline-design.md` — point-on-spline/tangency
-  is the recorded v2 via an aux-parameter `allocVars` hook). Ellipses are in
+  new solver machinery; see `docs/spline-design.md`). A point can be confined to
+  a spline with `NewPointOnSpline`: the foot-point parameter `t` is an auxiliary
+  solver variable (no implicit `F(x,y)=0` exists for a B-spline, so membership is
+  the existential `P = S(t)` — two length rows), bounded to `[0,1]` by a
+  slack-encoded box (`t=w0²`, `1−t=w1²`) so out-of-range `t` is infeasible rather
+  than silently clamped. The aux vars are not serialized (re-seeded on load by
+  foot-point projection). `CheckConstraint` probes any aux-var constraint in its
+  committed form — it temporarily allocates the candidate's aux vars, ranks the
+  real rows, then rolls back (non-mutating). (A documented limitation: two
+  point-on-spline on the same point are redundant only nonlinearly, so the local
+  rank analysis is not guaranteed to flag the duplicate; it stays harmless.)
+  Tangent-to-spline is the recorded follow-up (same bounded-`t` machinery plus the
+  spline tangent).
+  Ellipses are in
   (center point + rx/ry/rotation vars; `NewPointOnEllipse` uses a
   Sampson-normalized residual — |F|/|∇F| — to stay in length units).
   **Elliptical arcs** are in as a geometry primitive (`AddEllipticalArc`:

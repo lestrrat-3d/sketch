@@ -280,6 +280,24 @@ func (s *Sketch) CheckConstraint(c Constraint) error {
 	if d, ok := c.(Dimension); ok && d.Driven() {
 		return nil // measures the geometry, constrains nothing
 	}
+	// A constraint that owns auxiliary variables (the allocVars hook) parameterizes
+	// its residual with variables allocated only at commit — a spline foot point, an
+	// arc sweep slack. Probe it in its committed form: temporarily allocate those
+	// variables (so the rank analysis sees the real rows and counts them as free
+	// unknowns), then roll back, keeping the check non-mutating.
+	if av, ok := c.(interface{ allocVars(*Sketch) }); ok {
+		n := len(s.vars)
+		av.allocVars(s)
+		if len(s.vars) > n {
+			defer func() {
+				if rv, ok := c.(interface{ retireVars(*Sketch) }); ok {
+					rv.retireVars(s) // also resets the candidate's indices to -1
+				}
+				s.vars = s.vars[:n]
+				s.fixed = s.fixed[:n]
+			}()
+		}
+	}
 	k := len(c.residual(nil))
 	if k == 0 {
 		return nil

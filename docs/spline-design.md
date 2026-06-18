@@ -64,15 +64,49 @@ Everything a v1 user needs is composition:
   `NewParallel` against the neighboring line. Document the recipe.
 - **Shaping**: distance/symmetry/goal constraints on interior control points.
 
-**Point-on-spline / tangent-to-spline are v2**, and the design is recorded
-now: each such constraint needs the curve parameter `t` of the attachment as
-an **auxiliary solver variable** (foot-point iteration inside a residual would
-fight the numerical Jacobian). That requires letting a constraint allocate a
-var when committed — an `allocVars(*Sketch)` hook on the constraint detected
-by `AddConstraint`, the same shape as the existing `resolveUnit` hook — plus
-serializing the parameter (`jsonConstraint.Value` carries the solved t). The
-hook is small but crosses the "constraints own no vars" line, so it ships only
-with the constraint that needs it, not speculatively.
+## Point-on-spline (`NewPointOnSpline`)
+
+A B-spline has no implicit `F(x,y)=0`, so curve membership is the existential
+`P = S(t)`: the constraint owns the foot-point parameter `t` as an **auxiliary
+solver variable** (a foot-point search inside the residual would be a
+discontinuous argmin that fights the numerical Jacobian), allocated by the
+`allocVars(*Sketch)` hook. `t` is bounded to `[0,1]` by a **slack-encoded box**
+(two more aux vars `w0,w1`, rows `t=w0²` and `1−t=w1²`) so an out-of-range `t`
+is genuinely infeasible rather than silently absorbed by `Eval`'s endpoint
+clamp. The committed residual is four rows: `P.x−S.x(t)`, `P.y−S.y(t)`,
+`t−w0²`, `(1−t)−w1²` — a free point on a fixed spline keeps exactly one sliding
+DOF (5 unknowns, 4 independent rows).
+
+Load-bearing decisions:
+
+- **Aux vars are not serialized** (house convention): `allocVars` re-seeds `t`
+  by a robust foot-point projection on load — dense per-segment polyline
+  projection (`geom.NearestParamCubicBSpline`) plus golden-section refinement,
+  not nearest-sample. For a self-intersecting / near-self-touching spline two
+  foot points can tie, so a reloaded sketch may witness membership at a
+  different `t` than the original solve; it is still a valid witness (residual
+  0), so **solvability is preserved** — only the specific `t` may differ. (If
+  that determinism ever matters, serializing `t` as a warm-start in
+  `jsonConstraint.Value` is the recorded escape hatch.)
+- **`CheckConstraint` probes the committed form.** The arc-slack pattern does
+  not transfer: an arc's on-circle row is meaningful before `allocVars`, but a
+  spline's contact rows are meaningless without the free `t`. So `CheckConstraint`
+  **temporarily allocates a candidate's aux vars** (any constraint with the
+  `allocVars` hook), ranks the real committed rows with those vars exposed as free
+  unknowns, then rolls back — keeping the check non-mutating. This is general (it
+  also makes the arc/tangent probes faithful) and needs no special probe residual.
+  *Known limitation:* two point-on-spline on the same point are redundant only
+  **nonlinearly** (`S(t1)=S(t2)` forces `t1=t2` only at the solution), so the
+  local rank analysis is **not guaranteed** to flag the duplicate (it may, when
+  both foot seeds coincide). It is harmless — the sketch stays solvable with one
+  sliding DOF; the duplicate just adds an unused second witness. An exact
+  same-point duplicate could be caught by a semantic scan if a guarantee is wanted.
+
+**Tangent-to-spline is the recorded follow-up**: the same bounded-`t` machinery
+plus the spline tangent `S'(t)` — rows "contact on the line" and
+"cross(line dir, `S'(t)`) = 0", guarding `|S'|→0` (a cusp is not a tangent).
+A line tangent *at* a shared point needs a combined contact object owning one
+bounded `t`, since independent constraints own independent `t`.
 
 ## Serialization & export
 

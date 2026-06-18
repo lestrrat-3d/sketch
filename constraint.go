@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/lestrrat-3d/sketch/geom"
 	"github.com/lestrrat-3d/sketch/units"
 )
 
@@ -201,8 +202,8 @@ func (c *pointOnArc) residual(out []float64) []float64 {
 	dy := c.P.y() - c.A.Center.y()
 	out = append(out, norm(dx, dy)-c.A.R()) // on the circle, length units
 	// Gating the sweep row on the slack keeps a committed constraint's arity
-	// constant (the finite-difference Jacobian requires it); a pre-commit probe
-	// (CheckConstraint) sees only the on-circle row.
+	// constant across solver iterations (the finite-difference Jacobian requires
+	// it); only a bare residual call before allocVars sees just the on-circle row.
 	if c.slack >= 0 {
 		ux, uy := c.contactDir()
 		w := c.s.vars[c.slack]
@@ -279,7 +280,7 @@ func (c *pointOnEllipticalArc) residual(out []float64) []float64 {
 	a := c.A
 	out = append(out, sampsonEllipse(c.P.x(), c.P.y(), a.Center.x(), a.Center.y(), a.rx(), a.ry(), a.rot()))
 	// The sweep row is gated on the slack so a committed constraint's arity is
-	// constant and a pre-commit probe sees only the on-ellipse row (as pointOnArc).
+	// constant across solver iterations (as pointOnArc).
 	if c.slack >= 0 {
 		ux, uy := c.eccentricDir()
 		w := c.s.vars[c.slack]
@@ -297,6 +298,95 @@ func ellipticalArcSweepExcess(a *EllipticalArc, ux, uy float64) float64 {
 	half := a.Sweep() / 2
 	mid := a.StartParam() + half
 	return ux*math.Cos(mid) + uy*math.Sin(mid) - math.Cos(half)
+}
+
+// pointOnSpline confines a point to a cubic B-spline. A B-spline has no implicit
+// equation F(x,y)=0 — only the parametric form S(t), t ∈ [0,1] — so membership is
+// existential: the constraint owns the foot-point parameter t as an auxiliary
+// solver variable (a foot-point search inside the residual would be a
+// discontinuous argmin that fights the numerical Jacobian) and the solver moves t
+// as part of the same system. t is bounded to [0,1] by a slack-encoded box
+// (t = w0², 1−t = w1²) so that out-of-range t is genuinely infeasible rather than
+// silently absorbed by Eval's endpoint clamp; w0,w1 are two more aux variables.
+//
+// Committed residual (4 rows): P.x−S.x(t), P.y−S.y(t), t−w0², (1−t)−w1². A free
+// point on a fixed spline then has 5 unknowns (P.x,P.y,t,w0,w1) and 4 independent
+// rows — one sliding DOF, as a point on a 1-D curve should.
+//
+// The aux vars are not serialized; allocVars re-seeds t by foot-point projection
+// on load (mirroring the arc-sweep slack). For a self-intersecting or near-self-
+// touching spline two foot points can tie, so a reloaded sketch may witness
+// membership at a different t than the original solve — still a valid witness
+// (residual 0), so solvability is preserved; only the specific t may differ.
+//
+// [Sketch.CheckConstraint] probes this constraint in its committed form (it
+// temporarily allocates the aux vars), so a pre-commit check sees the real rows.
+// Note a limitation it shares with any parametric-witness curve constraint: two
+// point-on-spline on the same point are redundant only nonlinearly (S(t1)=S(t2)
+// ⟹ t1=t2 holds just at the solution), so the local rank analysis is not
+// guaranteed to flag the duplicate (it may, when both foot seeds coincide). The
+// duplicate is harmless either way — the sketch stays solvable with one sliding
+// DOF. (An exact same-point duplicate could be caught by a semantic scan, if a
+// guarantee is ever wanted.)
+type pointOnSpline struct {
+	P            *Point
+	Sp           *Spline
+	s            *Sketch // set by allocVars, for aux-var access
+	tvar, w0, w1 int     // foot parameter + box slacks; -1 = not yet allocated
+}
+
+// NewPointOnSpline forces a point to lie on a cubic B-spline. The point may sit
+// anywhere along the curve; the attachment parameter is solved for. (To pin the
+// point to an endpoint, make it coincident with the first or last control point,
+// which a clamped spline passes through.)
+func NewPointOnSpline(p *Point, sp *Spline) Constraint {
+	return &pointOnSpline{P: p, Sp: sp, tvar: -1, w0: -1, w1: -1}
+}
+
+func (c *pointOnSpline) allocVars(s *Sketch) {
+	c.s = s
+	if c.tvar >= 0 {
+		return // idempotent: re-adding the handle must not leak fresh aux vars
+	}
+	t := geom.NearestParamCubicBSpline(c.Sp.controlCoords(), c.P.x(), c.P.y())
+	c.tvar = s.newVar(t)
+	c.w0 = s.newVar(slackFor(t))     // t = w0²  → w0 = √t
+	c.w1 = s.newVar(slackFor(1 - t)) // 1−t = w1² → w1 = √(1−t)
+}
+
+func (c *pointOnSpline) retireVars(s *Sketch) {
+	if c.tvar >= 0 {
+		s.retireVar(c.tvar)
+		s.retireVar(c.w0)
+		s.retireVar(c.w1)
+		c.tvar, c.w0, c.w1 = -1, -1, -1
+	}
+}
+
+func (c *pointOnSpline) residual(out []float64) []float64 {
+	if c.tvar < 0 {
+		return out // not yet parameterized; allocVars runs at commit (and in CheckConstraint)
+	}
+	t := c.s.vars[c.tvar]
+	sx, sy := c.Sp.Eval(clamp01(t)) // bound rows below, not the clamp, enforce [0,1]
+	w0, w1 := c.s.vars[c.w0], c.s.vars[c.w1]
+	return append(out,
+		c.P.x()-sx,  // on the curve (x), length units
+		c.P.y()-sy,  // on the curve (y), length units
+		t-w0*w0,     // t ≥ 0  (t = w0²)
+		(1-t)-w1*w1, // t ≤ 1  (1−t = w1²)
+	)
+}
+
+// clamp01 clamps t to the unit interval.
+func clamp01(t float64) float64 {
+	if t < 0 {
+		return 0
+	}
+	if t > 1 {
+		return 1
+	}
+	return t
 }
 
 // --- midpoint / symmetric ---------------------------------------------------
@@ -556,8 +646,8 @@ func (c *tangentLineCircle) residual(out []float64) []float64 {
 	// line, so never blessed), plus — once the sweep slack is allocated — the
 	// contact within the sweep via the slack-encoded inequality dot(u,m) −
 	// cos(half) = w². Gating the sweep row on the slack keeps a committed
-	// constraint's arity constant (the finite-difference Jacobian requires it),
-	// while a pre-commit probe (CheckConstraint) sees only the tangency row.
+	// constraint's arity constant across solver iterations (the finite-difference
+	// Jacobian requires it).
 	out = append(out, math.Abs(h)-r)
 	if c.slack >= 0 {
 		ux, uy := lineFootDir(c.L, a.Center)
@@ -881,8 +971,7 @@ func (c *tangentLineEllipse) residual(out []float64) []float64 {
 	// Once the sweep slack is allocated, confine the contact within the arc's
 	// eccentric sweep via the slack-encoded inequality dot(u, m) - cos(half) = w*w.
 	// Gating the sweep row on the slack keeps a committed constraint's arity
-	// constant (the finite-difference Jacobian requires it), while a pre-commit
-	// probe (CheckConstraint) sees only the tangency row.
+	// constant across solver iterations (the finite-difference Jacobian requires it).
 	if c.slack >= 0 {
 		ux, uy := ellipseContactDir(u, v, h, rx, ry)
 		w := c.s.vars[c.slack]
@@ -1243,8 +1332,8 @@ func (c *ArcLength) residual(out []float64) []float64 {
 	ex, ey := c.A.End.x()-cx, c.A.End.y()-cy
 	r := norm(sx0, sy0)
 	if c.theta < 0 {
-		// Pre-commit (CheckConstraint rank probe): the base row only, before
-		// allocVars runs. The wrap is irrelevant for a single-point rank check.
+		// Bare residual call before allocVars (CheckConstraint allocates first, so
+		// it does not reach here): the base row only, no unwrapped-sweep var yet.
 		return append(out, r*c.A.Sweep()-c.base())
 	}
 	theta := c.s.vars[c.theta]
