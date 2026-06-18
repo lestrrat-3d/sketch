@@ -72,6 +72,10 @@ func (s *Sketch) RemoveEntity(e Entity) bool {
 		s.retireVar(t.rxi)
 		s.retireVar(t.ryi)
 		s.retireVar(t.roti)
+	case *EllipticalArc:
+		s.retireVar(t.rxi)
+		s.retireVar(t.ryi)
+		s.retireVar(t.roti)
 	}
 	s.ents = append(s.ents[:idx], s.ents[idx+1:]...)
 	for i := idx; i < len(s.ents); i++ {
@@ -167,6 +171,8 @@ func renumberEntity(e Entity, id int) {
 		t.id = id
 	case *Ellipse:
 		t.id = id
+	case *EllipticalArc:
+		t.id = id
 	case *Spline:
 		t.id = id
 	}
@@ -185,6 +191,8 @@ func entityUsesPoint(e Entity, p *Point) bool {
 		return t.Center == p || t.Start == p || t.End == p
 	case *Ellipse:
 		return t.Center == p
+	case *EllipticalArc:
+		return t.Center == p || t.Start == p || t.End == p
 	case *Spline:
 		for _, c := range t.Control {
 			if c == p {
@@ -258,6 +266,8 @@ func constraintRefs(c Constraint) ([]*Point, []Entity) {
 		return nil, []Entity{t.C1, t.C2}
 	case *arcRadius:
 		return nil, []Entity{t.a}
+	case *ellipticalArcOn:
+		return []*Point{t.p}, []Entity{t.ea}
 	case *Distance:
 		return []*Point{t.P1, t.P2}, nil
 	case *HorizontalDistance:

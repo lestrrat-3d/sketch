@@ -141,6 +141,8 @@ func (s *Sketch) localPolyline(e Entity) ([][2]float64, error) {
 		return t.Geometry().Polyline(worldPolylineSegments), nil
 	case *Ellipse:
 		return t.Geometry().Polyline(worldPolylineSegments), nil
+	case *EllipticalArc:
+		return t.Geometry().Polyline(worldPolylineSegments), nil
 	case *Spline:
 		return t.Polyline(worldPolylineSegments), nil
 	}
@@ -291,6 +293,8 @@ func (s *Sketch) entityPoints(e Entity) []*Point {
 		return []*Point{t.Center, t.Start, t.End}
 	case *Ellipse:
 		return []*Point{t.Center}
+	case *EllipticalArc:
+		return []*Point{t.Center, t.Start, t.End}
 	case *Spline:
 		return t.Control
 	}
@@ -302,6 +306,8 @@ func (s *Sketch) entitySizeVars(e Entity) []int {
 	case *Circle:
 		return []int{t.ri}
 	case *Ellipse:
+		return []int{t.rxi, t.ryi, t.roti}
+	case *EllipticalArc:
 		return []int{t.rxi, t.ryi, t.roti}
 	}
 	return nil
@@ -582,6 +588,71 @@ func (s *Sketch) AddEllipse(center *Point, rx, ry, rotation float64) *Ellipse {
 		id: len(s.ents),
 	}
 	s.ents = append(s.ents, e)
+	return e
+}
+
+// EllipticalArc is an arc on an ellipse: a center point plus solved semi-axes
+// and rotation (like [Ellipse]), restricted to the counter-clockwise sweep from
+// Start to End. The two boundary points lie on the ellipse — pinned by internal
+// constraints auto-added at construction — and the swept extent is measured in
+// the ellipse's eccentric angle.
+type EllipticalArc struct {
+	s                  *Sketch
+	Center, Start, End *Point
+	rxi, ryi, roti     int // var indices: semi-axes and rotation
+	id                 int
+	construction       bool
+	refState           // reference elliptical arcs are a follow-up
+}
+
+func (e *EllipticalArc) entity()              {}
+func (e *EllipticalArc) entID() int           { return e.id }
+func (e *EllipticalArc) IsConstruction() bool { return e.construction }
+func (e *EllipticalArc) SetConstruction(v bool) {
+	if !e.reference {
+		e.construction = v
+	}
+}
+
+// IsStale reports whether any defining point is stale (derived).
+func (e *EllipticalArc) IsStale() bool {
+	return e.Center.IsStale() || e.Start.IsStale() || e.End.IsStale()
+}
+
+// Geometry returns a fresh [geom.EllipticalArc] snapshot at the current state.
+func (e *EllipticalArc) Geometry() *geom.EllipticalArc {
+	return geom.NewEllipticalArc(e.Center.Geometry(), e.Start.Geometry(), e.End.Geometry(), e.rx(), e.ry(), e.rot())
+}
+
+// Rx and Ry return the current semi-axes along the local x and y axes; Rotation
+// returns the local frame's rotation (radians counter-clockwise).
+func (e *EllipticalArc) Rx() float64       { return e.s.vars[e.rxi] }
+func (e *EllipticalArc) Ry() float64       { return e.s.vars[e.ryi] }
+func (e *EllipticalArc) Rotation() float64 { return e.s.vars[e.roti] }
+
+func (e *EllipticalArc) rx() float64  { return e.s.vars[e.rxi] }
+func (e *EllipticalArc) ry() float64  { return e.s.vars[e.ryi] }
+func (e *EllipticalArc) rot() float64 { return e.s.vars[e.roti] }
+
+// StartParam, EndParam and Sweep return the endpoints' eccentric angles and the
+// counter-clockwise eccentric-angle sweep in (0, 2π].
+func (e *EllipticalArc) StartParam() float64 { return e.Geometry().StartParam() }
+func (e *EllipticalArc) EndParam() float64   { return e.Geometry().EndParam() }
+func (e *EllipticalArc) Sweep() float64      { return e.Geometry().Sweep() }
+
+// AddEllipticalArc adds an elliptical arc on the ellipse (center, rx, ry,
+// rotation) swept counter-clockwise from start to end. It allocates the shape
+// variables and auto-adds two internal constraints pinning start and end onto
+// the ellipse; for the arc to be valid, start and end should already lie on (or
+// near) it. Returns the handle.
+func (s *Sketch) AddEllipticalArc(center, start, end *Point, rx, ry, rotation float64) *EllipticalArc {
+	e := &EllipticalArc{
+		s: s, Center: center, Start: start, End: end,
+		rxi: s.newVar(rx), ryi: s.newVar(ry), roti: s.newVar(rotation),
+		id: len(s.ents),
+	}
+	s.ents = append(s.ents, e)
+	s.cons = append(s.cons, &ellipticalArcOn{e, start}, &ellipticalArcOn{e, end})
 	return e
 }
 

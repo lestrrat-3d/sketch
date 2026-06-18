@@ -161,6 +161,11 @@ func (s *Sketch) bounds() (bbox, bool) {
 				b.add(p[0], p[1])
 			}
 			any = true
+		case *EllipticalArc:
+			for _, p := range ellipticalArcPolyline(t, 32) {
+				b.add(p[0], p[1])
+			}
+			any = true
 		case *Ellipse:
 			// Axis-aligned extents of a rotated ellipse.
 			cosr, sinr := math.Cos(t.rot()), math.Sin(t.rot())
@@ -184,6 +189,11 @@ func (s *Sketch) bounds() (bbox, bool) {
 // (geom/sample.go) so the exporters and the world-space sampler agree exactly.
 func arcPolyline(a *Arc, segments int) [][2]float64 {
 	return a.Geometry().Polyline(segments)
+}
+
+// ellipticalArcPolyline samples an elliptical arc for rendering.
+func ellipticalArcPolyline(e *EllipticalArc, segments int) [][2]float64 {
+	return e.Geometry().Polyline(segments)
 }
 
 // SVG renders the sketch to an SVG document. The y-axis is flipped so the
@@ -252,6 +262,19 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 				color(t), f(cfg.strokeWidth), dash(t))
 		case *Arc:
 			pts := arcPolyline(t, cfg.arcSegments)
+			var d strings.Builder
+			for i, p := range pts {
+				cmd := "L"
+				if i == 0 {
+					cmd = "M"
+				}
+				fmt.Fprintf(&d, "%s%s %s ", cmd, f(tx(p[0])), f(ty(p[1])))
+			}
+			fmt.Fprintf(&sb,
+				`  <path d="%s" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
+				strings.TrimSpace(d.String()), color(t), f(cfg.strokeWidth), dash(t))
+		case *EllipticalArc:
+			pts := ellipticalArcPolyline(t, cfg.arcSegments)
 			var d strings.Builder
 			for i, p := range pts {
 				cmd := "L"

@@ -346,6 +346,10 @@ func (s *Sketch) varKinds() []varKind {
 			kinds[t.rxi] = varRadius
 			kinds[t.ryi] = varRadius
 			kinds[t.roti] = varAngle
+		case *EllipticalArc:
+			kinds[t.rxi] = varRadius
+			kinds[t.ryi] = varRadius
+			kinds[t.roti] = varAngle
 		}
 	}
 	return kinds

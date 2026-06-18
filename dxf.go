@@ -92,6 +92,33 @@ func (s *Sketch) DXF() (string, error) {
 			pairf(40, ratio)
 			pairf(41, 0)
 			pairf(42, 2*math.Pi)
+		case *EllipticalArc:
+			// Like ELLIPSE above, but 41/42 carry the real eccentric-angle sweep.
+			// DXF measures the parameter from the major-axis endpoint (11/21), so
+			// when ry is the longer semi-axis the axis is rotated +90° and the
+			// start parameter shifts by −90° to keep the same point.
+			major, minor, axis := t.rx(), t.ry(), t.rot()
+			startP, sweep := t.StartParam(), t.Sweep()
+			if minor > major {
+				major, minor = minor, major
+				axis += math.Pi / 2
+				startP -= math.Pi / 2
+			}
+			pair(0, "ELLIPSE")
+			pair(8, layer)
+			pairf(10, t.Center.x())
+			pairf(20, t.Center.y())
+			pairf(30, 0)
+			ratio := 1.0
+			if major > 0 {
+				ratio = minor / major
+			}
+			pairf(11, major*math.Cos(axis))
+			pairf(21, major*math.Sin(axis))
+			pairf(31, 0)
+			pairf(40, ratio)
+			pairf(41, startP)
+			pairf(42, startP+sweep)
 		case *Spline:
 			// SPLINE is an R13+ entity, like ELLIPSE above. Flags (70): 8 =
 			// planar. Degree 3, clamped uniform knots, then the control

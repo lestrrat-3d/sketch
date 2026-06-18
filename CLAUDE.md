@@ -373,8 +373,12 @@ These are unsettled. If you resolve one, record the decision here.
   new solver machinery; see `docs/spline-design.md` — point-on-spline/tangency
   is the recorded v2 via an aux-parameter `allocVars` hook). Ellipses are in
   (center point + rx/ry/rotation vars; `NewPointOnEllipse` uses a
-  Sampson-normalized residual — |F|/|∇F| — to stay in length units;
-  tangency-to-ellipse and elliptical arcs are still open).
+  Sampson-normalized residual — |F|/|∇F| — to stay in length units).
+  **Elliptical arcs** are in as a geometry primitive (`AddEllipticalArc`:
+  center + start/end points + rx/ry/rotation vars, two internal on-ellipse
+  constraints pinning the endpoints, eccentric-angle sweep, sampled-bulge area
+  in the arrangement; constraints/dimensions *on* an elliptical arc and
+  tangency-to-ellipse are still open).
   Slots/fillet/chamfer exist as compound builders and `geom` template helpers.
 - **Solver evolution.** Numerical Jacobian is fine at current scale. Open:
   analytic Jacobians for speed/accuracy, equation decomposition (solve

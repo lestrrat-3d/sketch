@@ -146,6 +146,8 @@ func (s *Sketch) PNG(options ...PNGOption) ([]byte, error) {
 			r.strokePolyline(toPixels(circlePolyline(t, cfg.arcSegments)), width, col)
 		case *Arc:
 			r.strokePolyline(toPixels(arcPolyline(t, cfg.arcSegments)), width, col)
+		case *EllipticalArc:
+			r.strokePolyline(toPixels(ellipticalArcPolyline(t, cfg.arcSegments)), width, col)
 		case *Ellipse:
 			r.strokePolyline(toPixels(ellipsePolyline(t, cfg.arcSegments)), width, col)
 		case *Spline:

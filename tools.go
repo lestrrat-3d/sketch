@@ -599,6 +599,10 @@ func (s *Sketch) AddOffset(ents []Entity, d float64) (*OffsetGroup, error) {
 // to grp; copies inherit their source's construction flag. swapArc reverses arc
 // orientation (used by mirror, not by patterns).
 func (s *Sketch) instantiate(ents []Entity, link func(*Point) *Point, swapArc bool, grp *Pattern) {
+	// Only line/circle/arc are copied: the rotated-shape entities (ellipse,
+	// elliptical arc) and splines need the transform's rotation/reflection
+	// applied to their shape — information the point-relinking interface here
+	// does not carry — so the modification tools do not yet pattern/mirror them.
 	for _, e := range ents {
 		switch t := e.(type) {
 		case *Line:

@@ -1,8 +1,8 @@
 package geom
 
-// Curve is an open curve bounded by two endpoints: a *Line or an *Arc.
-// Closed primitives (Circle, Ellipse) form loops on their own and do not
-// participate in chain detection.
+// Curve is an open curve bounded by two endpoints: a *Line, an *Arc or an
+// *EllipticalArc. Closed primitives (Circle, Ellipse) form loops on their own
+// and do not participate in chain detection.
 type Curve interface {
 	Endpoints() (*Point, *Point)
 }

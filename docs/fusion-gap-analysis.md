@@ -18,10 +18,17 @@ separation contract — see `docs/verification-roadmap.md`.
 - ~~**Ellipse**~~ — *closed*: `geom.NewEllipse`/`AddEllipse` with a
   center point plus semi-axis/rotation unknowns, `NewPointOnEllipse`
   (Sampson-normalized residual), `NewSemiMajor`/`NewSemiMinor`/
-  `NewEllipseRotation` dimensions, JSON/SVG/DXF support. Still open:
-  **elliptical arcs**, and **tangency to an ellipse** (no closed-form
-  distance; needs a foot-point iteration or an auxiliary contact-point
-  variable).
+  `NewEllipseRotation` dimensions, JSON/SVG/DXF support.
+- ~~**Elliptical arc**~~ — *closed (geometry primitive)*: `AddEllipticalArc`
+  (center + start/end points + rx/ry/rotation vars), with two internal
+  on-ellipse constraints pinning the endpoints (Sampson residual);
+  eccentric-angle `Sweep`, `geom.EllipticalArc` sampling, profile/arrangement
+  participation as an open curve (sampled-bulge area), JSON round-trip, and
+  SVG/PNG/native-DXF-ELLIPSE export. Still open (follow-ups): constraints *on*
+  an elliptical arc (point-on, tangency — the latter needs **tangency to an
+  ellipse**, which has no closed-form distance; a foot-point iteration or an
+  auxiliary contact-point variable), axis/angle dimensions, reference
+  elliptical arcs, and trim/split.
 - ~~**Splines**~~ — *v1 closed*: control-point clamped cubic
   B-splines (`geom.NewSpline`/`AddSpline`); control points are ordinary
   sketch points, so constraints/dimensions/goals reshape the curve with no
@@ -186,8 +193,8 @@ for tighter tolerance on near-tangencies.
 6. ~~**Offset/fillet/trim**~~ — *done* (all sketch-modification tools
    in `tools.go`: trim/extend/break, fillet/chamfer, mirror, patterns, offset;
    design in `docs/modification-tools-design.md`),
-   then ~~**ellipse**~~ (*done*; elliptical arcs and ellipse tangency
-   still open), then ~~**profiles/region engine**~~ (*done* — bare-crossing
+   then ~~**ellipse**~~ (*done*; the elliptical-arc primitive is in too —
+   ellipse tangency still open), then ~~**profiles/region engine**~~ (*done* — bare-crossing
    subdivision, holes/nesting, area, self-intersection validity), with
    ~~**splines**~~ (*v1 done*; fit-point and point-on-spline
    constraints still open).

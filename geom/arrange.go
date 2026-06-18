@@ -62,6 +62,10 @@ type source struct {
 	r           float64 // arc/circle radius
 	phi0, sweep float64 // arc start angle and signed sweep (circle: 0, 2π)
 	rx, ry, rot float64 // ellipse
+	// elliptical arc: the exact boundary points, used to pin t=0/t=1 (the
+	// eccentric-angle sampling would otherwise project an off-ellipse endpoint).
+	pinEnds            bool
+	e0x, e0y, e1x, e1y float64
 }
 
 type srcKind int
@@ -71,7 +75,8 @@ const (
 	srcArc
 	srcCircle
 	srcEllipse
-	srcDegenerate // unsupported / nil input; contributes no geometry
+	srcEllipticalArc // an ellipse restricted to an eccentric-angle sweep
+	srcDegenerate    // unsupported / nil input; contributes no geometry
 )
 
 // at returns the source point at natural parameter t.
@@ -85,12 +90,18 @@ func (s *source) at(t float64) [2]float64 {
 	case srcCircle:
 		ang := 2 * math.Pi * t
 		return [2]float64{s.cx + s.r*math.Cos(ang), s.cy + s.r*math.Sin(ang)}
+	case srcEllipticalArc:
+		return s.ellipsePoint(s.phi0 + t*s.sweep)
 	default: // ellipse
-		ang := 2 * math.Pi * t
-		lx, ly := s.rx*math.Cos(ang), s.ry*math.Sin(ang)
-		cosr, sinr := math.Cos(s.rot), math.Sin(s.rot)
-		return [2]float64{s.cx + lx*cosr - ly*sinr, s.cy + lx*sinr + ly*cosr}
+		return s.ellipsePoint(2 * math.Pi * t)
 	}
+}
+
+// ellipsePoint evaluates the source's ellipse at eccentric angle ang.
+func (s *source) ellipsePoint(ang float64) [2]float64 {
+	lx, ly := s.rx*math.Cos(ang), s.ry*math.Sin(ang)
+	cosr, sinr := math.Cos(s.rot), math.Sin(s.rot)
+	return [2]float64{s.cx + lx*cosr - ly*sinr, s.cy + lx*sinr + ly*cosr}
 }
 
 // tinySeg is one straight segment of a source's polyline, tagged with the
@@ -242,6 +253,24 @@ func newArranger(curves []Curve, closed []ClosedCurve, cfg arrangeConfig) *arran
 			s.r = t.Radius()
 			s.phi0 = t.StartAngle()
 			s.sweep = t.Sweep()
+		case *EllipticalArc:
+			if t == nil || t.Center == nil || t.Start == nil || t.End == nil ||
+				!posFinite(t.Rx) || !posFinite(t.Ry) {
+				if t != nil && t.Center != nil {
+					a.flagDegenerate(t.Center.X, t.Center.Y)
+				} else {
+					a.flagDegenerate(0, 0)
+				}
+				s.kind = srcDegenerate
+				break
+			}
+			s.kind = srcEllipticalArc
+			s.cx, s.cy = t.Center.X, t.Center.Y
+			s.rx, s.ry, s.rot = t.Rx, t.Ry, t.Rotation
+			s.phi0 = t.StartParam()
+			s.sweep = t.Sweep()
+			s.pinEnds = true
+			s.e0x, s.e0y, s.e1x, s.e1y = t.Start.X, t.Start.Y, t.End.X, t.End.Y
 		default:
 			a.flagDegenerate(0, 0) // unknown Curve implementation
 			s.kind = srcDegenerate
@@ -302,6 +331,11 @@ func safeEndpoints(c Curve) (*Point, *Point, bool) {
 			return nil, nil, false
 		}
 		return t.Start, t.End, true
+	case *EllipticalArc:
+		if t == nil {
+			return nil, nil, false
+		}
+		return t.Start, t.End, true
 	default:
 		return nil, nil, false
 	}
@@ -333,10 +367,25 @@ func (a *arranger) densify() {
 			continue
 		}
 		params := a.sampleParams(s)
-		prev := s.at(params[0])
+		last := len(params) - 1
+		atParam := func(i int) [2]float64 {
+			// Pin an elliptical arc's ends to its exact boundary points so it
+			// joins its neighbours by shared-endpoint identity (the eccentric
+			// sampling would otherwise project an off-ellipse endpoint).
+			if s.pinEnds {
+				if i == 0 {
+					return [2]float64{s.e0x, s.e0y}
+				}
+				if i == last {
+					return [2]float64{s.e1x, s.e1y}
+				}
+			}
+			return s.at(params[i])
+		}
+		prev := atParam(0)
 		note(prev)
-		for i := 1; i < len(params); i++ {
-			cur := s.at(params[i])
+		for i := 1; i <= last; i++ {
+			cur := atParam(i)
 			note(cur)
 			a.segs = append(a.segs, tinySeg{
 				src: si, pa: params[i-1], pb: params[i],
@@ -368,7 +417,7 @@ func (a *arranger) sampleParams(s *source) []float64 {
 			segs = 256
 		}
 		var turn float64
-		if s.kind == srcArc {
+		if s.kind == srcArc || s.kind == srcEllipticalArc {
 			turn = s.sweep / (2 * math.Pi)
 		} else {
 			turn = 1
@@ -753,7 +802,7 @@ func (a *arranger) makeCycle(hs []int) cycle {
 			bulge += chordArcCorrection(s.r, (f.pEnd-f.pStart)*s.sweep)
 		case srcCircle:
 			bulge += chordArcCorrection(s.r, (f.pEnd-f.pStart)*2*math.Pi)
-		case srcEllipse:
+		case srcEllipse, srcEllipticalArc:
 			bulge += signedPolyArea(f.dense)
 		}
 	}

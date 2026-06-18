@@ -345,23 +345,42 @@ type pointOnEllipse struct {
 }
 
 func (c *pointOnEllipse) residual(out []float64) []float64 {
-	// Sampson distance: |F|/|∇F| for the implicit ellipse equation
-	// F = (x'/rx)² + (y'/ry)² − 1 in the ellipse's local frame. This first-
-	// order approximation of the true point-to-ellipse distance keeps the
-	// residual in length units, per the normalization convention.
 	e := c.E
-	cosr, sinr := math.Cos(e.rot()), math.Sin(e.rot())
-	dx, dy := c.P.x()-e.Center.x(), c.P.y()-e.Center.y()
+	return append(out, sampsonEllipse(c.P.x(), c.P.y(), e.Center.x(), e.Center.y(), e.rx(), e.ry(), e.rot()))
+}
+
+// sampsonEllipse returns the Sampson distance of point (px,py) to the ellipse
+// centered at (cx,cy) with semi-axes rx,ry and local-frame rotation rot: the
+// |F|/|∇F| first-order approximation of the true point-to-ellipse distance for
+// the implicit equation F = (x'/rx)² + (y'/ry)² − 1 in the ellipse's local
+// frame. It stays in length units, per the normalization convention.
+func sampsonEllipse(px, py, cx, cy, rx, ry, rot float64) float64 {
+	cosr, sinr := math.Cos(rot), math.Sin(rot)
+	dx, dy := px-cx, py-cy
 	lx := cosr*dx + sinr*dy
 	ly := -sinr*dx + cosr*dy
-	rx2 := math.Max(e.rx()*e.rx(), 1e-12)
-	ry2 := math.Max(e.ry()*e.ry(), 1e-12)
+	rx2 := math.Max(rx*rx, 1e-12)
+	ry2 := math.Max(ry*ry, 1e-12)
 	fv := lx*lx/rx2 + ly*ly/ry2 - 1
-	return append(out, fv/norm(2*lx/rx2, 2*ly/ry2))
+	return fv / norm(2*lx/rx2, 2*ly/ry2)
 }
 
 // NewPointOnEllipse forces a point to lie on an ellipse.
 func NewPointOnEllipse(p *Point, e *Ellipse) Constraint { return &pointOnEllipse{p, e} }
+
+// ellipticalArcOn is the internal constraint auto-added (twice) by
+// AddEllipticalArc that pins a boundary point onto the arc's ellipse via the
+// Sampson residual. It is not serialized — recreated by the constructor on load.
+type ellipticalArcOn struct {
+	ea *EllipticalArc
+	p  *Point
+}
+
+func (c *ellipticalArcOn) internal() {}
+func (c *ellipticalArcOn) residual(out []float64) []float64 {
+	e := c.ea
+	return append(out, sampsonEllipse(c.p.x(), c.p.y(), e.Center.x(), e.Center.y(), e.rx(), e.ry(), e.rot()))
+}
 
 // --- tangent ----------------------------------------------------------------
 //

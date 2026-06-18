@@ -164,6 +164,11 @@ func (s *Sketch) marshalBody() (jsonSketchBody, error) {
 				Type: "ellipse", Points: []int{t.Center.id},
 				Rx: t.rx(), Ry: t.ry(), Rotation: t.rot(), Construction: t.construction,
 			})
+		case *EllipticalArc:
+			body.Entities = append(body.Entities, jsonEntity{
+				Type: "elliptical_arc", Points: []int{t.Center.id, t.Start.id, t.End.id},
+				Rx: t.rx(), Ry: t.ry(), Rotation: t.rot(), Construction: t.construction,
+			})
 		case *Spline:
 			je := jsonEntity{Type: "spline", Degree: 3, Construction: t.construction}
 			for _, c := range t.Control {
@@ -451,6 +456,11 @@ func (s *Sketch) buildFromBody(body jsonSketchBody) error {
 				return fmt.Errorf("sketch: ellipse needs 1 point, got %d", len(ps))
 			}
 			s.AddEllipse(ps[0], je.Rx, je.Ry, je.Rotation).SetConstruction(je.Construction)
+		case "elliptical_arc":
+			if len(ps) != 3 {
+				return fmt.Errorf("sketch: elliptical arc needs 3 points, got %d", len(ps))
+			}
+			s.AddEllipticalArc(ps[0], ps[1], ps[2], je.Rx, je.Ry, je.Rotation).SetConstruction(je.Construction)
 		case "spline":
 			if je.Degree != 0 && je.Degree != 3 {
 				return fmt.Errorf("sketch: unsupported spline degree %d", je.Degree)

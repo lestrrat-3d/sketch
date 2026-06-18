@@ -76,3 +76,58 @@ func (a *Arc) Sweep() float64 {
 	}
 	return d
 }
+
+// EllipticalArc is an arc on an ellipse: an ellipse (center, semi-axes Rx/Ry,
+// local-frame Rotation) restricted to the counter-clockwise sweep from Start to
+// End. Start and End lie on the ellipse; the swept extent is measured in the
+// ellipse's eccentric angle (the parameter t in (Rx·cos t, Ry·sin t)).
+type EllipticalArc struct {
+	Center, Start, End *Point
+	Rx, Ry             float64
+	Rotation           float64
+}
+
+// NewEllipticalArc returns an elliptical arc swept counter-clockwise (in
+// eccentric angle) from start to end on the ellipse (center, rx, ry, rotation).
+func NewEllipticalArc(center, start, end *Point, rx, ry, rotation float64) *EllipticalArc {
+	return &EllipticalArc{Center: center, Start: start, End: end, Rx: rx, Ry: ry, Rotation: rotation}
+}
+
+// eccentric returns the ellipse's eccentric angle of a world point p — the
+// parameter t such that p ≈ Center + R(rot)·(Rx·cos t, Ry·sin t).
+func (e *EllipticalArc) eccentric(p *Point) float64 {
+	cosr, sinr := math.Cos(e.Rotation), math.Sin(e.Rotation)
+	dx, dy := p.X-e.Center.X, p.Y-e.Center.Y
+	lx := cosr*dx + sinr*dy // local-frame coordinates
+	ly := -sinr*dx + cosr*dy
+	return math.Atan2(ly/floor(e.Ry), lx/floor(e.Rx))
+}
+
+// StartParam and EndParam return the eccentric angles of the endpoints.
+func (e *EllipticalArc) StartParam() float64 { return e.eccentric(e.Start) }
+func (e *EllipticalArc) EndParam() float64   { return e.eccentric(e.End) }
+
+// Sweep returns the counter-clockwise eccentric-angle sweep in (0, 2π].
+func (e *EllipticalArc) Sweep() float64 {
+	d := math.Mod(e.EndParam()-e.StartParam(), 2*math.Pi)
+	if d <= 0 {
+		d += 2 * math.Pi
+	}
+	return d
+}
+
+// Endpoints returns the elliptical arc's start and end points, so it satisfies
+// the open-curve Curve interface.
+func (e *EllipticalArc) Endpoints() (*Point, *Point) { return e.Start, e.End }
+
+// floor returns v away from zero so divisions by a degenerate semi-axis stay
+// finite (matching the solver's norm convention).
+func floor(v float64) float64 {
+	if math.Abs(v) < 1e-12 {
+		if v < 0 {
+			return -1e-12
+		}
+		return 1e-12
+	}
+	return v
+}

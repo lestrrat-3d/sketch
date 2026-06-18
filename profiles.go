@@ -102,6 +102,9 @@ func (s *Sketch) buildProfiles() ([]*Profile, bool, [][2]float64) {
 		case *Arc:
 			curves = append(curves, geom.NewArc(pt(t.Center), pt(t.Start), pt(t.End)))
 			openEnts = append(openEnts, t)
+		case *EllipticalArc:
+			curves = append(curves, geom.NewEllipticalArc(pt(t.Center), pt(t.Start), pt(t.End), t.rx(), t.ry(), t.rot()))
+			openEnts = append(openEnts, t)
 		case *Circle:
 			closed = append(closed, t.Geometry())
 			closedEnts = append(closedEnts, t)
