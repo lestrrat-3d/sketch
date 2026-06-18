@@ -552,6 +552,224 @@ func (c *tangentToSpline) seedParam() float64 {
 	return clamp01((lo + hi) / 2)
 }
 
+// --- conic-conic tangency ---------------------------------------------------
+//
+// Two conics (an ellipse with a circle, or two ellipses) have no closed-form
+// distance, so tangency is verified by a CONTACT-POINT WITNESS P (two auxiliary
+// coordinates): P lies on both curves and their tangent lines coincide there.
+// For regular conics this exactly characterizes first-order (G1) tangency — a
+// transverse crossing cannot satisfy parallel normals at a shared point.
+//
+// Committed residual (4 rows): membership_A(P), membership_B(P) (length, zero on
+// the curve), cross(n̂_A, n̂_B) (dimensionless, zero when the tangents align), and
+// a hard internal/external branch row σ·dot(n̂_A, n̂_B) − wSide² (σ = +1 internal,
+// −1 external) — the branch must be an enforced equation, not just a seed, or the
+// internal and external constraints would be indistinguishable to the oracle.
+// A degenerate conic (zero radius / semi-axis) has no tangent and is rejected.
+//
+// v1 covers FULL conics only; arc operands (with sweep confinement) and the
+// shared-endpoint branch are a recorded follow-up (docs/conic-tangency-design.md).
+
+// conicEps is the floor below which a circle's radius is degenerate (no defined
+// tangent). The circle membership |P−C|−R does not floor R, so 1e-9 suffices.
+const conicEps = 1e-9
+
+// ellipseAxisEps is the floor below which an ellipse semi-axis is degenerate for
+// tangency. It must match the axis² floor (1e-12) that sampsonEllipse and
+// ellipseNormalXY apply: below √1e-12 = 1e-6 those residuals silently solve
+// against a floored surrogate rather than the authored ellipse, so such an axis
+// is rejected as degenerate to keep the policy and the residual consistent.
+const ellipseAxisEps = 1e-6
+
+// conic is the operand adapter for tangentConics: a full circle or full ellipse.
+type conic interface {
+	ent() Entity
+	onResidual(px, py float64) float64          // membership (length, 0 on the curve)
+	normalAt(px, py float64) (float64, float64) // outward normal at (px,py), not unit
+	degenerate() bool                           // a zero-size conic has no tangent
+	boundary(n int) [][2]float64                // n boundary samples (for seeding)
+}
+
+type circleConic struct{ c *Circle }
+
+func (a circleConic) ent() Entity { return a.c }
+func (a circleConic) onResidual(px, py float64) float64 {
+	return norm(px-a.c.Center.x(), py-a.c.Center.y()) - a.c.r()
+}
+func (a circleConic) normalAt(px, py float64) (float64, float64) {
+	return px - a.c.Center.x(), py - a.c.Center.y()
+}
+func (a circleConic) degenerate() bool { return math.Abs(a.c.r()) < conicEps }
+func (a circleConic) boundary(n int) [][2]float64 {
+	cx, cy, r := a.c.Center.x(), a.c.Center.y(), a.c.r()
+	pts := make([][2]float64, n)
+	for i := range pts {
+		t := 2 * math.Pi * float64(i) / float64(n)
+		pts[i] = [2]float64{cx + r*math.Cos(t), cy + r*math.Sin(t)}
+	}
+	return pts
+}
+
+type ellipseConic struct{ e *Ellipse }
+
+func (a ellipseConic) ent() Entity { return a.e }
+func (a ellipseConic) onResidual(px, py float64) float64 {
+	return sampsonEllipse(px, py, a.e.Center.x(), a.e.Center.y(), a.e.rx(), a.e.ry(), a.e.rot())
+}
+func (a ellipseConic) normalAt(px, py float64) (float64, float64) {
+	return ellipseNormalXY(px, py, a.e.Center.x(), a.e.Center.y(), a.e.rx(), a.e.ry(), a.e.rot())
+}
+func (a ellipseConic) degenerate() bool {
+	return math.Abs(a.e.rx()) < ellipseAxisEps || math.Abs(a.e.ry()) < ellipseAxisEps
+}
+func (a ellipseConic) boundary(n int) [][2]float64 {
+	cx, cy, rx, ry := a.e.Center.x(), a.e.Center.y(), a.e.rx(), a.e.ry()
+	cosr, sinr := math.Cos(a.e.rot()), math.Sin(a.e.rot())
+	pts := make([][2]float64, n)
+	for i := range pts {
+		t := 2 * math.Pi * float64(i) / float64(n)
+		lx, ly := rx*math.Cos(t), ry*math.Sin(t)
+		pts[i] = [2]float64{cx + cosr*lx - sinr*ly, cy + sinr*lx + cosr*ly}
+	}
+	return pts
+}
+
+type tangentConics struct {
+	A, B     conic
+	Internal bool
+	s        *Sketch
+	px, py   int // contact-witness coordinates; -1 = unallocated
+	wSide    int // internal/external branch slack
+}
+
+func newTangentConics(a, b conic, internal bool) *tangentConics {
+	return &tangentConics{A: a, B: b, Internal: internal, px: -1, py: -1, wSide: -1}
+}
+
+// NewTangentEllipseCircle forces an ellipse and a circle to be tangent. internal
+// selects an internal contact (the circle inside the ellipse or vice versa, outward
+// normals aligned) versus external (normals opposed); the branch is enforced, not
+// merely seeded. Both must be non-degenerate full conics.
+func NewTangentEllipseCircle(e *Ellipse, c *Circle, internal bool) Constraint {
+	return newTangentConics(ellipseConic{e}, circleConic{c}, internal)
+}
+
+// NewTangentEllipses forces two ellipses to be tangent (internal/external as
+// above). Both must be non-degenerate full ellipses.
+func NewTangentEllipses(e1, e2 *Ellipse, internal bool) Constraint {
+	return newTangentConics(ellipseConic{e1}, ellipseConic{e2}, internal)
+}
+
+func (c *tangentConics) sigma() float64 {
+	if c.Internal {
+		return 1
+	}
+	return -1
+}
+
+func (c *tangentConics) allocVars(s *Sketch) {
+	c.s = s
+	if c.px >= 0 {
+		return // idempotent
+	}
+	px, py := c.seedContact()
+	c.px = s.newVar(px)
+	c.py = s.newVar(py)
+	c.wSide = s.newVar(slackFor(c.sigma() * c.dotNormals(px, py)))
+}
+
+func (c *tangentConics) retireVars(s *Sketch) {
+	if c.px >= 0 {
+		s.retireVar(c.px)
+		s.retireVar(c.py)
+		s.retireVar(c.wSide)
+		c.px, c.py, c.wSide = -1, -1, -1
+	}
+}
+
+// dotNormals returns dot(n̂_A, n̂_B) at (px,py); 0 if either normal is degenerate.
+func (c *tangentConics) dotNormals(px, py float64) float64 {
+	nax, nay := c.A.normalAt(px, py)
+	nbx, nby := c.B.normalAt(px, py)
+	la, lb := norm(nax, nay), norm(nbx, nby)
+	return (nax*nbx + nay*nby) / (la * lb)
+}
+
+func (c *tangentConics) residual(out []float64) []float64 {
+	if c.px < 0 {
+		return out // not yet parameterized; allocVars runs at commit (and in CheckConstraint)
+	}
+	px, py := c.s.vars[c.px], c.s.vars[c.py]
+	wSide := c.s.vars[c.wSide]
+	rA := c.A.onResidual(px, py)
+	rB := c.B.onResidual(px, py)
+	// A degenerate conic (zero radius / semi-axis) has no tangent direction: keep
+	// the membership rows but force the parallel row clearly nonzero so it is never
+	// blessed; the row count is unchanged.
+	if c.A.degenerate() || c.B.degenerate() {
+		return append(out, rA, rB, 1, c.sigma()-wSide*wSide)
+	}
+	nax, nay := c.A.normalAt(px, py)
+	nbx, nby := c.B.normalAt(px, py)
+	la, lb := norm(nax, nay), norm(nbx, nby)
+	parallel := (nax*nby - nay*nbx) / (la * lb) // sin(angle), 0 when tangents align
+	dot := (nax*nbx + nay*nby) / (la * lb)
+	return append(out,
+		rA,                        // P on A (length)
+		rB,                        // P on B (length)
+		parallel,                  // tangents parallel (dimensionless)
+		c.sigma()*dot-wSide*wSide, // internal/external branch (dimensionless)
+	)
+}
+
+// seedContact picks a contact-witness point by branch-aware boundary sampling:
+// over sampled boundary points of both conics it minimizes proximity² + cross² and
+// penalizes the wrong internal/external side, then returns the midpoint of the best
+// pair (balancing the two membership residuals). The solver refines from there.
+func (c *tangentConics) seedContact() (float64, float64) {
+	sigma := c.sigma()
+	sa := c.A.boundary(96)
+	sb := c.B.boundary(96)
+	scale := boundaryScale(sa, sb)
+	bx, by, best := sa[0][0], sa[0][1], math.Inf(1)
+	for _, pa := range sa {
+		nax, nay := c.A.normalAt(pa[0], pa[1])
+		la := norm(nax, nay)
+		for _, pb := range sb {
+			nbx, nby := c.B.normalAt(pb[0], pb[1])
+			lb := norm(nbx, nby)
+			cross := (nax*nby - nay*nbx) / (la * lb)
+			d := norm(pa[0]-pb[0], pa[1]-pb[1]) / scale
+			score := d*d + cross*cross
+			if sigma*(nax*nbx+nay*nby)/(la*lb) <= 0 {
+				score += 10 // wrong branch: bias away from it
+			}
+			if score < best {
+				best = score
+				bx, by = (pa[0]+pb[0])/2, (pa[1]+pb[1])/2
+			}
+		}
+	}
+	return bx, by
+}
+
+// boundaryScale returns a characteristic length for the two sample sets (the
+// diagonal of their combined bounding box, floored to 1) to normalize proximity.
+func boundaryScale(sa, sb [][2]float64) float64 {
+	minx, miny := math.Inf(1), math.Inf(1)
+	maxx, maxy := math.Inf(-1), math.Inf(-1)
+	for _, set := range [][][2]float64{sa, sb} {
+		for _, p := range set {
+			minx, maxx = math.Min(minx, p[0]), math.Max(maxx, p[0])
+			miny, maxy = math.Min(miny, p[1]), math.Max(maxy, p[1])
+		}
+	}
+	if d := math.Hypot(maxx-minx, maxy-miny); d > 1 {
+		return d
+	}
+	return 1
+}
+
 // --- midpoint / symmetric ---------------------------------------------------
 
 type midpoint struct {
@@ -1147,13 +1365,21 @@ func (c *tangentLineEllipse) residual(out []float64) []float64 {
 // on the ellipse), in world coordinates: the local gradient (lx/rx², ly/ry²)
 // rotated back to world. Not unit-length; callers normalize.
 func ellipseNormalAt(p *Point, e Elliptical) (float64, float64) {
-	ctr := e.centerPt()
-	cosr, sinr := math.Cos(e.Rotation()), math.Sin(e.Rotation())
-	dx, dy := p.x()-ctr.x(), p.y()-ctr.y()
+	return ellipseNormalXY(p.x(), p.y(), e.centerPt().x(), e.centerPt().y(), e.Rx(), e.Ry(), e.Rotation())
+}
+
+// ellipseNormalXY returns the ellipse's outward normal at world point (px,py):
+// the local gradient (lx/rx², ly/ry²) rotated back to world. Not unit-length.
+// The axis squares are floored (as in sampsonEllipse) so a degenerate (zero
+// semi-axis) ellipse yields a finite normal rather than NaN — the conic-tangency
+// degenerate guard then rejects it cleanly instead of poisoning the residual.
+func ellipseNormalXY(px, py, cx, cy, rx, ry, rot float64) (float64, float64) {
+	cosr, sinr := math.Cos(rot), math.Sin(rot)
+	dx, dy := px-cx, py-cy
 	lx := cosr*dx + sinr*dy
 	ly := -sinr*dx + cosr*dy
-	gx := lx / (e.Rx() * e.Rx())
-	gy := ly / (e.Ry() * e.Ry())
+	gx := lx / math.Max(rx*rx, 1e-12)
+	gy := ly / math.Max(ry*ry, 1e-12)
 	return cosr*gx - sinr*gy, sinr*gx + cosr*gy
 }
 
