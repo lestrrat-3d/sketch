@@ -211,6 +211,94 @@ func (c *pointOnArc) residual(out []float64) []float64 {
 	return out
 }
 
+// pointOnEllipticalArc confines a point to an elliptical arc: on the arc's
+// ellipse (Sampson residual), AND within its eccentric-angle sweep. The sweep
+// confinement reuses the interior-tangency slack pattern — a slack-encoded
+// inequality keeping the point's eccentric direction inside the sweep — so a
+// point on the full ellipse but off the arc is reported unsolvable.
+type pointOnEllipticalArc struct {
+	P     *Point
+	A     *EllipticalArc
+	s     *Sketch // set by allocVars, for slack access
+	slack int     // sweep slack var index; -1 = not yet allocated
+}
+
+// NewPointOnEllipticalArc forces a point to lie on an elliptical arc — on its
+// ellipse and within its counter-clockwise eccentric-angle sweep. A point on the
+// arc's full ellipse but outside the sweep is reported unsolvable.
+func NewPointOnEllipticalArc(p *Point, a *EllipticalArc) Constraint {
+	return &pointOnEllipticalArc{P: p, A: a, slack: -1}
+}
+
+// eccentricDir returns the unit eccentric direction (cos t, sin t) of the point
+// on the arc's ellipse — the local-frame coordinates scaled by 1/rx and 1/ry,
+// then normalized. It is the natural-parameter analog of an arc's contactDir.
+func (c *pointOnEllipticalArc) eccentricDir() (float64, float64) {
+	a := c.A
+	cosr, sinr := math.Cos(a.rot()), math.Sin(a.rot())
+	dx, dy := c.P.x()-a.Center.x(), c.P.y()-a.Center.y()
+	lx := cosr*dx + sinr*dy
+	ly := -sinr*dx + cosr*dy
+	// Sign-preserving floor, matching geom.EllipticalArc's eccentric() so the
+	// in-sweep test agrees with the rendered arc even if a semi-axis is negative.
+	ex, ey := lx/axisFloor(a.rx()), ly/axisFloor(a.ry())
+	n := norm(ex, ey)
+	return ex / n, ey / n
+}
+
+// axisFloor returns v away from zero (preserving sign) so a division by a
+// degenerate semi-axis stays finite; mirrors geom's floor for the eccentric
+// parametrization.
+func axisFloor(v float64) float64 {
+	if math.Abs(v) < 1e-12 {
+		if v < 0 {
+			return -1e-12
+		}
+		return 1e-12
+	}
+	return v
+}
+
+func (c *pointOnEllipticalArc) allocVars(s *Sketch) {
+	c.s = s
+	if c.slack >= 0 {
+		return // idempotent: re-adding the handle must not leak a second slack
+	}
+	ux, uy := c.eccentricDir()
+	c.slack = s.newVar(slackFor(ellipticalArcSweepExcess(c.A, ux, uy)))
+}
+
+func (c *pointOnEllipticalArc) retireVars(s *Sketch) {
+	if c.slack >= 0 {
+		s.retireVar(c.slack)
+		c.slack = -1 // reset so re-adding the handle allocates a fresh slack
+	}
+}
+
+func (c *pointOnEllipticalArc) residual(out []float64) []float64 {
+	a := c.A
+	out = append(out, sampsonEllipse(c.P.x(), c.P.y(), a.Center.x(), a.Center.y(), a.rx(), a.ry(), a.rot()))
+	// The sweep row is gated on the slack so a committed constraint's arity is
+	// constant and a pre-commit probe sees only the on-ellipse row (as pointOnArc).
+	if c.slack >= 0 {
+		ux, uy := c.eccentricDir()
+		w := c.s.vars[c.slack]
+		out = append(out, ellipticalArcSweepExcess(a, ux, uy)-w*w)
+	}
+	return out
+}
+
+// ellipticalArcSweepExcess returns dot(eccentricDir, midDir) − cos(sweep/2) for
+// the unit eccentric direction (ux,uy): ≥ 0 exactly when the point's eccentric
+// angle lies within the arc's counter-clockwise sweep. midDir is the start
+// eccentric direction advanced by half the sweep; the dot test is smooth and
+// free of angle-wrap (the same shape as arcInSweepExcess, in eccentric angle).
+func ellipticalArcSweepExcess(a *EllipticalArc, ux, uy float64) float64 {
+	half := a.Sweep() / 2
+	mid := a.StartParam() + half
+	return ux*math.Cos(mid) + uy*math.Sin(mid) - math.Cos(half)
+}
+
 // --- midpoint / symmetric ---------------------------------------------------
 
 type midpoint struct {

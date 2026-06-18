@@ -235,6 +235,8 @@ func constraintRefs(c Constraint) ([]*Point, []Entity) {
 		return []*Point{t.P}, []Entity{t.C}
 	case *pointOnArc:
 		return []*Point{t.P}, []Entity{t.A}
+	case *pointOnEllipticalArc:
+		return []*Point{t.P}, []Entity{t.A}
 	case *pointOnEllipse:
 		return []*Point{t.P}, []Entity{t.E}
 	case *midpoint:

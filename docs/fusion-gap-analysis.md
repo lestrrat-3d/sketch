@@ -24,13 +24,14 @@ separation contract — see `docs/verification-roadmap.md`.
   on-ellipse constraints pinning the endpoints (Sampson residual);
   eccentric-angle `Sweep`, `geom.EllipticalArc` sampling, profile/arrangement
   participation as an open curve (sampled-bulge area), JSON round-trip, and
-  SVG/PNG/native-DXF-ELLIPSE export, and **shape dimensions** (`NewSemiMajor`/
+  SVG/PNG/native-DXF-ELLIPSE export, **shape dimensions** (`NewSemiMajor`/
   `NewSemiMinor`/`NewEllipseRotation` widened to the sealed `Elliptical`
-  interface accepting a `*Ellipse` or `*EllipticalArc`). Still open (follow-ups):
-  sweep-confined point-on / tangency on an elliptical arc (tangency needs
-  **tangency to an ellipse** — no closed-form distance; a foot-point iteration
-  or an auxiliary contact-point variable), reference elliptical arcs, and
-  trim/split.
+  interface accepting a `*Ellipse` or `*EllipticalArc`), and **sweep-confined
+  point-on** (`NewPointOnEllipticalArc` — Sampson on-ellipse + eccentric-sweep
+  slack inequality, like `pointOnArc`). Still open (follow-ups): tangency on an
+  elliptical arc / **tangency to an ellipse** (no closed-form distance; a
+  foot-point iteration or an auxiliary contact-point variable), reference
+  elliptical arcs, and trim/split.
 - ~~**Splines**~~ — *v1 closed*: control-point clamped cubic
   B-splines (`geom.NewSpline`/`AddSpline`); control points are ordinary
   sketch points, so constraints/dimensions/goals reshape the curve with no

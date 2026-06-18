@@ -379,8 +379,10 @@ These are unsettled. If you resolve one, record the decision here.
   constraints pinning the endpoints, eccentric-angle sweep, sampled-bulge area
   in the arrangement). Its shape is dimensionable via the sealed `Elliptical`
   interface (`NewSemiMajor`/`NewSemiMinor`/`NewEllipseRotation` accept a
-  `*Ellipse` or an `*EllipticalArc`). Still open: point-on/tangency confined to
-  an elliptical arc's sweep, and tangency-to-ellipse.
+  `*Ellipse` or an `*EllipticalArc`). A point can be confined to an elliptical
+  arc with `NewPointOnEllipticalArc` (on the ellipse via the Sampson residual,
+  within the eccentric sweep via a slack inequality, mirroring `pointOnArc`).
+  Still open: tangency to an ellipse / elliptical arc.
   Slots/fillet/chamfer exist as compound builders and `geom` template helpers.
 - **Solver evolution.** Numerical Jacobian is fine at current scale. Open:
   analytic Jacobians for speed/accuracy, equation decomposition (solve

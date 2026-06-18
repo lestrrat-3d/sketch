@@ -224,6 +224,8 @@ func marshalConstraint(c Constraint) (jsonConstraint, bool) {
 		return jsonConstraint{Type: "point_on_circle", Points: []int{t.P.id}, Entities: []int{t.C.id}}, true
 	case *pointOnArc:
 		return jsonConstraint{Type: "point_on_arc", Points: []int{t.P.id}, Entities: []int{t.A.id}}, true
+	case *pointOnEllipticalArc:
+		return jsonConstraint{Type: "point_on_elliptical_arc", Points: []int{t.P.id}, Entities: []int{t.A.id}}, true
 	case *pointOnEllipse:
 		return jsonConstraint{Type: "point_on_ellipse", Points: []int{t.P.id}, Entities: []int{t.E.id}}, true
 	case *midpoint:
@@ -528,7 +530,8 @@ var constraintArity = map[string][2]int{
 	"horizontal_points": {2, 0}, "vertical_points": {2, 0},
 	"parallel": {0, 2}, "perpendicular": {0, 2}, "equal_lines": {0, 2},
 	"collinear": {0, 2}, "angle": {0, 2}, "point_on_line": {1, 1},
-	"point_on_circle": {1, 1}, "point_on_arc": {1, 1}, "point_on_ellipse": {1, 1}, "midpoint": {1, 1},
+	"point_on_circle": {1, 1}, "point_on_arc": {1, 1}, "point_on_elliptical_arc": {1, 1},
+	"point_on_ellipse": {1, 1}, "midpoint": {1, 1},
 	"midpoint_of": {3, 0},
 	"symmetric":   {2, 1}, "symmetric_lines": {0, 3}, "symmetric_circles": {0, 3},
 	"concentric": {0, 2}, "equal_radii": {0, 2},
@@ -629,6 +632,12 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 			return fmt.Errorf("sketch: point_on_arc requires an arc, got %T", c)
 		}
 		s.AddConstraint(NewPointOnArc(pt(0), arc))
+	case "point_on_elliptical_arc":
+		ea, ok := s.entByID(jc.Entities[0]).(*EllipticalArc)
+		if !ok {
+			return fmt.Errorf("sketch: point_on_elliptical_arc requires an elliptical arc")
+		}
+		s.AddConstraint(NewPointOnEllipticalArc(pt(0), ea))
 	case "point_on_ellipse":
 		e, err := ellipse(jc.Entities[0])
 		if err != nil {
