@@ -90,6 +90,30 @@ func TestNearestParamCubicBSpline(t *testing.T) {
 	require.LessOrEqual(t, math.Hypot(5-px, 10-py), best+1e-9, "foot is the nearest point")
 }
 
+func TestEvalCubicBSplineDeriv(t *testing.T) {
+	ctrl := [][2]float64{{0, 0}, {2, 4}, {8, 4}, {10, 0}, {12, -3}}
+	// Interior: analytic derivative matches a central finite difference of Eval.
+	for _, tp := range []float64{0.15, 0.37, 0.5, 0.62, 0.84} {
+		const h = 1e-6
+		ax, ay := geom.EvalCubicBSpline(ctrl, tp-h)
+		bx, by := geom.EvalCubicBSpline(ctrl, tp+h)
+		wantX, wantY := (bx-ax)/(2*h), (by-ay)/(2*h)
+		gotX, gotY := geom.EvalCubicBSplineDeriv(ctrl, tp)
+		require.InDelta(t, wantX, gotX, 1e-3, "dx at t=%v", tp)
+		require.InDelta(t, wantY, gotY, 1e-3, "dy at t=%v", tp)
+	}
+	// Endpoints: one-sided tangent along the first/last control legs.
+	d0x, d0y := geom.EvalCubicBSplineDeriv(ctrl, 0)
+	require.InDelta(t, 0, d0x*(ctrl[1][1]-ctrl[0][1])-d0y*(ctrl[1][0]-ctrl[0][0]), 1e-9,
+		"start tangent parallel to first leg")
+	require.Greater(t, d0x, 0.0, "start tangent points into the curve")
+	n := len(ctrl)
+	d1x, d1y := geom.EvalCubicBSplineDeriv(ctrl, 1)
+	require.InDelta(t, 0, d1x*(ctrl[n-1][1]-ctrl[n-2][1])-d1y*(ctrl[n-1][0]-ctrl[n-2][0]), 1e-9,
+		"end tangent parallel to last leg (t=1 shortcut, not (0,0))")
+	require.Greater(t, math.Hypot(d1x, d1y), 0.0, "end tangent is nonzero")
+}
+
 func TestSplinePolyline(t *testing.T) {
 	sp, err := geom.NewSpline(
 		geom.NewPoint(0, 0), geom.NewPoint(2, 4), geom.NewPoint(8, 4), geom.NewPoint(10, 0),

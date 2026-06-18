@@ -46,9 +46,10 @@ separation contract — see `docs/verification-roadmap.md`.
   (`NewPointOnSpline`) is in: the existential `P=S(t)` with the foot parameter
   `t` a bounded aux variable (slack-encoded `[0,1]` box) and robust foot-point
   re-seeding on load; `CheckConstraint` probes aux-var constraints in committed
-  form (temporarily allocating their vars, then rolling back). Still open:
-  tangent-to-spline (same bounded-`t` machinery + `S'(t)`), fit-point splines,
-  closed/periodic splines.
+  form (temporarily allocating their vars, then rolling back). **Tangent-to-spline**
+  (`NewTangentToSpline`) is in too: the same bounded contact-`t`, with
+  contact-on-carrier-line + parallel-to-analytic-`S'(t)` rows and a scale-relative
+  no-cusp guard. Still open: fit-point splines, closed/periodic splines.
 - ~~**Slot** (straight)~~ — *closed*: `AddSlot` (two arcs + two flanks;
   equal cap radii + perpendicular construction spokes at the contact points —
   perpendicularity implies tangency *and* pins the contact point, which a plain
@@ -211,8 +212,8 @@ for tighter tolerance on near-tangencies.
    then ~~**ellipse**~~ (*done*; the elliptical-arc primitive is in too —
    ellipse tangency still open), then ~~**profiles/region engine**~~ (*done* — bare-crossing
    subdivision, holes/nesting, area, self-intersection validity), with
-   ~~**splines**~~ (*v1 done*, plus point-on-spline; fit-point and
-   tangent-to-spline constraints still open).
+   ~~**splines**~~ (*v1 done*, plus point-on-spline and tangent-to-spline;
+   fit-point splines still open).
 
 Entity/constraint removal is *done*
 (`RemoveConstraint`/`RemoveEntity`/`RemovePoint`; design in

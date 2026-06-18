@@ -389,6 +389,169 @@ func clamp01(t float64) float64 {
 	return t
 }
 
+// Scale-relative thresholds for spline tangency: a contact parameter whose
+// tangent speed |S'(t)| falls below splineEpsTan·scale is treated as a cusp (no
+// tangent direction), and a line shorter than splineEpsLine·scale has no
+// direction. Both are floored well above the solver tolerance (1e-10).
+const (
+	splineEpsTan  = 1e-9
+	splineEpsLine = 1e-9
+)
+
+// tangentToSpline forces a line tangent to a cubic B-spline. Tangency is
+// existential over the contact parameter t ∈ [0,1] (the same bounded witness as
+// pointOnSpline: t plus the box slacks w0,w1). The committed residual is five
+// rows: the contact S(t) on the line's infinite carrier (signed perpendicular
+// distance, length units, like tangentLineCircle); the line direction parallel
+// to the spline tangent S'(t) (a dimensionless sin-of-angle); the two box rows;
+// and a no-cusp guard |S'(t)|/scale ≥ epsTan (slack ws) so the oracle never
+// blesses "tangent" where the tangent direction is undefined. S'(t) is the
+// analytic geom.EvalCubicBSplineDeriv (a numerical tangent inside the residual
+// would be a nested finite difference the Jacobian re-differentiates).
+type tangentToSpline struct {
+	L                *Line
+	Sp               *Spline
+	s                *Sketch
+	tvar, w0, w1, ws int // contact parameter, box slacks, speed-guard slack; -1 = unallocated
+}
+
+// NewTangentToSpline forces a line tangent to a cubic B-spline. The line is its
+// infinite carrier (the contact may fall anywhere along it, as for circles and
+// arcs); the contact parameter on the spline is solved for and confined to the
+// curve. A line tangent to the spline at more than one parameter witnesses one
+// of them; [Sketch.ProbeConfigurations] can surface the alternates.
+func NewTangentToSpline(l *Line, sp *Spline) Constraint {
+	return &tangentToSpline{L: l, Sp: sp, tvar: -1, w0: -1, w1: -1, ws: -1}
+}
+
+func (c *tangentToSpline) allocVars(s *Sketch) {
+	c.s = s
+	if c.tvar >= 0 {
+		return // idempotent
+	}
+	t := c.seedParam()
+	spx, spy := geom.EvalCubicBSplineDeriv(c.Sp.controlCoords(), clamp01(t))
+	speed := norm(spx, spy)
+	c.tvar = s.newVar(t)
+	c.w0 = s.newVar(slackFor(t))
+	c.w1 = s.newVar(slackFor(1 - t))
+	c.ws = s.newVar(slackFor(speed/splineScale(c.Sp) - splineEpsTan))
+}
+
+func (c *tangentToSpline) retireVars(s *Sketch) {
+	if c.tvar >= 0 {
+		s.retireVar(c.tvar)
+		s.retireVar(c.w0)
+		s.retireVar(c.w1)
+		s.retireVar(c.ws)
+		c.tvar, c.w0, c.w1, c.ws = -1, -1, -1, -1
+	}
+}
+
+func (c *tangentToSpline) residual(out []float64) []float64 {
+	if c.tvar < 0 {
+		return out // not yet parameterized; allocVars runs at commit (and in CheckConstraint)
+	}
+	tv := c.s.vars[c.tvar]
+	t := clamp01(tv)
+	sx, sy := c.Sp.Eval(t)
+	spx, spy := geom.EvalCubicBSplineDeriv(c.Sp.controlCoords(), t)
+	speed := norm(spx, spy)
+	ax, ay := c.L.Start.x(), c.L.Start.y()
+	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
+	dlen := norm(dx, dy)
+	w0, w1, ws := c.s.vars[c.w0], c.s.vars[c.w1], c.s.vars[c.ws]
+	// Scale is recomputed every evaluation, not snapshotted: a free or reshaped
+	// spline must use its current size so the scale-relative thresholds stay valid.
+	scale := splineScale(c.Sp)
+
+	// Contact: signed perpendicular distance from S(t) to the infinite carrier
+	// line (length units).
+	contact := (dx*(sy-ay) - dy*(sx-ax)) / dlen
+	// Parallel: sin of the angle between the line direction and the spline tangent
+	// (dimensionless), zero when parallel. A zero-length line has no direction —
+	// reject with a clearly-nonzero residual rather than reading 0/0 as tangent.
+	parallel := 1.0
+	if math.Hypot(dx, dy) >= splineEpsLine*scale {
+		parallel = (dx*spy - dy*spx) / (dlen * speed)
+	}
+	return append(out,
+		contact,                        // on the carrier line (length)
+		parallel,                       // line ∥ spline tangent (dimensionless)
+		tv-w0*w0,                       // t ≥ 0
+		(1-tv)-w1*w1,                   // t ≤ 1
+		speed/scale-splineEpsTan-ws*ws, // |S'(t)| ≥ epsTan·scale (no cusp)
+	)
+}
+
+// splineScale returns a length scale for a spline: its control-box diagonal,
+// floored to 1, used to make the no-cusp and zero-line thresholds scale-relative.
+func splineScale(sp *Spline) float64 {
+	minx, miny := math.Inf(1), math.Inf(1)
+	maxx, maxy := math.Inf(-1), math.Inf(-1)
+	for _, p := range sp.Control {
+		minx, maxx = math.Min(minx, p.x()), math.Max(maxx, p.x())
+		miny, maxy = math.Min(miny, p.y()), math.Max(maxy, p.y())
+	}
+	if d := math.Hypot(maxx-minx, maxy-miny); d > 1 {
+		return d
+	}
+	return 1
+}
+
+// seedParam picks a contact parameter for the tangency witness: a dense
+// multi-start over [0,1] minimizing the normalized tangency score
+// (contact/scale)² + parallel², skipping near-cusp samples, then a golden-section
+// refine. Distance-only or parallelism-only seeds each fail a common case (a
+// transverse crossing, or a far-away parallel point), so the combined score is used.
+func (c *tangentToSpline) seedParam() float64 {
+	ctrl := c.Sp.controlCoords()
+	n := len(ctrl)
+	segs := 16 * (n - 3)
+	if segs < 64 {
+		segs = 64
+	}
+	ax, ay := c.L.Start.x(), c.L.Start.y()
+	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
+	dlen := norm(dx, dy)
+	scale := splineScale(c.Sp)
+	score := func(t float64) float64 {
+		sx, sy := geom.EvalCubicBSpline(ctrl, t)
+		spx, spy := geom.EvalCubicBSplineDeriv(ctrl, t)
+		speed := norm(spx, spy)
+		if speed < splineEpsTan*scale {
+			return math.Inf(1) // skip cusps
+		}
+		h := (dx*(sy-ay) - dy*(sx-ax)) / dlen / scale
+		a := (dx*spy - dy*spx) / (dlen * speed)
+		return h*h + a*a
+	}
+	bestT, bestS := 0.0, math.Inf(1)
+	for i := 0; i <= segs; i++ {
+		t := float64(i) / float64(segs)
+		if s := score(t); s < bestS {
+			bestS, bestT = s, t
+		}
+	}
+	span := 1.0 / float64(segs)
+	lo, hi := math.Max(0, bestT-span), math.Min(1, bestT+span)
+	const invphi = 0.6180339887498949
+	cP, dP := hi-invphi*(hi-lo), lo+invphi*(hi-lo)
+	fc, fd := score(cP), score(dP)
+	for k := 0; k < 24; k++ {
+		if fc < fd {
+			hi, dP, fd = dP, cP, fc
+			cP = hi - invphi*(hi-lo)
+			fc = score(cP)
+		} else {
+			lo, cP, fc = cP, dP, fd
+			dP = lo + invphi*(hi-lo)
+			fd = score(dP)
+		}
+	}
+	return clamp01((lo + hi) / 2)
+}
+
 // --- midpoint / symmetric ---------------------------------------------------
 
 type midpoint struct {

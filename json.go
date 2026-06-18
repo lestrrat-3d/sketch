@@ -230,6 +230,8 @@ func marshalConstraint(c Constraint) (jsonConstraint, bool) {
 		return jsonConstraint{Type: "point_on_ellipse", Points: []int{t.P.id}, Entities: []int{t.E.id}}, true
 	case *pointOnSpline:
 		return jsonConstraint{Type: "point_on_spline", Points: []int{t.P.id}, Entities: []int{t.Sp.id}}, true
+	case *tangentToSpline:
+		return jsonConstraint{Type: "tangent_spline", Entities: []int{t.L.id, t.Sp.id}}, true
 	case *midpoint:
 		return jsonConstraint{Type: "midpoint", Points: []int{t.P.id}, Entities: []int{t.L.id}}, true
 	case *midpointOf:
@@ -542,7 +544,7 @@ var constraintArity = map[string][2]int{
 	"parallel": {0, 2}, "perpendicular": {0, 2}, "equal_lines": {0, 2},
 	"collinear": {0, 2}, "angle": {0, 2}, "point_on_line": {1, 1},
 	"point_on_circle": {1, 1}, "point_on_arc": {1, 1}, "point_on_elliptical_arc": {1, 1},
-	"point_on_ellipse": {1, 1}, "point_on_spline": {1, 1}, "midpoint": {1, 1},
+	"point_on_ellipse": {1, 1}, "point_on_spline": {1, 1}, "tangent_spline": {0, 2}, "midpoint": {1, 1},
 	"midpoint_of": {3, 0},
 	"symmetric":   {2, 1}, "symmetric_lines": {0, 3}, "symmetric_circles": {0, 3},
 	"concentric": {0, 2}, "equal_radii": {0, 2},
@@ -661,6 +663,16 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 			return fmt.Errorf("sketch: point_on_spline requires a spline")
 		}
 		s.AddConstraint(NewPointOnSpline(pt(0), sp))
+	case "tangent_spline":
+		l, err := line(jc.Entities[0])
+		if err != nil {
+			return err
+		}
+		sp, ok := s.entByID(jc.Entities[1]).(*Spline)
+		if !ok {
+			return fmt.Errorf("sketch: tangent_spline requires a spline")
+		}
+		s.AddConstraint(NewTangentToSpline(l, sp))
 	case "semi_major", "semi_minor", "ellipse_rotation":
 		e, ok := s.entByID(jc.Entities[0]).(Elliptical)
 		if !ok {

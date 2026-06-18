@@ -381,8 +381,16 @@ These are unsettled. If you resolve one, record the decision here.
   real rows, then rolls back (non-mutating). (A documented limitation: two
   point-on-spline on the same point are redundant only nonlinearly, so the local
   rank analysis is not guaranteed to flag the duplicate; it stays harmless.)
-  Tangent-to-spline is the recorded follow-up (same bounded-`t` machinery plus the
-  spline tangent).
+  A line can be made tangent to a spline with `NewTangentToSpline` (same bounded
+  contact-parameter `t` machinery): the committed residual is five rows — contact
+  `S(t)` on the line's infinite carrier (signed perpendicular distance, length),
+  the line direction parallel to the analytic spline tangent `S'(t)`
+  (`geom.EvalCubicBSplineDeriv`, dimensionless `sin`), the two box rows, and a
+  scale-relative no-cusp guard `|S'(t)|/scale ≥ epsTan` (slack `ws`) so the oracle
+  never blesses "tangent" where the tangent direction is undefined; a zero-length
+  line is rejected outright. `S'(t)` is analytic on purpose — a numerical tangent
+  inside the residual would be a nested finite difference the Jacobian
+  re-differentiates.
   Ellipses are in
   (center point + rx/ry/rotation vars; `NewPointOnEllipse` uses a
   Sampson-normalized residual — |F|/|∇F| — to stay in length units).

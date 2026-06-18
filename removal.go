@@ -241,6 +241,8 @@ func constraintRefs(c Constraint) ([]*Point, []Entity) {
 		return []*Point{t.P}, []Entity{t.E}
 	case *pointOnSpline:
 		return []*Point{t.P}, []Entity{t.Sp}
+	case *tangentToSpline:
+		return nil, []Entity{t.L, t.Sp}
 	case *midpoint:
 		return []*Point{t.P}, []Entity{t.L}
 	case *midpointOf:

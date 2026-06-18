@@ -102,11 +102,32 @@ Load-bearing decisions:
   sliding DOF; the duplicate just adds an unused second witness. An exact
   same-point duplicate could be caught by a semantic scan if a guarantee is wanted.
 
-**Tangent-to-spline is the recorded follow-up**: the same bounded-`t` machinery
-plus the spline tangent `S'(t)` — rows "contact on the line" and
-"cross(line dir, `S'(t)`) = 0", guarding `|S'|→0` (a cusp is not a tangent).
-A line tangent *at* a shared point needs a combined contact object owning one
-bounded `t`, since independent constraints own independent `t`.
+## Tangent-to-spline (`NewTangentToSpline`)
+
+A line tangent to a spline reuses the bounded contact-parameter `t` machinery
+(plus the box slacks `w0,w1`). The committed residual is five rows:
+
+- **contact on the carrier line** (length): signed perpendicular distance from
+  `S(t)` to the *infinite* line through the segment — the line is treated as its
+  carrier, matching `tangentLineCircle` and `NewPointOnLine`; only the finite
+  spline side is bounded (to `[0,1]`).
+- **parallel** (dimensionless): `cross(d̂, Ŝ'(t))` = `sin` of the angle between the
+  line direction and the spline tangent, zero when parallel.
+- the two **box rows** `t=w0²`, `1−t=w1²`.
+- a **no-cusp guard** `|S'(t)|/scale − epsTan = ws²` (extra slack `ws`,
+  scale = control-box diagonal): at a cusp the tangent direction is undefined and
+  `cross(d̂, 0)=0` would falsely bless any line, so the guard makes a sub-`epsTan`
+  speed infeasible. A zero-length line is rejected outright in the parallel row.
+
+`S'(t)` is the **analytic** `geom.EvalCubicBSplineDeriv` (a numerical tangent
+inside the residual would be a nested finite difference the outer numerical
+Jacobian re-differentiates). Seeding (`allocVars`) is a dense multi-start
+minimizing `(contact/scale)² + parallel²` (skipping near-cusps) + golden-section
+refine — distance-only or parallelism-only seeds each miss a common case. DOF: a
+free line goes 4→3 (one removed). Multiple tangencies are an existential
+choice the probe layer can surface; a line tangent *at* a point shared with a
+point-on-spline would need a combined contact object owning one `t` (independent
+constraints own independent `t`) — not in scope.
 
 ## Serialization & export
 
@@ -133,7 +154,6 @@ values.
 ## Out of scope (recorded)
 
 - Fit-point splines (build-time convenience layer).
-- Point-on/tangent-to spline constraints (v2; aux-parameter design above).
 - Closed/periodic splines, custom knots, weights (NURBS).
 - Spline participation in `geom.Loops`/profiles (needs endpoints — could join
   chains as a `Curve` once needed; one line of code, deferred until profiles

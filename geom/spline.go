@@ -86,6 +86,46 @@ func SampleCubicBSpline(ctrl [][2]float64, segments int) [][2]float64 {
 	return pts
 }
 
+// EvalCubicBSplineDeriv returns the first derivative dS/dt of the clamped uniform
+// cubic B-spline at t ∈ [0, 1]. The derivative is a degree-2 B-spline over the
+// trimmed knot vector (the clamped knots with the first and last removed) with
+// control vectors Qᵢ = 3·(Pᵢ₊₁−Pᵢ)/(Uᵢ₊₄−Uᵢ₊₁). At the clamped ends it returns
+// the one-sided endpoint tangent (Q₀ at t≤0, Q_{n−2} at t≥1) — the t≥1 shortcut
+// is mandatory because the half-open basis is zero at the trailing knot. It
+// panics with fewer than 4 control points.
+func EvalCubicBSplineDeriv(ctrl [][2]float64, t float64) (float64, float64) {
+	n := len(ctrl)
+	if n < 4 {
+		panic(fmt.Sprintf("geom: cubic B-spline needs at least 4 control points, got %d", n))
+	}
+	knots := ClampedKnots(n)
+	q := func(i int) (float64, float64) {
+		den := knots[i+4] - knots[i+1]
+		if den <= 0 {
+			return 0, 0
+		}
+		return 3 * (ctrl[i+1][0] - ctrl[i][0]) / den, 3 * (ctrl[i+1][1] - ctrl[i][1]) / den
+	}
+	if t <= 0 {
+		return q(0)
+	}
+	if t >= 1 {
+		return q(n - 2)
+	}
+	dknots := knots[1 : n+3] // trimmed knot vector for the degree-2 derivative basis
+	var dx, dy float64
+	for i := 0; i < n-1; i++ {
+		b := bsplineBasis(i, 2, t, dknots)
+		if b == 0 {
+			continue
+		}
+		qx, qy := q(i)
+		dx += b * qx
+		dy += b * qy
+	}
+	return dx, dy
+}
+
 // NearestParamCubicBSpline returns the parameter t ∈ [0, 1] whose curve point is
 // closest to (px, py). It is a robust seed for a foot-point aux variable, not an
 // exact projection: a dense polyline broad phase (each segment projected onto,
