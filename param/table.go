@@ -138,14 +138,43 @@ func (t *Table) MustGet(name string) float64 {
 	return v
 }
 
-// Eval evaluates an ad-hoc expression against the table without storing it.
+// Eval evaluates an ad-hoc expression against the table without storing it,
+// returning its base-unit magnitude. It validates unit kinds, so an expression
+// that mixes kinds incompatibly (e.g. a length plus an angle) returns
+// [ErrIncompatibleKind] rather than a silently meaningless number.
 func (t *Table) Eval(expr string) (float64, error) {
 	e, err := Parse(expr)
 	if err != nil {
 		return 0, err
 	}
+	if _, err := e.kindOf(t); err != nil {
+		return 0, err
+	}
 	ctx := &evalContext{t: t, memo: map[string]float64{}, inProgress: map[string]struct{}{}}
 	return e.eval(ctx)
+}
+
+// EvalValue evaluates an ad-hoc expression and returns it as a unit-carrying
+// [units.Value] in the base unit of the kind the expression computes to
+// (millimetre for length, radian for angle, dimensionless otherwise). It returns
+// [ErrIncompatibleKind] when the expression mixes kinds incompatibly. This is the
+// kind-aware counterpart of [Table.Eval], used to drive a sketch dimension only
+// when the expression's kind matches the dimension's.
+func (t *Table) EvalValue(expr string) (units.Value, error) {
+	e, err := Parse(expr)
+	if err != nil {
+		return units.Value{}, err
+	}
+	kind, err := e.kindOf(t)
+	if err != nil {
+		return units.Value{}, err
+	}
+	ctx := &evalContext{t: t, memo: map[string]float64{}, inProgress: map[string]struct{}{}}
+	base, err := e.eval(ctx)
+	if err != nil {
+		return units.Value{}, err
+	}
+	return units.FromBase(base, units.BaseUnit(kind)), nil
 }
 
 // Has reports whether a parameter (not a constant or function) is defined.
@@ -237,6 +266,20 @@ func (ctx *evalContext) resolve(name string) (float64, error) {
 	}
 	if _, ok := ctx.inProgress[name]; ok {
 		return 0, fmt.Errorf("%w: %q", ErrCycle, name)
+	}
+	// Validate the definition's kind: the expression must combine compatible kinds
+	// (e.g. width + angle is rejected), AND its kind must match the parameter's
+	// declared unit — otherwise an angle expression declared in millimetres would
+	// later masquerade as a length (its declared kind) and smuggle an angle into a
+	// length dimension. A dimensionless expression is interpreted in the declared
+	// unit (e.g. "120" with unit mm), which is the intended literal behaviour.
+	kind, err := e.expr.kindOf(ctx.t)
+	if err != nil {
+		return 0, err
+	}
+	if kind != units.Dimensionless && kind != e.unit.Kind() {
+		return 0, fmt.Errorf("%w: parameter %q is declared %s but its expression is %s",
+			ErrIncompatibleKind, name, kindName(e.unit.Kind()), kindName(kind))
 	}
 	ctx.inProgress[name] = struct{}{}
 	v, err := e.expr.eval(ctx)

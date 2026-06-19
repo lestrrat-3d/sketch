@@ -186,9 +186,20 @@ func (s *Sketch) evalDimension(d Dimension, expr string) (units.Value, error) {
 		}
 		return v, nil
 	}
-	base, err := s.params.Eval(expr)
+	// A compound expression is evaluated with unit-kind tracking: mixing kinds
+	// incompatibly (a length plus an angle) is rejected, and a well-formed
+	// expression whose kind does not match the dimension (an angle expression
+	// driving a length dimension) is rejected too. A purely dimensionless
+	// expression still drives the dimension, tagged with its base unit.
+	v, err := s.params.EvalValue(expr)
 	if err != nil {
 		return units.Value{}, fmt.Errorf("sketch: evaluating dimension expression %q: %w", expr, err)
 	}
-	return units.FromBase(base, units.BaseUnit(d.Kind())), nil
+	if v.Kind() == units.Dimensionless {
+		return units.FromBase(v.Base(), units.BaseUnit(d.Kind())), nil
+	}
+	if v.Kind() != d.Kind() {
+		return units.Value{}, fmt.Errorf("sketch: %s dimension bound to %s expression %q", d.Kind(), v.Kind(), expr)
+	}
+	return v, nil
 }

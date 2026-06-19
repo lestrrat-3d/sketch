@@ -118,6 +118,16 @@ type VerificationReport struct {
 	// to a reference point of another sketch). Cross-sketch references are
 	// unsupported; this surfaces them rather than silently trusting them.
 	ForeignHandles bool
+	// ParametersValid is true when every parameter-bound dimension's expression
+	// evaluates with consistent unit kinds and a kind matching the dimension. It
+	// is false when an expression mixes kinds (e.g. a length plus an angle) or
+	// drives a dimension of the wrong kind — a soundness bug a magnitude-only
+	// evaluation would silently accept.
+	ParametersValid bool
+	// ParameterErrors lists the per-dimension parameter-evaluation errors behind a
+	// false ParametersValid (each wraps [param.ErrIncompatibleKind] or names the
+	// kind mismatch), in constraint order.
+	ParameterErrors []error
 }
 
 // Trustworthy reports the canonical oracle verdict: the sketch is solvable, fully
@@ -136,6 +146,7 @@ func (r *VerificationReport) Trustworthy() bool {
 		len(r.BrokenReferences) == 0 &&
 		!r.ForeignHandles &&
 		r.ProfilesValid &&
+		r.ParametersValid &&
 		(r.Probe == nil || !r.Probe.Ambiguous())
 }
 
@@ -217,6 +228,24 @@ func (s *Sketch) Verify(options ...VerifyOption) *VerificationReport {
 		for _, c := range flagged {
 			if _, isBad := bad[c]; !isBad {
 				rep.Redundant = append(rep.Redundant, c)
+			}
+		}
+	}
+
+	rep.ParametersValid = true
+	if s.params != nil {
+		for _, c := range s.cons {
+			d, ok := c.(Dimension)
+			if !ok || d.Driven() {
+				continue // a driven dimension measures; an expression cannot drive it
+			}
+			expr := d.driverExpr()
+			if expr == "" {
+				continue // a literal-valued dimension carries no expression to kind-check
+			}
+			if _, err := s.evalDimension(d, expr); err != nil {
+				rep.ParametersValid = false
+				rep.ParameterErrors = append(rep.ParameterErrors, err)
 			}
 		}
 	}

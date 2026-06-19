@@ -482,18 +482,27 @@ These are unsettled. If you resolve one, record the decision here.
 - **Units.** *Resolved (units).* The `units` package provides typed units, a
   unit-carrying `Value`, and a default-units `System`. Sketch dimensions and
   `param` parameters both carry units; the solver stays in base units and all
-  conversion is delegated to the library. *Limited on purpose:* there is no
-  full dimensional algebra through expressions — `param` evaluates magnitudes in
-  base units and a parameter's declared unit tags the result; kind mismatches
-  are caught at the sketch-binding boundary, not inside every expression. Only a
-  *direct* parameter reference (`s.Bind(dim, t, "width")`) carries the
-  parameter's unit and is kind-checked against the dimension; a compound
-  expression (`"width * 2"`) is evaluated to a base-unit magnitude and tagged
-  with the dimension's base unit, so a kind error hidden inside an expression is
-  not caught. *Open
-  follow-ups:* should expressions track kind through arithmetic (catch mm+deg
-  mid-expression); should points/coordinates expose unit-carrying accessors;
-  should exporters honour the display `System`. *Note:* the entire read surface
+  conversion is delegated to the library. **Expression kind algebra is in**
+  (`param/kind.go`): `param` tracks unit *kind* (length/angle/dimensionless)
+  through expression arithmetic via a static `kindOf` walk — an identifier's kind
+  is its declared unit's kind — and rejects incompatible combinations
+  (`length+angle`, `length*length` since there is no area unit, `1/length`
+  inverse, `sqrt`/trig of a dimensioned value, …) with `param.ErrIncompatibleKind`.
+  Addition allows angle/dimensionless mixing (radians are physically
+  dimensionless, so `theta + pi/2` is an angle; a length never mixes with a bare
+  number), and a parameter's declared unit kind is checked against its
+  expression's kind (an angle expression cannot masquerade as a length parameter).
+  `Table.EvalValue` returns the kind-carrying value; `Sketch.evalDimension` uses it
+  to reject a compound expression that mixes kinds or whose kind ≠ the dimension's
+  (not just a direct single-parameter reference); `Verify()` runs a non-mutating
+  parameter-validation pass exposing `ParametersValid`/`ParameterErrors`, which
+  gate `Trustworthy()` — so a unit-kind bug hidden in an expression is no longer
+  silently blessed. *Limited on purpose:* this is **kind** algebra, not full
+  **dimensional** algebra — there are no area/inverse units, so those products are
+  *rejected* rather than represented; custom `SetFunc` functions are
+  dimensionless-only (typed custom functions are a follow-up). *Open follow-ups:*
+  should points/coordinates expose unit-carrying accessors; should exporters
+  honour the display `System`. *Note:* the entire read surface
   — coordinate accessors and the measurement queries (`DistanceTo`/`AngleTo`/…)
   — currently returns raw base-unit `float64` (mm/radians), matching the
   solver's currency. Making reads unit-carrying is the deferred all-or-nothing

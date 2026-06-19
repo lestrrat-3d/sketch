@@ -4,12 +4,18 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+
+	"github.com/lestrrat-3d/sketch/units"
 )
 
 // Expr is a parsed expression node. Expr values are immutable once produced by
 // [Parse]; the same tree can be evaluated repeatedly.
 type Expr interface {
 	eval(ctx *evalContext) (float64, error)
+	// kindOf computes the unit kind the expression evaluates to, validating that
+	// every operation combines compatible kinds (see kind.go). It is a static
+	// structural walk: identifier kinds come from their declared unit.
+	kindOf(t *Table) (units.Kind, error)
 	// refs records the identifiers referenced by the expression.
 	refs(out map[string]struct{})
 	// String returns a canonical, re-parseable rendering of the expression.
