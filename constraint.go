@@ -600,6 +600,9 @@ type conic interface {
 	// ok=true for an arc operand (≥ 0 exactly when the contact is within the
 	// sweep); ok=false for a full conic, which needs no confinement.
 	sweepExcess(px, py float64) (float64, bool)
+	// endpoints returns an arc operand's boundary points (for the shared-endpoint
+	// branch); nil for a full conic.
+	endpoints() []*Point
 }
 
 type circleConic struct{ c *Circle }
@@ -613,6 +616,7 @@ func (a circleConic) normalAt(px, py float64) (float64, float64) {
 }
 func (a circleConic) degenerate() bool                           { return math.Abs(a.c.r()) < conicEps }
 func (a circleConic) sweepExcess(px, py float64) (float64, bool) { return 0, false }
+func (a circleConic) endpoints() []*Point                        { return nil }
 func (a circleConic) boundary(n int) [][2]float64 {
 	cx, cy, r := a.c.Center.x(), a.c.Center.y(), a.c.r()
 	pts := make([][2]float64, n)
@@ -636,6 +640,7 @@ func (a ellipseConic) degenerate() bool {
 	return math.Abs(a.e.rx()) < ellipseAxisEps || math.Abs(a.e.ry()) < ellipseAxisEps
 }
 func (a ellipseConic) sweepExcess(px, py float64) (float64, bool) { return 0, false }
+func (a ellipseConic) endpoints() []*Point                        { return nil }
 func (a ellipseConic) boundary(n int) [][2]float64 {
 	cx, cy, rx, ry := a.e.Center.x(), a.e.Center.y(), a.e.rx(), a.e.ry()
 	cosr, sinr := math.Cos(a.e.rot()), math.Sin(a.e.rot())
@@ -665,6 +670,7 @@ func (x arcConic) sweepExcess(px, py float64) (float64, bool) {
 	n := norm(dx, dy)
 	return arcInSweepExcess(x.a, dx/n, dy/n), true
 }
+func (x arcConic) endpoints() []*Point { return []*Point{x.a.Start, x.a.End} }
 func (x arcConic) boundary(n int) [][2]float64 {
 	cx, cy, r := x.a.Center.x(), x.a.Center.y(), x.a.R()
 	start := math.Atan2(x.a.Start.y()-cy, x.a.Start.x()-cx)
@@ -696,6 +702,7 @@ func (x ellipticalArcConic) sweepExcess(px, py float64) (float64, bool) {
 	ux, uy := eccentricDirXY(px, py, x.a)
 	return ellipticalArcSweepExcess(x.a, ux, uy), true
 }
+func (x ellipticalArcConic) endpoints() []*Point { return []*Point{x.a.Start, x.a.End} }
 func (x ellipticalArcConic) boundary(n int) [][2]float64 {
 	cx, cy, rx, ry := x.a.Center.x(), x.a.Center.y(), x.a.rx(), x.a.ry()
 	cosr, sinr := math.Cos(x.a.rot()), math.Sin(x.a.rot())
@@ -729,14 +736,32 @@ func conicOf(e Entity) conic {
 type tangentConics struct {
 	A, B           conic
 	Internal       bool
+	shared         *Point // shared arc endpoint (shared-endpoint branch); nil otherwise
 	s              *Sketch
-	px, py         int // contact-witness coordinates; -1 = unallocated
-	wSide          int // internal/external branch slack
+	px, py         int // contact-witness coordinates; -1 = unallocated (and in shared-endpoint mode)
+	wSide          int // internal/external branch slack (allocated in both branches)
 	slackA, slackB int // sweep slacks for arc operands; -1 = full conic (no sweep)
 }
 
 func newTangentConics(a, b conic, internal bool) *tangentConics {
-	return &tangentConics{A: a, B: b, Internal: internal, px: -1, py: -1, wSide: -1, slackA: -1, slackB: -1}
+	return &tangentConics{
+		A: a, B: b, Internal: internal, shared: sharedConicEndpoint(a, b),
+		px: -1, py: -1, wSide: -1, slackA: -1, slackB: -1,
+	}
+}
+
+// sharedConicEndpoint returns the boundary point two arc operands share by
+// pointer identity (the fillet-corner case), or nil if either is a full conic or
+// they share none.
+func sharedConicEndpoint(a, b conic) *Point {
+	for _, pa := range a.endpoints() {
+		for _, pb := range b.endpoints() {
+			if pa == pb {
+				return pa
+			}
+		}
+	}
+	return nil
 }
 
 // NewTangentEllipseCircular forces an elliptical entity (an [*Ellipse] or
@@ -766,8 +791,14 @@ func (c *tangentConics) sigma() float64 {
 
 func (c *tangentConics) allocVars(s *Sketch) {
 	c.s = s
-	if c.px >= 0 {
-		return // idempotent
+	if c.wSide >= 0 {
+		return // idempotent: wSide is allocated in both branches
+	}
+	if c.shared != nil {
+		// Shared-endpoint tangency: the contact is the shared point (on both arcs
+		// by construction), so only the internal/external branch slack is needed.
+		c.wSide = s.newVar(slackFor(c.sigma() * c.dotNormals(c.shared.x(), c.shared.y())))
+		return
 	}
 	px, py := c.seedContact()
 	c.px = s.newVar(px)
@@ -782,18 +813,21 @@ func (c *tangentConics) allocVars(s *Sketch) {
 }
 
 func (c *tangentConics) retireVars(s *Sketch) {
+	if c.wSide < 0 {
+		return
+	}
+	s.retireVar(c.wSide)
 	if c.px >= 0 {
 		s.retireVar(c.px)
 		s.retireVar(c.py)
-		s.retireVar(c.wSide)
-		if c.slackA >= 0 {
-			s.retireVar(c.slackA)
-		}
-		if c.slackB >= 0 {
-			s.retireVar(c.slackB)
-		}
-		c.px, c.py, c.wSide, c.slackA, c.slackB = -1, -1, -1, -1, -1
 	}
+	if c.slackA >= 0 {
+		s.retireVar(c.slackA)
+	}
+	if c.slackB >= 0 {
+		s.retireVar(c.slackB)
+	}
+	c.px, c.py, c.wSide, c.slackA, c.slackB = -1, -1, -1, -1, -1
 }
 
 // dotNormals returns dot(n̂_A, n̂_B) at (px,py); 0 if either normal is degenerate.
@@ -805,11 +839,28 @@ func (c *tangentConics) dotNormals(px, py float64) float64 {
 }
 
 func (c *tangentConics) residual(out []float64) []float64 {
-	if c.px < 0 {
+	if c.wSide < 0 {
 		return out // not yet parameterized; allocVars runs at commit (and in CheckConstraint)
 	}
-	px, py := c.s.vars[c.px], c.s.vars[c.py]
 	wSide := c.s.vars[c.wSide]
+	if c.shared != nil {
+		// Shared-endpoint tangency at the shared point S: the two arcs' tangents
+		// coincide there (parallel normals) plus the internal/external branch. No
+		// membership rows (S is on both curves via their internal arcRadius /
+		// ellipticalArcOn constraints) and no sweep rows (an endpoint is in-sweep by
+		// definition). A degenerate operand forces the parallel row nonzero.
+		sx, sy := c.shared.x(), c.shared.y()
+		if c.A.degenerate() || c.B.degenerate() {
+			return append(out, 1, c.sigma()-wSide*wSide)
+		}
+		nax, nay := c.A.normalAt(sx, sy)
+		nbx, nby := c.B.normalAt(sx, sy)
+		la, lb := norm(nax, nay), norm(nbx, nby)
+		parallel := (nax*nby - nay*nbx) / (la * lb)
+		dot := (nax*nbx + nay*nby) / (la * lb)
+		return append(out, parallel, c.sigma()*dot-wSide*wSide)
+	}
+	px, py := c.s.vars[c.px], c.s.vars[c.py]
 	rA := c.A.onResidual(px, py)
 	rB := c.B.onResidual(px, py)
 	// A degenerate conic (zero radius / semi-axis) has no tangent direction: keep

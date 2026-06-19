@@ -106,14 +106,32 @@ unchanged; `boundary()` for an arc samples only its swept extent so seeding stay
 in-sweep. Committed arity stays constant (the sweep rows are gated on the slack,
 which is always allocated for an arc operand).
 
+## Shared-endpoint branch
+
+When the two arc operands share the exact same endpoint `*Point` (pointer
+identity — the fillet-corner / smooth-join case), the contact is *known*: it is
+that shared point `S`, already on both curves via their internal `arcRadius` /
+`ellipticalArcOn` constraints. `newTangentConics` detects this with
+`sharedConicEndpoint` (`conic.endpoints()` returns an arc's `Start`/`End`, nil
+for a full conic) and switches off the witness machinery. The residual is then
+just **two rows** evaluated at `S`:
+
+    parallel = cross(n̂_A(S), n̂_B(S))    // tangents align (dimensionless)
+    σ·dot(n̂_A(S), n̂_B(S)) − w_side²     // internal/external branch
+
+No witness coordinates (`px,py`), no membership rows (`S` is on both curves by
+construction), no sweep rows (an endpoint is in-sweep by definition). Only the
+branch slack `w_side` is allocated. DOF: one var, two rows → −1. `allocVars` /
+`retireVars` / `residual` key on `wSide` (allocated in *both* branches) rather
+than `px`; `seedContact`/`boundaryScale` are untouched (the witness path is
+unchanged). This mirrors `tangentLineCircle` / `tangentLineEllipse`'s
+shared-endpoint handling. The shared point is enumerated in `constraintRefs`
+(`removal.go`) so the removal cascade and reachability scan see it. Nothing new
+is serialized — `sharedConicEndpoint` re-detects the shared point on load when
+`AddConstraint` reconstructs the constraint.
+
 ## Recorded follow-ups
 
-- **Shared-endpoint branch**: when two arc operands share the exact endpoint
-  `*Point`, enforce tangency *at that endpoint* (parallel + side rows there, no
-  free witness, no membership/sweep rows — endpoints are already on their curves
-  via the internal `arcRadius` / `ellipticalArcOn` constraints), mirroring
-  `tangentLineEllipse`'s shared-endpoint case. Until then the free witness may
-  pick a different (valid, in-sweep) tangency than the shared endpoint.
 - **Same-entity / exact-overlap policy**: identical conics are tangent
   everywhere (rank-degenerate). Passing the same concrete entity (or an exact
   duplicate) as both operands is an unsupported precondition; an explicit reject
