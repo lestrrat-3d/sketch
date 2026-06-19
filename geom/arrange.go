@@ -66,6 +66,8 @@ type source struct {
 	// eccentric-angle sampling would otherwise project an off-ellipse endpoint).
 	pinEnds            bool
 	e0x, e0y, e1x, e1y float64
+	// spline: control-point coordinates for Cox–de Boor evaluation.
+	ctrl [][2]float64
 }
 
 type srcKind int
@@ -76,6 +78,7 @@ const (
 	srcCircle
 	srcEllipse
 	srcEllipticalArc // an ellipse restricted to an eccentric-angle sweep
+	srcSpline        // a clamped cubic B-spline (open; may self-cross)
 	srcDegenerate    // unsupported / nil input; contributes no geometry
 )
 
@@ -92,6 +95,9 @@ func (s *source) at(t float64) [2]float64 {
 		return [2]float64{s.cx + s.r*math.Cos(ang), s.cy + s.r*math.Sin(ang)}
 	case srcEllipticalArc:
 		return s.ellipsePoint(s.phi0 + t*s.sweep)
+	case srcSpline:
+		x, y := EvalCubicBSpline(s.ctrl, t)
+		return [2]float64{x, y}
 	default: // ellipse
 		return s.ellipsePoint(2 * math.Pi * t)
 	}
@@ -271,6 +277,23 @@ func newArranger(curves []Curve, closed []ClosedCurve, cfg arrangeConfig) *arran
 			s.sweep = t.Sweep()
 			s.pinEnds = true
 			s.e0x, s.e0y, s.e1x, s.e1y = t.Start.X, t.Start.Y, t.End.X, t.End.Y
+		case *Spline:
+			cc, ok := splineControlCoords(t)
+			if !ok {
+				a.flagDegenerate(0, 0)
+				s.kind = srcDegenerate
+				break
+			}
+			// A spline whose control points are all coincident has no geometric
+			// extent — it is a point, not a curve. Flag it rather than silently
+			// dropping its collapsed (zero-length) segments.
+			if splineExtent(cc) < 1e-9 {
+				a.flagDegenerate(cc[0][0], cc[0][1])
+				s.kind = srcDegenerate
+				break
+			}
+			s.kind = srcSpline
+			s.ctrl = cc
 		default:
 			a.flagDegenerate(0, 0) // unknown Curve implementation
 			s.kind = srcDegenerate
@@ -336,9 +359,44 @@ func safeEndpoints(c Curve) (*Point, *Point, bool) {
 			return nil, nil, false
 		}
 		return t.Start, t.End, true
+	case *Spline:
+		if _, ok := splineControlCoords(t); !ok {
+			return nil, nil, false
+		}
+		return t.Control[0], t.Control[len(t.Control)-1], true
 	default:
 		return nil, nil, false
 	}
+}
+
+// splineControlCoords validates a spline's control points and returns their
+// coordinates. ok is false for a typed-nil spline, fewer than four control
+// points, or any nil control point — all degenerate inputs the arrangement
+// must not dereference.
+func splineControlCoords(sp *Spline) ([][2]float64, bool) {
+	if sp == nil || len(sp.Control) < 4 {
+		return nil, false
+	}
+	cc := make([][2]float64, len(sp.Control))
+	for i, p := range sp.Control {
+		if p == nil {
+			return nil, false
+		}
+		cc[i] = [2]float64{p.X, p.Y}
+	}
+	return cc, true
+}
+
+// splineExtent returns the bounding-box diagonal of the control points; a
+// near-zero extent means a degenerate (point-like) spline.
+func splineExtent(cc [][2]float64) float64 {
+	minX, minY := math.Inf(1), math.Inf(1)
+	maxX, maxY := math.Inf(-1), math.Inf(-1)
+	for _, p := range cc {
+		minX, maxX = math.Min(minX, p[0]), math.Max(maxX, p[0])
+		minY, maxY = math.Min(minY, p[1]), math.Max(maxY, p[1])
+	}
+	return math.Hypot(maxX-minX, maxY-minY)
 }
 
 // posFinite reports whether v is a positive, finite number — the requirement
@@ -410,6 +468,22 @@ func (a *arranger) sampleParams(s *source) []float64 {
 	switch s.kind {
 	case srcLine:
 		return []float64{0, 1}
+	case srcSpline:
+		// No analytic crossings: sample densely enough that the polyline tracks
+		// the curve and a self-crossing is captured. Scale with control count;
+		// an explicit WithSegmentsPerTurn can only raise it.
+		n := 16 * (len(s.ctrl) - 3)
+		if n < 64 {
+			n = 64
+		}
+		if a.cfg.segsPerTurn > n {
+			n = a.cfg.segsPerTurn
+		}
+		out := make([]float64, n+1)
+		for i := 0; i <= n; i++ {
+			out[i] = float64(i) / float64(n)
+		}
+		return out
 	default:
 		segs := a.cfg.segsPerTurn
 		if segs <= 0 {
@@ -443,8 +517,15 @@ func (a *arranger) intersect() {
 	for i := 0; i < n; i++ {
 		for j := i + 1; j < n; j++ {
 			si, sj := &a.segs[i], &a.segs[j]
+			sameSpline := false
 			if si.src == sj.src {
-				continue // a single source's own polyline does not cross itself
+				// A simple source's own polyline never self-crosses. A spline can,
+				// so for a spline source test non-adjacent sampled segments;
+				// adjacent ones (j == i+1) merely share a subdivision vertex.
+				if a.sources[si.src].kind != srcSpline || j == i+1 {
+					continue
+				}
+				sameSpline = true
 			}
 			p, ok := segParams(si, sj)
 			if !ok {
@@ -458,7 +539,22 @@ func (a *arranger) intersect() {
 			interiorI := p.ti > segEps && p.ti < 1-segEps
 			interiorJ := p.tj > segEps && p.tj < 1-segEps
 			if !interiorI && !interiorJ {
-				continue // meeting only at endpoints: a join/corner touch, not a crossing
+				// Two segments meeting only at endpoints is normally a join/corner.
+				// But two NON-ADJACENT segments of the same spline meeting anywhere
+				// means the curve revisits that point — a self-touch we must still
+				// flag, since the exact crossing can land on a sample vertex. No cut
+				// is recorded (the shared point is already a sample vertex).
+				if !sameSpline {
+					continue
+				}
+				// Exception: the natural closure seam of an endpoint-closed spline
+				// (S(0) == S(1)) — its first and last sampled segments meet at the
+				// shared endpoint. That is the intended closure, not a crossing.
+				cpi := si.pa + p.ti*(si.pb-si.pa)
+				cpj := sj.pa + p.tj*(sj.pb-sj.pa)
+				if lo, hi := math.Min(cpi, cpj), math.Max(cpi, cpj); lo < segEps && hi > 1-segEps {
+					continue
+				}
 			}
 			// A near-tangent interior crossing is ill-conditioned at the current
 			// sampling (the two curves graze rather than cleanly cross); the
@@ -802,7 +898,7 @@ func (a *arranger) makeCycle(hs []int) cycle {
 			bulge += chordArcCorrection(s.r, (f.pEnd-f.pStart)*s.sweep)
 		case srcCircle:
 			bulge += chordArcCorrection(s.r, (f.pEnd-f.pStart)*2*math.Pi)
-		case srcEllipse, srcEllipticalArc:
+		case srcEllipse, srcEllipticalArc, srcSpline:
 			bulge += signedPolyArea(f.dense)
 		}
 	}

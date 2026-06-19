@@ -95,15 +95,17 @@ replacement from sketch points and retire the originals with `RemoveEntity`.
 
 It also holds the **planar-arrangement / region engine** (`region.go`,
 `arrange.go`, `area.go`): `geom.Regions(curves, closed)` builds a polyline-
-approximated planar arrangement of lines/arcs/circles/ellipses, splitting at bare
-crossings, and returns the bounded `Region`s (each an outer boundary loop +
+approximated planar arrangement of lines/arcs/circles/ellipses/elliptical-arcs/
+splines, splitting at bare crossings, and returns the bounded `Region`s (each an
+outer boundary loop +
 holes, with a net `Area` and source-curve `BoundaryEdge` back-references) plus
 soundness signals — `SelfIntersections` (only for a single simple closed loop —
 every shared vertex degree 2 — judged on the pruned core, so a branched/
-subdivided wire is *not* flagged) and `Degenerate` (collinear-overlap or near-
-tangent uncertainty). Region area is exact for line/arc/circle (shoelace + exact
-circular-segment correction), sampled for ellipses. `Sketch.Profiles()` is its
-consumer.
+subdivided wire is *not* flagged; a spline is the one source whose *own* polyline
+is tested for self-crossings, since a cubic can loop) and `Degenerate`
+(collinear-overlap or near-tangent uncertainty). Region area is exact for
+line/arc/circle (shoelace + exact circular-segment correction), sampled for
+ellipses and splines. `Sketch.Profiles()` is its consumer.
 
 ### The `space` package (slated for extraction)
 

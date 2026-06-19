@@ -227,3 +227,53 @@ func TestRegionsCircleCutByChord(t *testing.T) {
 	}
 	require.InDelta(t, cap, minA, 1e-2, "minor cap area")
 }
+
+// A spline now participates in the arrangement: an open spline plus a chord that
+// closes back to its endpoints bounds a region with a sampled (positive) area.
+func TestRegionsSplineWithChord(t *testing.T) {
+	a := geom.NewPoint(0, 0)
+	c1 := geom.NewPoint(1, 2)
+	c2 := geom.NewPoint(3, 2)
+	b := geom.NewPoint(4, 0)
+	sp, err := geom.NewSpline(a, c1, c2, b)
+	require.NoError(t, err)
+	chord := geom.NewLine(b, a) // shares the endpoint points a, b
+
+	arr := geom.Regions([]geom.Curve{sp, chord}, nil)
+	require.Len(t, arr.Regions, 1, "spline + chord bound one region")
+	require.Greater(t, arr.Regions[0].Area, 0.0, "sampled bulge gives positive area")
+	require.False(t, arr.Regions[0].SelfIntersecting)
+	require.Empty(t, arr.SelfIntersections)
+}
+
+// A single cubic Bézier whose control polygon loops self-crosses; closed by a
+// chord the arrangement must report the self-intersection.
+func TestRegionsSelfIntersectingSpline(t *testing.T) {
+	p0 := geom.NewPoint(0, 0)
+	p1 := geom.NewPoint(-4.0/3.0, -5.0/12.0)
+	p2 := geom.NewPoint(-4.0/3.0, -3.0/2.0)
+	p3 := geom.NewPoint(0, 3.0/4.0)
+	sp, err := geom.NewSpline(p0, p1, p2, p3)
+	require.NoError(t, err)
+	chord := geom.NewLine(p3, p0)
+
+	arr := geom.Regions([]geom.Curve{sp, chord}, nil)
+	require.NotEmpty(t, arr.SelfIntersections, "the spline crosses itself")
+	var sawSelfX bool
+	for _, r := range arr.Regions {
+		if r.SelfIntersecting {
+			sawSelfX = true
+		}
+	}
+	require.True(t, sawSelfX, "a region inherits the self-intersection")
+}
+
+func TestRegionsDegenerateSpline(t *testing.T) {
+	// Four coincident control points: a point, not a curve. Must be flagged
+	// degenerate rather than silently dropped.
+	p := geom.NewPoint(2, 2)
+	sp, err := geom.NewSpline(p, p, p, p)
+	require.NoError(t, err)
+	arr := geom.Regions([]geom.Curve{sp}, nil)
+	require.True(t, arr.Degenerate, "an all-coincident spline has no extent")
+}

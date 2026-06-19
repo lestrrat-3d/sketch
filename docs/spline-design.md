@@ -151,13 +151,23 @@ The acceptance test for that claim: fix one end, dimension the control
 polygon, solve, and assert `Eval` against independently computed B-spline
 values.
 
+## Profiles
+
+A `geom.Spline` is a `geom.Curve` (`Endpoints()` = first/last control points, which
+a clamped cubic passes through), so it participates in the `geom.Regions` planar
+arrangement: it is sampled to a polyline (`max(64, 16·(n−3))` segments) like an arc
+or ellipse, its fragment area is the sampled bulge (`signedPolyArea`, not exact),
+and `Sketch.buildProfiles` feeds it through the shared `*geom.Point` map so its
+endpoints join adjacent curves. Self-crossing detection is spline-specific: the
+arrangement's same-source skip is lifted for non-adjacent segments of one spline,
+and an endpoint-touch between two such segments counts as a self-touch (the exact
+crossing can land on a sample vertex), so a self-intersecting cubic is flagged
+`SelfIntersecting` rather than blessed.
+
 ## Out of scope (recorded)
 
 - Fit-point splines (build-time convenience layer).
 - Closed/periodic splines, custom knots, weights (NURBS).
-- Spline participation in `geom.Loops`/profiles (needs endpoints — could join
-  chains as a `Curve` once needed; one line of code, deferred until profiles
-  consumers exist).
 - Splitting/trim of splines.
 
 ## Testing plan

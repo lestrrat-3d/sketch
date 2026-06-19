@@ -78,6 +78,11 @@ func (s *Sketch) AddSpline(control ...*Point) (*Spline, error) {
 	if len(control) < 4 {
 		return nil, fmt.Errorf("%w: AddSpline requires at least 4 control points, got %d", ErrInvalidShape, len(control))
 	}
+	for i, p := range control {
+		if p == nil {
+			return nil, fmt.Errorf("%w: AddSpline control point %d is nil", ErrInvalidShape, i)
+		}
+	}
 	sp := &Spline{s: s, Control: append([]*Point(nil), control...), id: len(s.ents)}
 	s.ents = append(s.ents, sp)
 	return sp, nil

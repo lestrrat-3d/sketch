@@ -57,7 +57,8 @@ type BoundaryEdge struct {
 // sharing a point), so overlapping shapes subdivide into regions and a shape
 // inside another becomes a hole. Open chains and dangling spurs contribute
 // nothing. Reference geometry participates like ordinary geometry; construction
-// geometry is excluded. Splines are not yet considered.
+// geometry is excluded. Splines participate too — sampled to a polyline like
+// arcs/ellipses, with a sampled fragment area and self-crossing detection.
 //
 // Each region reports its outer boundary, holes, net area, and whether it is a
 // valid (non-self-intersecting, non-degenerate) extrudable profile. A region
@@ -104,6 +105,18 @@ func (s *Sketch) buildProfiles() ([]*Profile, bool, [][2]float64) {
 			openEnts = append(openEnts, t)
 		case *EllipticalArc:
 			curves = append(curves, geom.NewEllipticalArc(pt(t.Center), pt(t.Start), pt(t.End), t.rx(), t.ry(), t.rot()))
+			openEnts = append(openEnts, t)
+		case *Spline:
+			// Build over the shared geom.Point map so the spline's first/last
+			// control points (the curve's endpoints) join adjacent lines/arcs by
+			// pointer identity, exactly like a line's endpoints.
+			ctrl := make([]*geom.Point, len(t.Control))
+			for i, cp := range t.Control {
+				if cp != nil { // AddSpline rejects nil; stay panic-safe regardless
+					ctrl[i] = pt(cp)
+				}
+			}
+			curves = append(curves, &geom.Spline{Control: ctrl})
 			openEnts = append(openEnts, t)
 		case *Circle:
 			closed = append(closed, t.Geometry())
