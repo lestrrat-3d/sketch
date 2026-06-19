@@ -273,6 +273,10 @@ func marshalConstraint(c Constraint) (jsonConstraint, bool) {
 		return dimJSON("distance_point_circle", t, []int{t.P.id}, []int{t.C.id}), true
 	case *DistanceLineCircle:
 		return dimJSON("distance_line_circle", t, nil, []int{t.L.id, t.C.id}), true
+	case *DistancePointArc:
+		return dimJSON("distance_point_arc", t, []int{t.P.id}, []int{t.A.id}), true
+	case *DistanceLineArc:
+		return dimJSON("distance_line_arc", t, nil, []int{t.L.id, t.A.id}), true
 	case *DistanceLines:
 		return dimJSON("distance_lines", t, nil, []int{t.L1.id, t.L2.id}), true
 	case *Offset:
@@ -566,6 +570,7 @@ var constraintArity = map[string][2]int{
 	"distance": {2, 0}, "hdistance": {2, 0}, "vdistance": {2, 0},
 	"distance_point_line": {1, 1}, "distance_lines": {0, 2}, "offset": {0, 2},
 	"distance_point_circle": {1, 1}, "distance_line_circle": {0, 2},
+	"distance_point_arc": {1, 1}, "distance_line_arc": {0, 2},
 	"radius": {0, 1}, "diameter": {0, 1}, "arc_length": {0, 1},
 	"semi_major": {0, 1}, "semi_minor": {0, 1}, "ellipse_rotation": {0, 1},
 }
@@ -835,6 +840,30 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 			return err
 		}
 		dim(NewDistanceLineCircle(l, ci, jc.Value))
+	case "distance_point_arc":
+		c, err := circular(jc.Entities[0])
+		if err != nil {
+			return err
+		}
+		arc, ok := c.(*Arc)
+		if !ok {
+			return fmt.Errorf("sketch: distance_point_arc requires an arc, got %T", c)
+		}
+		dim(NewDistancePointArc(pt(0), arc, jc.Value))
+	case "distance_line_arc":
+		l, err := line(jc.Entities[0])
+		if err != nil {
+			return err
+		}
+		c, err := circular(jc.Entities[1])
+		if err != nil {
+			return err
+		}
+		arc, ok := c.(*Arc)
+		if !ok {
+			return fmt.Errorf("sketch: distance_line_arc requires an arc, got %T", c)
+		}
+		dim(NewDistanceLineArc(l, arc, jc.Value))
 	case "distance_lines":
 		l1, err := line(jc.Entities[0])
 		if err != nil {

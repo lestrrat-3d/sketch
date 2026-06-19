@@ -418,8 +418,10 @@ These are unsettled. If you resolve one, record the decision here.
   the oracle could not tell the branches apart), degenerate-conic guards, and —
   per arc operand — a slack-encoded **sweep row** confining the contact to the
   swept portion (so a tangent to the underlying full conic off the arc is
-  rejected). Still open (follow-up): the shared-endpoint branch (two arcs sharing
-  an exact endpoint — the free witness may pick a different in-sweep tangency).
+  rejected). When two **arc** operands share an exact endpoint `*Point` the
+  **shared-endpoint branch** enforces tangency *at* that point — `parallel` +
+  internal/external branch rows there, no free witness and no membership/sweep
+  rows (an endpoint is already on both curves and in-sweep by definition).
   Slots/fillet/chamfer exist as compound builders and `geom` template helpers.
 - **Solver evolution.** Numerical Jacobian is fine at current scale. Open:
   analytic Jacobians for speed/accuracy, equation decomposition (solve

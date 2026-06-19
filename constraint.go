@@ -1793,6 +1793,202 @@ func NewDistanceLineCircle(l *Line, circle *Circle, d float64) *DistanceLineCirc
 	return &DistanceLineCircle{dimBase: lengthDim(d), L: l, C: circle}
 }
 
+// DistancePointArc is an editable distance dimension between a point and an
+// arc's edge: the signed radial gap |P−C| − R like [DistancePointCircle], but
+// confined to the arc's sweep. The dimension measures the point against the arc's
+// circular carrier *and* requires the radial foot (the direction from the center
+// toward P) to lie within the sweep — so a point whose nearest carrier point
+// falls off the swept portion is reported unsolvable rather than silently
+// measured to whichever endpoint happens to be closer. (To dimension to an
+// endpoint, use [NewDistance] to that endpoint explicitly.) A target of 0 places
+// the point on the arc edge; the sign of the target chooses inside vs outside.
+//
+// The sweep confinement is a slack-encoded inequality whose slack is an auxiliary
+// solver variable, allocated when the dimension is committed and retired on
+// removal (not serialized — recomputed from the geometry on load), exactly like
+// [NewPointOnArc]. A driven (reference) dimension contributes no residual rows, so
+// it owns no slack (one would be left unconstrained); it measures the signed
+// radial gap directly, like a driven [ArcLength].
+type DistancePointArc struct {
+	dimBase
+	P     *Point
+	A     *Arc
+	s     *Sketch // set by allocVars, for slack access
+	slack int     // sweep slack var index; -1 = none (driven or not yet allocated)
+}
+
+// NewDistancePointArc constrains the signed radial distance from a point to an
+// arc's edge (|P−center| − radius), with the radial foot confined to the arc's
+// sweep: positive outside, negative inside, 0 on the edge. The arc must have a
+// nonzero radius. The value d is interpreted in the sketch's default length unit
+// once added.
+func NewDistancePointArc(p *Point, a *Arc, d float64) *DistancePointArc {
+	return &DistancePointArc{dimBase: lengthDim(d), P: p, A: a, slack: -1}
+}
+
+func (c *DistancePointArc) allocVars(s *Sketch) {
+	c.s = s
+	if c.driven || c.slack >= 0 {
+		return // driven: no residual rows, so no aux var. Else idempotent.
+	}
+	ux, uy := arcRadialDir(c.P, c.A.Center)
+	c.slack = s.newVar(slackFor(arcInSweepExcess(c.A, ux, uy)))
+}
+
+func (c *DistancePointArc) retireVars(s *Sketch) {
+	if c.slack >= 0 {
+		s.retireVar(c.slack)
+		c.slack = -1 // reset so re-adding the handle allocates a fresh slack
+	}
+}
+
+// SetDriven toggles reference (driven) mode and keeps the sweep slack consistent:
+// a driven dimension contributes no residual rows, so its slack would be an
+// unconstrained free DOF — switching to driven retires it, switching back
+// re-allocates it. Mirrors [ArcLength.SetDriven]; the committed test guards
+// against a CheckConstraint probe (which sets c.s via a temporary allocVars
+// without registering the dimension) leaking an orphan variable.
+func (c *DistancePointArc) SetDriven(v bool) {
+	if v == c.driven {
+		return
+	}
+	c.driven = v
+	if c.s == nil || !committedDim(c.s, c) {
+		return
+	}
+	if v {
+		c.retireVars(c.s)
+	} else if c.slack < 0 {
+		ux, uy := arcRadialDir(c.P, c.A.Center)
+		c.slack = c.s.newVar(slackFor(arcInSweepExcess(c.A, ux, uy)))
+	}
+}
+
+func (c *DistancePointArc) residual(out []float64) []float64 {
+	cx, cy := c.A.Center.x(), c.A.Center.y()
+	dx, dy := c.P.x()-cx, c.P.y()-cy
+	rhoRaw := math.Hypot(dx, dy)
+	rho := norm(dx, dy)
+	// Row 0 (length): the signed radial gap, which refreshDriven reads for a driven
+	// dimension and which residuals() skips entirely for one.
+	out = append(out, rho-c.A.R()-c.base())
+	if c.slack < 0 {
+		return out // driven (reference) dimension, or a bare call before allocVars
+	}
+	w := c.s.vars[c.slack]
+	// Row 1 (dimensionless): confine the radial foot to the arc's sweep via the
+	// slack-encoded inequality. Gating on the slack keeps the committed arity
+	// constant for the finite-difference Jacobian.
+	//
+	// A point AT the center has no radial direction — `arcInSweepExcess` of the
+	// floored zero vector is −cos(sweep/2), which is ≥ 0 for a sweep ≥ π and would
+	// falsely bless the (degenerate, direction-undefined) configuration. Detect it
+	// on the raw magnitude and force the row strictly negative so it is reported
+	// unsolvable instead, regardless of sweep.
+	if rhoRaw < 1e-9 {
+		return append(out, -1-w*w)
+	}
+	ux, uy := dx/rhoRaw, dy/rhoRaw
+	return append(out, arcInSweepExcess(c.A, ux, uy)-w*w)
+}
+
+// DistanceLineArc is an editable distance dimension between an (infinite) line
+// and an arc's edge: the tangent gap dist(center, line) − R like
+// [DistanceLineCircle], confined to the arc's sweep. As with [DistancePointArc]
+// the near-side carrier contact (the foot of the perpendicular from the center)
+// must lie within the sweep, so a line tangent to the arc's full circle off the
+// swept portion is reported unsolvable. A target of 0 makes the line tangent to
+// the arc itself; a positive target keeps the line that far clear, a negative
+// target lets it cut the carrier (signed carrier penetration, not the true
+// Euclidean distance to the bounded arc). The line is treated as its infinite
+// carrier; the distance is unsigned in the perpendicular sense.
+type DistanceLineArc struct {
+	dimBase
+	L     *Line
+	A     *Arc
+	s     *Sketch
+	slack int
+}
+
+// NewDistanceLineArc constrains the distance from an arc's edge to the infinite
+// line through l (perpendicular distance from the center to the line, minus the
+// radius), with the near-side carrier contact confined to the arc's sweep. A
+// target of 0 is tangency to the arc. The arc must have a nonzero radius.
+func NewDistanceLineArc(l *Line, a *Arc, d float64) *DistanceLineArc {
+	return &DistanceLineArc{dimBase: lengthDim(d), L: l, A: a, slack: -1}
+}
+
+func (c *DistanceLineArc) allocVars(s *Sketch) {
+	c.s = s
+	if c.driven || c.slack >= 0 {
+		return
+	}
+	ux, uy := lineFootDir(c.L, c.A.Center)
+	c.slack = s.newVar(slackFor(arcInSweepExcess(c.A, ux, uy)))
+}
+
+func (c *DistanceLineArc) retireVars(s *Sketch) {
+	if c.slack >= 0 {
+		s.retireVar(c.slack)
+		c.slack = -1
+	}
+}
+
+// SetDriven mirrors [DistancePointArc.SetDriven].
+func (c *DistanceLineArc) SetDriven(v bool) {
+	if v == c.driven {
+		return
+	}
+	c.driven = v
+	if c.s == nil || !committedDim(c.s, c) {
+		return
+	}
+	if v {
+		c.retireVars(c.s)
+	} else if c.slack < 0 {
+		ux, uy := lineFootDir(c.L, c.A.Center)
+		c.slack = c.s.newVar(slackFor(arcInSweepExcess(c.A, ux, uy)))
+	}
+}
+
+func (c *DistanceLineArc) residual(out []float64) []float64 {
+	ax, ay := c.L.Start.x(), c.L.Start.y()
+	abx, aby := c.L.End.x()-ax, c.L.End.y()-ay
+	cross := abx*(c.A.Center.y()-ay) - aby*(c.A.Center.x()-ax)
+	// Row 0 (length): the tangent gap |h| − R, where h is the signed perpendicular
+	// distance from the center to the infinite line.
+	out = append(out, math.Abs(cross)/norm(abx, aby)-c.A.R()-c.base())
+	if c.slack < 0 {
+		return out
+	}
+	// Row 1 (dimensionless): confine the near-side carrier contact to the sweep.
+	ux, uy := lineFootDir(c.L, c.A.Center)
+	w := c.s.vars[c.slack]
+	return append(out, arcInSweepExcess(c.A, ux, uy)-w*w)
+}
+
+// arcRadialDir returns the unit direction from the center toward p — the radial
+// foot direction a point↔arc distance is judged against for sweep confinement. It
+// uses the floored norm() so a point at the center yields a finite (near-zero)
+// vector rather than NaN; such a degenerate configuration then fails the sweep
+// row rather than poisoning the residual.
+func arcRadialDir(p, center *Point) (float64, float64) {
+	dx, dy := p.x()-center.x(), p.y()-center.y()
+	d := norm(dx, dy)
+	return dx / d, dy / d
+}
+
+// committedDim reports whether dimension c is registered in sketch s (as opposed
+// to merely having had c.s set by a CheckConstraint probe's temporary allocVars).
+func committedDim(s *Sketch, c Constraint) bool {
+	for _, cc := range s.cons {
+		if cc == c {
+			return true
+		}
+	}
+	return false
+}
+
 // DistanceLines is an editable distance dimension between two lines. It
 // contributes two residuals — the distance from each endpoint of L2 to the
 // infinite line through L1 — so satisfying it forces the lines parallel at the
