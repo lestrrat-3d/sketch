@@ -235,13 +235,18 @@ func NewPointOnEllipticalArc(p *Point, a *EllipticalArc) Constraint {
 // on the arc's ellipse — the local-frame coordinates scaled by 1/rx and 1/ry,
 // then normalized. It is the natural-parameter analog of an arc's contactDir.
 func (c *pointOnEllipticalArc) eccentricDir() (float64, float64) {
-	a := c.A
+	return eccentricDirXY(c.P.x(), c.P.y(), c.A)
+}
+
+// eccentricDirXY is eccentricDir for an arbitrary world point (px,py): the
+// point's local-frame coordinates scaled by 1/rx and 1/ry (sign-preserving floor,
+// matching geom.EllipticalArc's eccentric() so the in-sweep test agrees with the
+// rendered arc even if a semi-axis is negative), then normalized.
+func eccentricDirXY(px, py float64, a *EllipticalArc) (float64, float64) {
 	cosr, sinr := math.Cos(a.rot()), math.Sin(a.rot())
-	dx, dy := c.P.x()-a.Center.x(), c.P.y()-a.Center.y()
+	dx, dy := px-a.Center.x(), py-a.Center.y()
 	lx := cosr*dx + sinr*dy
 	ly := -sinr*dx + cosr*dy
-	// Sign-preserving floor, matching geom.EllipticalArc's eccentric() so the
-	// in-sweep test agrees with the rendered arc even if a semi-axis is negative.
 	ex, ey := lx/axisFloor(a.rx()), ly/axisFloor(a.ry())
 	n := norm(ex, ey)
 	return ex / n, ey / n
@@ -581,13 +586,20 @@ const conicEps = 1e-9
 // is rejected as degenerate to keep the policy and the residual consistent.
 const ellipseAxisEps = 1e-6
 
-// conic is the operand adapter for tangentConics: a full circle or full ellipse.
+// conic is the operand adapter for tangentConics: a circle, arc, ellipse, or
+// elliptical arc. Arc operands also report a sweep-confinement excess so the
+// contact is held within the swept portion (a tangent to the underlying full
+// conic off the arc is not blessed).
 type conic interface {
 	ent() Entity
 	onResidual(px, py float64) float64          // membership (length, 0 on the curve)
 	normalAt(px, py float64) (float64, float64) // outward normal at (px,py), not unit
 	degenerate() bool                           // a zero-size conic has no tangent
 	boundary(n int) [][2]float64                // n boundary samples (for seeding)
+	// sweepExcess returns dot(contactDir, midDir) − cos(sweep/2) at (px,py) and
+	// ok=true for an arc operand (≥ 0 exactly when the contact is within the
+	// sweep); ok=false for a full conic, which needs no confinement.
+	sweepExcess(px, py float64) (float64, bool)
 }
 
 type circleConic struct{ c *Circle }
@@ -599,7 +611,8 @@ func (a circleConic) onResidual(px, py float64) float64 {
 func (a circleConic) normalAt(px, py float64) (float64, float64) {
 	return px - a.c.Center.x(), py - a.c.Center.y()
 }
-func (a circleConic) degenerate() bool { return math.Abs(a.c.r()) < conicEps }
+func (a circleConic) degenerate() bool                           { return math.Abs(a.c.r()) < conicEps }
+func (a circleConic) sweepExcess(px, py float64) (float64, bool) { return 0, false }
 func (a circleConic) boundary(n int) [][2]float64 {
 	cx, cy, r := a.c.Center.x(), a.c.Center.y(), a.c.r()
 	pts := make([][2]float64, n)
@@ -622,6 +635,7 @@ func (a ellipseConic) normalAt(px, py float64) (float64, float64) {
 func (a ellipseConic) degenerate() bool {
 	return math.Abs(a.e.rx()) < ellipseAxisEps || math.Abs(a.e.ry()) < ellipseAxisEps
 }
+func (a ellipseConic) sweepExcess(px, py float64) (float64, bool) { return 0, false }
 func (a ellipseConic) boundary(n int) [][2]float64 {
 	cx, cy, rx, ry := a.e.Center.x(), a.e.Center.y(), a.e.rx(), a.e.ry()
 	cosr, sinr := math.Cos(a.e.rot()), math.Sin(a.e.rot())
@@ -634,30 +648,113 @@ func (a ellipseConic) boundary(n int) [][2]float64 {
 	return pts
 }
 
+// arcConic is a circular arc operand: it lies on its circle (same membership and
+// normal as circleConic) but confines the contact to the sweep.
+type arcConic struct{ a *Arc }
+
+func (x arcConic) ent() Entity { return x.a }
+func (x arcConic) onResidual(px, py float64) float64 {
+	return norm(px-x.a.Center.x(), py-x.a.Center.y()) - x.a.R()
+}
+func (x arcConic) normalAt(px, py float64) (float64, float64) {
+	return px - x.a.Center.x(), py - x.a.Center.y()
+}
+func (x arcConic) degenerate() bool { return math.Abs(x.a.R()) < conicEps }
+func (x arcConic) sweepExcess(px, py float64) (float64, bool) {
+	dx, dy := px-x.a.Center.x(), py-x.a.Center.y()
+	n := norm(dx, dy)
+	return arcInSweepExcess(x.a, dx/n, dy/n), true
+}
+func (x arcConic) boundary(n int) [][2]float64 {
+	cx, cy, r := x.a.Center.x(), x.a.Center.y(), x.a.R()
+	start := math.Atan2(x.a.Start.y()-cy, x.a.Start.x()-cx)
+	sweep := x.a.Sweep()
+	pts := make([][2]float64, n)
+	for i := range pts {
+		t := start + sweep*float64(i)/float64(n-1) // span the swept portion, endpoints included
+		pts[i] = [2]float64{cx + r*math.Cos(t), cy + r*math.Sin(t)}
+	}
+	return pts
+}
+
+// ellipticalArcConic is an elliptical-arc operand: it lies on its ellipse (same
+// Sampson membership and normal as ellipseConic) but confines the contact to the
+// eccentric-angle sweep.
+type ellipticalArcConic struct{ a *EllipticalArc }
+
+func (x ellipticalArcConic) ent() Entity { return x.a }
+func (x ellipticalArcConic) onResidual(px, py float64) float64 {
+	return sampsonEllipse(px, py, x.a.Center.x(), x.a.Center.y(), x.a.rx(), x.a.ry(), x.a.rot())
+}
+func (x ellipticalArcConic) normalAt(px, py float64) (float64, float64) {
+	return ellipseNormalXY(px, py, x.a.Center.x(), x.a.Center.y(), x.a.rx(), x.a.ry(), x.a.rot())
+}
+func (x ellipticalArcConic) degenerate() bool {
+	return math.Abs(x.a.rx()) < ellipseAxisEps || math.Abs(x.a.ry()) < ellipseAxisEps
+}
+func (x ellipticalArcConic) sweepExcess(px, py float64) (float64, bool) {
+	ux, uy := eccentricDirXY(px, py, x.a)
+	return ellipticalArcSweepExcess(x.a, ux, uy), true
+}
+func (x ellipticalArcConic) boundary(n int) [][2]float64 {
+	cx, cy, rx, ry := x.a.Center.x(), x.a.Center.y(), x.a.rx(), x.a.ry()
+	cosr, sinr := math.Cos(x.a.rot()), math.Sin(x.a.rot())
+	start := x.a.StartParam()
+	sweep := x.a.Sweep()
+	pts := make([][2]float64, n)
+	for i := range pts {
+		t := start + sweep*float64(i)/float64(n-1)
+		lx, ly := rx*math.Cos(t), ry*math.Sin(t)
+		pts[i] = [2]float64{cx + cosr*lx - sinr*ly, cy + sinr*lx + cosr*ly}
+	}
+	return pts
+}
+
+// conicOf wraps a sealed Circular (*Circle/*Arc) or Elliptical (*Ellipse/
+// *EllipticalArc) operand in its conic adapter.
+func conicOf(e Entity) conic {
+	switch t := e.(type) {
+	case *Circle:
+		return circleConic{t}
+	case *Arc:
+		return arcConic{t}
+	case *Ellipse:
+		return ellipseConic{t}
+	case *EllipticalArc:
+		return ellipticalArcConic{t}
+	}
+	return nil
+}
+
 type tangentConics struct {
-	A, B     conic
-	Internal bool
-	s        *Sketch
-	px, py   int // contact-witness coordinates; -1 = unallocated
-	wSide    int // internal/external branch slack
+	A, B           conic
+	Internal       bool
+	s              *Sketch
+	px, py         int // contact-witness coordinates; -1 = unallocated
+	wSide          int // internal/external branch slack
+	slackA, slackB int // sweep slacks for arc operands; -1 = full conic (no sweep)
 }
 
 func newTangentConics(a, b conic, internal bool) *tangentConics {
-	return &tangentConics{A: a, B: b, Internal: internal, px: -1, py: -1, wSide: -1}
+	return &tangentConics{A: a, B: b, Internal: internal, px: -1, py: -1, wSide: -1, slackA: -1, slackB: -1}
 }
 
-// NewTangentEllipseCircle forces an ellipse and a circle to be tangent. internal
-// selects an internal contact (the circle inside the ellipse or vice versa, outward
+// NewTangentEllipseCircular forces an elliptical entity (an [*Ellipse] or
+// [*EllipticalArc]) and a circular entity (a [*Circle] or [*Arc]) to be tangent.
+// internal selects an internal contact (one curve inside the other, outward
 // normals aligned) versus external (normals opposed); the branch is enforced, not
-// merely seeded. Both must be non-degenerate full conics.
-func NewTangentEllipseCircle(e *Ellipse, c *Circle, internal bool) Constraint {
-	return newTangentConics(ellipseConic{e}, circleConic{c}, internal)
+// merely seeded. For an arc operand the contact is confined to its sweep, so a
+// tangent to the underlying full conic off the arc is reported unsolvable. Both
+// must be non-degenerate.
+func NewTangentEllipseCircular(e Elliptical, c Circular, internal bool) Constraint {
+	return newTangentConics(conicOf(e), conicOf(c), internal)
 }
 
-// NewTangentEllipses forces two ellipses to be tangent (internal/external as
-// above). Both must be non-degenerate full ellipses.
-func NewTangentEllipses(e1, e2 *Ellipse, internal bool) Constraint {
-	return newTangentConics(ellipseConic{e1}, ellipseConic{e2}, internal)
+// NewTangentEllipses forces two elliptical entities (each an [*Ellipse] or
+// [*EllipticalArc]) to be tangent (internal/external and arc-sweep confinement as
+// in [NewTangentEllipseCircular]).
+func NewTangentEllipses(e1, e2 Elliptical, internal bool) Constraint {
+	return newTangentConics(conicOf(e1), conicOf(e2), internal)
 }
 
 func (c *tangentConics) sigma() float64 {
@@ -676,6 +773,12 @@ func (c *tangentConics) allocVars(s *Sketch) {
 	c.px = s.newVar(px)
 	c.py = s.newVar(py)
 	c.wSide = s.newVar(slackFor(c.sigma() * c.dotNormals(px, py)))
+	if ea, ok := c.A.sweepExcess(px, py); ok {
+		c.slackA = s.newVar(slackFor(ea))
+	}
+	if eb, ok := c.B.sweepExcess(px, py); ok {
+		c.slackB = s.newVar(slackFor(eb))
+	}
 }
 
 func (c *tangentConics) retireVars(s *Sketch) {
@@ -683,7 +786,13 @@ func (c *tangentConics) retireVars(s *Sketch) {
 		s.retireVar(c.px)
 		s.retireVar(c.py)
 		s.retireVar(c.wSide)
-		c.px, c.py, c.wSide = -1, -1, -1
+		if c.slackA >= 0 {
+			s.retireVar(c.slackA)
+		}
+		if c.slackB >= 0 {
+			s.retireVar(c.slackB)
+		}
+		c.px, c.py, c.wSide, c.slackA, c.slackB = -1, -1, -1, -1, -1
 	}
 }
 
@@ -705,21 +814,35 @@ func (c *tangentConics) residual(out []float64) []float64 {
 	rB := c.B.onResidual(px, py)
 	// A degenerate conic (zero radius / semi-axis) has no tangent direction: keep
 	// the membership rows but force the parallel row clearly nonzero so it is never
-	// blessed; the row count is unchanged.
+	// blessed; the row count is unchanged (the sweep rows below still apply).
 	if c.A.degenerate() || c.B.degenerate() {
-		return append(out, rA, rB, 1, c.sigma()-wSide*wSide)
+		out = append(out, rA, rB, 1, c.sigma()-wSide*wSide)
+	} else {
+		nax, nay := c.A.normalAt(px, py)
+		nbx, nby := c.B.normalAt(px, py)
+		la, lb := norm(nax, nay), norm(nbx, nby)
+		parallel := (nax*nby - nay*nbx) / (la * lb) // sin(angle), 0 when tangents align
+		dot := (nax*nbx + nay*nby) / (la * lb)
+		out = append(out,
+			rA,                        // P on A (length)
+			rB,                        // P on B (length)
+			parallel,                  // tangents parallel (dimensionless)
+			c.sigma()*dot-wSide*wSide, // internal/external branch (dimensionless)
+		)
 	}
-	nax, nay := c.A.normalAt(px, py)
-	nbx, nby := c.B.normalAt(px, py)
-	la, lb := norm(nax, nay), norm(nbx, nby)
-	parallel := (nax*nby - nay*nbx) / (la * lb) // sin(angle), 0 when tangents align
-	dot := (nax*nbx + nay*nby) / (la * lb)
-	return append(out,
-		rA,                        // P on A (length)
-		rB,                        // P on B (length)
-		parallel,                  // tangents parallel (dimensionless)
-		c.sigma()*dot-wSide*wSide, // internal/external branch (dimensionless)
-	)
+	// Sweep rows confine the contact to each arc operand's swept portion. Gating on
+	// the slack keeps a committed constraint's arity constant.
+	if c.slackA >= 0 {
+		ea, _ := c.A.sweepExcess(px, py)
+		w := c.s.vars[c.slackA]
+		out = append(out, ea-w*w)
+	}
+	if c.slackB >= 0 {
+		eb, _ := c.B.sweepExcess(px, py)
+		w := c.s.vars[c.slackB]
+		out = append(out, eb-w*w)
+	}
+	return out
 }
 
 // seedContact picks a contact-witness point by branch-aware boundary sampling:

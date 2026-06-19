@@ -24,7 +24,7 @@ func TestTangentEllipseCircleExternal(t *testing.T) {
 	s.Unfix(cc)                                         // but let the center move
 	s.AddConstraint(sketch.NewHorizontalPoints(cc, ec)) // keep it on the x-axis
 
-	s.AddConstraint(sketch.NewTangentEllipseCircle(e, c, false))
+	s.AddConstraint(sketch.NewTangentEllipseCircular(e, c, false))
 	_, err := s.Solve()
 	require.NoError(t, err)
 	require.InDelta(t, 7, cc.X(), 1e-4, "external tangent at the ellipse's right vertex")
@@ -47,7 +47,7 @@ func TestTangentEllipseCircleInternal(t *testing.T) {
 	s.Unfix(cc)
 	s.AddConstraint(sketch.NewHorizontalPoints(cc, ec))
 
-	s.AddConstraint(sketch.NewTangentEllipseCircle(e, c, true))
+	s.AddConstraint(sketch.NewTangentEllipseCircular(e, c, true))
 	_, err := s.Solve()
 	require.NoError(t, err)
 	require.InDelta(t, 7, cc.X(), 1e-4, "internal tangent at the ellipse's right vertex")
@@ -80,7 +80,7 @@ func TestTangentEllipseCircleSeparateRejected(t *testing.T) {
 	s.FixEntity(e)
 	c := s.AddCircle(s.AddPoint(100, 0), 3)
 	s.FixEntity(c)
-	s.AddConstraint(sketch.NewTangentEllipseCircle(e, c, false))
+	s.AddConstraint(sketch.NewTangentEllipseCircular(e, c, false))
 
 	_, err := s.Solve()
 	require.ErrorIs(t, err, sketch.ErrNotConverged)
@@ -98,7 +98,7 @@ func TestTangentConicsDegenerateRejected(t *testing.T) {
 		s.FixEntity(e)
 		c := s.AddCircle(s.AddPoint(1+1e-6, 0), 1) // placed where the floored surrogate would falsely "touch"
 		s.FixEntity(c)
-		s.AddConstraint(sketch.NewTangentEllipseCircle(e, c, false))
+		s.AddConstraint(sketch.NewTangentEllipseCircular(e, c, false))
 
 		_, err := s.Solve()
 		require.Error(t, err, "rx=%v is degenerate", rx)
@@ -118,7 +118,7 @@ func TestTangentConicsDOFAndRemoval(t *testing.T) {
 	s.Unfix(cc) // a free circle center: 2 DOF
 	require.Equal(t, 2, s.DOF())
 
-	con := sketch.NewTangentEllipseCircle(e, c, false)
+	con := sketch.NewTangentEllipseCircular(e, c, false)
 	s.AddConstraint(con)
 	require.Equal(t, 1, s.DOF(), "tangency removes one DOF (circle slides around, staying tangent)")
 
@@ -134,7 +134,7 @@ func TestTangentConicsCheckConstraint(t *testing.T) {
 	c := s.AddCircle(cc, 3)
 	s.FixEntity(c)
 	s.Unfix(cc)
-	require.NoError(t, s.CheckConstraint(sketch.NewTangentEllipseCircle(e, c, false)))
+	require.NoError(t, s.CheckConstraint(sketch.NewTangentEllipseCircular(e, c, false)))
 }
 
 func TestTangentConicsRoundTrip(t *testing.T) {
@@ -147,7 +147,7 @@ func TestTangentConicsRoundTrip(t *testing.T) {
 	s.FixEntity(c)
 	s.Unfix(cc)
 	s.AddConstraint(sketch.NewHorizontalPoints(cc, ec))
-	s.AddConstraint(sketch.NewTangentEllipseCircle(e, c, false))
+	s.AddConstraint(sketch.NewTangentEllipseCircular(e, c, false))
 	_, err := s.Solve()
 	require.NoError(t, err)
 	require.InDelta(t, 7, cc.X(), 1e-4)
@@ -172,7 +172,7 @@ func TestTangentConicsInternalExternalDistinct(t *testing.T) {
 		s.FixEntity(e)
 		c := s.AddCircle(s.AddPoint(7, 0), 3) // left point exactly at the (4,0) vertex
 		s.FixEntity(c)
-		s.AddConstraint(sketch.NewTangentEllipseCircle(e, c, internal))
+		s.AddConstraint(sketch.NewTangentEllipseCircular(e, c, internal))
 		return s
 	}
 	// External: the geometry is already a valid external tangency.

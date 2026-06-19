@@ -234,7 +234,8 @@ func marshalConstraint(c Constraint) (jsonConstraint, bool) {
 		return jsonConstraint{Type: "tangent_spline", Entities: []int{t.L.id, t.Sp.id}}, true
 	case *tangentConics:
 		typ := "tangent_ellipses"
-		if _, ok := t.B.(circleConic); ok {
+		switch t.B.(type) {
+		case circleConic, arcConic: // B is a circular operand (circle or arc)
 			typ = "tangent_ellipse_circle"
 		}
 		return jsonConstraint{Type: typ, Entities: []int{t.A.ent().entID(), t.B.ent().entID()}, Flag: t.Internal}, true
@@ -688,21 +689,21 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		}
 		s.AddConstraint(NewTangentToSpline(l, sp))
 	case "tangent_ellipse_circle":
-		e, err := ellipse(jc.Entities[0])
+		e, err := elliptical(jc.Entities[0])
 		if err != nil {
 			return err
 		}
-		ci, err := circle(jc.Entities[1])
+		ci, err := circular(jc.Entities[1])
 		if err != nil {
 			return err
 		}
-		s.AddConstraint(NewTangentEllipseCircle(e, ci, jc.Flag))
+		s.AddConstraint(NewTangentEllipseCircular(e, ci, jc.Flag))
 	case "tangent_ellipses":
-		e1, err := ellipse(jc.Entities[0])
+		e1, err := elliptical(jc.Entities[0])
 		if err != nil {
 			return err
 		}
-		e2, err := ellipse(jc.Entities[1])
+		e2, err := elliptical(jc.Entities[1])
 		if err != nil {
 			return err
 		}

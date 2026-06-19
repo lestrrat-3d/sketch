@@ -408,14 +408,18 @@ These are unsettled. If you resolve one, record the decision here.
   local-frame normal — no foot-point iteration — plus, for an arc, the same
   slack inequality confining the contact to the eccentric sweep (and an
   endpoint-tangency branch when the line shares a boundary point).
-  **Conic–conic tangency** (no closed-form distance) is in for full conics
-  (`NewTangentEllipseCircle`/`NewTangentEllipses`; design in
-  `docs/conic-tangency-design.md`): a contact-point witness (aux coords) on both
-  curves with parallel outward normals (`cross(n̂_A,n̂_B)=0`), plus a **hard**
-  internal/external branch row `σ·dot(n̂_A,n̂_B)−wSide²` (the flag must be an
-  enforced equation, not a seed, or the oracle could not tell the branches apart)
-  and degenerate-conic guards. Still open (follow-up): arc operands (per-arc
-  sweep confinement) and the shared-endpoint branch.
+  **Conic–conic tangency** (no closed-form distance; design in
+  `docs/conic-tangency-design.md`): `NewTangentEllipseCircular(e Elliptical, c
+  Circular, …)` and `NewTangentEllipses(e1, e2 Elliptical, …)` over the sealed
+  interfaces, so each operand is a circle, **arc**, ellipse, or **elliptical
+  arc**. A contact-point witness (aux coords) on both curves with parallel
+  outward normals (`cross(n̂_A,n̂_B)=0`), a **hard** internal/external branch row
+  `σ·dot(n̂_A,n̂_B)−wSide²` (the flag must be an enforced equation, not a seed, or
+  the oracle could not tell the branches apart), degenerate-conic guards, and —
+  per arc operand — a slack-encoded **sweep row** confining the contact to the
+  swept portion (so a tangent to the underlying full conic off the arc is
+  rejected). Still open (follow-up): the shared-endpoint branch (two arcs sharing
+  an exact endpoint — the free witness may pick a different in-sweep tangency).
   Slots/fillet/chamfer exist as compound builders and `geom` template helpers.
 - **Solver evolution.** Numerical Jacobian is fine at current scale. Open:
   analytic Jacobians for speed/accuracy, equation decomposition (solve

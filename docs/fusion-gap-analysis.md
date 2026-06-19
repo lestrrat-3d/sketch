@@ -36,12 +36,14 @@ separation contract — see `docs/verification-roadmap.md`.
   `√((u·rx)²+(v·ry)²)−|c|` with no foot-point iteration. For an arc the contact's
   eccentric direction is confined to the sweep by the same slack inequality, and
   a shared boundary point switches to endpoint (line ⊥ ellipse-normal) tangency.
-  **Conic–conic tangency** (`NewTangentEllipseCircle`/`NewTangentEllipses`,
-  design in `docs/conic-tangency-design.md`) is in for full conics — genuinely no
-  closed-form distance, so a contact-point witness on both curves with parallel
-  outward normals, plus a hard internal/external branch slack and degenerate
-  guards. Still open (follow-ups): conic–conic tangency for arc operands (sweep
-  confinement) + shared-endpoint branch, reference elliptical arcs, and trim/split.
+  **Conic–conic tangency** (`NewTangentEllipseCircular`/`NewTangentEllipses` over
+  the sealed `Circular`/`Elliptical` interfaces, design in
+  `docs/conic-tangency-design.md`) — genuinely no closed-form distance, so a
+  contact-point witness on both curves with parallel outward normals, a hard
+  internal/external branch slack, degenerate guards, and a per-arc-operand
+  slack-encoded sweep confinement (a tangent to the underlying full conic off the
+  arc is rejected). Still open (follow-ups): the conic–conic shared-endpoint
+  branch, reference elliptical arcs, and trim/split.
 - ~~**Splines**~~ — *v1 closed*: control-point clamped cubic
   B-splines (`geom.NewSpline`/`AddSpline`); control points are ordinary
   sketch points, so constraints/dimensions/goals reshape the curve with no

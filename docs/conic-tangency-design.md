@@ -78,12 +78,14 @@ tangency configurations after a baseline solve.
 
 ## API
 
-Typed constructors over the **concrete full-conic** types, one private
-`tangentConics` implementation reached through a small `conic` adapter
-(`onResidual`/`normalAt`/`degenerate`/`boundary`):
+Typed constructors over the **sealed `Circular`/`Elliptical` interfaces**, one
+private `tangentConics` implementation reached through a small `conic` adapter
+(`onResidual`/`normalAt`/`degenerate`/`boundary`/`sweepExcess`), dispatched by
+`conicOf`:
 
-- `NewTangentEllipseCircle(e *Ellipse, c *Circle, internal bool) Constraint`
-- `NewTangentEllipses(e1, e2 *Ellipse, internal bool) Constraint`
+- `NewTangentEllipseCircular(e Elliptical, c Circular, internal bool) Constraint`
+  — `e` is an `*Ellipse` or `*EllipticalArc`, `c` a `*Circle` or `*Arc`.
+- `NewTangentEllipses(e1, e2 Elliptical, internal bool) Constraint`
 
 Circle↔circle is deliberately *not* routed here (it keeps its closed-form
 `NewTangentCircles`). JSON uses two type strings (`tangent_ellipse_circle`,
@@ -91,21 +93,28 @@ Circle↔circle is deliberately *not* routed here (it keeps its closed-form
 vars are not serialized. `CheckConstraint` already probes aux-var constraints in
 committed form (temporary allocation), so no special-casing is needed.
 
-## Scope: v1 = full conics
+## Arc operands (sweep confinement)
 
-v1 covers full ellipses and full circles. Recorded follow-ups:
+An arc operand (`*Arc` / `*EllipticalArc`) lies on its underlying circle/ellipse
+(the same membership and normal as the full conic), plus a per-arc slack-encoded
+**sweep row** `sweepExcess(P) − w² = 0` (`arcInSweepExcess` for a circular arc on
+the contact direction `P−center`; `ellipticalArcSweepExcess` on the eccentric
+direction for an elliptical arc) confining the witness contact to the swept
+portion — so a tangent to the underlying full conic *off* the arc is reported
+unsolvable. The slack adds one var and one row per arc operand, net DOF
+unchanged; `boundary()` for an arc samples only its swept extent so seeding stays
+in-sweep. Committed arity stays constant (the sweep rows are gated on the slack,
+which is always allocated for an arc operand).
 
-- **Arc operands** (`Arc` / `EllipticalArc` via the sealed `Circular`/`Elliptical`
-  interfaces): a per-arc slack-encoded **sweep row** (`arcInSweepExcess` /
-  `ellipticalArcSweepExcess`) confining the contact to the swept portion, so a
-  tangent to the underlying full conic off the arc is not blessed. Net DOF
-  unchanged (one sweep slack + one row per arc operand).
+## Recorded follow-ups
+
 - **Shared-endpoint branch**: when two arc operands share the exact endpoint
   `*Point`, enforce tangency *at that endpoint* (parallel + side rows there, no
   free witness, no membership/sweep rows — endpoints are already on their curves
   via the internal `arcRadius` / `ellipticalArcOn` constraints), mirroring
-  `tangentLineEllipse`'s shared-endpoint case.
+  `tangentLineEllipse`'s shared-endpoint case. Until then the free witness may
+  pick a different (valid, in-sweep) tangency than the shared endpoint.
 - **Same-entity / exact-overlap policy**: identical conics are tangent
-  everywhere (rank-degenerate). v1 treats passing the same concrete entity (or an
-  exact duplicate) as both operands as an unsupported precondition; an explicit
-  reject / duplicate-overlap detector is a recorded follow-up.
+  everywhere (rank-degenerate). Passing the same concrete entity (or an exact
+  duplicate) as both operands is an unsupported precondition; an explicit reject
+  / duplicate-overlap detector is a recorded follow-up.
