@@ -194,6 +194,8 @@ func isNilEntity(e Entity) bool {
 		return t == nil
 	case *Spline:
 		return t == nil
+	case *ClosedSpline:
+		return t == nil
 	}
 	return false
 }
@@ -213,6 +215,8 @@ func entityPoints(e Entity) []*Point {
 	case *EllipticalArc:
 		return []*Point{t.Center, t.Start, t.End}
 	case *Spline:
+		return t.Control
+	case *ClosedSpline:
 		return t.Control
 	}
 	return nil

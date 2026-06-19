@@ -152,6 +152,8 @@ func (s *Sketch) PNG(options ...PNGOption) ([]byte, error) {
 			r.strokePolyline(toPixels(ellipsePolyline(t, cfg.arcSegments)), width, col)
 		case *Spline:
 			r.strokePolyline(toPixels(t.Polyline(cfg.arcSegments)), width, col)
+		case *ClosedSpline:
+			r.strokePolyline(toPixels(t.Polyline(cfg.arcSegments)), width, col)
 		}
 	}
 

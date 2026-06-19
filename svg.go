@@ -179,6 +179,11 @@ func (s *Sketch) bounds() (bbox, bool) {
 				b.add(p[0], p[1])
 			}
 			any = true
+		case *ClosedSpline:
+			for _, p := range t.Polyline(32) {
+				b.add(p[0], p[1])
+			}
+			any = true
 		}
 	}
 	return b, any
@@ -297,6 +302,21 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 				color(t), f(cfg.strokeWidth), dash(t))
 		case *Spline:
 			// Sampled polyline, like arcs; cfg.arcSegments governs fidelity.
+			pts := t.Polyline(cfg.arcSegments)
+			var d strings.Builder
+			for i, p := range pts {
+				cmd := "L"
+				if i == 0 {
+					cmd = "M"
+				}
+				fmt.Fprintf(&d, "%s%s %s ", cmd, f(tx(p[0])), f(ty(p[1])))
+			}
+			fmt.Fprintf(&sb,
+				`  <path d="%s" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
+				strings.TrimSpace(d.String()), color(t), f(cfg.strokeWidth), dash(t))
+		case *ClosedSpline:
+			// The sampled ring already closes (last point == first), so the same
+			// M/L path draws a closed loop.
 			pts := t.Polyline(cfg.arcSegments)
 			var d strings.Builder
 			for i, p := range pts {

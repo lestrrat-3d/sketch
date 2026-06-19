@@ -175,6 +175,8 @@ func renumberEntity(e Entity, id int) {
 		t.id = id
 	case *Spline:
 		t.id = id
+	case *ClosedSpline:
+		t.id = id
 	}
 }
 
@@ -194,6 +196,12 @@ func entityUsesPoint(e Entity, p *Point) bool {
 	case *EllipticalArc:
 		return t.Center == p || t.Start == p || t.End == p
 	case *Spline:
+		for _, c := range t.Control {
+			if c == p {
+				return true
+			}
+		}
+	case *ClosedSpline:
 		for _, c := range t.Control {
 			if c == p {
 				return true

@@ -79,6 +79,7 @@ const (
 	srcEllipse
 	srcEllipticalArc // an ellipse restricted to an eccentric-angle sweep
 	srcSpline        // a clamped cubic B-spline (open; may self-cross)
+	srcClosedSpline  // a periodic cubic B-spline (closed loop; may self-cross)
 	srcDegenerate    // unsupported / nil input; contributes no geometry
 )
 
@@ -97,6 +98,9 @@ func (s *source) at(t float64) [2]float64 {
 		return s.ellipsePoint(s.phi0 + t*s.sweep)
 	case srcSpline:
 		x, y := EvalCubicBSpline(s.ctrl, t)
+		return [2]float64{x, y}
+	case srcClosedSpline:
+		x, y := EvalPeriodicCubicBSpline(s.ctrl, t)
 		return [2]float64{x, y}
 	default: // ellipse
 		return s.ellipsePoint(2 * math.Pi * t)
@@ -331,6 +335,20 @@ func newArranger(curves []Curve, closed []ClosedCurve, cfg arrangeConfig) *arran
 			s.kind = srcEllipse
 			s.cx, s.cy = t.Center.X, t.Center.Y
 			s.rx, s.ry, s.rot = t.Rx, t.Ry, t.Rotation
+		case *ClosedSpline:
+			coords, ok := closedSplineControlCoords(t)
+			if !ok {
+				a.flagDegenerate(0, 0)
+				s.kind = srcDegenerate
+				break
+			}
+			if splineExtent(coords) < 1e-9 { // all-coincident controls: a point
+				a.flagDegenerate(coords[0][0], coords[0][1])
+				s.kind = srcDegenerate
+				break
+			}
+			s.kind = srcClosedSpline
+			s.ctrl = coords
 		default:
 			a.flagDegenerate(0, 0) // unsupported ClosedCurve implementation
 			s.kind = srcDegenerate
@@ -375,6 +393,23 @@ func safeEndpoints(c Curve) (*Point, *Point, bool) {
 // must not dereference.
 func splineControlCoords(sp *Spline) ([][2]float64, bool) {
 	if sp == nil || len(sp.Control) < 4 {
+		return nil, false
+	}
+	cc := make([][2]float64, len(sp.Control))
+	for i, p := range sp.Control {
+		if p == nil {
+			return nil, false
+		}
+		cc[i] = [2]float64{p.X, p.Y}
+	}
+	return cc, true
+}
+
+// closedSplineControlCoords validates a closed spline's control points and
+// returns their coordinates. ok is false for a typed-nil spline, fewer than
+// three control points, or any nil control point.
+func closedSplineControlCoords(sp *ClosedSpline) ([][2]float64, bool) {
+	if sp == nil || len(sp.Control) < 3 {
 		return nil, false
 	}
 	cc := make([][2]float64, len(sp.Control))
@@ -468,11 +503,17 @@ func (a *arranger) sampleParams(s *source) []float64 {
 	switch s.kind {
 	case srcLine:
 		return []float64{0, 1}
-	case srcSpline:
+	case srcSpline, srcClosedSpline:
 		// No analytic crossings: sample densely enough that the polyline tracks
 		// the curve and a self-crossing is captured. Scale with control count;
-		// an explicit WithSegmentsPerTurn can only raise it.
-		n := 16 * (len(s.ctrl) - 3)
+		// an explicit WithSegmentsPerTurn can only raise it. A closed spline
+		// closes because at(1) == at(0) (the last sample equals the first).
+		var n int
+		if s.kind == srcClosedSpline {
+			n = 16 * len(s.ctrl)
+		} else {
+			n = 16 * (len(s.ctrl) - 3)
+		}
 		if n < 64 {
 			n = 64
 		}
@@ -519,10 +560,13 @@ func (a *arranger) intersect() {
 			si, sj := &a.segs[i], &a.segs[j]
 			sameSpline := false
 			if si.src == sj.src {
-				// A simple source's own polyline never self-crosses. A spline can,
-				// so for a spline source test non-adjacent sampled segments;
-				// adjacent ones (j == i+1) merely share a subdivision vertex.
-				if a.sources[si.src].kind != srcSpline || j == i+1 {
+				// A simple source's own polyline never self-crosses. A spline (open
+				// or closed periodic) can, so for a spline source test non-adjacent
+				// sampled segments; adjacent ones (j == i+1) merely share a
+				// subdivision vertex. The closure seam (first meets last segment) is
+				// handled by the param-{0,1} check in the endpoint-meeting branch.
+				k := a.sources[si.src].kind
+				if (k != srcSpline && k != srcClosedSpline) || j == i+1 {
 					continue
 				}
 				sameSpline = true
@@ -898,7 +942,7 @@ func (a *arranger) makeCycle(hs []int) cycle {
 			bulge += chordArcCorrection(s.r, (f.pEnd-f.pStart)*s.sweep)
 		case srcCircle:
 			bulge += chordArcCorrection(s.r, (f.pEnd-f.pStart)*2*math.Pi)
-		case srcEllipse, srcEllipticalArc, srcSpline:
+		case srcEllipse, srcEllipticalArc, srcSpline, srcClosedSpline:
 			bulge += signedPolyArea(f.dense)
 		}
 	}

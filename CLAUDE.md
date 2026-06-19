@@ -96,7 +96,8 @@ replacement from sketch points and retire the originals with `RemoveEntity`.
 It also holds the **planar-arrangement / region engine** (`region.go`,
 `arrange.go`, `area.go`): `geom.Regions(curves, closed)` builds a polyline-
 approximated planar arrangement of lines/arcs/circles/ellipses/elliptical-arcs/
-splines, splitting at bare crossings, and returns the bounded `Region`s (each an
+splines/closed-splines, splitting at bare crossings, and returns the bounded
+`Region`s (each an
 outer boundary loop +
 holes, with a net `Area` and source-curve `BoundaryEdge` back-references) plus
 soundness signals — `SelfIntersections` (only for a single simple closed loop —
@@ -393,6 +394,12 @@ These are unsettled. If you resolve one, record the decision here.
   line is rejected outright. `S'(t)` is analytic on purpose — a numerical tangent
   inside the residual would be a nested finite difference the Jacobian
   re-differentiates.
+  **Closed (periodic) splines** are in as a separate `ClosedSpline` entity
+  (`AddClosedSpline`, ≥3 control points) over an exact cyclic uniform cubic basis
+  (`geom.EvalPeriodicCubicBSpline`) — a smooth C2 loop that bounds a region on its
+  own (a sealed `geom.ClosedCurve`, not a `Curve`), with periodic-ring
+  self-crossing detection and `closed_spline` serialization. Point-on/tangent
+  constraints on a closed spline are a deferred follow-up (periodic witness).
   Ellipses are in
   (center point + rx/ry/rotation vars; `NewPointOnEllipse` uses a
   Sampson-normalized residual — |F|/|∇F| — to stay in length units).

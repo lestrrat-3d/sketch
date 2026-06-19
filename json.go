@@ -175,6 +175,14 @@ func (s *Sketch) marshalBody() (jsonSketchBody, error) {
 				je.Points = append(je.Points, c.id)
 			}
 			body.Entities = append(body.Entities, je)
+		case *ClosedSpline:
+			// A distinct type (not a "closed" flag on "spline") so an older reader
+			// rejects it as unknown rather than silently loading it as an open spline.
+			je := jsonEntity{Type: "closed_spline", Degree: 3, Construction: t.construction}
+			for _, c := range t.Control {
+				je.Points = append(je.Points, c.id)
+			}
+			body.Entities = append(body.Entities, je)
 		}
 	}
 
@@ -500,6 +508,15 @@ func (s *Sketch) buildFromBody(body jsonSketchBody) error {
 				return fmt.Errorf("sketch: unsupported spline degree %d", je.Degree)
 			}
 			sp, err := s.AddSpline(ps...) // AddSpline validates the >= 4 count
+			if err != nil {
+				return err
+			}
+			sp.SetConstruction(je.Construction)
+		case "closed_spline":
+			if je.Degree != 0 && je.Degree != 3 {
+				return fmt.Errorf("sketch: unsupported spline degree %d", je.Degree)
+			}
+			sp, err := s.AddClosedSpline(ps...) // validates the >= 3 count
 			if err != nil {
 				return err
 			}

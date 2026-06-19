@@ -164,10 +164,36 @@ and an endpoint-touch between two such segments counts as a self-touch (the exac
 crossing can land on a sample vertex), so a self-intersecting cubic is flagged
 `SelfIntersecting` rather than blessed.
 
+## Closed (periodic) splines
+
+`ClosedSpline` (`AddClosedSpline`, ≥3 control points) is a separate entity from the
+open `Spline`: a smooth closed loop, C2 across the seam, over an **exact cyclic
+uniform cubic basis** — `geom.EvalPeriodicCubicBSpline` blends the four cyclic
+controls `P[i..i+3]` (indices mod n) per unit span with the standard uniform cubic
+weights, reducing `t` modulo 1 so `Eval(0) == Eval(1)`. (The wrap trick of feeding
+the clamped basis an augmented control list is *not* periodic — the clamped
+evaluator pins the ends — so a real cyclic basis is used instead.) It carries no
+solver vars and no internal constraints, like the open spline.
+
+Because it bounds a region on its own it is a `geom.ClosedCurve`, **not** a
+`geom.Curve` — it has no `Endpoints()`. `ClosedCurve` is sealed with an unexported
+marker so the open `*Spline` (which also has a `Polyline` method) cannot
+accidentally satisfy it. `buildProfiles` routes a closed spline to the arrangement's
+`closed` argument (its own component, like a circle/ellipse), with sampled bulge
+area. Self-crossing detection reuses the open-spline same-source test extended to
+`srcClosedSpline`; the periodic seam (the first sampled segment meeting the last) is
+the param-`{0,1}` closure already skipped by the endpoint-meeting branch, so a
+self-crossing closed loop is flagged `SelfIntersecting` while a simple one is not.
+Serialized as a distinct `"closed_spline"` type (an older reader rejects it rather
+than misloading it as open); exported as a sampled path (SVG/PNG) and a closed
+`LWPOLYLINE` (DXF). Point-on / tangent constraints on a closed spline are a deferred
+follow-up (they need periodic-witness handling, not the clamped `t∈[0,1]` box).
+
 ## Out of scope (recorded)
 
 - Fit-point splines (build-time convenience layer).
-- Closed/periodic splines, custom knots, weights (NURBS).
+- Point-on / tangent constraints on a *closed* spline (periodic witness; deferred).
+- Custom knots, weights (NURBS).
 - Splitting/trim of splines.
 
 ## Testing plan

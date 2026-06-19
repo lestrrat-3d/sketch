@@ -124,6 +124,18 @@ func (s *Sketch) buildProfiles() ([]*Profile, bool, [][2]float64) {
 		case *Ellipse:
 			closed = append(closed, t.Geometry())
 			closedEnts = append(closedEnts, t)
+		case *ClosedSpline:
+			// A closed spline bounds a region on its own, so it is a ClosedCurve.
+			// Build over the shared geom.Point map for consistency (its control
+			// points may be shared with other geometry).
+			ctrl := make([]*geom.Point, len(t.Control))
+			for i, cp := range t.Control {
+				if cp != nil {
+					ctrl[i] = pt(cp)
+				}
+			}
+			closed = append(closed, &geom.ClosedSpline{Control: ctrl})
+			closedEnts = append(closedEnts, t)
 		}
 	}
 

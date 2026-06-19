@@ -60,9 +60,15 @@ type Arrangement struct {
 	Degeneracies [][2]float64
 }
 
-// ClosedCurve is a closed primitive (circle or ellipse) admitted to the
-// arrangement: it is sampled to a closed polyline. *Circle and *Ellipse satisfy
-// it via their Polyline samplers.
+// ClosedCurve is a closed primitive (circle, ellipse, or closed spline) admitted
+// to the arrangement: it is sampled to a closed polyline. *Circle, *Ellipse and
+// *ClosedSpline satisfy it via their Polyline samplers. The unexported marker
+// seals the interface so an open *Spline (which also has a Polyline method) does
+// not accidentally satisfy it.
 type ClosedCurve interface {
 	Polyline(segments int) [][2]float64
+	closedCurve()
 }
+
+func (c *Circle) closedCurve()  {}
+func (e *Ellipse) closedCurve() {}

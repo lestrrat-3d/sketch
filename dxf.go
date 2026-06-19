@@ -140,6 +140,21 @@ func (s *Sketch) DXF() (string, error) {
 				pairf(20, c.y())
 				pairf(30, 0)
 			}
+		case *ClosedSpline:
+			// No periodic SPLINE form is honored uniformly across readers; emit a
+			// closed LWPOLYLINE of the sampled ring (the same loop SVG/PNG draw).
+			pts := t.Polyline(64)
+			if len(pts) > 1 {
+				pts = pts[:len(pts)-1] // drop the duplicate closing vertex; flag 70=1 wraps
+			}
+			pair(0, "LWPOLYLINE")
+			pair(8, layer)
+			pair(90, fmt.Sprintf("%d", len(pts)))
+			pair(70, "1") // closed
+			for _, p := range pts {
+				pairf(10, p[0])
+				pairf(20, p[1])
+			}
 		}
 	}
 
