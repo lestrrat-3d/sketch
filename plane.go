@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/lestrrat-3d/sketch/param"
 	"github.com/lestrrat-3d/sketch/space"
+	"github.com/lestrrat-3d/sketch/units"
 )
 
 // Plane-related errors.
@@ -24,6 +26,9 @@ var (
 	// ErrWorldOwnedPlane is returned by [NewOn] when given a world-owned plane:
 	// use [World.Sketch] for those.
 	ErrWorldOwnedPlane = errors.New("sketch: plane is owned by a world; use World.Sketch")
+	// ErrNotOffsetPlane is returned by [World.BindOffsetPlane] for a plane that is
+	// not a derived offset plane (only an offset plane has a distance to drive).
+	ErrNotOffsetPlane = errors.New("sketch: plane is not an offset plane")
 )
 
 // planeKind identifies how a plane's frame is derived.
@@ -41,11 +46,12 @@ const (
 // planeDef is a plane's provenance — the single source of truth from which its
 // frame is computed. Only the fields relevant to kind are populated.
 type planeDef struct {
-	kind    planeKind
-	frame   space.Frame // planeFrame
-	a, b, c space.Vec3  // planePoints
-	base    *Plane      // planeOffset
-	dist    float64     // planeOffset
+	kind     planeKind
+	frame    space.Frame // planeFrame
+	a, b, c  space.Vec3  // planePoints
+	base     *Plane      // planeOffset
+	dist     float64     // planeOffset literal distance
+	distExpr string      // planeOffset: a length expression over the world's params; empty = literal dist
 }
 
 // Plane is a construction (datum) plane: a 3D coordinate frame positioned in a
@@ -129,10 +135,36 @@ func (p *Plane) Frame() (space.Frame, error) {
 		if err != nil {
 			return space.Frame{}, err
 		}
-		origin := bf.Origin().Add(bf.N().Scale(p.def.dist))
+		dist, err := p.offsetDist()
+		if err != nil {
+			return space.Frame{}, err
+		}
+		origin := bf.Origin().Add(bf.N().Scale(dist))
 		return space.NewFrame(origin, bf.U(), bf.V())
 	}
 	return space.Frame{}, fmt.Errorf("sketch: unknown plane definition kind %d", p.def.kind)
+}
+
+// offsetDist resolves an offset plane's distance: a bound length expression
+// evaluated against the owning world's parameters (re-evaluated on every call, so
+// a parameter edit is reflected immediately), or the literal dist when unbound.
+// A bound expression must evaluate to a length — an angle or dimensionless result
+// is rejected (the literal dist API is the unitless escape hatch).
+func (p *Plane) offsetDist() (float64, error) {
+	if p.def.distExpr == "" {
+		return p.def.dist, nil
+	}
+	if p.owner == nil || p.owner.params == nil {
+		return 0, fmt.Errorf("sketch: offset plane expression %q has no parameter table", p.def.distExpr)
+	}
+	v, err := p.owner.params.EvalValue(p.def.distExpr)
+	if err != nil {
+		return 0, fmt.Errorf("sketch: offset plane distance %q: %w", p.def.distExpr, err)
+	}
+	if v.Kind() != units.Length {
+		return 0, fmt.Errorf("%w: offset plane distance %q is %s, want length", param.ErrIncompatibleKind, p.def.distExpr, v.Kind())
+	}
+	return v.Base(), nil
 }
 
 // datumFrame returns the frame for a standard datum kind. The axes are

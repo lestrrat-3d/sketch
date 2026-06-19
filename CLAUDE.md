@@ -131,9 +131,23 @@ stdlib (not even `geom`); the arrow is `sketch -> space`, never the reverse.
 The 2D solver is **untouched**: a `Sketch` still solves in plane-local 2D. A
 `Plane` carries a `space.Frame` *computed from a stored definition* (its
 provenance — the single source of truth; `Frame()` recomputes, no memoization).
-A `World` owns planes (datums at ids 0/1/2) + sketches and is the multi-sketch
-serialization root; the engine stays usable standalone (`sketch.NewOn(plane)` on
-an owner-less world-frame datum). Load-bearing rules:
+A `World` owns planes (datums at ids 0/1/2) + sketches + **one shared
+`param.Table`** (`World.Params()`) and is the multi-sketch serialization root; the
+engine stays usable standalone (`sketch.NewOn(plane)` on an owner-less world-frame
+datum). Load-bearing rules:
+
+- **Global parameters are world-shared.** `World.Sketch(plane)` seeds the new
+  sketch with `s.params = w.params`, so one global parameter drives dimensions
+  across sketches. The per-sketch `Bind`/`ErrTableMismatch` invariant is untouched
+  (a world sketch already points at the shared table; binding it to another fails
+  naturally). Standalone `sketch.New()` keeps its own lazy table. **Offset planes
+  are parameter-driven** (`World.BindOffsetPlane(p, expr)` → a length expression on
+  `planeDef.distExpr`, kind-checked, re-evaluated on every `Frame()` call with NO
+  cache so an edit reflows immediately; wrong-kind surfaces through `Frame()`).
+  `World.Verify()` → `WorldVerificationReport` aggregates the shared table, every
+  plane frame, and each sketch's report. World docs are **v3** (top-level
+  `parameters` + plane `dist_expr`); a legacy v2 world migrates by promoting
+  identical per-sketch tables, rejecting conflicting ones.
 
 - **Placement is mandatory but nil-safe.** `Sketch.plane()` defaults a nil
   placement to `WorldXY()` (zero-value/unmarshal safety net) — but a v2
@@ -266,13 +280,19 @@ when `allocVars` re-runs on load. This is the deliberate, narrow exception to
   Removal splices and renumbers the later ids (`removal.go`), so marshalled
   documents stay dense and coherent; `UnmarshalJSON` recreates in order so the
   indices line up. Never let an `id` field and slice position diverge.
-- The document carries `"version": 2` (`jsonVersion`) and an explicit `"kind"`
-  (`"sketch"` | `"world"`). Both loaders **preflight** the raw top-level object
-  (today's typed unmarshal ignores unknown fields, so a world doc fed to
-  `Sketch.UnmarshalJSON` would otherwise rebuild empty): a v2 doc requires
+- A **sketch** document carries `"version": 2` (`jsonVersion`); a **world**
+  document carries `"version": 3` (`jsonWorldVersion`, ahead because a world adds
+  top-level shared `parameters` + plane `dist_expr` an older reader would silently
+  drop) plus an explicit `"kind"` (`"sketch"` | `"world"`). Both loaders
+  **preflight** the raw top-level object (today's typed unmarshal ignores unknown
+  fields, so a world doc fed to `Sketch.UnmarshalJSON` would otherwise rebuild
+  empty) and **check kind before version** (a world doc handed to the sketch loader
+  is a wrong-kind error, not a wrong-version one): a v2 doc requires
   `kind`; a wrong/unknown `kind` is `ErrWrongDocumentKind`; a legacy (kind-less,
   version absent/0/1) doc must carry no v2-only key (`plane`/`planes`/`sketches`)
-  and loads as a world-XY sketch. Both shapes decode their payload through one
+  and loads as a world-XY sketch. A v3 world carries the shared param table at the
+  top level (world sketches no longer serialize their own); a legacy v2 world
+  migrates per-sketch tables (identical → promote, conflicting → reject). Both shapes decode their payload through one
   shared `jsonSketchBody` (`buildFromBody`) so reference handling lives in one
   place. A plane serializes its **definition** (recomputed on load, never trusted
   from disk); a world's derived `offset{base_id}` must reference an **earlier**

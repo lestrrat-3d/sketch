@@ -1,6 +1,9 @@
 package sketch
 
-import "github.com/lestrrat-3d/sketch/space"
+import (
+	"github.com/lestrrat-3d/sketch/param"
+	"github.com/lestrrat-3d/sketch/space"
+)
 
 // World is the 3D document root: it owns the construction planes positioned in
 // world space and the sketches drawn on them. A fresh World is seeded with the
@@ -14,11 +17,13 @@ import "github.com/lestrrat-3d/sketch/space"
 type World struct {
 	planes   []*Plane
 	sketches []*Sketch
+	params   *param.Table // global parameters shared by every world-owned sketch
 }
 
-// NewWorld returns a world seeded with the three standard datum planes.
+// NewWorld returns a world seeded with the three standard datum planes and an
+// empty global parameter table.
 func NewWorld() *World {
-	w := &World{}
+	w := &World{params: param.New()}
 	w.planes = []*Plane{
 		{def: planeDef{kind: planeXY}, owner: w, id: 0, name: "XY"},
 		{def: planeDef{kind: planeXZ}, owner: w, id: 1, name: "XZ"},
@@ -26,6 +31,13 @@ func NewWorld() *World {
 	}
 	return w
 }
+
+// Params returns the world's global parameter table — shared by every sketch the
+// world creates, so a single parameter (e.g. a global thickness) can drive
+// dimensions across multiple sketches. Bind a dimension to it with
+// `s.Bind(dim, w.Params(), expr)`; a world-owned sketch's own `s.Params()` is
+// already this same table.
+func (w *World) Params() *param.Table { return w.params }
 
 // XY returns the world's standard XY datum plane.
 func (w *World) XY() *Plane { return w.planes[0] }
@@ -92,8 +104,135 @@ func (w *World) Sketch(plane *Plane) (*Sketch, error) {
 		return nil, ErrForeignPlane
 	}
 	s := newSketch(plane)
+	s.params = w.params // share the world's global parameter table
 	w.sketches = append(w.sketches, s)
 	return s, nil
+}
+
+// BindOffsetPlane drives an offset plane's distance from a length expression
+// evaluated against the world's parameters (re-evaluated whenever the plane's
+// frame is computed). plane must be a live offset plane of this world. The
+// expression is parsed immediately (syntax errors surface here); the names it
+// references and its length kind are validated when the frame is computed or by
+// [World.Verify]. The expression must evaluate to a length.
+func (w *World) BindOffsetPlane(plane *Plane, expr string) error {
+	if !w.owns(plane) {
+		return ErrForeignPlane
+	}
+	if plane.def.kind != planeOffset {
+		return ErrNotOffsetPlane
+	}
+	if _, err := param.Parse(expr); err != nil {
+		return err
+	}
+	plane.def.distExpr = expr
+	return nil
+}
+
+// UnbindOffsetPlane removes an offset plane's parameter binding, freezing the
+// currently resolved distance as the new literal so the plane stays where it is
+// (rather than reverting to the literal it had before binding). It is a no-op for
+// an unbound plane, and returns the evaluation error if the bound expression
+// cannot currently be resolved.
+func (w *World) UnbindOffsetPlane(plane *Plane) error {
+	if !w.owns(plane) {
+		return ErrForeignPlane
+	}
+	if plane.def.kind != planeOffset {
+		return ErrNotOffsetPlane
+	}
+	if plane.def.distExpr != "" {
+		dist, err := plane.offsetDist()
+		if err != nil {
+			return err
+		}
+		plane.def.dist = dist
+	}
+	plane.def.distExpr = ""
+	return nil
+}
+
+// ApplyParameters validates the world's global parameters and every
+// parameter-driven plane, then applies the bound parameters of every sketch. It
+// does NOT solve the sketches and does NOT cache plane distances (a parameter
+// edit is reflected on the next frame computation). It returns the first error
+// encountered.
+func (w *World) ApplyParameters() error {
+	if w.params != nil {
+		if err := w.params.Validate(); err != nil {
+			return err
+		}
+	}
+	for _, p := range w.planes {
+		if p.removed {
+			continue
+		}
+		if _, err := p.Frame(); err != nil { // evaluates a bound offset distance
+			return err
+		}
+	}
+	for _, s := range w.sketches {
+		if err := s.ApplyParameters(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WorldVerificationReport is the aggregate oracle verdict for a [World]: the
+// shared parameters, every plane's frame, and every sketch. It is the multi-
+// sketch counterpart of [VerificationReport].
+type WorldVerificationReport struct {
+	// Sketches holds each sketch's report, in creation order.
+	Sketches []*VerificationReport
+	// ParametersValid is true when the shared global parameter table validates
+	// (no undefined references, cycles, or kind errors). ParameterErrors holds the
+	// first such error when it is false.
+	ParametersValid bool
+	ParameterErrors []error
+	// PlaneErrors lists planes whose frame cannot be computed — a degenerate
+	// definition or a bad (missing-name / wrong-kind) parameter-driven offset.
+	PlaneErrors []error
+}
+
+// Trustworthy reports whether the whole world passes: valid shared parameters,
+// every plane frame computable, and every sketch [VerificationReport.Trustworthy].
+func (r *WorldVerificationReport) Trustworthy() bool {
+	if !r.ParametersValid || len(r.PlaneErrors) > 0 {
+		return false
+	}
+	for _, sr := range r.Sketches {
+		if !sr.Trustworthy() {
+			return false
+		}
+	}
+	return true
+}
+
+// Verify aggregates verification across the world: it validates the shared
+// parameter table, computes every plane's frame (catching a bad
+// parameter-driven offset), and verifies every sketch. It is non-mutating. Any
+// [VerifyOption]s are forwarded to each sketch's [Sketch.Verify].
+func (w *World) Verify(options ...VerifyOption) *WorldVerificationReport {
+	rep := &WorldVerificationReport{ParametersValid: true}
+	if w.params != nil {
+		if err := w.params.Validate(); err != nil {
+			rep.ParametersValid = false
+			rep.ParameterErrors = append(rep.ParameterErrors, err)
+		}
+	}
+	for _, p := range w.planes {
+		if p.removed {
+			continue
+		}
+		if _, err := p.Frame(); err != nil {
+			rep.PlaneErrors = append(rep.PlaneErrors, err)
+		}
+	}
+	for _, s := range w.sketches {
+		rep.Sketches = append(rep.Sketches, s.Verify(options...))
+	}
+	return rep
 }
 
 // RemovePlane removes a plane from the world. It refuses ([ErrStandardDatum])

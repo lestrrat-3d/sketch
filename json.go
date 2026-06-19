@@ -327,9 +327,9 @@ func (s *Sketch) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-	if pf.version > jsonVersion {
-		return fmt.Errorf("sketch: unsupported document version %d (this build reads up to %d)", pf.version, jsonVersion)
-	}
+	// Reject a wrong-kind document before the version gate: a world document
+	// (which may use a newer schema version than a sketch) handed to the sketch
+	// loader is a kind error, not a version error.
 	switch pf.kind {
 	case kindWorld:
 		return fmt.Errorf("%w: got a world document, want a sketch", ErrWrongDocumentKind)
@@ -337,6 +337,9 @@ func (s *Sketch) UnmarshalJSON(data []byte) error {
 		// handled below
 	default:
 		return fmt.Errorf("%w: unknown kind %q", ErrWrongDocumentKind, pf.kind)
+	}
+	if pf.version > jsonVersion {
+		return fmt.Errorf("sketch: unsupported document version %d (this build reads up to %d)", pf.version, jsonVersion)
 	}
 	if pf.version >= 2 && pf.kind == "" {
 		return fmt.Errorf("%w: a version %d document requires a \"kind\"", ErrWrongDocumentKind, pf.version)

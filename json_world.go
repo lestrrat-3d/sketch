@@ -1,12 +1,21 @@
 package sketch
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 
+	"github.com/lestrrat-3d/sketch/param"
 	"github.com/lestrrat-3d/sketch/space"
 )
+
+// jsonWorldVersion is the world document schema version. It is ahead of the
+// standalone-sketch jsonVersion (2): a world document carries top-level shared
+// parameters and parameter-driven plane offsets, which an older (v2) reader would
+// silently drop — so world documents are v3, and a v3 reader still migrates a v2
+// world (promoting identical per-sketch parameter tables to the shared table).
+const jsonWorldVersion = 3
 
 // Serialization errors.
 var (
@@ -62,16 +71,17 @@ func preflight(data []byte) (preflightDoc, error) {
 // fields relevant to Kind are populated. A derived ("offset") plane uses BaseID,
 // a plane-id reference that exists only inside a world document.
 type jsonPlane struct {
-	Kind   string      `json:"kind"`
-	Name   string      `json:"name,omitempty"`
-	Origin *[3]float64 `json:"origin,omitempty"`  // frame
-	U      *[3]float64 `json:"u,omitempty"`       // frame
-	V      *[3]float64 `json:"v,omitempty"`       // frame
-	A      *[3]float64 `json:"a,omitempty"`       // points
-	B      *[3]float64 `json:"b,omitempty"`       // points
-	C      *[3]float64 `json:"c,omitempty"`       // points
-	BaseID *int        `json:"base_id,omitempty"` // offset (world documents only)
-	Dist   float64     `json:"dist,omitempty"`    // offset
+	Kind     string      `json:"kind"`
+	Name     string      `json:"name,omitempty"`
+	Origin   *[3]float64 `json:"origin,omitempty"`    // frame
+	U        *[3]float64 `json:"u,omitempty"`         // frame
+	V        *[3]float64 `json:"v,omitempty"`         // frame
+	A        *[3]float64 `json:"a,omitempty"`         // points
+	B        *[3]float64 `json:"b,omitempty"`         // points
+	C        *[3]float64 `json:"c,omitempty"`         // points
+	BaseID   *int        `json:"base_id,omitempty"`   // offset (world documents only)
+	Dist     float64     `json:"dist,omitempty"`      // offset literal distance
+	DistExpr string      `json:"dist_expr,omitempty"` // offset: a parameter expression driving the distance
 }
 
 // plane definition kind strings.
@@ -113,6 +123,7 @@ func planeToJSON(p *Plane) (jsonPlane, error) {
 		bid := p.def.base.id
 		jp.BaseID = &bid
 		jp.Dist = p.def.dist
+		jp.DistExpr = p.def.distExpr
 	default:
 		return jsonPlane{}, fmt.Errorf("sketch: unknown plane definition kind %d", p.def.kind)
 	}
@@ -168,7 +179,7 @@ func planeDefFromJSON(jp jsonPlane, base func(int) (*Plane, error)) (planeDef, e
 		if err != nil {
 			return planeDef{}, err
 		}
-		return planeDef{kind: planeOffset, base: b, dist: jp.Dist}, nil
+		return planeDef{kind: planeOffset, base: b, dist: jp.Dist, distExpr: jp.DistExpr}, nil
 	}
 	return planeDef{}, fmt.Errorf("sketch: unknown plane kind %q", jp.Kind)
 }
@@ -197,16 +208,20 @@ type jsonWorldSketch struct {
 
 // jsonWorldDoc is the world document root.
 type jsonWorldDoc struct {
-	Kind     string            `json:"kind"`
-	Version  int               `json:"version"`
-	Planes   []jsonPlane       `json:"planes"`
-	Sketches []jsonWorldSketch `json:"sketches"`
+	Kind       string            `json:"kind"`
+	Version    int               `json:"version"`
+	Parameters *param.Table      `json:"parameters,omitempty"`
+	Planes     []jsonPlane       `json:"planes"`
+	Sketches   []jsonWorldSketch `json:"sketches"`
 }
 
 // MarshalJSON implements [json.Marshaler], producing a world document (kind
 // "world") with all planes and the sketches placed on them.
 func (w *World) MarshalJSON() ([]byte, error) {
-	doc := jsonWorldDoc{Kind: kindWorld, Version: jsonVersion}
+	doc := jsonWorldDoc{Kind: kindWorld, Version: jsonWorldVersion}
+	if w.params != nil && len(w.params.Names()) > 0 {
+		doc.Parameters = w.params
+	}
 	for _, p := range w.planes {
 		jp, err := planeToJSON(p)
 		if err != nil {
@@ -218,6 +233,12 @@ func (w *World) MarshalJSON() ([]byte, error) {
 		body, err := s.marshalBody()
 		if err != nil {
 			return nil, err
+		}
+		// The shared global parameter table is serialized once at the top level;
+		// a world sketch must not also serialize it (that would reintroduce split
+		// per-sketch tables on load).
+		if s.params == w.params {
+			body.Parameters = nil
 		}
 		pid := 0
 		if s.pl != nil {
@@ -237,11 +258,11 @@ func (w *World) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-	if pf.version > jsonVersion {
-		return fmt.Errorf("sketch: unsupported document version %d (this build reads up to %d)", pf.version, jsonVersion)
-	}
 	if pf.kind != kindWorld {
 		return fmt.Errorf("%w: want a world document, got %q", ErrWrongDocumentKind, pf.kind)
+	}
+	if pf.version > jsonWorldVersion {
+		return fmt.Errorf("sketch: unsupported document version %d (this build reads up to %d)", pf.version, jsonWorldVersion)
 	}
 
 	var doc jsonWorldDoc
@@ -270,6 +291,11 @@ func (w *World) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("sketch: world planes[0:3] must be the XY, XZ and YZ datums")
 	}
 
+	// The shared global parameter table: a v3 document carries it at the top level;
+	// a legacy (v2) world carried a table per sketch, migrated below.
+	w.params = doc.Parameters
+
+	var legacy []*param.Table
 	for _, jw := range doc.Sketches {
 		if jw.Plane == nil {
 			return ErrMissingPlane
@@ -282,7 +308,51 @@ func (w *World) UnmarshalJSON(data []byte) error {
 		if err := s.buildFromBody(jw.jsonSketchBody); err != nil {
 			return err
 		}
+		if s.params != nil && s.params != w.params {
+			legacy = append(legacy, s.params) // a legacy per-sketch table to migrate
+		}
 		w.sketches = append(w.sketches, s)
 	}
+
+	// Migrate legacy per-sketch tables: a v2 world predates the shared table, so
+	// promote them only if they agree; conflicting tables cannot be a single
+	// shared table and are rejected rather than silently merged.
+	if w.params == nil {
+		promoted, err := promoteLegacyTables(legacy)
+		if err != nil {
+			return err
+		}
+		w.params = promoted
+	}
+	if w.params == nil {
+		w.params = param.New()
+	}
+	for _, s := range w.sketches { // every sketch shares the one global table
+		s.params = w.params
+	}
 	return nil
+}
+
+// promoteLegacyTables collapses the per-sketch parameter tables of a legacy (v2)
+// world document into a single shared table. It returns nil when there are none,
+// the common table when they all agree (by serialized form), and an error when
+// two differ — a conflict no single shared table can represent.
+func promoteLegacyTables(tables []*param.Table) (*param.Table, error) {
+	if len(tables) == 0 {
+		return nil, nil
+	}
+	first, err := json.Marshal(tables[0])
+	if err != nil {
+		return nil, err
+	}
+	for _, t := range tables[1:] {
+		b, err := json.Marshal(t)
+		if err != nil {
+			return nil, err
+		}
+		if !bytes.Equal(first, b) {
+			return nil, fmt.Errorf("sketch: legacy world document has conflicting per-sketch parameter tables; cannot migrate to a shared global table")
+		}
+	}
+	return tables[0], nil
 }
