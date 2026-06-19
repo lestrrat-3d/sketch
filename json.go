@@ -252,6 +252,8 @@ func marshalConstraint(c Constraint) (jsonConstraint, bool) {
 		return jsonConstraint{Type: "equal_lines", Entities: []int{t.L1.id, t.L2.id}}, true
 	case *equalRadii:
 		return jsonConstraint{Type: "equal_radii", Entities: []int{t.C1.entID(), t.C2.entID()}}, true
+	case *equalLineArc:
+		return jsonConstraint{Type: "equal_line_arc", Entities: []int{t.L.id, t.A.id}}, true
 	case *tangentLineCircle:
 		return jsonConstraint{Type: "tangent_line_circle", Entities: []int{t.L.id, t.C.entID()}}, true
 	case *tangentCircles:
@@ -554,7 +556,7 @@ var constraintArity = map[string][2]int{
 	"tangent_ellipse_circle": {0, 2}, "tangent_ellipses": {0, 2},
 	"midpoint_of": {3, 0},
 	"symmetric":   {2, 1}, "symmetric_lines": {0, 3}, "symmetric_circles": {0, 3},
-	"concentric": {0, 2}, "equal_radii": {0, 2},
+	"concentric": {0, 2}, "equal_radii": {0, 2}, "equal_line_arc": {0, 2},
 	"tangent_line_circle": {0, 2}, "tangent_circles": {0, 2}, "tangent_ellipse": {0, 2},
 	"distance": {2, 0}, "hdistance": {2, 0}, "vdistance": {2, 0},
 	"distance_point_line": {1, 1}, "distance_lines": {0, 2}, "offset": {0, 2},
@@ -857,6 +859,20 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 			return fmt.Errorf("sketch: arc_length requires an arc, got %T", c)
 		}
 		dim(NewArcLength(arc, jc.Value))
+	case "equal_line_arc":
+		l, err := line(jc.Entities[0])
+		if err != nil {
+			return err
+		}
+		c, err := circular(jc.Entities[1])
+		if err != nil {
+			return err
+		}
+		arc, ok := c.(*Arc)
+		if !ok {
+			return fmt.Errorf("sketch: equal_line_arc requires an arc, got %T", c)
+		}
+		s.AddConstraint(NewEqualLineArc(l, arc))
 	default:
 		return fmt.Errorf("sketch: unknown constraint type %q", jc.Type)
 	}

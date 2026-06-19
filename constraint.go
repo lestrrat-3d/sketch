@@ -1784,6 +1784,30 @@ func (c *ArcLength) residual(out []float64) []float64 {
 	return append(out, r1)
 }
 
+// equalLineArc forces a line's length to equal an arc's swept length R·Sweep().
+// Arc.Sweep() is canonical in (0, 2π], so the single residual R·Sweep() − Length()
+// is sound: a line longer than the arc's full circumference (2πR) cannot be
+// matched and is correctly reported unsolvable. No unwrapped-sweep auxiliary
+// variable is used (unlike ArcLength's *driving* a target) — that would admit a
+// multi-turn theta satisfying the equation while the real swept length differs.
+// The only cost is a Jacobian discontinuity at the exact full-circle point, where
+// Sweep() steps 2π↔0⁺; that is a rare configuration. The arc must have a nonzero
+// radius, like NewArcLength.
+type equalLineArc struct {
+	L *Line
+	A *Arc
+}
+
+// NewEqualLineArc forces a line's length to equal an arc's swept length
+// (radius × counter-clockwise sweep angle). The arc must have a nonzero radius.
+func NewEqualLineArc(l *Line, a *Arc) Constraint {
+	return &equalLineArc{l, a}
+}
+
+func (c *equalLineArc) residual(out []float64) []float64 {
+	return append(out, c.A.R()*c.A.Sweep()-c.L.Length()) // length units
+}
+
 // Angle is an editable signed angle dimension between two lines, measured
 // counterclockwise from L1's start→end direction to L2's.
 type Angle struct {

@@ -93,11 +93,13 @@ The geometric set is already close to Fusion's. Remaining gaps:
   (endpoint-for-endpoint mirror) and `NewSymmetricCircles` (centers symmetric +
   equal radius). Arc symmetry is still open — a reflection reverses an arc's
   sweep, so it must swap and mirror the endpoints, not yet modelled.
-- **Equal for line↔arc mixed** — Fusion's "equal" across a line and an arc
-  equates line length to arc *length*. Now feasible by composing the arc-length
-  aux variable (`NewArcLength`) with a line's length — a small follow-up. Line-
-  line (length) and circle/arc-radius equality already exist
-  (`NewEqual`/`NewEqualRadius`).
+- ~~**Equal for line↔arc mixed**~~ — *closed*: `NewEqualLineArc` equates a line's
+  length to an arc's swept length `R·Sweep()`. A single length row, no auxiliary
+  variable: `Arc.Sweep()` is canonical in `(0,2π]`, so the residual is sound — a
+  line longer than the arc's full circumference cannot be matched and is correctly
+  unsolvable (an unwrapped-sweep aux variable would instead admit a multi-turn
+  value satisfying the equation while the real swept length differs). Line-line
+  (length) and circle/arc-radius equality already exist (`NewEqual`/`NewEqualRadius`).
 - ~~**Fix/ground a whole entity**~~ — *closed*: `Sketch.FixEntity`/`UnfixEntity`/
   `EntityFixed` ground all of an entity's variables (points + circle radius /
   ellipse axes); `UnfixEntity` leaves shared reference-locked points untouched.

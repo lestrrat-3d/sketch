@@ -259,6 +259,8 @@ func constraintRefs(c Constraint) ([]*Point, []Entity) {
 		return nil, []Entity{t.L1, t.L2}
 	case *equalRadii:
 		return nil, []Entity{t.C1, t.C2}
+	case *equalLineArc:
+		return nil, []Entity{t.L, t.A}
 	case *tangentLineCircle:
 		// The cached endpoint-tangency contact (shared) is a point this
 		// constraint reads, so it must be enumerated for the removal cascade and
