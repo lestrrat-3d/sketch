@@ -122,7 +122,12 @@ The geometric set is already close to Fusion's. Remaining gaps:
 - ~~**Distance point↔line**~~ — *closed*: `NewDistancePointLine`.
 - ~~**Distance line↔line**~~ — *closed*: `NewDistanceLines` (two
   residuals; forces parallelism, no separate parallel constraint needed).
-- **Distance to circle/arc tangent** (Fusion's dimension-to-tangent option).
+- ~~**Distance to circle (tangent-edge)**~~ — *closed (full circles)*:
+  `NewDistancePointCircle` (signed radial gap `|P−C|−r`, the sign choosing
+  inside/outside) and `NewDistanceLineCircle` (perpendicular center-to-line
+  distance minus radius, target 0 = tangency, the infinite-carrier-line
+  convention). Both are single length rows. Distance to an **arc** edge — whose
+  nearest point may be a sweep endpoint — is a follow-up.
 - ~~**Driven (reference) dimensions**~~ — *closed*:
   `Dimension.SetDriven(true)`; excluded from residuals, target refreshed to
   the measured value after every solve, `driven` flag serialized.

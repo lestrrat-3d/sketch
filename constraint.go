@@ -1568,6 +1568,57 @@ func NewDistancePointLine(p *Point, l *Line, d float64) *DistancePointLine {
 	return &DistancePointLine{dimBase: lengthDim(d), P: p, L: l}
 }
 
+// DistancePointCircle is an editable distance dimension between a point and a
+// circle's edge: the signed radial gap |P−C| − r, positive when the point is
+// outside the circle and negative inside. A target of 0 places the point on the
+// circle; the sign of the target chooses the side, so no separate side flag is
+// needed. (Arc edges, whose nearest point may be a sweep endpoint, are a
+// follow-up — this is the full circle.)
+type DistancePointCircle struct {
+	dimBase
+	P *Point
+	C *Circle
+}
+
+func (c *DistancePointCircle) residual(out []float64) []float64 {
+	return append(out, norm(c.P.x()-c.C.Center.x(), c.P.y()-c.C.Center.y())-c.C.r()-c.base())
+}
+
+// NewDistancePointCircle constrains the signed radial distance from a point to a
+// circle's edge (|P−center| − radius): positive outside, negative inside. The
+// value d is interpreted in the sketch's default length unit once added.
+func NewDistancePointCircle(p *Point, circle *Circle, d float64) *DistancePointCircle {
+	return &DistancePointCircle{dimBase: lengthDim(d), P: p, C: circle}
+}
+
+// DistanceLineCircle is an editable distance dimension between an (infinite) line
+// and a circle's edge: the tangent gap dist(center, line) − r. A target of 0
+// makes the line tangent to the circle; a positive target keeps the line that far
+// clear of the circle, a negative target lets it cut through. The line is treated
+// as its infinite carrier (like [NewDistancePointLine] / [NewTangent]); the
+// distance is unsigned in the perpendicular sense, so the circle stays on
+// whichever side of the line it starts. (Arc edges are a follow-up.)
+type DistanceLineCircle struct {
+	dimBase
+	L *Line
+	C *Circle
+}
+
+func (c *DistanceLineCircle) residual(out []float64) []float64 {
+	ax, ay := c.L.Start.x(), c.L.Start.y()
+	abx, aby := c.L.End.x()-ax, c.L.End.y()-ay
+	cross := abx*(c.C.Center.y()-ay) - aby*(c.C.Center.x()-ax)
+	return append(out, math.Abs(cross)/norm(abx, aby)-c.C.r()-c.base())
+}
+
+// NewDistanceLineCircle constrains the distance from a circle's edge to the
+// infinite line through l (perpendicular distance from the center to the line,
+// minus the radius). A target of 0 is tangency. The value d is interpreted in the
+// sketch's default length unit once added.
+func NewDistanceLineCircle(l *Line, circle *Circle, d float64) *DistanceLineCircle {
+	return &DistanceLineCircle{dimBase: lengthDim(d), L: l, C: circle}
+}
+
 // DistanceLines is an editable distance dimension between two lines. It
 // contributes two residuals — the distance from each endpoint of L2 to the
 // infinite line through L1 — so satisfying it forces the lines parallel at the

@@ -291,6 +291,10 @@ func constraintRefs(c Constraint) ([]*Point, []Entity) {
 		return []*Point{t.P1, t.P2}, nil
 	case *DistancePointLine:
 		return []*Point{t.P}, []Entity{t.L}
+	case *DistancePointCircle:
+		return []*Point{t.P}, []Entity{t.C}
+	case *DistanceLineCircle:
+		return nil, []Entity{t.L, t.C}
 	case *DistanceLines:
 		return nil, []Entity{t.L1, t.L2}
 	case *Offset:
