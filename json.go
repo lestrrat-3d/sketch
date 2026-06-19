@@ -249,6 +249,8 @@ func marshalConstraint(c Constraint) (jsonConstraint, bool) {
 		return jsonConstraint{Type: "symmetric_lines", Entities: []int{t.L1.id, t.L2.id, t.Axis.id}}, true
 	case *symmetricCircles:
 		return jsonConstraint{Type: "symmetric_circles", Entities: []int{t.C1.id, t.C2.id, t.Axis.id}}, true
+	case *symmetricArcs:
+		return jsonConstraint{Type: "symmetric_arcs", Entities: []int{t.A1.id, t.A2.id, t.Axis.id}}, true
 	case *equalLines:
 		return jsonConstraint{Type: "equal_lines", Entities: []int{t.L1.id, t.L2.id}}, true
 	case *equalRadii:
@@ -565,7 +567,8 @@ var constraintArity = map[string][2]int{
 	"tangent_ellipse_circle": {0, 2}, "tangent_ellipses": {0, 2},
 	"midpoint_of": {3, 0},
 	"symmetric":   {2, 1}, "symmetric_lines": {0, 3}, "symmetric_circles": {0, 3},
-	"concentric": {0, 2}, "equal_radii": {0, 2}, "equal_line_arc": {0, 2},
+	"symmetric_arcs": {0, 3},
+	"concentric":     {0, 2}, "equal_radii": {0, 2}, "equal_line_arc": {0, 2},
 	"tangent_line_circle": {0, 2}, "tangent_circles": {0, 2}, "tangent_ellipse": {0, 2},
 	"distance": {2, 0}, "hdistance": {2, 0}, "vdistance": {2, 0},
 	"distance_point_line": {1, 1}, "distance_lines": {0, 2}, "offset": {0, 2},
@@ -766,6 +769,28 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 			return err
 		}
 		s.AddConstraint(NewSymmetricCircles(c1, c2, axis))
+	case "symmetric_arcs":
+		c1, err := circular(jc.Entities[0])
+		if err != nil {
+			return err
+		}
+		a1, ok := c1.(*Arc)
+		if !ok {
+			return fmt.Errorf("sketch: symmetric_arcs requires an arc, got %T", c1)
+		}
+		c2, err := circular(jc.Entities[1])
+		if err != nil {
+			return err
+		}
+		a2, ok := c2.(*Arc)
+		if !ok {
+			return fmt.Errorf("sketch: symmetric_arcs requires an arc, got %T", c2)
+		}
+		axis, err := line(jc.Entities[2])
+		if err != nil {
+			return err
+		}
+		s.AddConstraint(NewSymmetricArcs(a1, a2, axis))
 	case "concentric":
 		c1, err := circular(jc.Entities[0])
 		if err != nil {

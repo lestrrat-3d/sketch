@@ -260,6 +260,8 @@ func constraintRefs(c Constraint) ([]*Point, []Entity) {
 		return nil, []Entity{t.L1, t.L2, t.Axis}
 	case *symmetricCircles:
 		return nil, []Entity{t.C1, t.C2, t.Axis}
+	case *symmetricArcs:
+		return nil, []Entity{t.A1, t.A2, t.Axis}
 	case *equalLines:
 		return nil, []Entity{t.L1, t.L2}
 	case *equalRadii:

@@ -1030,11 +1030,110 @@ func (c *symmetricCircles) residual(out []float64) []float64 {
 
 // NewSymmetricCircles forces two circles to be mirror images across the axis:
 // their centers are symmetric and their radii equal. The axis must be a
-// non-degenerate line. (Arc symmetry is a follow-up: a reflection reverses an
-// arc's sweep direction, so mirroring an arc must also swap and mirror its
-// endpoints — not yet modelled.)
+// non-degenerate line.
 func NewSymmetricCircles(c1, c2 *Circle, axis *Line) Constraint {
 	return &symmetricCircles{c1, c2, axis}
+}
+
+// symmetricArcs forces arc a2 to be the mirror image of arc a1 across the axis.
+// Reflection reverses orientation, so to keep a2 a valid CCW arc the endpoints
+// are SWAPPED: a2.Start mirrors a1.End and a2.End mirrors a1.Start (with the
+// centers mirrored straight across). See the residual for the row layout and why
+// the second endpoint is pinned via a radial line + branch slack rather than a
+// second full point-mirror.
+type symmetricArcs struct {
+	A1, A2 *Arc
+	Axis   *Line
+	s      *Sketch // set by allocVars, for slack access
+	slack  int     // branch slack var; -1 = unallocated
+}
+
+func (c *symmetricArcs) allocVars(s *Sketch) {
+	c.s = s
+	if c.slack >= 0 {
+		return // idempotent
+	}
+	c.slack = s.newVar(slackFor(c.branchCos()))
+}
+
+func (c *symmetricArcs) retireVars(s *Sketch) {
+	if c.slack >= 0 {
+		s.retireVar(c.slack)
+		c.slack = -1 // reset so re-adding the handle allocates a fresh slack
+	}
+}
+
+// mirror reflects (px,py) across the infinite axis line. A degenerate
+// (zero-length) axis is floored to keep the result finite (documented
+// precondition: the axis must be non-degenerate).
+func (c *symmetricArcs) mirror(px, py float64) (float64, float64) {
+	ax, ay := c.Axis.Start.x(), c.Axis.Start.y()
+	bx, by := c.Axis.End.x()-ax, c.Axis.End.y()-ay
+	n2 := bx*bx + by*by
+	if n2 < 1e-24 {
+		n2 = 1e-24
+	}
+	t := ((px-ax)*bx + (py-ay)*by) / n2
+	fx, fy := ax+t*bx, ay+t*by // foot of the perpendicular on the axis
+	return 2*fx - px, 2*fy - py
+}
+
+// branchVecs returns the a2 center→end vector d and the a2 center→T vector r,
+// where T = mirror(a1.Start). The remaining endpoint a2.End must coincide with T;
+// d and r are the inputs to the collinearity (row 5) and same-ray (row 6) rows.
+func (c *symmetricArcs) branchVecs() (float64, float64, float64, float64) {
+	tx, ty := c.mirror(c.A1.Start.x(), c.A1.Start.y())
+	cx, cy := c.A2.Center.x(), c.A2.Center.y()
+	return c.A2.End.x() - cx, c.A2.End.y() - cy, tx - cx, ty - cy
+}
+
+// branchCos returns the cosine between d and r — +1 when a2.End is on T's ray
+// (the wanted branch), −1 on the antipodal ray. Used to seed the branch slack.
+func (c *symmetricArcs) branchCos() float64 {
+	dx, dy, rx, ry := c.branchVecs()
+	return (dx*rx + dy*ry) / (norm(dx, dy) * norm(rx, ry))
+}
+
+func (c *symmetricArcs) residual(out []float64) []float64 {
+	// Rows 1-2: the centers mirror across the axis.
+	out = (&symmetric{c.A1.Center, c.A2.Center, c.Axis}).residual(out)
+	// Rows 3-4: one endpoint fully mirrored, swapped (reflection reverses sweep, so
+	// a2.Start is the mirror of a1.End).
+	out = (&symmetric{c.A1.End, c.A2.Start, c.Axis}).residual(out)
+	// Rows 5-6: the remaining endpoint a2.End must equal T = mirror(a1.Start). A
+	// second full point-mirror here would be 1-redundant with the two arcs'
+	// internal radius constraints (mirroring is an isometry, so a2's own radius is
+	// already implied) and would pollute the redundancy report. Instead pin a2.End
+	// onto the radial line through T from a2.Center — its distance comes from a2's
+	// arcRadius — and add a slack-encoded branch keeping it on T's ray, not the
+	// antipode.
+	dx, dy, rx, ry := c.branchVecs()
+	nr := norm(rx, ry)
+	out = append(out, (dx*ry-dy*rx)/nr) // row 5: collinear with T's ray (length)
+	if c.slack < 0 {
+		return out // pre-allocVars bare call (e.g. before commit)
+	}
+	w := c.s.vars[c.slack]
+	nd := norm(dx, dy)
+	out = append(out, (dx*rx+dy*ry)/(nd*nr)-w*w) // row 6: same ray, not antipode
+	return out
+}
+
+// NewSymmetricArcs forces arc a2 to be the mirror image of arc a1 across the
+// axis. Because a reflection reverses an arc's CCW sweep, the mirror swaps the
+// endpoints — a2.Start ends up at the mirror of a1.End and a2.End at the mirror
+// of a1.Start — so the mirrored arc sweeps the correct way and matches a1's
+// Sweep(). The axis must be a non-degenerate line, the arcs must have nonzero
+// radius, and a1 and a2 must be distinct arcs (self-symmetry is a different
+// relation). The radii need no explicit equality: it follows from the mirrored
+// centers and endpoints together with each arc's intrinsic radius constraint.
+//
+// Branch selection is local: a2.End is kept on the mirror's ray (not the
+// antipodal ray on the same circle) by a slack-encoded row whose gradient is flat
+// exactly at the antipode, so a2 seeded precisely on the antipodal configuration
+// may stall as unsolvable rather than flip. Seed a2 near its intended mirror.
+func NewSymmetricArcs(a1, a2 *Arc, axis *Line) Constraint {
+	return &symmetricArcs{A1: a1, A2: a2, Axis: axis, slack: -1}
 }
 
 // --- concentric -------------------------------------------------------------

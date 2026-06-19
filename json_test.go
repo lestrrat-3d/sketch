@@ -138,6 +138,21 @@ func TestJSONRoundTripAllConstraintKinds(t *testing.T) {
 			c2 := s.AddCircle(s.AddPoint(-3, 2), 4)
 			s.AddConstraint(sketch.NewSymmetricCircles(c1, c2, s.AddLine(axA, axB)))
 		}},
+		{"symmetricArcs", func(s *sketch.Sketch) {
+			axA := s.AddPoint(0, 0)
+			axB := s.AddPoint(1, 0)
+			s.Fix(axA)
+			s.Fix(axB)
+			c1 := s.AddPoint(2, 3)
+			st1 := s.AddPoint(3, 3)
+			en1 := s.AddPoint(2, 4)
+			s.Fix(c1)
+			s.Fix(st1)
+			s.Fix(en1)
+			a1 := s.AddArc(c1, st1, en1)
+			a2 := s.AddArc(s.AddPoint(2, -2.8), s.AddPoint(2.1, -3.9), s.AddPoint(2.9, -3.1))
+			s.AddConstraint(sketch.NewSymmetricArcs(a1, a2, s.AddLine(axA, axB)))
+		}},
 		{"concentric", func(s *sketch.Sketch) {
 			o1 := s.AddPoint(0, 0)
 			s.Fix(o1)
