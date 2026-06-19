@@ -183,6 +183,14 @@ func (s *Sketch) marshalBody() (jsonSketchBody, error) {
 				je.Points = append(je.Points, c.id)
 			}
 			body.Entities = append(body.Entities, je)
+		case *FitSpline:
+			// Distinct type: the points are FIT points (interpolated), not control
+			// points; the interpolant is recomputed on load, never serialized.
+			je := jsonEntity{Type: "fit_spline", Degree: 3, Construction: t.construction}
+			for _, c := range t.Fit {
+				je.Points = append(je.Points, c.id)
+			}
+			body.Entities = append(body.Entities, je)
 		}
 	}
 
@@ -517,6 +525,15 @@ func (s *Sketch) buildFromBody(body jsonSketchBody) error {
 				return fmt.Errorf("sketch: unsupported spline degree %d", je.Degree)
 			}
 			sp, err := s.AddClosedSpline(ps...) // validates the >= 3 count
+			if err != nil {
+				return err
+			}
+			sp.SetConstruction(je.Construction)
+		case "fit_spline":
+			if je.Degree != 0 && je.Degree != 3 {
+				return fmt.Errorf("sketch: unsupported spline degree %d", je.Degree)
+			}
+			sp, err := s.AddFitSpline(ps...) // validates the >= 2 count
 			if err != nil {
 				return err
 			}

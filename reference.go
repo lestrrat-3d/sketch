@@ -196,6 +196,8 @@ func isNilEntity(e Entity) bool {
 		return t == nil
 	case *ClosedSpline:
 		return t == nil
+	case *FitSpline:
+		return t == nil
 	}
 	return false
 }
@@ -218,6 +220,8 @@ func entityPoints(e Entity) []*Point {
 		return t.Control
 	case *ClosedSpline:
 		return t.Control
+	case *FitSpline:
+		return t.Fit
 	}
 	return nil
 }

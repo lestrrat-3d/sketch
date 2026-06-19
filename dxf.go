@@ -155,6 +155,19 @@ func (s *Sketch) DXF() (string, error) {
 				pairf(10, p[0])
 				pairf(20, p[1])
 			}
+		case *FitSpline:
+			// The fit spline's control points are a derived interpolation artifact,
+			// not clamped-uniform B-spline controls, so emit the sampled
+			// interpolating curve as an OPEN LWPOLYLINE rather than a native SPLINE.
+			pts := t.Polyline(64)
+			pair(0, "LWPOLYLINE")
+			pair(8, layer)
+			pair(90, fmt.Sprintf("%d", len(pts)))
+			pair(70, "0") // open
+			for _, p := range pts {
+				pairf(10, p[0])
+				pairf(20, p[1])
+			}
 		}
 	}
 

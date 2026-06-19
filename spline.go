@@ -168,3 +168,85 @@ func (s *Sketch) AddClosedSpline(control ...*Point) (*ClosedSpline, error) {
 	s.ents = append(s.ents, sp)
 	return sp, nil
 }
+
+// FitSpline is an open spline that INTERPOLATES its fit points: the curve passes
+// through every fit point. The fit points are ordinary sketch points and the
+// durable handles — the interpolating natural cubic is recomputed from their
+// current coordinates on every evaluation, so the curve keeps passing through them
+// as the solver moves them. It carries no extra unknowns and no internal
+// constraints.
+type FitSpline struct {
+	s            *Sketch
+	Fit          []*Point
+	id           int
+	construction bool
+	refState     // reference fit splines are a follow-up; stale derived from fit points
+}
+
+func (sp *FitSpline) entity()              {}
+func (sp *FitSpline) entID() int           { return sp.id }
+func (sp *FitSpline) IsConstruction() bool { return sp.construction }
+func (sp *FitSpline) SetConstruction(v bool) {
+	if !sp.reference {
+		sp.construction = v
+	}
+}
+
+// IsStale reports whether any fit point is stale (derived; reference fit splines
+// are not yet authorable).
+func (sp *FitSpline) IsStale() bool {
+	for _, p := range sp.Fit {
+		if p.IsStale() {
+			return true
+		}
+	}
+	return false
+}
+
+// Geometry returns a fresh [geom.FitSpline] snapshot over the fit spline's current
+// fit-point coordinates.
+func (sp *FitSpline) Geometry() *geom.FitSpline {
+	fit := make([]*geom.Point, len(sp.Fit))
+	for i, p := range sp.Fit {
+		fit[i] = p.Geometry()
+	}
+	return &geom.FitSpline{Fit: fit}
+}
+
+// Eval returns the interpolated curve point at parameter t ∈ [0, 1] (normalized
+// chord length), using the solved fit-point coordinates.
+func (sp *FitSpline) Eval(t float64) (float64, float64) {
+	return geom.EvalFitSpline(sp.fitCoords(), t)
+}
+
+// Polyline samples the solved interpolating curve at segments+1 evenly spaced
+// (in chord length) parameters.
+func (sp *FitSpline) Polyline(segments int) [][2]float64 {
+	return geom.SampleFitSpline(sp.fitCoords(), segments)
+}
+
+func (sp *FitSpline) fitCoords() [][2]float64 {
+	pts := make([][2]float64, len(sp.Fit))
+	for i, p := range sp.Fit {
+		pts[i] = [2]float64{p.x(), p.y()}
+	}
+	return pts
+}
+
+// AddFitSpline adds a fit-point (interpolating) cubic spline through the given fit
+// points and returns its handle. The curve passes through every fit point; share
+// fit points with other geometry to relate them. It returns [ErrInvalidShape] with
+// fewer than 2 fit points or a nil fit point.
+func (s *Sketch) AddFitSpline(fit ...*Point) (*FitSpline, error) {
+	if len(fit) < 2 {
+		return nil, fmt.Errorf("%w: AddFitSpline requires at least 2 fit points, got %d", ErrInvalidShape, len(fit))
+	}
+	for i, p := range fit {
+		if p == nil {
+			return nil, fmt.Errorf("%w: AddFitSpline fit point %d is nil", ErrInvalidShape, i)
+		}
+	}
+	sp := &FitSpline{s: s, Fit: append([]*Point(nil), fit...), id: len(s.ents)}
+	s.ents = append(s.ents, sp)
+	return sp, nil
+}

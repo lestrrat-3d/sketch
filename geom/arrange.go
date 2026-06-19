@@ -68,6 +68,9 @@ type source struct {
 	e0x, e0y, e1x, e1y float64
 	// spline: control-point coordinates for Cox–de Boor evaluation.
 	ctrl [][2]float64
+	// fit-point spline: a prebuilt natural-cubic interpolant (the tridiagonal
+	// solve runs once when the source is created, then is reused per sample).
+	fitEval *fitEvaluator
 }
 
 type srcKind int
@@ -80,6 +83,7 @@ const (
 	srcEllipticalArc // an ellipse restricted to an eccentric-angle sweep
 	srcSpline        // a clamped cubic B-spline (open; may self-cross)
 	srcClosedSpline  // a periodic cubic B-spline (closed loop; may self-cross)
+	srcFitSpline     // a natural-cubic interpolating spline (open; may self-cross)
 	srcDegenerate    // unsupported / nil input; contributes no geometry
 )
 
@@ -102,6 +106,8 @@ func (s *source) at(t float64) [2]float64 {
 	case srcClosedSpline:
 		x, y := EvalPeriodicCubicBSpline(s.ctrl, t)
 		return [2]float64{x, y}
+	case srcFitSpline:
+		return s.fitEval.at(t)
 	default: // ellipse
 		return s.ellipsePoint(2 * math.Pi * t)
 	}
@@ -298,6 +304,20 @@ func newArranger(curves []Curve, closed []ClosedCurve, cfg arrangeConfig) *arran
 			}
 			s.kind = srcSpline
 			s.ctrl = cc
+		case *FitSpline:
+			coords, ok := fitSplineCoords(t)
+			if !ok {
+				a.flagDegenerate(0, 0)
+				s.kind = srcDegenerate
+				break
+			}
+			if splineExtent(coords) < 1e-9 { // all-coincident fit points: a point
+				a.flagDegenerate(coords[0][0], coords[0][1])
+				s.kind = srcDegenerate
+				break
+			}
+			s.kind = srcFitSpline
+			s.fitEval = newFitEvaluator(coords)
 		default:
 			a.flagDegenerate(0, 0) // unknown Curve implementation
 			s.kind = srcDegenerate
@@ -382,9 +402,31 @@ func safeEndpoints(c Curve) (*Point, *Point, bool) {
 			return nil, nil, false
 		}
 		return t.Control[0], t.Control[len(t.Control)-1], true
+	case *FitSpline:
+		if _, ok := fitSplineCoords(t); !ok {
+			return nil, nil, false
+		}
+		return t.Fit[0], t.Fit[len(t.Fit)-1], true
 	default:
 		return nil, nil, false
 	}
+}
+
+// fitSplineCoords validates a fit-point spline's points and returns their
+// coordinates. ok is false for a typed-nil spline, fewer than two fit points, or
+// any nil fit point.
+func fitSplineCoords(sp *FitSpline) ([][2]float64, bool) {
+	if sp == nil || len(sp.Fit) < 2 {
+		return nil, false
+	}
+	cc := make([][2]float64, len(sp.Fit))
+	for i, p := range sp.Fit {
+		if p == nil {
+			return nil, false
+		}
+		cc[i] = [2]float64{p.X, p.Y}
+	}
+	return cc, true
 }
 
 // splineControlCoords validates a spline's control points and returns their
@@ -503,15 +545,18 @@ func (a *arranger) sampleParams(s *source) []float64 {
 	switch s.kind {
 	case srcLine:
 		return []float64{0, 1}
-	case srcSpline, srcClosedSpline:
+	case srcSpline, srcClosedSpline, srcFitSpline:
 		// No analytic crossings: sample densely enough that the polyline tracks
-		// the curve and a self-crossing is captured. Scale with control count;
+		// the curve and a self-crossing is captured. Scale with control/fit count;
 		// an explicit WithSegmentsPerTurn can only raise it. A closed spline
 		// closes because at(1) == at(0) (the last sample equals the first).
 		var n int
-		if s.kind == srcClosedSpline {
+		switch s.kind {
+		case srcClosedSpline:
 			n = 16 * len(s.ctrl)
-		} else {
+		case srcFitSpline:
+			n = 16 * len(s.fitEval.x) // active (deduplicated) fit-point count
+		default:
 			n = 16 * (len(s.ctrl) - 3)
 		}
 		if n < 64 {
@@ -566,7 +611,7 @@ func (a *arranger) intersect() {
 				// subdivision vertex. The closure seam (first meets last segment) is
 				// handled by the param-{0,1} check in the endpoint-meeting branch.
 				k := a.sources[si.src].kind
-				if (k != srcSpline && k != srcClosedSpline) || j == i+1 {
+				if (k != srcSpline && k != srcClosedSpline && k != srcFitSpline) || j == i+1 {
 					continue
 				}
 				sameSpline = true
@@ -942,7 +987,7 @@ func (a *arranger) makeCycle(hs []int) cycle {
 			bulge += chordArcCorrection(s.r, (f.pEnd-f.pStart)*s.sweep)
 		case srcCircle:
 			bulge += chordArcCorrection(s.r, (f.pEnd-f.pStart)*2*math.Pi)
-		case srcEllipse, srcEllipticalArc, srcSpline, srcClosedSpline:
+		case srcEllipse, srcEllipticalArc, srcSpline, srcClosedSpline, srcFitSpline:
 			bulge += signedPolyArea(f.dense)
 		}
 	}

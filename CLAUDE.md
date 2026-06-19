@@ -96,7 +96,8 @@ replacement from sketch points and retire the originals with `RemoveEntity`.
 It also holds the **planar-arrangement / region engine** (`region.go`,
 `arrange.go`, `area.go`): `geom.Regions(curves, closed)` builds a polyline-
 approximated planar arrangement of lines/arcs/circles/ellipses/elliptical-arcs/
-splines/closed-splines, splitting at bare crossings, and returns the bounded
+splines/closed-splines/fit-splines, splitting at bare crossings, and returns the
+bounded
 `Region`s (each an
 outer boundary loop +
 holes, with a net `Area` and source-curve `BoundaryEdge` back-references) plus
@@ -400,6 +401,15 @@ These are unsettled. If you resolve one, record the decision here.
   own (a sealed `geom.ClosedCurve`, not a `Curve`), with periodic-ring
   self-crossing detection and `closed_spline` serialization. Point-on/tangent
   constraints on a closed spline are a deferred follow-up (periodic witness).
+  **Fit-point (interpolating) splines** are in as a separate `FitSpline` entity
+  (`AddFitSpline`, ≥2 fit points) whose curve passes *through* the fit points: the
+  fit points are the durable solver handles and a natural-cubic interpolant
+  (chord-length parameterization, Thomas tridiagonal solve in
+  `geom.EvalFitSpline`/`SampleFitSpline`) is recomputed from their current
+  coordinates per evaluation, so the curve keeps interpolating them as the solver
+  moves them — no new solver vars. An open `Curve` (endpoints = first/last fit
+  point) participating in profiles like the open spline, `fit_spline` serialization.
+  Point-on/tangent constraints on it are a deferred follow-up.
   Ellipses are in
   (center point + rx/ry/rotation vars; `NewPointOnEllipse` uses a
   Sampson-normalized residual — |F|/|∇F| — to stay in length units).

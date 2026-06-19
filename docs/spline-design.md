@@ -189,10 +189,38 @@ than misloading it as open); exported as a sampled path (SVG/PNG) and a closed
 `LWPOLYLINE` (DXF). Point-on / tangent constraints on a closed spline are a deferred
 follow-up (they need periodic-witness handling, not the clamped `t∈[0,1]` box).
 
+## Fit-point (interpolating) splines
+
+`FitSpline` (`AddFitSpline`, ≥2 fit points) is a separate entity whose curve passes
+*through* its fit points, unlike the control-point `Spline` whose polygon only
+approximates. The load-bearing decision is that the **fit points are the durable
+solver handles** (ordinary sketch points), and the interpolating curve is recomputed
+from their current coordinates on every evaluation — so the curve keeps interpolating
+them even after the solver moves them, with no new solver vars and no internal
+constraints. (Deriving control points once at build time was rejected: the solver
+would then move the *controls*, and the interpolation invariant would drift.)
+
+The interpolation is a **natural cubic spline** (zero second derivative at the ends —
+no hidden tangent inputs, and two points evaluate as a straight line) with
+**chord-length parameterization** (avoids overshoot on unevenly spaced points). The
+per-coordinate second derivatives come from a tridiagonal **Thomas** solve
+(`geom.EvalFitSpline` one-off; `SampleFitSpline` / the arrangement build one
+`fitEvaluator` and reuse it across samples, so the solve runs once, not per sample).
+Consecutive coincident fit points are collapsed (a zero-length chord has no
+parameter); an all-coincident set is degenerate. It is an open `geom.Curve`
+(endpoints = first/last fit point, which it passes through exactly), so it slots into
+the open-spline arrangement path — sampled area, same-source self-crossing — and the
+fit points join adjacent geometry by shared-`*Point` identity. Serialized as a
+distinct `"fit_spline"` type; exported as a sampled path (SVG/PNG) and an open
+`LWPOLYLINE` (DXF — the derived controls are not clamped-uniform, so no native
+`SPLINE`). Point-on / tangent constraints on a fit spline are a deferred follow-up
+(the interpolation solve and chord parameters shift as the solver moves the fit
+points — real solver work, not just an overload).
+
 ## Out of scope (recorded)
 
-- Fit-point splines (build-time convenience layer).
-- Point-on / tangent constraints on a *closed* spline (periodic witness; deferred).
+- Point-on / tangent constraints on a *closed* or *fit-point* spline (deferred).
+- Not-a-knot / clamped-tangent fit-spline end conditions (natural is the v1 default).
 - Custom knots, weights (NURBS).
 - Splitting/trim of splines.
 

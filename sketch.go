@@ -147,6 +147,8 @@ func (s *Sketch) localPolyline(e Entity) ([][2]float64, error) {
 		return t.Polyline(worldPolylineSegments), nil
 	case *ClosedSpline:
 		return t.Polyline(worldPolylineSegments), nil
+	case *FitSpline:
+		return t.Polyline(worldPolylineSegments), nil
 	}
 	return nil, fmt.Errorf("sketch: entity type %T cannot be sampled", e)
 }
@@ -301,6 +303,8 @@ func (s *Sketch) entityPoints(e Entity) []*Point {
 		return t.Control
 	case *ClosedSpline:
 		return t.Control
+	case *FitSpline:
+		return t.Fit
 	}
 	return nil
 }

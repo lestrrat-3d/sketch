@@ -118,6 +118,18 @@ func (s *Sketch) buildProfiles() ([]*Profile, bool, [][2]float64) {
 			}
 			curves = append(curves, &geom.Spline{Control: ctrl})
 			openEnts = append(openEnts, t)
+		case *FitSpline:
+			// An interpolating spline passes through its fit points (its endpoints
+			// are the first/last fit point), so it is an open Curve; build over the
+			// shared geom.Point map so those join adjacent geometry by identity.
+			fit := make([]*geom.Point, len(t.Fit))
+			for i, fp := range t.Fit {
+				if fp != nil {
+					fit[i] = pt(fp)
+				}
+			}
+			curves = append(curves, &geom.FitSpline{Fit: fit})
+			openEnts = append(openEnts, t)
 		case *Circle:
 			closed = append(closed, t.Geometry())
 			closedEnts = append(closedEnts, t)
