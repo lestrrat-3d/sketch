@@ -102,6 +102,95 @@ func TestArcLengthDOFNeutral(t *testing.T) {
 	require.Equal(t, 1, s.DOF(), "removal restores the DOF (aux var retired)")
 }
 
+func TestArcLengthDriven(t *testing.T) {
+	// A driven (reference) arc-length measures the swept length R·Sweep() of a
+	// fully determined quarter arc: R=4, sweep π/2, so length = 2π.
+	s := sketch.New()
+	c := s.AddPoint(0, 0)
+	start := s.AddPoint(4, 0)
+	end := s.AddPoint(0, 4)
+	s.Fix(c)
+	s.Fix(start)
+	s.Fix(end)
+	arc := s.AddArc(c, start, end)
+	dim := sketch.NewArcLength(arc, 0) // initial target irrelevant for a driven dim
+	dim.SetDriven(true)
+	s.AddConstraint(dim)
+
+	_, err := s.Solve()
+	require.NoError(t, err)
+	require.True(t, dim.Driven())
+	require.InDelta(t, 2*math.Pi, dim.Target().Mag(), 1e-6, "measures R·Sweep()")
+}
+
+func TestArcLengthDrivenDOFNeutralAndToggle(t *testing.T) {
+	s := sketch.New()
+	c := s.AddPoint(0, 0)
+	start := s.AddPoint(4, 0)
+	s.Fix(c)
+	s.Fix(start)
+	end := s.AddPoint(0, 4)
+	arc := s.AddArc(c, start, end)
+	require.Equal(t, 1, s.DOF(), "the free end has one angular DOF")
+
+	dim := sketch.NewArcLength(arc, 3*math.Pi)
+	s.AddConstraint(dim)
+	require.Equal(t, 0, s.DOF(), "driving removes one DOF")
+
+	dim.SetDriven(true)
+	require.Equal(t, 1, s.DOF(), "driven measures only — the aux var is retired, DOF restored")
+
+	dim.SetDriven(false)
+	require.Equal(t, 0, s.DOF(), "back to driving — the aux var is re-allocated")
+}
+
+func TestArcLengthSetDrivenBeforeCommitNoOrphan(t *testing.T) {
+	// CheckConstraint probes a candidate by temporarily allocating its aux vars
+	// (setting c.s) and rolling back. A subsequent SetDriven on that still-
+	// uncommitted dimension must NOT mutate the sketch's variables — membership,
+	// not c.s != nil, is the committed test — or it leaks an orphan free DOF.
+	s := sketch.New()
+	c := s.AddPoint(0, 0)
+	start := s.AddPoint(4, 0)
+	s.Fix(c)
+	s.Fix(start)
+	arc := s.AddArc(c, start, s.AddPoint(0, 4))
+	require.Equal(t, 1, s.DOF())
+
+	dim := sketch.NewArcLength(arc, 3*math.Pi)
+	require.NoError(t, s.CheckConstraint(dim)) // sets dim.s via temporary allocVars
+	dim.SetDriven(true)                        // uncommitted: record only
+	dim.SetDriven(false)                       // uncommitted: must not allocate an aux var
+	require.Equal(t, 1, s.DOF(), "an uncommitted toggle must not change the sketch")
+}
+
+func TestArcLengthDrivenRoundTrip(t *testing.T) {
+	s := sketch.New()
+	c := s.AddPoint(0, 0)
+	start := s.AddPoint(4, 0)
+	end := s.AddPoint(0, 4)
+	s.Fix(c)
+	s.Fix(start)
+	s.Fix(end)
+	arc := s.AddArc(c, start, end)
+	dim := sketch.NewArcLength(arc, 0)
+	dim.SetDriven(true)
+	s.AddConstraint(dim)
+	_, err := s.Solve()
+	require.NoError(t, err)
+
+	data, err := json.Marshal(s)
+	require.NoError(t, err)
+	var s2 sketch.Sketch
+	require.NoError(t, json.Unmarshal(data, &s2))
+	d2, ok := s2.Constraints()[len(s2.Constraints())-1].(*sketch.ArcLength)
+	require.True(t, ok, "the reloaded constraint is an ArcLength")
+	require.True(t, d2.Driven(), "driven flag survives the round-trip")
+	_, err = s2.Solve()
+	require.NoError(t, err)
+	require.InDelta(t, 2*math.Pi, d2.Target().Mag(), 1e-6, "measured value after reload")
+}
+
 func TestArcLengthRoundTrip(t *testing.T) {
 	s := sketch.New()
 	c := s.AddPoint(0, 0)

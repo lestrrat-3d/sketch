@@ -112,8 +112,11 @@ The geometric set is already close to Fusion's. Remaining gaps:
   `R·theta = L`, pinned to the geometry by a branch-selecting wrapped-angle
   coupling row — `(Δ − theta)` wrapped into `(−π, π]`, dimensionless, like the
   Angle dimension — reusing the tangency sweep slack's `allocVars`/`retireVars`
-  lifecycle. Drive-only in v1 (a driven dimension contributes no residual, which
-  would orphan the aux var); driven/reference arc-length is a follow-up.
+  lifecycle. **Driven (reference) arc-length** is in too (`ArcLength.SetDriven`):
+  a driven dimension contributes no residual, so it owns no aux variable — the
+  measured `R·Sweep()` is read straight from the pre-allocation residual branch by
+  `refreshDriven`, and toggling driven retires / re-allocates the unwrapped-sweep
+  variable so it is never an orphaned free DOF.
 - ~~**Distance point↔line**~~ — *closed*: `NewDistancePointLine`.
 - ~~**Distance line↔line**~~ — *closed*: `NewDistanceLines` (two
   residuals; forces parallelism, no separate parallel constraint needed).

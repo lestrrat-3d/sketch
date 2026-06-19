@@ -1673,10 +1673,12 @@ func NewDiameter(c Circular, d float64) *Diameter {
 // variable — the *unwrapped* sweep angle theta — driving R·theta = L and pinning
 // theta to the geometry with a continuous coupling row (see allocVars/residual).
 //
-// ArcLength is drive-only: it always drives and cannot be made a driven
-// (reference/measuring) dimension, because a driven dimension contributes no
-// residual rows, which would leave its auxiliary variable unconstrained. A
-// driven arc-length dimension is a follow-up.
+// ArcLength can be a driving or a driven (reference/measuring) dimension. A
+// driven dimension contributes no residual rows, so it owns no unwrapped-sweep
+// auxiliary variable (one would be left unconstrained); the measured length is
+// recovered directly as R·Sweep() through the pre-allocation residual branch that
+// refreshDriven reads. [ArcLength.SetDriven] manages that aux variable's lifecycle
+// across a toggle.
 type ArcLength struct {
 	dimBase
 	A     *Arc
@@ -1694,8 +1696,8 @@ func NewArcLength(a *Arc, length float64) *ArcLength {
 
 func (c *ArcLength) allocVars(s *Sketch) {
 	c.s = s
-	if c.theta >= 0 {
-		return // idempotent: re-adding the handle must not leak a second aux var
+	if c.driven || c.theta >= 0 {
+		return // driven: no residual rows, so no aux var. Else idempotent.
 	}
 	c.theta = s.newVar(c.A.Sweep()) // seed to the current (solved) sweep
 }
@@ -1707,13 +1709,43 @@ func (c *ArcLength) retireVars(s *Sketch) {
 	}
 }
 
-// Driven reports false always: arc-length is drive-only (see the type doc).
-func (c *ArcLength) Driven() bool { return false }
+// SetDriven toggles reference (driven) mode and keeps the unwrapped-sweep aux
+// variable consistent: a driven dimension contributes no residual rows, so its
+// theta would be an unconstrained free DOF — switching to driven retires it, and
+// switching back to driving re-allocates it. Until the dimension is actually
+// committed (registered in the sketch) it only records the flag; allocVars then
+// honors it. Membership — not merely c.s != nil — is the committed test, because
+// CheckConstraint sets c.s via a temporary allocVars without registering the
+// dimension; mutating s.vars there would leak an orphan variable.
+func (c *ArcLength) SetDriven(v bool) {
+	if v == c.driven {
+		return
+	}
+	c.driven = v
+	if !c.committed() {
+		return
+	}
+	if v {
+		c.retireVars(c.s)
+	} else if c.theta < 0 {
+		c.theta = c.s.newVar(c.A.Sweep())
+	}
+}
 
-// SetDriven is a no-op: arc-length cannot be a driven dimension (see the type
-// doc). It overrides the embedded dimBase so a deserialized driven flag cannot
-// silently orphan the auxiliary variable.
-func (c *ArcLength) SetDriven(bool) {}
+// committed reports whether this dimension is registered in its sketch (as
+// opposed to merely having had c.s set by a CheckConstraint probe's temporary
+// allocVars).
+func (c *ArcLength) committed() bool {
+	if c.s == nil {
+		return false
+	}
+	for _, cc := range c.s.cons {
+		if cc == c {
+			return true
+		}
+	}
+	return false
+}
 
 func (c *ArcLength) residual(out []float64) []float64 {
 	cx, cy := c.A.Center.x(), c.A.Center.y()
@@ -1721,8 +1753,10 @@ func (c *ArcLength) residual(out []float64) []float64 {
 	ex, ey := c.A.End.x()-cx, c.A.End.y()-cy
 	r := norm(sx0, sy0)
 	if c.theta < 0 {
-		// Bare residual call before allocVars (CheckConstraint allocates first, so
-		// it does not reach here): the base row only, no unwrapped-sweep var yet.
+		// No unwrapped-sweep var: either a driven (reference) dimension — where this
+		// single measured−target row is what refreshDriven reads (residuals() skips
+		// driven dims, so it never enters the solve) — or a bare residual call before
+		// allocVars. Sweep()'s wrap discontinuity is harmless for a pure measurement.
 		return append(out, r*c.A.Sweep()-c.base())
 	}
 	theta := c.s.vars[c.theta]
