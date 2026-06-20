@@ -978,16 +978,22 @@ func (a *arranger) makeCycle(hs []int) cycle {
 		})
 		c.dense = append(c.dense, f.dense[:len(f.dense)-1]...)
 		chord = append(chord, f.dense[0])
-		// Area between this fragment's true curve and its chord. Arc/circle use
-		// the exact circular-segment formula (sampling-independent); ellipse uses
-		// the sampled bulge (the signed area between the dense polyline and the
-		// chord that closes it); a line is its own chord (zero bulge).
+		// Area between this fragment's true curve and its chord. Arc/circle and
+		// ellipse/elliptical-arc use an exact closed-form segment correction
+		// (sampling-independent); a spline has no closed form, so its bulge is the
+		// sampled signed area between the dense polyline and the chord that closes
+		// it; a line is its own chord (zero bulge). The eccentric-angle span of a
+		// fragment is its natural-param fraction times the source's full sweep.
 		switch s.kind {
 		case srcArc:
 			bulge += chordArcCorrection(s.r, (f.pEnd-f.pStart)*s.sweep)
 		case srcCircle:
 			bulge += chordArcCorrection(s.r, (f.pEnd-f.pStart)*2*math.Pi)
-		case srcEllipse, srcEllipticalArc, srcSpline, srcClosedSpline, srcFitSpline:
+		case srcEllipse:
+			bulge += chordEllipseCorrection(s.rx, s.ry, (f.pEnd-f.pStart)*2*math.Pi)
+		case srcEllipticalArc:
+			bulge += chordEllipseCorrection(s.rx, s.ry, (f.pEnd-f.pStart)*s.sweep)
+		case srcSpline, srcClosedSpline, srcFitSpline:
 			bulge += signedPolyArea(f.dense)
 		}
 	}
@@ -1001,6 +1007,19 @@ func (a *arranger) makeCycle(hs []int) cycle {
 // directed chord and adds positive area.
 func chordArcCorrection(r, theta float64) float64 {
 	return 0.5 * r * r * (theta - math.Sin(theta))
+}
+
+// chordEllipseCorrection returns the exact signed area between an elliptical
+// arc's chord and the arc, for a fragment spanning eccentric angle dphi on an
+// ellipse with semi-axes rx, ry. In the ellipse's local frame the arc is
+// (rx·cosφ, ry·sinφ): the radius sweeps sector area ½·rx·ry·dphi and the chord
+// cuts off triangle ½·rx·ry·sin(dphi), so the segment is ½·rx·ry·(dphi −
+// sin(dphi)) — the elliptical analog of [chordArcCorrection] (r² → rx·ry). It is
+// independent of the ellipse's centre and rotation (area is invariant under
+// translation and rotation), so it is exact, not sampled. The sign follows the
+// walk via the signed dphi, exactly like the circular case.
+func chordEllipseCorrection(rx, ry, dphi float64) float64 {
+	return 0.5 * rx * ry * (dphi - math.Sin(dphi))
 }
 
 func approx(a, b, eps float64) bool { return math.Abs(a-b) <= eps }

@@ -106,8 +106,10 @@ every shared vertex degree 2 — judged on the pruned core, so a branched/
 subdivided wire is *not* flagged; a spline is the one source whose *own* polyline
 is tested for self-crossings, since a cubic can loop) and `Degenerate`
 (collinear-overlap or near-tangent uncertainty). Region area is exact for
-line/arc/circle (shoelace + exact circular-segment correction), sampled for
-ellipses and splines. `Sketch.Profiles()` is its consumer.
+line/arc/circle (shoelace + exact circular-segment correction) and for
+ellipse/elliptical-arc (`chordEllipseCorrection` = ½·rx·ry·(Δφ − sin Δφ), the
+elliptical analog, rotation/translation-invariant), and sampled only for splines
+(no closed form). `Sketch.Profiles()` is its consumer.
 
 ### The `space` package (slated for extraction)
 
@@ -435,7 +437,7 @@ These are unsettled. If you resolve one, record the decision here.
   Sampson-normalized residual — |F|/|∇F| — to stay in length units).
   **Elliptical arcs** are in as a geometry primitive (`AddEllipticalArc`:
   center + start/end points + rx/ry/rotation vars, two internal on-ellipse
-  constraints pinning the endpoints, eccentric-angle sweep, sampled-bulge area
+  constraints pinning the endpoints, eccentric-angle sweep, exact-segment area
   in the arrangement). Its shape is dimensionable via the sealed `Elliptical`
   interface (`NewSemiMajor`/`NewSemiMinor`/`NewEllipseRotation` accept a
   `*Ellipse` or an `*EllipticalArc`). A point can be confined to an elliptical
