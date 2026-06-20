@@ -75,9 +75,27 @@ type VerificationReport struct {
 	// NOT a unit-invariant conditioning measure: the raw pivots scale with geometry
 	// (e.g. angle-constraint derivatives grow with line length), so it is not
 	// comparable across sketches of different scale and must NOT be thresholded as
-	// a pass/fail gate — it does not gate [VerificationReport.Trustworthy]. A
-	// scale-invariant (dimensionally-normalized) conditioning gate is a follow-up.
+	// a pass/fail gate — it does not gate [VerificationReport.Trustworthy].
 	RankMargin float64
+	// Conditioning is the SCALE- AND UNIT-INVARIANT near-singularity measure that
+	// DOES gate [VerificationReport.Trustworthy]: the reciprocal condition number
+	// σ_min/σ_max of the nondimensionalized constraint Jacobian (A = Drow·J·Dcol,
+	// length rows/cols scaled by the bounding-box diagonal so every entry is
+	// dimensionless). Unlike RankMargin it is comparable across sketches of any
+	// scale or unit. A small value means the DOF-0 verdict is decided by a
+	// near-dependent constraint set (e.g. a point pinned by two nearly-parallel
+	// lines, or a tangency at a near-degenerate contact) and is too fragile to
+	// bless; below the trust threshold it fails the gate. That threshold is
+	// tolerance-derived — max(1e-6, 4·√tolerance) — so a slack-encoded inequality
+	// resting at its active boundary (where the slack only resolves to ≈√tolerance)
+	// cannot slip a near-singular system through. It is computed only for an
+	// otherwise fully-constrained candidate (DOF 0); an under-constrained sketch is
+	// genuinely singular by its free DOF — a separate, already-reported verdict —
+	// so Conditioning is left +Inf (not applicable) there.
+	Conditioning float64
+	// condGate is the tolerance-derived threshold Conditioning was gated against
+	// (see [conditioningGate]); read by Trustworthy.
+	condGate float64
 	// Status is the single-value severity summary (see [Status]).
 	Status Status
 	// Redundant lists constraints that contribute a dependent but satisfied
@@ -144,12 +162,15 @@ type VerificationReport struct {
 // Trustworthy reports the canonical oracle verdict: the sketch is solvable, fully
 // constrained, free of conflicting and redundant constraints, has no stale or
 // broken reference geometry, no foreign handles, every detected region is a
-// valid profile, every parameter expression is unit-kind-consistent, and — if the
+// valid profile, every parameter expression is unit-kind-consistent, its
+// constraint system is not numerically near-singular (the scale-invariant
+// [VerificationReport.Conditioning] is at or above its threshold), and — if the
 // ambiguity probe ran — is not ambiguous. It is the single check an agent should
-// gate on; a stale, broken-reference, or self-intersecting sketch never reads as a
-// clean pass through it, even when [VerificationReport.Status] is
+// gate on; a stale, broken-reference, self-intersecting, or near-singular sketch
+// never reads as a clean pass through it, even when [VerificationReport.Status] is
 // [FullyConstrained]. (The advisory [VerificationReport.RankMargin] is reported
-// separately; being scale-dependent, it does not gate this verdict.)
+// separately; being scale-dependent, it does not gate this verdict — Conditioning
+// is the unit-invariant gating measure.)
 func (r *VerificationReport) Trustworthy() bool {
 	return r.Solvable &&
 		r.Status == FullyConstrained &&
@@ -160,6 +181,7 @@ func (r *VerificationReport) Trustworthy() bool {
 		!r.ForeignHandles &&
 		r.ProfilesValid &&
 		r.ParametersValid &&
+		r.Conditioning >= r.condGate &&
 		(r.Probe == nil || !r.Probe.Ambiguous())
 }
 
@@ -213,7 +235,7 @@ func (s *Sketch) Verify(options ...VerifyOption) *VerificationReport {
 		}
 	}
 
-	rep := &VerificationReport{}
+	rep := &VerificationReport{Conditioning: math.Inf(1), condGate: conditioningGate(tolerance)}
 
 	// Reference integrity + reachability first: it is nil-safe, and a nil/corrupt
 	// or foreign operand would otherwise panic the residual/profile/staleness
@@ -231,6 +253,12 @@ func (s *Sketch) Verify(options ...VerifyOption) *VerificationReport {
 
 	rep.DOF = s.DOF()
 	rep.RankMargin = s.rankMargin() // advisory; does not gate Trustworthy (scale-dependent)
+	// The conditioning measure is meaningful only for a DOF-0 candidate: an
+	// under-constrained sketch is genuinely singular by its free DOF (a separate
+	// verdict), so leave Conditioning at +Inf (not applicable) there.
+	if rep.DOF == 0 {
+		rep.Conditioning = s.conditioning()
+	}
 
 	flagged, conflicts := s.conflictAnalysis()
 	rep.Conflicts = conflicts
