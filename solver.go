@@ -404,6 +404,41 @@ func (s *Sketch) jacobian(free []int, m int, eval func([]float64) []float64) [][
 	return J
 }
 
+// rankEps is the pivot magnitude below which a Jacobian column is treated as
+// rank-deficient. The hard rank/DOF verdict turns on this threshold, so how close
+// the deciding pivots sit to it is the rank-margin trust signal (rankAnalysis).
+const rankEps = 1e-9
+
+// rankAnalysis holds a rank estimate plus the pivot magnitudes that decided it —
+// the smallest pivot accepted as rank-bearing and the largest column pivot
+// rejected as below the threshold. These bound how fragile the rank/DOF verdict
+// is to perturbation (see rankAnalysis.margin).
+type rankAnalysis struct {
+	rank             int
+	minAcceptedPivot float64 // smallest accepted pivot (>= rankEps); +Inf when none accepted
+	maxRejectedPivot float64 // largest rejected column pivot (< rankEps); 0 when none rejected
+}
+
+// margin reports the multiplicative distance of the closest pivot decision from
+// rankEps: how many times above the threshold the smallest accepted pivot is, and
+// how many times below it the largest rejected pivot is, taking the worse (closer)
+// side. A large margin means the rank decision is far from the cutoff and so
+// robust; a small one means a tiny perturbation could flip the rank (hence the
+// DOF / redundancy verdict). It is a trust signal for THIS rank decision, not a
+// unit-invariant condition number. A system with neither accepted nor rejected
+// pivots (no free vars or no rows) is vacuously well-separated (+Inf).
+func (ra rankAnalysis) margin() float64 {
+	accepted := math.Inf(1)
+	if !math.IsInf(ra.minAcceptedPivot, 1) {
+		accepted = ra.minAcceptedPivot / rankEps
+	}
+	rejected := math.Inf(1)
+	if ra.maxRejectedPivot > 0 {
+		rejected = rankEps / ra.maxRejectedPivot
+	}
+	return math.Min(accepted, rejected)
+}
+
 // rank estimates the rank of the hard-constraint Jacobian at the current
 // configuration via Gaussian elimination with partial pivoting.
 func (s *Sketch) rank(free []int, m int) int {
@@ -414,9 +449,17 @@ func (s *Sketch) rank(free []int, m int) int {
 // augmented systems (e.g. [Sketch.CheckConstraint] appends a candidate
 // constraint's rows to the hard residuals).
 func (s *Sketch) rankOf(free []int, m int, eval func([]float64) []float64) int {
+	return s.rankAnalysisOf(free, m, eval).rank
+}
+
+// rankAnalysisOf computes the rank and the deciding pivot magnitudes. Gaussian
+// elimination with partial pivoting; a column whose best available pivot is below
+// rankEps does not increase the rank (and its pivot is recorded as the largest
+// rejected one).
+func (s *Sketch) rankAnalysisOf(free []int, m int, eval func([]float64) []float64) rankAnalysis {
 	J := s.jacobian(free, m, eval)
 	n := len(free)
-	const eps = 1e-9
+	ra := rankAnalysis{minAcceptedPivot: math.Inf(1)}
 	row := 0
 	for col := 0; col < n && row < m; col++ {
 		// Find a pivot in this column at or below the current row.
@@ -428,8 +471,14 @@ func (s *Sketch) rankOf(free []int, m int, eval func([]float64) []float64) int {
 				piv = r
 			}
 		}
-		if best < eps {
+		if best < rankEps {
+			if best > ra.maxRejectedPivot {
+				ra.maxRejectedPivot = best
+			}
 			continue
+		}
+		if best < ra.minAcceptedPivot {
+			ra.minAcceptedPivot = best
 		}
 		J[row], J[piv] = J[piv], J[row]
 		for r := 0; r < m; r++ {
@@ -446,7 +495,21 @@ func (s *Sketch) rankOf(free []int, m int, eval func([]float64) []float64) int {
 		}
 		row++
 	}
-	return row
+	ra.rank = row
+	return ra
+}
+
+// rankMargin reports the rank-decision margin of the hard-constraint Jacobian at
+// the current configuration (see rankAnalysis.margin), over the same free
+// variables and residual rows DOF uses. It is +Inf when there are no residual
+// rows (nothing to rank).
+func (s *Sketch) rankMargin() float64 {
+	free := s.freeVars()
+	m := len(s.residuals(nil))
+	if m == 0 {
+		return math.Inf(1)
+	}
+	return s.rankAnalysisOf(free, m, s.residuals).margin()
 }
 
 // solveLinear solves A·x = b for a square matrix using Gaussian elimination

@@ -59,7 +59,7 @@ from a solid — the seam is first-class reference geometry), live in
 | `constraint.go` | `Constraint` interface and every constraint's residual + the public `New…` constructors. |
 | `solver.go` | Levenberg–Marquardt solver, numerical Jacobian, DOF/redundancy (rank) analysis. |
 | `diagnose.go` | Constraint diagnostics: `conflictAnalysis` (the shared dependency pass behind `RedundantConstraints`/`Diagnose`/`Verify`), `Diagnose` (redundant vs conflicting), `ConflictSet` (a conflicting constraint + the earlier ones it fights), `CheckConstraint` (pre-commit over-constraint rejection), `FreePoints`/`Point.IsFullyConstrained` (free-DOF attribution). Design in `docs/diagnostics-design.md`. |
-| `verify.go` | `Sketch.Verify(...VerifyOption) *VerificationReport`: the headless-oracle aggregation layer — one non-mutating call gathering solvability, DOF, `Status`, redundant constraints, conflict sets, free points, profiles + their validity (`ProfilesValid`/`InvalidProfiles` — self-intersecting/degenerate regions gate `Trustworthy()`), stale/broken/foreign reference signals, `Trustworthy()`, and (opt-in via `WithProbe`) discrete ambiguity. A pure consumer of the diagnostic building blocks. |
+| `verify.go` | `Sketch.Verify(...VerifyOption) *VerificationReport`: the headless-oracle aggregation layer — one non-mutating call gathering solvability, DOF, `Status`, redundant constraints, conflict sets, free points, profiles + their validity (`ProfilesValid`/`InvalidProfiles` — self-intersecting/degenerate regions gate `Trustworthy()`), stale/broken/foreign reference signals, parameter unit-kind validity (`ParametersValid`), the **advisory** `RankMargin` (how far the rank/DOF decision sits from the hard pivot threshold — a fragility hint; scale-dependent, so it does NOT gate `Trustworthy()`), `Trustworthy()`, and (opt-in via `WithProbe`) discrete ambiguity. A pure consumer of the diagnostic building blocks. |
 | `reference.go` | Reference geometry — the sketch/3D separation keystone: read-only, externally-locked 2D snapshots of 3D-derived geometry (`AddReferencePoint`/`AddReferenceLine`/`AddReferenceArc`/`AddReferenceCircle`) carrying a `source` id + staleness; locked via `fixed[]`, a topology seal (`refSeals`), `RefreshReference`/`RefreshReferenceCircle`/`MarkStale`, and the Verify integrity/staleness/reachability scan. Design in `docs/reference-geometry-design.md`. |
 | `probe.go` | `Sketch.ProbeConfigurations`: multi-solution ambiguity probe — deterministic multi-start search (structured mirrors + splitmix64 restarts) for the discrete configurations a DOF-0 sketch admits. A falsifier: ≥2 found proves ambiguity, 1 never proves uniqueness. Design in `docs/ambiguity-probe-design.md`. |
 | `plane.go` / `world.go` | 3D world & construction planes. `Plane` (datum = `space.Frame` derived from a stored definition), package-level world-frame datum constructors, `World` (owns planes + sketches, plane builders incl. derived `OffsetPlane`, `RemovePlane`). Design in `docs/3d-planes-design.md`. |
@@ -462,11 +462,20 @@ These are unsettled. If you resolve one, record the decision here.
   internal/external branch rows there, no free witness and no membership/sweep
   rows (an endpoint is already on both curves and in-sweep by definition).
   Slots/fillet/chamfer exist as compound builders and `geom` template helpers.
-- **Solver evolution.** Numerical Jacobian is fine at current scale. Open:
-  analytic Jacobians for speed/accuracy, equation decomposition (solve
-  independent constraint clusters separately), and better diagnostics for
-  over-constrained sketches (identify *which* constraints conflict, not just a
-  count).
+- **Solver evolution.** Numerical Jacobian is fine at current scale. An
+  **advisory** rank-margin diagnostic is in (`solver.go` `rankAnalysisOf`): the
+  rank/DOF verdict turns on a hard `rankEps = 1e-9` pivot threshold, so `Verify()`
+  reports `RankMargin` — how close the deciding pivots sit to it — as a fragility
+  hint. It does **NOT** gate `Trustworthy()`: the raw pivots are scale-dependent
+  (angle-constraint derivatives grow with line length), so it is not a
+  unit-invariant condition number and the same construction at different scales
+  gives different margins. Open: a **scale-invariant conditioning gate** via
+  principled per-var-kind (length/angle/slack) column scaling — the right way to
+  actually gate trust on near-singularity, deliberately deferred because raw
+  un-normalized gating proved unsound; analytic Jacobians for speed/accuracy;
+  equation decomposition (solve independent constraint clusters separately); and
+  better diagnostics for over-constrained sketches (identify *which* constraints
+  conflict, not just a count).
 - **Constraint diagnostics & UX.** *Largely resolved* (`diagnose.go`; design
   in `docs/diagnostics-design.md`). `Sketch.RedundantConstraints()` identifies
   dependent constraints (creation order decides: of two duplicates the later

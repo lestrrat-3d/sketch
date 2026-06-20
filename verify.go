@@ -67,6 +67,17 @@ type VerificationReport struct {
 	Residual float64
 	// DOF is the number of remaining degrees of freedom (0 == fully constrained).
 	DOF int
+	// RankMargin is an ADVISORY diagnostic: the multiplicative distance of the
+	// constraint Jacobian's closest rank decision from the hard pivot threshold at
+	// the current configuration (near 1 means the rank — and therefore the DOF /
+	// redundancy verdict — was decided by a near-threshold pivot and could flip
+	// under a tiny perturbation; +Inf when there are no constraint rows). It is
+	// NOT a unit-invariant conditioning measure: the raw pivots scale with geometry
+	// (e.g. angle-constraint derivatives grow with line length), so it is not
+	// comparable across sketches of different scale and must NOT be thresholded as
+	// a pass/fail gate — it does not gate [VerificationReport.Trustworthy]. A
+	// scale-invariant (dimensionally-normalized) conditioning gate is a follow-up.
+	RankMargin float64
 	// Status is the single-value severity summary (see [Status]).
 	Status Status
 	// Redundant lists constraints that contribute a dependent but satisfied
@@ -133,10 +144,12 @@ type VerificationReport struct {
 // Trustworthy reports the canonical oracle verdict: the sketch is solvable, fully
 // constrained, free of conflicting and redundant constraints, has no stale or
 // broken reference geometry, no foreign handles, every detected region is a
-// valid profile, and — if the ambiguity probe ran — is not ambiguous. It is the
-// single check an agent should gate on; a stale, broken-reference, or
-// self-intersecting sketch never reads as a clean pass through it, even when
-// [VerificationReport.Status] is [FullyConstrained].
+// valid profile, every parameter expression is unit-kind-consistent, and — if the
+// ambiguity probe ran — is not ambiguous. It is the single check an agent should
+// gate on; a stale, broken-reference, or self-intersecting sketch never reads as a
+// clean pass through it, even when [VerificationReport.Status] is
+// [FullyConstrained]. (The advisory [VerificationReport.RankMargin] is reported
+// separately; being scale-dependent, it does not gate this verdict.)
 func (r *VerificationReport) Trustworthy() bool {
 	return r.Solvable &&
 		r.Status == FullyConstrained &&
@@ -217,6 +230,7 @@ func (s *Sketch) Verify(options ...VerifyOption) *VerificationReport {
 	rep.Solvable = rep.Residual <= tolerance
 
 	rep.DOF = s.DOF()
+	rep.RankMargin = s.rankMargin() // advisory; does not gate Trustworthy (scale-dependent)
 
 	flagged, conflicts := s.conflictAnalysis()
 	rep.Conflicts = conflicts
