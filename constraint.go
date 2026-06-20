@@ -489,6 +489,116 @@ func (c *tangentToSpline) residual(out []float64) []float64 {
 	)
 }
 
+// pointOnClosedSpline confines a point to a closed (periodic) cubic B-spline.
+// Like [pointOnSpline] the membership is existential — the constraint owns the
+// foot parameter t as an aux solver variable — but a periodic loop has NO
+// endpoints, so t needs no [0,1] box: it is a single unbounded periodic variable
+// (S(t) = S(t+1)), and the committed residual is just the two length rows
+// P.x−S.x(t), P.y−S.y(t). A free point on a fixed closed spline then has 3
+// unknowns (P.x, P.y, t) and 2 rows — one sliding DOF around the loop, as a point
+// on a 1-D curve should. The aux var is not serialized (re-seeded on load by
+// foot-point projection). It shares pointOnSpline's nonlinear-redundancy caveat:
+// two point-on-closed-spline on the same point are redundant only at the
+// solution, so local rank analysis is not guaranteed to flag the duplicate (it
+// stays harmless — the sketch keeps its one sliding DOF).
+type pointOnClosedSpline struct {
+	P    *Point
+	Sp   *ClosedSpline
+	s    *Sketch // set by allocVars, for aux-var access
+	tvar int     // foot parameter; -1 = not yet allocated
+}
+
+// NewPointOnClosedSpline forces a point to lie on a closed (periodic) cubic
+// B-spline. The point may sit anywhere along the loop; the attachment parameter
+// is solved for.
+func NewPointOnClosedSpline(p *Point, sp *ClosedSpline) Constraint {
+	return &pointOnClosedSpline{P: p, Sp: sp, tvar: -1}
+}
+
+func (c *pointOnClosedSpline) allocVars(s *Sketch) {
+	c.s = s
+	if c.tvar >= 0 {
+		return // idempotent: re-adding the handle must not leak a fresh aux var
+	}
+	t := geom.NearestParamPeriodicCubicBSpline(c.Sp.controlCoords(), c.P.x(), c.P.y())
+	c.tvar = s.newVar(t)
+}
+
+func (c *pointOnClosedSpline) retireVars(s *Sketch) {
+	if c.tvar >= 0 {
+		s.retireVar(c.tvar)
+		c.tvar = -1
+	}
+}
+
+func (c *pointOnClosedSpline) residual(out []float64) []float64 {
+	if c.tvar < 0 {
+		return out // not yet parameterized; allocVars runs at commit (and in CheckConstraint)
+	}
+	sx, sy := c.Sp.Eval(c.s.vars[c.tvar]) // periodic Eval wraps t internally
+	return append(out,
+		c.P.x()-sx, // on the curve (x), length units
+		c.P.y()-sy, // on the curve (y), length units
+	)
+}
+
+// pointOnFitSpline confines a point to a fit-point (interpolating) spline. The
+// curve has endpoints (its first and last fit point), so — exactly like
+// [pointOnSpline] — the foot parameter t ∈ [0,1] is a bounded aux variable with a
+// slack-encoded box (t = w0², 1−t = w1²) keeping out-of-range t infeasible rather
+// than silently clamped. Committed residual (4 rows): P.x−S.x(t), P.y−S.y(t),
+// t−w0², (1−t)−w1². The interpolant is recomputed from the fit points each
+// evaluation, so the membership tracks them as the solver moves the fit points.
+type pointOnFitSpline struct {
+	P            *Point
+	Sp           *FitSpline
+	s            *Sketch // set by allocVars, for aux-var access
+	tvar, w0, w1 int     // foot parameter + box slacks; -1 = not yet allocated
+}
+
+// NewPointOnFitSpline forces a point to lie on a fit-point (interpolating)
+// spline. The point may sit anywhere along the curve; the attachment parameter is
+// solved for. (To pin the point to an endpoint, make it coincident with the first
+// or last fit point, which the curve passes through.)
+func NewPointOnFitSpline(p *Point, sp *FitSpline) Constraint {
+	return &pointOnFitSpline{P: p, Sp: sp, tvar: -1, w0: -1, w1: -1}
+}
+
+func (c *pointOnFitSpline) allocVars(s *Sketch) {
+	c.s = s
+	if c.tvar >= 0 {
+		return // idempotent
+	}
+	t := geom.NearestParamFitSpline(c.Sp.fitCoords(), c.P.x(), c.P.y())
+	c.tvar = s.newVar(t)
+	c.w0 = s.newVar(slackFor(t))
+	c.w1 = s.newVar(slackFor(1 - t))
+}
+
+func (c *pointOnFitSpline) retireVars(s *Sketch) {
+	if c.tvar >= 0 {
+		s.retireVar(c.tvar)
+		s.retireVar(c.w0)
+		s.retireVar(c.w1)
+		c.tvar, c.w0, c.w1 = -1, -1, -1
+	}
+}
+
+func (c *pointOnFitSpline) residual(out []float64) []float64 {
+	if c.tvar < 0 {
+		return out // not yet parameterized; allocVars runs at commit (and in CheckConstraint)
+	}
+	t := c.s.vars[c.tvar]
+	sx, sy := c.Sp.Eval(clamp01(t)) // bound rows below, not the clamp, enforce [0,1]
+	w0, w1 := c.s.vars[c.w0], c.s.vars[c.w1]
+	return append(out,
+		c.P.x()-sx,  // on the curve (x), length units
+		c.P.y()-sy,  // on the curve (y), length units
+		t-w0*w0,     // t ≥ 0  (t = w0²)
+		(1-t)-w1*w1, // t ≤ 1  (1−t = w1²)
+	)
+}
+
 // splineScale returns a length scale for a spline: its control-box diagonal,
 // floored to 1, used to make the no-cusp and zero-line thresholds scale-relative.
 func splineScale(sp *Spline) float64 {

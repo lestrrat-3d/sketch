@@ -257,6 +257,10 @@ func constraintRefs(c Constraint) ([]*Point, []Entity) {
 		return []*Point{t.P}, []Entity{t.E}
 	case *pointOnSpline:
 		return []*Point{t.P}, []Entity{t.Sp}
+	case *pointOnClosedSpline:
+		return []*Point{t.P}, []Entity{t.Sp}
+	case *pointOnFitSpline:
+		return []*Point{t.P}, []Entity{t.Sp}
 	case *tangentToSpline:
 		return nil, []Entity{t.L, t.Sp}
 	case *tangentConics:

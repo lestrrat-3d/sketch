@@ -214,6 +214,16 @@ func condRowKinds(c Constraint, out []rowKind) []rowKind {
 			return out // unparameterized: no rows
 		}
 		return append(out, rowLength, rowLength, rowDimensionless, rowDimensionless)
+	case *pointOnClosedSpline:
+		if t.tvar < 0 {
+			return out
+		}
+		return append(out, rowLength, rowLength) // membership only; no box (periodic)
+	case *pointOnFitSpline:
+		if t.tvar < 0 {
+			return out
+		}
+		return append(out, rowLength, rowLength, rowDimensionless, rowDimensionless)
 	case *tangentToSpline:
 		if t.tvar < 0 {
 			return out

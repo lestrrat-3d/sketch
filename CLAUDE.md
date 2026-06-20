@@ -429,8 +429,11 @@ These are unsettled. If you resolve one, record the decision here.
   (`AddClosedSpline`, ≥3 control points) over an exact cyclic uniform cubic basis
   (`geom.EvalPeriodicCubicBSpline`) — a smooth C2 loop that bounds a region on its
   own (a sealed `geom.ClosedCurve`, not a `Curve`), with periodic-ring
-  self-crossing detection and `closed_spline` serialization. Point-on/tangent
-  constraints on a closed spline are a deferred follow-up (periodic witness).
+  self-crossing detection and `closed_spline` serialization. A point can be
+  confined to it with `NewPointOnClosedSpline`: the **periodic witness** — a single
+  foot parameter `t` aux variable with NO `[0,1]` box (a loop has no endpoints, so
+  `t` is unbounded and `S(t)=S(t+1)`), committed residual just the two length
+  membership rows `P−S(t)`. Tangent-to-closed-spline is a deferred follow-up.
   **Fit-point (interpolating) splines** are in as a separate `FitSpline` entity
   (`AddFitSpline`, ≥2 fit points) whose curve passes *through* the fit points: the
   fit points are the durable solver handles and a natural-cubic interpolant
@@ -439,7 +442,10 @@ These are unsettled. If you resolve one, record the decision here.
   coordinates per evaluation, so the curve keeps interpolating them as the solver
   moves them — no new solver vars. An open `Curve` (endpoints = first/last fit
   point) participating in profiles like the open spline, `fit_spline` serialization.
-  Point-on/tangent constraints on it are a deferred follow-up.
+  A point can be confined to it with `NewPointOnFitSpline` (the bounded foot
+  parameter `t∈[0,1]` with a slack box, exactly like `NewPointOnSpline`, since the
+  curve has endpoints). Tangent-to-fit-spline is a deferred follow-up. (Both
+  point-on seeds use `geom.NearestParamPeriodicCubicBSpline`/`NearestParamFitSpline`.)
   Ellipses are in
   (center point + rx/ry/rotation vars; `NewPointOnEllipse` uses a
   Sampson-normalized residual — |F|/|∇F| — to stay in length units).
