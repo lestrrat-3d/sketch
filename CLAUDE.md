@@ -106,10 +106,14 @@ every shared vertex degree 2 — judged on the pruned core, so a branched/
 subdivided wire is *not* flagged; a spline is the one source whose *own* polyline
 is tested for self-crossings, since a cubic can loop) and `Degenerate`
 (collinear-overlap or near-tangent uncertainty). Region area is exact for
-line/arc/circle (shoelace + exact circular-segment correction) and for
-ellipse/elliptical-arc (`chordEllipseCorrection` = ½·rx·ry·(Δφ − sin Δφ), the
-elliptical analog, rotation/translation-invariant), and sampled only for splines
-(no closed form). `Sketch.Profiles()` is its consumer.
+**every** curve type: line/arc/circle (shoelace + exact circular-segment
+correction), ellipse/elliptical-arc (`chordEllipseCorrection` = ½·rx·ry·(Δφ −
+sin Δφ), the elliptical analog, rotation/translation-invariant), and **splines**
+(`splineBulge`: the exact ½∫(x·y′−y·x′) of the fragment's piecewise cubic via
+3-point Gauss–Legendre per knot span — exact because the integrand is degree-5 —
+needing analytic spline derivatives `EvalCubicBSplineDeriv`/
+`EvalPeriodicCubicBSplineDeriv`/`fitEvaluator.derivAt`). So the reported `Area`
+is sampling-independent for all sources. `Sketch.Profiles()` is its consumer.
 
 ### The `space` package (slated for extraction)
 

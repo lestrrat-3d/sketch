@@ -978,12 +978,13 @@ func (a *arranger) makeCycle(hs []int) cycle {
 		})
 		c.dense = append(c.dense, f.dense[:len(f.dense)-1]...)
 		chord = append(chord, f.dense[0])
-		// Area between this fragment's true curve and its chord. Arc/circle and
-		// ellipse/elliptical-arc use an exact closed-form segment correction
-		// (sampling-independent); a spline has no closed form, so its bulge is the
-		// sampled signed area between the dense polyline and the chord that closes
-		// it; a line is its own chord (zero bulge). The eccentric-angle span of a
-		// fragment is its natural-param fraction times the source's full sweep.
+		// Area between this fragment's true curve and its chord. Every curved
+		// source contributes an exact, sampling-independent correction: arc/circle
+		// and ellipse/elliptical-arc via the closed-form circular/elliptical
+		// segment; a spline via the exact ½∫(x·y′−y·x′) integral of its piecewise
+		// cubic ([splineBulge], 3-point Gauss–Legendre per knot span). A line is
+		// its own chord (zero bulge). The eccentric-angle span of a circular/
+		// elliptical fragment is its natural-param fraction times the source sweep.
 		switch s.kind {
 		case srcArc:
 			bulge += chordArcCorrection(s.r, (f.pEnd-f.pStart)*s.sweep)
@@ -994,7 +995,9 @@ func (a *arranger) makeCycle(hs []int) cycle {
 		case srcEllipticalArc:
 			bulge += chordEllipseCorrection(s.rx, s.ry, (f.pEnd-f.pStart)*s.sweep)
 		case srcSpline, srcClosedSpline, srcFitSpline:
-			bulge += signedPolyArea(f.dense)
+			a0 := f.dense[0]
+			a1 := f.dense[len(f.dense)-1]
+			bulge += s.splineBulge(f.pStart, f.pEnd, a0[0], a0[1], a1[0], a1[1])
 		}
 	}
 	c.area = signedPolyArea(chord) + bulge
@@ -1020,6 +1023,119 @@ func chordArcCorrection(r, theta float64) float64 {
 // walk via the signed dphi, exactly like the circular case.
 func chordEllipseCorrection(rx, ry, dphi float64) float64 {
 	return 0.5 * rx * ry * (dphi - math.Sin(dphi))
+}
+
+// splineBulge returns the exact signed area between a spline fragment's true
+// curve (natural parameters pStart→pEnd, in walk order) and the straight chord
+// that closes it — the spline analog of [chordArcCorrection]/
+// [chordEllipseCorrection]. (ax,ay) and (ex,ey) are the fragment's chord
+// endpoints (the dense polyline's first and last vertex); the chord-closure term
+// ½·(ex·ay − ax·ey) matches the implied closing edge of [signedPolyArea], so this
+// reproduces signedPolyArea's decomposition with the sampled curve moment
+// replaced by the exact integral. The walk direction (and thus the sign) is
+// carried by the order of pStart,pEnd, exactly like the arc/ellipse cases.
+func (s *source) splineBulge(pStart, pEnd, ax, ay, ex, ey float64) float64 {
+	return s.curveMoment(pStart, pEnd) + 0.5*(ex*ay-ax*ey)
+}
+
+// curveMoment returns the exact ½∫(x·y′ − y·x′) dt of a spline source over the
+// natural-parameter interval pStart→pEnd (signed by direction). A cubic spline is
+// piecewise cubic, so the integrand is a degree-5 polynomial on each knot span
+// and 3-point Gauss–Legendre integrates it exactly; the interval is split at
+// every interior breakpoint so no panel straddles a span boundary (where the
+// piecewise polynomial changes and the quadrature would no longer be exact).
+func (s *source) curveMoment(pStart, pEnd float64) float64 {
+	lo, hi, sign := pStart, pEnd, 1.0
+	if lo > hi {
+		lo, hi, sign = hi, lo, -1.0
+	}
+	// Every interior knot strictly inside (lo,hi) must become a panel boundary, or
+	// a panel would straddle a span boundary (where the piecewise polynomial
+	// changes) and the per-span Gauss–Legendre would no longer be exact. Use a
+	// strict open-interval test: a breakpoint coinciding with lo/hi is the boundary
+	// already, and an extra split that produces a tiny panel is harmless (the
+	// integrand is still a single polynomial there), but dropping a real knot is
+	// not. splineBreaks returns the knots in ascending order.
+	bounds := []float64{lo}
+	for _, b := range s.splineBreaks() {
+		if b > lo && b < hi {
+			bounds = append(bounds, b)
+		}
+	}
+	bounds = append(bounds, hi)
+	var moment float64
+	for i := 0; i+1 < len(bounds); i++ {
+		moment += s.gaussMoment(bounds[i], bounds[i+1])
+	}
+	return sign * moment
+}
+
+// gauss3 holds the 3-point Gauss–Legendre nodes/weights on [-1,1]; exact for
+// polynomials up to degree 5 (the degree of a cubic spline's area integrand).
+var gauss3 = struct {
+	nodes, weights [3]float64
+}{
+	nodes:   [3]float64{-0.7745966692414834, 0, 0.7745966692414834}, // ±√(3/5), 0
+	weights: [3]float64{5.0 / 9, 8.0 / 9, 5.0 / 9},
+}
+
+// gaussMoment integrates ½(x·y′ − y·x′) over a single panel [t0,t1] that lies
+// within one polynomial span, by 3-point Gauss–Legendre (exact there).
+func (s *source) gaussMoment(t0, t1 float64) float64 {
+	half := 0.5 * (t1 - t0)
+	mid := 0.5 * (t0 + t1)
+	var sum float64
+	for k := 0; k < 3; k++ {
+		t := mid + half*gauss3.nodes[k]
+		p := s.at(t)
+		d := s.derivAt(t)
+		sum += gauss3.weights[k] * 0.5 * (p[0]*d[1] - p[1]*d[0])
+	}
+	return sum * half
+}
+
+// splineBreaks returns the source's interior knot parameters in (0,1) — the
+// span boundaries [curveMoment] must split on. Only the spline kinds have any.
+func (s *source) splineBreaks() []float64 {
+	switch s.kind {
+	case srcSpline: // clamped uniform cubic B-spline: interior knots j/(n-3)
+		n := len(s.ctrl)
+		spans := n - 3
+		if spans < 2 {
+			return nil
+		}
+		out := make([]float64, 0, spans-1)
+		for j := 1; j < spans; j++ {
+			out = append(out, float64(j)/float64(spans))
+		}
+		return out
+	case srcClosedSpline: // periodic cubic B-spline: span boundaries i/n
+		n := len(s.ctrl)
+		out := make([]float64, 0, n-1)
+		for i := 1; i < n; i++ {
+			out = append(out, float64(i)/float64(n))
+		}
+		return out
+	case srcFitSpline:
+		return s.fitEval.interiorBreaks()
+	}
+	return nil
+}
+
+// derivAt returns the source's tangent dS/dt at natural parameter t, for the
+// spline kinds (the only ones [gaussMoment] evaluates).
+func (s *source) derivAt(t float64) [2]float64 {
+	switch s.kind {
+	case srcSpline:
+		dx, dy := EvalCubicBSplineDeriv(s.ctrl, t)
+		return [2]float64{dx, dy}
+	case srcClosedSpline:
+		dx, dy := EvalPeriodicCubicBSplineDeriv(s.ctrl, t)
+		return [2]float64{dx, dy}
+	case srcFitSpline:
+		return s.fitEval.derivAt(t)
+	}
+	return [2]float64{}
 }
 
 func approx(a, b, eps float64) bool { return math.Abs(a-b) <= eps }

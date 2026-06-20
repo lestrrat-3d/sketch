@@ -70,6 +70,37 @@ func EvalPeriodicCubicBSpline(ctrl [][2]float64, t float64) (float64, float64) {
 		b0*p0[1] + b1*p1[1] + b2*p2[1] + b3*p3[1]
 }
 
+// EvalPeriodicCubicBSplineDeriv returns the first derivative dS/dt of the closed
+// (periodic) uniform cubic B-spline at parameter t (reduced modulo 1). Within
+// span i ∈ [0,n) the curve blends the four cyclic controls P[i..i+3] with the
+// uniform cubic basis in v = n·t − i; differentiating the basis in v and scaling
+// by dv/dt = n gives the analytic tangent. It panics with fewer than 3 control
+// points.
+func EvalPeriodicCubicBSplineDeriv(ctrl [][2]float64, t float64) (float64, float64) {
+	n := len(ctrl)
+	if n < 3 {
+		panic(fmt.Sprintf("geom: closed cubic B-spline needs at least 3 control points, got %d", n))
+	}
+	t -= math.Floor(t)
+	u := t * float64(n)
+	i := int(math.Floor(u))
+	if i >= n {
+		i = n - 1
+	}
+	v := u - float64(i)
+	v2 := v * v
+	// derivatives of the uniform cubic basis with respect to v
+	db0 := (-3 + 6*v - 3*v2) / 6
+	db1 := (9*v2 - 12*v) / 6
+	db2 := (-9*v2 + 6*v + 3) / 6
+	db3 := (3 * v2) / 6
+	p0, p1 := ctrl[i], ctrl[(i+1)%n]
+	p2, p3 := ctrl[(i+2)%n], ctrl[(i+3)%n]
+	nn := float64(n) // dv/dt
+	return nn * (db0*p0[0] + db1*p1[0] + db2*p2[0] + db3*p3[0]),
+		nn * (db0*p0[1] + db1*p1[1] + db2*p2[1] + db3*p3[1])
+}
+
 // SamplePeriodicCubicBSpline samples the closed spline at segments+1 evenly
 // spaced parameters (minimum 3 segments). The last point equals the first so the
 // returned polyline is a closed ring.

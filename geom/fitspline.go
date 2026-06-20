@@ -156,6 +156,60 @@ func evalCubicSpan(t, v, m []float64, i int, p float64) float64 {
 	return a*v[i] + b*v[i+1] + ((a*a*a-a)*m[i]+(b*b*b-b)*m[i+1])*h*h/6
 }
 
+// derivAt returns the curve tangent dS/dt at normalized chord parameter s ∈
+// [0, 1] (clamped), where t is the normalized chord length. dS/dt = total·dS/dp,
+// p = s·total being the un-normalized chord parameter. A degenerate (single
+// active point) spline has zero tangent.
+func (e *fitEvaluator) derivAt(s float64) [2]float64 {
+	k := len(e.x)
+	if k == 1 {
+		return [2]float64{}
+	}
+	total := e.t[k-1]
+	p := s * total
+	if p < 0 {
+		p = 0
+	} else if p > total {
+		p = total
+	}
+	i := sort.SearchFloat64s(e.t, p) - 1
+	if i < 0 {
+		i = 0
+	} else if i > k-2 {
+		i = k - 2
+	}
+	return [2]float64{
+		total * derivCubicSpan(e.t, e.x, e.mx, i, p),
+		total * derivCubicSpan(e.t, e.y, e.my, i, p),
+	}
+}
+
+// interiorBreaks returns the interior knot parameters (normalized chord length
+// in (0,1)) where consecutive natural-cubic pieces meet — the span boundaries an
+// exact per-span integration must not straddle. A spline with fewer than three
+// active points is a single span and has none.
+func (e *fitEvaluator) interiorBreaks() []float64 {
+	k := len(e.x)
+	if k < 3 {
+		return nil
+	}
+	total := e.t[k-1]
+	out := make([]float64, 0, k-2)
+	for i := 1; i < k-1; i++ {
+		out = append(out, e.t[i]/total)
+	}
+	return out
+}
+
+// derivCubicSpan returns d/dp of one natural-cubic span i at parameter value
+// p ∈ [t[i], t[i+1]] (the per-coordinate derivative of [evalCubicSpan]).
+func derivCubicSpan(t, v, m []float64, i int, p float64) float64 {
+	h := t[i+1] - t[i]
+	a := (t[i+1] - p) / h
+	b := (p - t[i]) / h
+	return (v[i+1]-v[i])/h + h/6*(-(3*a*a-1)*m[i]+(3*b*b-1)*m[i+1])
+}
+
 // naturalSecondDerivs solves the tridiagonal system for the second derivatives of
 // a natural cubic spline (M[0] = M[last] = 0) interpolating values v at parameters
 // t, via the Thomas algorithm. Fewer than three points has no interior unknown, so
