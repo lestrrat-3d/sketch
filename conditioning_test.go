@@ -68,10 +68,12 @@ func TestConditioningScaleInvariantHealthy(t *testing.T) {
 	}
 }
 
-func TestConditioningInvariantWhereRankMarginIsNot(t *testing.T) {
-	// The headline: on a mixed length/dimensionless system the raw RankMargin is
-	// scale-DEPENDENT (the very reason it cannot gate trust), while the
-	// nondimensional Conditioning is scale-INVARIANT.
+func TestRankAndConditioningScaleInvariant(t *testing.T) {
+	// On a mixed length/dimensionless system, BOTH the structural RankMargin and the
+	// Conditioning are now scale-invariant: the rank/DOF analysis runs on the same
+	// nondimensional Jacobian as the conditioning gate, so the whole rank story no
+	// longer moves with the geometry's size. (RankMargin still does not gate —
+	// Conditioning is the designated trust gate; they measure different things.)
 	a := mixedUnitFixture(1)
 	b := mixedUnitFixture(1000)
 	require.Equal(t, 0, a.DOF)
@@ -81,8 +83,8 @@ func TestConditioningInvariantWhereRankMarginIsNot(t *testing.T) {
 
 	require.InEpsilon(t, a.Conditioning, b.Conditioning, 1e-9,
 		"Conditioning is invariant across a 1000× rescale of the mixed-unit system")
-	require.False(t, math.Abs(a.RankMargin-b.RankMargin) < a.RankMargin*1e-3,
-		"RankMargin (raw) genuinely moves with scale — which is why it must not gate")
+	require.InEpsilon(t, a.RankMargin, b.RankMargin, 1e-6,
+		"RankMargin is now scale-invariant too (computed on the nondimensional Jacobian)")
 }
 
 func TestConditioningNearSingularScaleInvariant(t *testing.T) {

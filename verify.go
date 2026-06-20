@@ -68,14 +68,16 @@ type VerificationReport struct {
 	// DOF is the number of remaining degrees of freedom (0 == fully constrained).
 	DOF int
 	// RankMargin is an ADVISORY diagnostic: the multiplicative distance of the
-	// constraint Jacobian's closest rank decision from the hard pivot threshold at
-	// the current configuration (near 1 means the rank — and therefore the DOF /
-	// redundancy verdict — was decided by a near-threshold pivot and could flip
-	// under a tiny perturbation; +Inf when there are no constraint rows). It is
-	// NOT a unit-invariant conditioning measure: the raw pivots scale with geometry
-	// (e.g. angle-constraint derivatives grow with line length), so it is not
-	// comparable across sketches of different scale and must NOT be thresholded as
-	// a pass/fail gate — it does not gate [VerificationReport.Trustworthy].
+	// STRUCTURAL rank decision from the rank-zero cutoff at the current
+	// configuration (near 1 means the rank — and therefore the DOF / redundancy
+	// verdict — was decided by a near-cutoff pivot and could flip under a tiny
+	// perturbation; +Inf when there are no constraint rows). It is computed on the
+	// same nondimensional Jacobian as the rank/DOF analysis, so — unlike before — it
+	// is scale- and unit-invariant. It still does NOT gate
+	// [VerificationReport.Trustworthy]: it measures the margin of the STRUCTURAL
+	// rank decision (could DOF flip), a coarser, different question than
+	// [VerificationReport.Conditioning] (how near-singular a full-rank system is),
+	// which is the designated trust gate.
 	RankMargin float64
 	// Conditioning is the SCALE- AND UNIT-INVARIANT near-singularity measure that
 	// DOES gate [VerificationReport.Trustworthy]: the reciprocal condition number

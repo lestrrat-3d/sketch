@@ -122,10 +122,13 @@ func (s *Sketch) condVarScales(L float64) []float64 {
 // positionShift returns, per variable index, the centroid offset to subtract to
 // center the geometry: the centroid x for every point's x-coordinate (and the
 // conic-tangency witness x), the centroid y for every y-coordinate, and 0 for
-// non-positional variables (radii, angles, slacks, parameters). Used only to
-// keep the conditioning finite-difference well-conditioned far from the origin;
-// the translation does not change any residual.
-func (s *Sketch) positionShift() []float64 {
+// non-positional variables (radii, angles, slacks, parameters). extraXY lists
+// additional {xIndex, yIndex} position-variable pairs to center too — used by
+// [Sketch.CheckConstraint] for a candidate constraint's witness coordinates, which
+// are length-kind positions not yet reachable through s.cons. Used only to keep the
+// finite-difference well-conditioned far from the origin; the translation does not
+// change any residual.
+func (s *Sketch) positionShift(extraXY ...[2]int) []float64 {
 	shift := make([]float64, len(s.vars))
 	if len(s.points) == 0 {
 		return shift
@@ -146,6 +149,10 @@ func (s *Sketch) positionShift() []float64 {
 			shift[tc.px] = cx
 			shift[tc.py] = cy
 		}
+	}
+	for _, xy := range extraXY {
+		shift[xy[0]] = cx
+		shift[xy[1]] = cy
 	}
 	return shift
 }
@@ -383,9 +390,25 @@ func (s *Sketch) conditioningMatrix(free []int, m int, L float64) [][]float64 {
 	if len(kinds) != m {
 		return nil
 	}
-	colScale := s.condVarScales(L)
+	return s.scaledJacobian(free, s.residuals, kinds, s.condVarScales(L), L)
+}
+
+// scaledJacobian builds the physically nondimensional Jacobian A = Drow·J·Dcol of
+// the residual vector produced by eval, over the free variables — the common basis
+// for the conditioning measure AND the scale-invariant rank/dependency analyses
+// (rank/DOF, conflict, free-points). J is the central-difference Jacobian; each
+// row is scaled by 1/L when length-kind (rowKinds[i]) and 1 otherwise, and each
+// column by its variable's colScale, so every entry is dimensionless and invariant
+// under a uniform geometry rescale. The geometry is centred about its centroid for
+// the FD pass (residuals depend only on coordinate differences, so this is exact
+// but keeps the scale-relative step condFDStep·colScale from vanishing into
+// floating-point cancellation far from the origin); the shift is restored exactly,
+// so the call does not mutate the sketch. rowKinds MUST have one entry per row eval
+// produces; colScale MUST be indexed by variable index.
+func (s *Sketch) scaledJacobian(free []int, eval func([]float64) []float64, rowKinds []rowKind, colScale []float64, L float64, extraPos ...[2]int) [][]float64 {
+	m := len(rowKinds)
 	rowScale := make([]float64, m)
-	for i, k := range kinds {
+	for i, k := range rowKinds {
 		if k == rowLength {
 			rowScale[i] = 1 / L
 		} else {
@@ -393,14 +416,7 @@ func (s *Sketch) conditioningMatrix(free []int, m int, L float64) [][]float64 {
 		}
 	}
 
-	// Center the geometry about its centroid for the finite-difference pass. Every
-	// residual is built from coordinate DIFFERENCES, so a uniform translation
-	// leaves the Jacobian unchanged in exact arithmetic — but it keeps coordinate
-	// magnitudes at O(L) so the scale-relative step condFDStep·L does not vanish
-	// into floating-point cancellation for geometry placed far from the origin
-	// (the property the conditioning measure must be translation-invariant). The
-	// shift is restored before returning.
-	shift := s.positionShift()
+	shift := s.positionShift(extraPos...)
 	saved := make([]float64, len(shift))
 	for i, d := range shift {
 		if d != 0 {
@@ -410,7 +426,7 @@ func (s *Sketch) conditioningMatrix(free []int, m int, L float64) [][]float64 {
 	}
 	defer func() {
 		// Restore the EXACT original bit pattern, not x−c+c (which would leave a
-		// rounding residue and make Verify a mutator).
+		// rounding residue and mutate the sketch).
 		for i, d := range shift {
 			if d != 0 {
 				s.vars[i] = saved[i]
@@ -429,9 +445,9 @@ func (s *Sketch) conditioningMatrix(free []int, m int, L float64) [][]float64 {
 		h := condFDStep * cs
 		orig := s.vars[vi]
 		s.vars[vi] = orig + h
-		rp = s.residuals(rp)
+		rp = eval(rp)
 		s.vars[vi] = orig - h
-		rm = s.residuals(rm)
+		rm = eval(rm)
 		s.vars[vi] = orig
 		inv := 1.0 / (2 * h)
 		for i := 0; i < m; i++ {

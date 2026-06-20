@@ -114,7 +114,12 @@ func (s *Sketch) conflictAnalysis() ([]Constraint, []ConflictSet) {
 		return nil, nil
 	}
 
-	J := s.jacobian(free, m, s.residuals)
+	// Dependency analysis runs on the NONDIMENSIONAL Jacobian A = Drow·J·Dcol (the
+	// same scaled basis as rank/DOF), so the structural cutoff is scale/unit
+	// invariant and the redundancy verdict matches DOF at any geometry size. Row
+	// kinds mirror residuals() iteration (and therefore owners) by construction.
+	L := s.lengthScale()
+	J := s.scaledJacobian(free, s.residuals, s.residualRowKinds(), s.condVarScales(L), L)
 
 	// Incremental Gram–Schmidt over the Jacobian rows: a row that projects to
 	// (numerically) zero against the rows accepted so far adds no independent
@@ -122,7 +127,7 @@ func (s *Sketch) conflictAnalysis() ([]Constraint, []ConflictSet) {
 	// original (un-orthogonalized) accepted rows are kept alongside the
 	// orthonormal basis so a dependent row can be expressed as their linear
 	// combination — its conflict set.
-	const eps = 1e-9
+	const eps = rankZeroTol
 	var basis [][]float64   // orthonormal basis of accepted directions
 	var accRows [][]float64 // accepted original rows, parallel to accIdx
 	var accIdx []int        // owners-row index of each accepted row
@@ -303,13 +308,32 @@ func (s *Sketch) CheckConstraint(c Constraint) error {
 		return nil
 	}
 	free := s.freeVars()
-	m0 := len(s.residuals(nil))
-	var r0 int
-	if m0 > 0 {
-		r0 = s.rankOf(free, m0, s.residuals)
+	L := s.lengthScale()
+	// Candidate-aware column scaling: condVarScales only marks the conic witness
+	// coordinates of COMMITTED constraints, but c (temporarily allocated above) is
+	// not yet committed, so mark its length-kind witness coords here too. Every
+	// other aux is dimensionless (scale 1) by default.
+	colScale := s.condVarScales(L)
+	// The candidate's length-kind witness coords also need centering for the FD
+	// pass (they are not in s.cons, so positionShift cannot find them): pass them as
+	// extra positions, or the augmented-rank FD is linearized at inconsistent
+	// coordinates far from the origin and a duplicate could slip through.
+	var extraPos [][2]int
+	if tc, ok := c.(*tangentConics); ok && tc.px >= 0 {
+		colScale[tc.px] = L
+		colScale[tc.py] = L
+		extraPos = append(extraPos, [2]int{tc.px, tc.py})
 	}
+	rk0 := s.residualRowKinds()
+	var r0 int
+	if len(rk0) > 0 {
+		r0 = s.rankAnalysisOf(free, s.residuals, rk0, colScale, L, extraPos...).rank
+	}
+	// Augmented system: the committed rows followed by c's own rows, with matching
+	// row kinds (condRowKinds mirrors c.residual at its committed aux state).
 	aug := func(buf []float64) []float64 { return c.residual(s.residuals(buf)) }
-	r1 := s.rankOf(free, m0+k, aug)
+	rkAug := condRowKinds(c, append([]rowKind(nil), rk0...))
+	r1 := s.rankAnalysisOf(free, aug, rkAug, colScale, L, extraPos...).rank
 	if r1 < r0+k {
 		return fmt.Errorf("%w: %d of its %d equations depend on existing constraints", ErrOverconstrained, r0+k-r1, k)
 	}
@@ -367,9 +391,15 @@ func (s *Sketch) movableVars() map[int]struct{} {
 		return movable
 	}
 
-	J := s.jacobian(free, m, s.residuals)
+	// Null-space support is computed on the NONDIMENSIONAL Jacobian A = Drow·J·Dcol
+	// (the same scaled basis as rank/DOF), so the verdict matches DOF and is
+	// scale-invariant. Positive diagonal column scaling preserves which variables a
+	// null direction touches, so the free-point support is unchanged in exact
+	// arithmetic — only the zero threshold becomes scale-invariant.
+	L := s.lengthScale()
+	J := s.scaledJacobian(free, s.residuals, s.residualRowKinds(), s.condVarScales(L), L)
 	n := len(free)
-	const eps = 1e-9
+	const eps = rankZeroTol
 	isPivot := make([]bool, n)
 	var pivotCols []int // pivotCols[r] = pivot column of row r
 	row := 0
