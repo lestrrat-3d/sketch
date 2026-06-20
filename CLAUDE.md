@@ -433,7 +433,11 @@ These are unsettled. If you resolve one, record the decision here.
   confined to it with `NewPointOnClosedSpline`: the **periodic witness** — a single
   foot parameter `t` aux variable with NO `[0,1]` box (a loop has no endpoints, so
   `t` is unbounded and `S(t)=S(t+1)`), committed residual just the two length
-  membership rows `P−S(t)`. Tangent-to-closed-spline is a deferred follow-up.
+  membership rows `P−S(t)`. A line can be made tangent to it with
+  `NewTangentToClosedSpline` — the same periodic witness (unbounded `t` plus a
+  no-cusp slack `ws`, no box), three rows: contact on the line's carrier (length),
+  parallel to the analytic periodic tangent `S'(t)`
+  (`geom.EvalPeriodicCubicBSplineDeriv`, dimensionless), and the no-cusp guard.
   **Fit-point (interpolating) splines** are in as a separate `FitSpline` entity
   (`AddFitSpline`, ≥2 fit points) whose curve passes *through* the fit points: the
   fit points are the durable solver handles and a natural-cubic interpolant
@@ -444,8 +448,12 @@ These are unsettled. If you resolve one, record the decision here.
   point) participating in profiles like the open spline, `fit_spline` serialization.
   A point can be confined to it with `NewPointOnFitSpline` (the bounded foot
   parameter `t∈[0,1]` with a slack box, exactly like `NewPointOnSpline`, since the
-  curve has endpoints). Tangent-to-fit-spline is a deferred follow-up. (Both
-  point-on seeds use `geom.NearestParamPeriodicCubicBSpline`/`NearestParamFitSpline`.)
+  curve has endpoints). A line can be made tangent to it with
+  `NewTangentToFitSpline` — the bounded-`t` witness like `NewTangentToSpline` (five
+  rows: contact, parallel to the analytic natural-cubic tangent
+  `geom.EvalFitSplineDeriv`, two box rows, no-cusp guard). (Both point-on seeds use
+  `geom.NearestParamPeriodicCubicBSpline`/`NearestParamFitSpline`; both tangent
+  seeds share `seedTangentParam` with the open spline.)
   Ellipses are in
   (center point + rx/ry/rotation vars; `NewPointOnEllipse` uses a
   Sampson-normalized residual — |F|/|∇F| — to stay in length units).

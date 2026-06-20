@@ -64,6 +64,18 @@ func EvalFitSpline(fit [][2]float64, t float64) (float64, float64) {
 	return p[0], p[1]
 }
 
+// EvalFitSplineDeriv returns the first derivative dS/dt of the natural-cubic
+// interpolating spline through fit at t ∈ [0, 1] (normalized chord length;
+// clamped). A one-off evaluation — for many samples build a fitEvaluator once. It
+// panics with fewer than 2 fit points.
+func EvalFitSplineDeriv(fit [][2]float64, t float64) (float64, float64) {
+	if len(fit) < 2 {
+		panic(fmt.Sprintf("geom: fit-point spline needs at least 2 fit points, got %d", len(fit)))
+	}
+	d := newFitEvaluator(fit).derivAt(t)
+	return d[0], d[1]
+}
+
 // SampleFitSpline samples the interpolating spline at segments+1 evenly spaced
 // parameters (minimum 2 segments), reusing a single natural-cubic evaluator (the
 // tridiagonal solve runs once, not per sample). It panics with fewer than 2 fit

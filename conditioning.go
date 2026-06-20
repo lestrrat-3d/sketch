@@ -230,6 +230,18 @@ func condRowKinds(c Constraint, out []rowKind) []rowKind {
 		}
 		// contact(L), parallel(D), two box slacks(D), no-cusp(D)
 		return append(out, rowLength, rowDimensionless, rowDimensionless, rowDimensionless, rowDimensionless)
+	case *tangentToClosedSpline:
+		if t.tvar < 0 {
+			return out
+		}
+		// contact(L), parallel(D), no-cusp(D); no box (periodic)
+		return append(out, rowLength, rowDimensionless, rowDimensionless)
+	case *tangentToFitSpline:
+		if t.tvar < 0 {
+			return out
+		}
+		// contact(L), parallel(D), two box slacks(D), no-cusp(D)
+		return append(out, rowLength, rowDimensionless, rowDimensionless, rowDimensionless, rowDimensionless)
 	case *tangentConics:
 		if t.wSide < 0 {
 			return out

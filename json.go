@@ -252,6 +252,10 @@ func marshalConstraint(c Constraint) (jsonConstraint, bool) {
 		return jsonConstraint{Type: "point_on_fit_spline", Points: []int{t.P.id}, Entities: []int{t.Sp.id}}, true
 	case *tangentToSpline:
 		return jsonConstraint{Type: "tangent_spline", Entities: []int{t.L.id, t.Sp.id}}, true
+	case *tangentToClosedSpline:
+		return jsonConstraint{Type: "tangent_closed_spline", Entities: []int{t.L.id, t.Sp.id}}, true
+	case *tangentToFitSpline:
+		return jsonConstraint{Type: "tangent_fit_spline", Entities: []int{t.L.id, t.Sp.id}}, true
 	case *tangentConics:
 		typ := "tangent_ellipses"
 		switch t.B.(type) {
@@ -605,7 +609,8 @@ var constraintArity = map[string][2]int{
 	"collinear": {0, 2}, "angle": {0, 2}, "point_on_line": {1, 1},
 	"point_on_circle": {1, 1}, "point_on_arc": {1, 1}, "point_on_elliptical_arc": {1, 1},
 	"point_on_ellipse": {1, 1}, "point_on_spline": {1, 1}, "point_on_closed_spline": {1, 1},
-	"point_on_fit_spline": {1, 1}, "tangent_spline": {0, 2}, "midpoint": {1, 1},
+	"point_on_fit_spline": {1, 1}, "tangent_spline": {0, 2}, "tangent_closed_spline": {0, 2},
+	"tangent_fit_spline": {0, 2}, "midpoint": {1, 1},
 	"tangent_ellipse_circle": {0, 2}, "tangent_ellipses": {0, 2},
 	"midpoint_of": {3, 0},
 	"symmetric":   {2, 1}, "symmetric_lines": {0, 3}, "symmetric_circles": {0, 3},
@@ -750,6 +755,26 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 			return fmt.Errorf("sketch: tangent_spline requires a spline")
 		}
 		s.AddConstraint(NewTangentToSpline(l, sp))
+	case "tangent_closed_spline":
+		l, err := line(jc.Entities[0])
+		if err != nil {
+			return err
+		}
+		sp, ok := s.entByID(jc.Entities[1]).(*ClosedSpline)
+		if !ok {
+			return fmt.Errorf("sketch: tangent_closed_spline requires a closed spline")
+		}
+		s.AddConstraint(NewTangentToClosedSpline(l, sp))
+	case "tangent_fit_spline":
+		l, err := line(jc.Entities[0])
+		if err != nil {
+			return err
+		}
+		sp, ok := s.entByID(jc.Entities[1]).(*FitSpline)
+		if !ok {
+			return fmt.Errorf("sketch: tangent_fit_spline requires a fit spline")
+		}
+		s.AddConstraint(NewTangentToFitSpline(l, sp))
 	case "tangent_ellipse_circle":
 		e, err := elliptical(jc.Entities[0])
 		if err != nil {

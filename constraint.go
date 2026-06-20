@@ -601,12 +601,17 @@ func (c *pointOnFitSpline) residual(out []float64) []float64 {
 
 // splineScale returns a length scale for a spline: its control-box diagonal,
 // floored to 1, used to make the no-cusp and zero-line thresholds scale-relative.
-func splineScale(sp *Spline) float64 {
+func splineScale(sp *Spline) float64 { return splineCoordScale(sp.controlCoords()) }
+
+// splineCoordScale returns the box diagonal of a coordinate set, floored to 1 —
+// the scale-relative reference for the spline-tangency no-cusp/zero-line
+// thresholds, shared by the open, closed, and fit witnesses.
+func splineCoordScale(coords [][2]float64) float64 {
 	minx, miny := math.Inf(1), math.Inf(1)
 	maxx, maxy := math.Inf(-1), math.Inf(-1)
-	for _, p := range sp.Control {
-		minx, maxx = math.Min(minx, p.x()), math.Max(maxx, p.x())
-		miny, maxy = math.Min(miny, p.y()), math.Max(maxy, p.y())
+	for _, p := range coords {
+		minx, maxx = math.Min(minx, p[0]), math.Max(maxx, p[0])
+		miny, maxy = math.Min(miny, p[1]), math.Max(maxy, p[1])
 	}
 	if d := math.Hypot(maxx-minx, maxy-miny); d > 1 {
 		return d
@@ -614,25 +619,19 @@ func splineScale(sp *Spline) float64 {
 	return 1
 }
 
-// seedParam picks a contact parameter for the tangency witness: a dense
-// multi-start over [0,1] minimizing the normalized tangency score
-// (contact/scale)² + parallel², skipping near-cusp samples, then a golden-section
-// refine. Distance-only or parallelism-only seeds each fail a common case (a
-// transverse crossing, or a far-away parallel point), so the combined score is used.
-func (c *tangentToSpline) seedParam() float64 {
-	ctrl := c.Sp.controlCoords()
-	n := len(ctrl)
-	segs := 16 * (n - 3)
+// seedTangentParam finds a contact parameter for a spline-tangency witness: a
+// dense multi-start minimizing the normalized tangency score (contact/scale)² +
+// parallel², skipping near-cusp samples, then a golden-section refine. eval/deriv
+// evaluate the curve and its tangent at a parameter; for a periodic curve t is
+// wrapped into [0,1), otherwise clamped to [0,1]. Shared by the open, closed, and
+// fit spline-tangency constraints.
+func seedTangentParam(eval, deriv func(float64) (float64, float64), segs int, periodic bool, scale, ax, ay, dx, dy, dlen float64) float64 {
 	if segs < 64 {
 		segs = 64
 	}
-	ax, ay := c.L.Start.x(), c.L.Start.y()
-	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
-	dlen := norm(dx, dy)
-	scale := splineScale(c.Sp)
 	score := func(t float64) float64 {
-		sx, sy := geom.EvalCubicBSpline(ctrl, t)
-		spx, spy := geom.EvalCubicBSplineDeriv(ctrl, t)
+		sx, sy := eval(t)
+		spx, spy := deriv(t)
 		speed := norm(spx, spy)
 		if speed < splineEpsTan*scale {
 			return math.Inf(1) // skip cusps
@@ -649,7 +648,10 @@ func (c *tangentToSpline) seedParam() float64 {
 		}
 	}
 	span := 1.0 / float64(segs)
-	lo, hi := math.Max(0, bestT-span), math.Min(1, bestT+span)
+	lo, hi := bestT-span, bestT+span
+	if !periodic {
+		lo, hi = math.Max(0, lo), math.Min(1, hi)
+	}
 	const invphi = 0.6180339887498949
 	cP, dP := hi-invphi*(hi-lo), lo+invphi*(hi-lo)
 	fc, fd := score(cP), score(dP)
@@ -664,7 +666,185 @@ func (c *tangentToSpline) seedParam() float64 {
 			fd = score(dP)
 		}
 	}
-	return clamp01((lo + hi) / 2)
+	t := (lo + hi) / 2
+	if periodic {
+		return t - math.Floor(t)
+	}
+	return clamp01(t)
+}
+
+// tangentToClosedSpline forces a line tangent to a closed (periodic) cubic
+// B-spline. Like [tangentToSpline] the contact parameter t is an existential aux
+// variable, but the loop has NO endpoints, so t needs no [0,1] box (it is a single
+// unbounded periodic variable). Committed residual is THREE rows: the contact S(t)
+// on the line's infinite carrier (signed perpendicular distance, length), the line
+// direction parallel to the analytic periodic tangent S'(t) (a dimensionless
+// sin-of-angle), and a no-cusp guard |S'(t)|/scale ≥ epsTan (slack ws). S'(t) is
+// the analytic geom.EvalPeriodicCubicBSplineDeriv.
+type tangentToClosedSpline struct {
+	L        *Line
+	Sp       *ClosedSpline
+	s        *Sketch
+	tvar, ws int // contact parameter (periodic, unbounded), speed-guard slack; -1 = unallocated
+}
+
+// NewTangentToClosedSpline forces a line tangent to a closed (periodic) cubic
+// B-spline. The line is its infinite carrier; the contact parameter on the loop is
+// solved for. A line tangent at more than one parameter witnesses one of them
+// ([Sketch.ProbeConfigurations] can surface the alternates).
+func NewTangentToClosedSpline(l *Line, sp *ClosedSpline) Constraint {
+	return &tangentToClosedSpline{L: l, Sp: sp, tvar: -1, ws: -1}
+}
+
+func (c *tangentToClosedSpline) allocVars(s *Sketch) {
+	c.s = s
+	if c.tvar >= 0 {
+		return // idempotent
+	}
+	t := c.seedParam()
+	spx, spy := geom.EvalPeriodicCubicBSplineDeriv(c.Sp.controlCoords(), t)
+	speed := norm(spx, spy)
+	c.tvar = s.newVar(t)
+	c.ws = s.newVar(slackFor(speed/splineCoordScale(c.Sp.controlCoords()) - splineEpsTan))
+}
+
+func (c *tangentToClosedSpline) retireVars(s *Sketch) {
+	if c.tvar >= 0 {
+		s.retireVar(c.tvar)
+		s.retireVar(c.ws)
+		c.tvar, c.ws = -1, -1
+	}
+}
+
+func (c *tangentToClosedSpline) seedParam() float64 {
+	ctrl := c.Sp.controlCoords()
+	ax, ay := c.L.Start.x(), c.L.Start.y()
+	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
+	eval := func(t float64) (float64, float64) { return geom.EvalPeriodicCubicBSpline(ctrl, t) }
+	deriv := func(t float64) (float64, float64) { return geom.EvalPeriodicCubicBSplineDeriv(ctrl, t) }
+	return seedTangentParam(eval, deriv, 16*len(ctrl), true, splineCoordScale(ctrl), ax, ay, dx, dy, norm(dx, dy))
+}
+
+func (c *tangentToClosedSpline) residual(out []float64) []float64 {
+	if c.tvar < 0 {
+		return out // not yet parameterized; allocVars runs at commit (and in CheckConstraint)
+	}
+	ctrl := c.Sp.controlCoords()
+	t := c.s.vars[c.tvar]
+	sx, sy := geom.EvalPeriodicCubicBSpline(ctrl, t)
+	spx, spy := geom.EvalPeriodicCubicBSplineDeriv(ctrl, t)
+	speed := norm(spx, spy)
+	ax, ay := c.L.Start.x(), c.L.Start.y()
+	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
+	dlen := norm(dx, dy)
+	ws := c.s.vars[c.ws]
+	scale := splineCoordScale(ctrl)
+	contact := (dx*(sy-ay) - dy*(sx-ax)) / dlen
+	parallel := 1.0
+	if math.Hypot(dx, dy) >= splineEpsLine*scale {
+		parallel = (dx*spy - dy*spx) / (dlen * speed)
+	}
+	return append(out,
+		contact,                        // on the carrier line (length)
+		parallel,                       // line ∥ spline tangent (dimensionless)
+		speed/scale-splineEpsTan-ws*ws, // |S'(t)| ≥ epsTan·scale (no cusp)
+	)
+}
+
+// tangentToFitSpline forces a line tangent to a fit-point (interpolating) spline.
+// The curve has endpoints, so — exactly like [tangentToSpline] — the contact
+// parameter t ∈ [0,1] is bounded by a slack box, and the committed residual is
+// five rows: contact on the carrier line (length), parallel to the analytic
+// natural-cubic tangent S'(t) (dimensionless, geom.EvalFitSplineDeriv), the two
+// box rows, and the no-cusp guard (slack ws).
+type tangentToFitSpline struct {
+	L                *Line
+	Sp               *FitSpline
+	s                *Sketch
+	tvar, w0, w1, ws int // contact parameter, box slacks, speed-guard slack; -1 = unallocated
+}
+
+// NewTangentToFitSpline forces a line tangent to a fit-point (interpolating)
+// spline. The line is its infinite carrier; the contact parameter on the curve is
+// solved for and confined to it.
+func NewTangentToFitSpline(l *Line, sp *FitSpline) Constraint {
+	return &tangentToFitSpline{L: l, Sp: sp, tvar: -1, w0: -1, w1: -1, ws: -1}
+}
+
+func (c *tangentToFitSpline) allocVars(s *Sketch) {
+	c.s = s
+	if c.tvar >= 0 {
+		return // idempotent
+	}
+	t := c.seedParam()
+	spx, spy := geom.EvalFitSplineDeriv(c.Sp.fitCoords(), clamp01(t))
+	speed := norm(spx, spy)
+	c.tvar = s.newVar(t)
+	c.w0 = s.newVar(slackFor(t))
+	c.w1 = s.newVar(slackFor(1 - t))
+	c.ws = s.newVar(slackFor(speed/splineCoordScale(c.Sp.fitCoords()) - splineEpsTan))
+}
+
+func (c *tangentToFitSpline) retireVars(s *Sketch) {
+	if c.tvar >= 0 {
+		s.retireVar(c.tvar)
+		s.retireVar(c.w0)
+		s.retireVar(c.w1)
+		s.retireVar(c.ws)
+		c.tvar, c.w0, c.w1, c.ws = -1, -1, -1, -1
+	}
+}
+
+func (c *tangentToFitSpline) seedParam() float64 {
+	fit := c.Sp.fitCoords()
+	ax, ay := c.L.Start.x(), c.L.Start.y()
+	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
+	eval := func(t float64) (float64, float64) { return geom.EvalFitSpline(fit, t) }
+	deriv := func(t float64) (float64, float64) { return geom.EvalFitSplineDeriv(fit, t) }
+	return seedTangentParam(eval, deriv, 16*len(fit), false, splineCoordScale(fit), ax, ay, dx, dy, norm(dx, dy))
+}
+
+func (c *tangentToFitSpline) residual(out []float64) []float64 {
+	if c.tvar < 0 {
+		return out // not yet parameterized; allocVars runs at commit (and in CheckConstraint)
+	}
+	fit := c.Sp.fitCoords()
+	tv := c.s.vars[c.tvar]
+	t := clamp01(tv)
+	sx, sy := geom.EvalFitSpline(fit, t)
+	spx, spy := geom.EvalFitSplineDeriv(fit, t)
+	speed := norm(spx, spy)
+	ax, ay := c.L.Start.x(), c.L.Start.y()
+	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
+	dlen := norm(dx, dy)
+	w0, w1, ws := c.s.vars[c.w0], c.s.vars[c.w1], c.s.vars[c.ws]
+	scale := splineCoordScale(fit)
+	contact := (dx*(sy-ay) - dy*(sx-ax)) / dlen
+	parallel := 1.0
+	if math.Hypot(dx, dy) >= splineEpsLine*scale {
+		parallel = (dx*spy - dy*spx) / (dlen * speed)
+	}
+	return append(out,
+		contact,                        // on the carrier line (length)
+		parallel,                       // line ∥ spline tangent (dimensionless)
+		tv-w0*w0,                       // t ≥ 0
+		(1-tv)-w1*w1,                   // t ≤ 1
+		speed/scale-splineEpsTan-ws*ws, // |S'(t)| ≥ epsTan·scale (no cusp)
+	)
+}
+
+// seedParam picks a contact parameter for the tangency witness: a dense
+// multi-start over [0,1] minimizing the normalized tangency score
+// (contact/scale)² + parallel², skipping near-cusp samples, then a golden-section
+// refine. Distance-only or parallelism-only seeds each fail a common case (a
+// transverse crossing, or a far-away parallel point), so the combined score is used.
+func (c *tangentToSpline) seedParam() float64 {
+	ctrl := c.Sp.controlCoords()
+	ax, ay := c.L.Start.x(), c.L.Start.y()
+	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
+	eval := func(t float64) (float64, float64) { return geom.EvalCubicBSpline(ctrl, t) }
+	deriv := func(t float64) (float64, float64) { return geom.EvalCubicBSplineDeriv(ctrl, t) }
+	return seedTangentParam(eval, deriv, 16*(len(ctrl)-3), false, splineScale(c.Sp), ax, ay, dx, dy, norm(dx, dy))
 }
 
 // --- conic-conic tangency ---------------------------------------------------
