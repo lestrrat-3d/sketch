@@ -120,6 +120,34 @@ func (s *source) ellipsePoint(ang float64) [2]float64 {
 	return [2]float64{s.cx + lx*cosr - ly*sinr, s.cy + lx*sinr + ly*cosr}
 }
 
+// differential returns the first and second derivatives of the source's position
+// with respect to its natural parameter t, for the kinds with a closed-form
+// tangent/curvature (line/circle/arc). ok=false for the sampled-only kinds
+// (ellipse/spline/elliptical-arc), which keep chord-based half-edge ordering. This
+// is the exact local geometry the analytic port ordering needs at a shared vertex,
+// where chord directions tie (a tangency) and would branch-swap the face walk.
+func (s *source) differential(t float64) (d1, d2 [2]float64, ok bool) {
+	switch s.kind {
+	case srcLine:
+		return [2]float64{s.bx - s.ax, s.by - s.ay}, [2]float64{0, 0}, true
+	case srcCircle:
+		ang := 2 * math.Pi * t
+		w := 2 * math.Pi
+		sin, cos := math.Sin(ang), math.Cos(ang)
+		d1 = [2]float64{-w * s.r * sin, w * s.r * cos}
+		d2 = [2]float64{-w * w * s.r * cos, -w * w * s.r * sin}
+		return d1, d2, true
+	case srcArc:
+		ang := s.phi0 + t*s.sweep
+		w := s.sweep
+		sin, cos := math.Sin(ang), math.Cos(ang)
+		d1 = [2]float64{-w * s.r * sin, w * s.r * cos}
+		d2 = [2]float64{-w * w * s.r * cos, -w * w * s.r * sin}
+		return d1, d2, true
+	}
+	return [2]float64{}, [2]float64{}, false
+}
+
 // tinySeg is one straight segment of a source's polyline, tagged with the
 // source and the natural parameters at its endpoints.
 type tinySeg struct {
@@ -167,6 +195,13 @@ type arranger struct {
 	// the tiny segment it cuts.
 	handled    map[[2]int]struct{}
 	sourceSegs [][]int
+
+	// Certified analytic tangency contacts (increment 3): the exact points where
+	// the rotation system must order coincident-tangent ports by curvature instead
+	// of by chord direction. Used ONLY at these vertices — at a sampled crossing the
+	// edges are chords, so chord ordering (not exact tangents) matches the geometry
+	// the face walk traverses.
+	exactPortVerts [][2]float64
 }
 
 // arrEdge is an undirected arrangement edge between two canonical vertices,
@@ -805,11 +840,21 @@ func (a *arranger) analyticPrepass() {
 					}
 					// An interior clean contact is no cut, no degeneracy — UNLESS it
 					// would canonicalize as a shared vertex between two cycle-bearing
-					// sources (where buildGraph's chord-angle sort could branch-swap),
-					// which is conservatively flagged pending exact tangent-port handling.
+					// sources, where the rotation system must order coincident-tangent
+					// ports. buildGraph's exact tangent-port ordering now certifies an
+					// EXTERNAL circle/arc tangency there (the two loops separate by
+					// opposite curvature sign); internal/containment and line-involved
+					// tangencies stay conservatively degenerate pending later increments.
 					if a.core[i] && a.core[j] &&
 						a.sourceHasVertexNear(i, e.x, e.y) && a.sourceHasVertexNear(j, e.x, e.y) {
-						a.flagDegenerate(e.x, e.y)
+						if a.externalCurvedTangency(i, j) {
+							// Certify this contact for exact tangent-port ordering at the
+							// shared vertex; buildGraph orders its coincident-tangent ports
+							// by curvature so the two loops separate.
+							a.exactPortVerts = append(a.exactPortVerts, [2]float64{e.x, e.y})
+						} else {
+							a.flagDegenerate(e.x, e.y)
+						}
 					}
 				}
 			}
@@ -1102,9 +1147,162 @@ type halfEdge struct {
 	from, to int
 	edge     int // index into arranger.edges
 	forward  bool
-	angle    float64
-	next     int // index into arranger.halfs
+	angle    float64 // chord departure angle (the sampled fallback ordering key)
+	tx, ty   float64 // exact source-tangent departure direction (when exact)
+	kappa    float64 // exact signed curvature in the departure direction (when exact)
+	exact    bool    // tx/ty/kappa are valid (a line/circle/arc fragment)
+	next     int     // index into arranger.halfs
 	visited  bool
+}
+
+// portKey returns the exact outgoing tangent direction and signed curvature of a
+// source fragment leaving a vertex: at natural parameter t, traversed in the
+// direction dir (+1 along increasing param, −1 along decreasing). Reversing
+// traversal negates both the tangent direction and the signed curvature.
+// ok=false for a sampled-only source (ellipse/spline) or a zero-velocity point.
+func (a *arranger) portKey(src int, t, dir float64) (tx, ty, kappa float64, ok bool) {
+	d1, d2, ok := a.sources[src].differential(t)
+	if !ok {
+		return 0, 0, 0, false
+	}
+	n1 := math.Hypot(d1[0], d1[1])
+	if n1 == 0 {
+		return 0, 0, 0, false
+	}
+	kappa = dir * (d1[0]*d2[1] - d1[1]*d2[0]) / (n1 * n1 * n1)
+	return dir * d1[0], dir * d1[1], kappa, true
+}
+
+// dirHalf splits direction (x,y) into the upper half-plane (0) or lower (1) so
+// directions can be CCW-ordered by (half, cross) without an atan2 seam. The +x
+// axis is upper, −x is lower — a consistent tie-break on the boundary.
+func dirHalf(x, y float64) int {
+	if y > 0 || (y == 0 && x >= 0) {
+		return 0
+	}
+	return 1
+}
+
+const (
+	dirParallelEps  = 1e-9
+	kappaCertifyEps = 1e-7
+)
+
+// sortExactPorts orders the outgoing half-edges of a certified tangency vertex CCW
+// by exact tangent, breaking a shared tangent (a tangency) by signed curvature. To
+// keep the comparator a valid strict-weak ordering (an ε-band direction compare is
+// intransitive for a chain of near-parallel directions), ports are first CLUSTERED
+// into same-ray groups, every member of a group is stamped with ONE shared group
+// angle, and the sort then uses only EXACT keys: lexicographic (groupAngle, kappa,
+// index). ε appears only in the clustering and the osculation flag, never in an
+// ordering decision. A genuine osculation (two same-ray ports with indistinguishable
+// scaled curvature) is flagged degenerate.
+func (a *arranger) sortExactPorts(v int, ring []int) {
+	n := len(ring)
+	groupAng := make([]float64, n)
+	stamped := make([]bool, n)
+	for i := 0; i < n; i++ {
+		if stamped[i] {
+			continue
+		}
+		hi := &a.halfs[ring[i]]
+		ang := math.Atan2(hi.ty, hi.tx)
+		groupAng[i] = ang
+		stamped[i] = true
+		ni := math.Hypot(hi.tx, hi.ty)
+		for j := i + 1; j < n; j++ {
+			if stamped[j] {
+				continue
+			}
+			hj := &a.halfs[ring[j]]
+			dot := hi.tx*hj.tx + hi.ty*hj.ty
+			cr := hi.tx*hj.ty - hi.ty*hj.tx
+			if dot > 0 && math.Abs(cr) <= dirParallelEps*ni*math.Hypot(hj.tx, hj.ty) {
+				groupAng[j] = ang // same ray → one shared angle for the whole group
+				stamped[j] = true
+			}
+		}
+	}
+	order := make([]int, n)
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(x, y int) bool {
+		px, py := order[x], order[y]
+		if groupAng[px] != groupAng[py] {
+			return groupAng[px] < groupAng[py]
+		}
+		kx, ky := a.halfs[ring[px]].kappa, a.halfs[ring[py]].kappa
+		if kx != ky {
+			return kx < ky // exact curvature order (a curve bending further CCW comes later)
+		}
+		return px < py
+	})
+	sorted := make([]int, n)
+	for i, oi := range order {
+		sorted[i] = ring[oi]
+	}
+	// Detect osculation on the reordered ring. A genuine osculation has EXACTLY
+	// parallel tangents (cross ≈ 0), so its two ports cluster together and land
+	// adjacent after the angle sort; test adjacent pairs by actual tangent direction
+	// and flag when the scaled curvatures are indistinguishable. (A pair more than the
+	// parallel epsilon apart is not the same ray, hence not an osculation.)
+	for i := 0; i < n; i++ {
+		hi := &a.halfs[sorted[i]]
+		hj := &a.halfs[sorted[(i+1)%n]]
+		dot := hi.tx*hj.tx + hi.ty*hj.ty
+		cr := hi.tx*hj.ty - hi.ty*hj.tx
+		if dot <= 0 || math.Abs(cr) > dirParallelEps*math.Hypot(hi.tx, hi.ty)*math.Hypot(hj.tx, hj.ty) {
+			continue // not the same tangent ray
+		}
+		if math.Abs(hi.kappa-hj.kappa)*a.scale <= kappaCertifyEps {
+			vx, vy := a.verts.coord(v)
+			a.flagDegenerate(vx, vy)
+			break
+		}
+	}
+	copy(ring, sorted)
+}
+
+// useExactPorts reports whether vertex v should be ordered by exact tangent ports
+// rather than chord direction: only at a certified analytic tangency contact (where
+// chord directions tie and would branch-swap) AND only if every incident half-edge
+// is an exact line/circle/arc fragment. Everywhere else — sampled crossings, polygon
+// corners, ellipse/spline vertices — chord ordering matches the polyline geometry
+// the face walk actually traverses, so exact tangents must NOT be used there.
+func (a *arranger) useExactPorts(v int, ring []int) bool {
+	vx, vy := a.verts.coord(v)
+	certified := false
+	for _, p := range a.exactPortVerts {
+		if math.Hypot(p[0]-vx, p[1]-vy) <= a.merge {
+			certified = true
+			break
+		}
+	}
+	if !certified {
+		return false
+	}
+	for _, hi := range ring {
+		if !a.halfs[hi].exact {
+			return false
+		}
+	}
+	return true
+}
+
+// externalCurvedTangency reports whether sources i and j are two circle/arc
+// carriers in EXTERNAL tangency (centre distance beyond the larger radius). Their
+// loops separate cleanly under exact tangent-port ordering (opposite curvature
+// sign at the contact), so the merged shared vertex no longer needs a conservative
+// degeneracy flag. Internal tangency (containment) still does — its hole
+// assignment is not yet certified — so it is excluded here.
+func (a *arranger) externalCurvedTangency(i, j int) bool {
+	si, sj := &a.sources[i], &a.sources[j]
+	if !isCurvedKind(si.kind) || !isCurvedKind(sj.kind) {
+		return false
+	}
+	d := math.Hypot(si.cx-sj.cx, si.cy-sj.cy)
+	return d > math.Max(si.r, sj.r)
 }
 
 // buildGraph wires the doubly-connected edge list: two half-edges per edge, the
@@ -1114,17 +1312,30 @@ func (a *arranger) buildGraph() {
 	for ei, e := range a.edges {
 		ux, uy := a.verts.coord(e.u)
 		vx, vy := a.verts.coord(e.v)
-		a.halfs = append(a.halfs, halfEdge{from: e.u, to: e.v, edge: ei, forward: true, angle: math.Atan2(vy-uy, vx-ux), next: -1})
-		a.halfs = append(a.halfs, halfEdge{from: e.v, to: e.u, edge: ei, forward: false, angle: math.Atan2(uy-vy, ux-vx), next: -1})
+		// Forward leaves e.u at param e.pu (increasing); backward leaves e.v at
+		// param e.pv (decreasing). The exact tangent at the departure point orders
+		// the rotation system correctly even where chord directions tie (a tangency).
+		ftx, fty, fka, fok := a.portKey(e.src, e.pu, +1)
+		btx, bty, bka, bok := a.portKey(e.src, e.pv, -1)
+		a.halfs = append(a.halfs, halfEdge{from: e.u, to: e.v, edge: ei, forward: true, angle: math.Atan2(vy-uy, vx-ux), tx: ftx, ty: fty, kappa: fka, exact: fok, next: -1})
+		a.halfs = append(a.halfs, halfEdge{from: e.v, to: e.u, edge: ei, forward: false, angle: math.Atan2(uy-vy, ux-vx), tx: btx, ty: bty, kappa: bka, exact: bok, next: -1})
 	}
-	// Outgoing half-edges per vertex, sorted CCW by departure angle.
+	// Outgoing half-edges per vertex, sorted CCW by departure direction. When every
+	// incident half-edge is an exact (line/circle/arc) fragment, order by the exact
+	// source tangent and, for ports sharing a tangent (a tangency), by signed
+	// curvature — this is what stops a shared tangent vertex from branch-swapping.
+	// A vertex with any sampled (ellipse/spline) fragment keeps the chord order.
 	out := map[int][]int{}
 	for hi := range a.halfs {
 		out[a.halfs[hi].from] = append(out[a.halfs[hi].from], hi)
 	}
 	for v := range out {
 		list := out[v]
-		sort.Slice(list, func(i, j int) bool { return a.halfs[list[i]].angle < a.halfs[list[j]].angle })
+		if a.useExactPorts(v, list) {
+			a.sortExactPorts(v, list)
+		} else {
+			sort.Slice(list, func(i, j int) bool { return a.halfs[list[i]].angle < a.halfs[list[j]].angle })
+		}
 		out[v] = list
 	}
 	pos := map[int]int{} // half-edge -> index within its origin's sorted ring

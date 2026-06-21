@@ -214,14 +214,34 @@ func TestAnalyticSameCarrierArcs(t *testing.T) {
 	require.True(t, overlapping.Degenerate, "same-carrier arcs with overlapping sweeps are coincident geometry")
 }
 
-func TestAnalyticTangentCirclesMergedDegenerate(t *testing.T) {
-	// When the tangent contact DOES canonicalize onto a shared sample vertex of both
-	// cycle-bearing circles (here (3,0), a cardinal sample point of both), the planar
-	// map's chord-angle sort could branch-swap, so the arrangement is conservatively
-	// degenerate until exact tangent-port handling lands (a later increment).
+func TestAnalyticMergedExternalTangentBlessed(t *testing.T) {
+	// The tangent contact canonicalizes onto a shared sample vertex of both
+	// cycle-bearing circles (here (3,0), a cardinal sample point of both). Chord
+	// ordering would branch-swap there; exact tangent-port ordering (increment 3)
+	// separates the two loops by opposite curvature sign, so this is now blessed as
+	// two clean disks at every sampling density — not conservatively degenerate.
+	for _, spt := range []int{8, 16, 32, 64, 128} {
+		arr := geom.Regions(nil, []geom.ClosedCurve{
+			geom.NewCircle(geom.NewPoint(0, 0), 3),
+			geom.NewCircle(geom.NewPoint(6, 0), 3),
+		}, geom.WithSegmentsPerTurn(spt))
+		require.Falsef(t, arr.Degenerate, "merged external tangency is certified clean at spt=%d", spt)
+		require.Lenf(t, arr.Regions, 2, "two disks at spt=%d", spt)
+		var total float64
+		for _, rg := range arr.Regions {
+			total += rg.Area
+		}
+		require.InDeltaf(t, 2*math.Pi*9, total, 1e-9, "two full disks (exact) at spt=%d", spt)
+	}
+}
+
+func TestAnalyticMergedInternalTangentDegenerate(t *testing.T) {
+	// Internal (containment) tangency at a shared vertex stays conservatively
+	// degenerate: exact tangent-port ordering separates the loops, but the
+	// inner-as-hole assignment is not yet certified (a later increment).
 	arr := geom.Regions(nil, []geom.ClosedCurve{
-		&geom.Circle{Center: geom.NewPoint(0, 0), Radius: 3},
-		&geom.Circle{Center: geom.NewPoint(6, 0), Radius: 3},
-	})
-	require.True(t, arr.Degenerate, "a merged-vertex tangency is conservatively degenerate")
+		geom.NewCircle(geom.NewPoint(0, 0), 6),
+		geom.NewCircle(geom.NewPoint(3, 0), 3), // internally tangent at (6,0), a shared cardinal vertex
+	}, geom.WithSegmentsPerTurn(32))
+	require.True(t, arr.Degenerate, "merged internal tangency stays conservatively degenerate")
 }

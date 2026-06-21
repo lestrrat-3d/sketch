@@ -2,9 +2,12 @@
 
 Status: **in progress** — increments 1 (the analytic event kernel,
 `geom/arrange_events.go`) and 2 (the analytic-authoritative wiring,
-`geom/arrange.go`) are implemented; the rest is the roadmap below. Resolves the
-"analytic (non-sampled) arrangement" open follow-up of the Profile/region engine
-(`docs/verification-roadmap.md`).
+`geom/arrange.go`) are implemented, and increment 3 (exact tangent/port ordering)
+is **partly** in — a merged-vertex EXTERNAL circle/arc tangency is now blessed as
+two disks via curvature-ordered ports; internal/containment, osculation, and
+curve/curve crossing authority remain deferred. The rest is the roadmap below.
+Resolves the "analytic (non-sampled) arrangement" open follow-up of the
+Profile/region engine (`docs/verification-roadmap.md`).
 
 ## The problem
 
@@ -88,19 +91,29 @@ Same-component interior tangency is a **self-touch** → `SelfIntersections`, no
    conservatively `Degenerate` (see the tangency contract) pending increment 3. Tested
    in `geom/arrange_analytic_test.go`. See "Wiring design" below.
 
-3. **Exact tangent/port ordering** — replace chord departure angles at analytic
-   vertices with exact source tangents; add tangent-port handling so a shared
-   tangent vertex no longer branch-swaps — this is what lets increment 2's
-   conservative `flagDegenerate` become a real tangent blessing. The sound design
-   is a per-event **hostability certificate** (richer than increment 2's count
-   gate): fragment **incidence** (the straight fragments `split`/`buildGraph` emit
-   have no extra/missing crossings vs the analytic event set), **port order** (the
-   chord-angle rotation at each analytic vertex matches the exact source-tangent
-   rotation, so no branch-swap), and **closed containment** (a strictly nested /
-   internally-tangent circle pair has its inner cycle certified inside the outer
-   sampled cycle). Each certificate that cannot be met stays `Degenerate`. This is
-   what upgrades the count gate (which conservatively rejects internal tangencies
-   and merged-vertex tangencies) into selective blessing.
+3. **Exact tangent/port ordering** — *partly done* (`geom/arrange.go`:
+   `source.differential`, `portKey`, `portLess`, `useExactPorts`, `scanOsculation`,
+   `externalCurvedTangency`). At a certified analytic tangency contact the rotation
+   system orders coincident-tangent ports by exact source tangent + signed
+   **curvature** (a robust half-plane + cross-product direction compare, no atan2
+   seam; curvature compared scale-normalized) instead of chord angle, so a shared
+   tangent vertex no longer branch-swaps. The increment-2 conservative
+   `flagDegenerate` for a **merged-vertex EXTERNAL circle/arc tangency** is lifted:
+   it is blessed as two clean disks at every sampling (opposite curvature sign
+   separates the loops). **Load-bearing scope rule:** exact ordering is used ONLY at
+   the certified tangency contacts (`exactPortVerts`), never at a sampled crossing
+   vertex — there the edges are *chords*, so chord ordering is what matches the
+   polyline geometry the face walk traverses; ordering those by exact tangents
+   corrupts the map. Still `Degenerate` (deferred): **internal/containment**
+   tangency (the inner-as-hole assignment is not yet certified), line-involved
+   merged tangency, a genuine **osculation** (equal tangent AND equal curvature,
+   caught by `scanOsculation`), and curve/curve transverse **crossing** authority
+   (still deferred to the sampled path — lifting it needs the post-split fragment
+   certificate below). The richer per-event **hostability certificate** that would
+   bless those — fragment **incidence** (the emitted straight fragments have no
+   extra/missing crossings vs the analytic event set), full **port order** at every
+   event vertex, and **closed containment** (a nested/internally-tangent inner cycle
+   certified inside the outer) — is the remaining increment-3+ work.
 
 4. **Analytic overlap / self-intersection coverage** for supported primitives
    (coincident lines, duplicate/overlapping arcs, identical circles, same-source

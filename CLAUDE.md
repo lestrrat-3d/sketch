@@ -132,9 +132,18 @@ polyline shows the same number of transverse crossings (`sampledCrossCount`,
 both-segment-interior) the kernel found AND each analytic crossing is witnessed on
 its own host segment-pair (`analyticCrossHosted`); otherwise — a sub-sample cap or a
 crossing the coarse polyline never reaches — it is conservatively `Degenerate` rather
-than a vanished disk. A tangency that would merge onto a shared cycle-bearing vertex
-stays conservatively `Degenerate` pending the tangent-port increment. Ellipse/spline
-pairs keep the sampled fallback. `Sketch.Profiles()` is its consumer.
+than a vanished disk. **Exact tangent-port ordering (increment 3, partial):** at a
+certified analytic tangency contact (`exactPortVerts`) the DCEL rotation system
+orders coincident-tangent half-edges by exact source tangent + signed **curvature**
+(`source.differential`/`portKey`/`portLess`, a seam-free half-plane+cross compare)
+instead of chord angle, so a **merged-vertex EXTERNAL circle/arc tangency** is now
+blessed as two clean disks (opposite curvature separates the loops) rather than
+flagged. Used ONLY at those certified contacts — at a sampled crossing vertex the
+edges are chords, so chord ordering is what matches the traversed geometry. Internal/
+containment tangency, line-involved merged tangency, genuine osculation
+(`scanOsculation`), and curve/curve crossing authority stay conservatively
+`Degenerate`/deferred. Ellipse/spline pairs keep the sampled fallback.
+`Sketch.Profiles()` is its consumer.
 
 ### The `space` package (slated for extraction)
 
