@@ -132,6 +132,55 @@ func (o operand) circleParam(x, y float64) float64 {
 	return t
 }
 
+// arcSpan returns the operand's covered angular interval as a CCW arc
+// [start, start+length] with start ∈ [0,2π) and length ∈ [0,2π]. The covered SET
+// is independent of sweep direction (a CW arc covers the same angles as its CCW
+// mirror); a full circle spans the whole turn.
+func (o operand) arcSpan() (start, length float64) {
+	if o.fullCircle {
+		return 0, 2 * math.Pi
+	}
+	length = math.Abs(o.sweep)
+	start = o.phi0
+	if o.sweep < 0 {
+		start = o.phi0 + o.sweep
+	}
+	start = math.Mod(start, 2*math.Pi)
+	if start < 0 {
+		start += 2 * math.Pi
+	}
+	return start, length
+}
+
+// coincidentArcOverlap returns a point strictly inside the angular overlap of two
+// coincident-carrier operands' swept arcs (a positive-length coincidence), or
+// over=false when the arcs are disjoint or meet only at an endpoint. Caller has
+// already established the carriers are the same circle.
+func coincidentArcOverlap(a, b operand) (x, y float64, over bool) {
+	sa, la := a.arcSpan()
+	sb, lb := b.arcSpan()
+	rb := math.Mod(sb-sa, 2*math.Pi)
+	if rb < 0 {
+		rb += 2 * math.Pi
+	}
+	// Arc a is [0,la]; arc b is [rb, rb+lb] and its wrapped copy [rb-2π, rb+lb-2π].
+	// Take the longer contiguous overlap with [0,la] — one representative point is
+	// enough to flag the coincidence.
+	bestLen, bestMid := 0.0, 0.0
+	for _, off := range [2]float64{rb, rb - 2*math.Pi} {
+		lo := math.Max(0, off)
+		hi := math.Min(la, off+lb)
+		if hi-lo > bestLen {
+			bestLen, bestMid = hi-lo, (lo+hi)/2
+		}
+	}
+	if bestLen <= arcParamEps {
+		return 0, 0, false // disjoint, or endpoint-only touch
+	}
+	ang := sa + bestMid
+	return a.cx + a.r*math.Cos(ang), a.cy + a.r*math.Sin(ang), true
+}
+
 // inSweep reports whether the source natural parameter t lies on the actual
 // (extent-clipped) operand. A finite line segment and a swept arc both confine
 // t to [0,1] (a small epsilon admits an exact endpoint contact); only a full
@@ -249,7 +298,16 @@ func circleCircleEvents(a, b operand, scale float64) ([]xEvent, bool) {
 		// could be a sliver two-crossing).
 		switch {
 		case d <= certify && math.Abs(a.r-b.r) <= certify:
-			return []xEvent{{x: a.cx, y: a.cy, kind: evOverlap}}, false
+			// Coincident carrier circles. They are a degenerate overlap ONLY where the
+			// two swept arcs actually coincide; same-carrier arcs whose sweeps are
+			// disjoint, or meet only at a shared endpoint, do not overlap (mirrors the
+			// collinear-line case). A point strictly inside the angular overlap reports
+			// the degeneracy with in-sweep ti/tj so the sweep filter keeps it; no overlap
+			// returns no event, leaving disjoint arcs clean.
+			if ox, oy, over := coincidentArcOverlap(a, b); over {
+				return []xEvent{{x: ox, y: oy, ti: a.circleParam(ox, oy), tj: b.circleParam(ox, oy), kind: evOverlap}}, false
+			}
+			return nil, false
 		case math.Abs(a.r-b.r) > band:
 			return nil, false
 		default:

@@ -127,7 +127,18 @@ type tinySeg struct {
 	pa, pb float64
 	ax, ay float64
 	bx, by float64
-	cuts   []float64 // segment-local parameters (0..1) where crossings split it
+	cuts   []cut // segment-local crossings that split it
+}
+
+// cut is a crossing that splits a tiny segment at segment-local parameter t, with
+// the EXACT crossing point (px,py). A sampled crossing stores the segment
+// intersection point (identical to chord interpolation, so the sampled path is
+// unchanged); an ANALYTIC crossing stores the exact curve intersection point, so
+// two sources cut at the same event canonicalize to ONE vertex (chord
+// interpolation of two different sources' params would otherwise miss).
+type cut struct {
+	t      float64
+	px, py float64
 }
 
 // arranger holds the working state of one Regions call.
@@ -149,6 +160,13 @@ type arranger struct {
 	srcCut    []bool           // per source: split by at least one crossing (so its edges are fragments)
 	degen     [][2]float64     // points of degenerate (collinear-overlap / unresolvable) conditions
 	degenSet  bool
+
+	// Analytic-arrangement state (increment 2): which line/circle/arc source pairs
+	// were classified analytically (so the sampled segment loop skips them), and a
+	// per-source segment index for mapping an analytic event's source parameter to
+	// the tiny segment it cuts.
+	handled    map[[2]int]struct{}
+	sourceSegs [][]int
 }
 
 // arrEdge is an undirected arrangement edge between two canonical vertices,
@@ -599,10 +617,19 @@ func (a *arranger) sampleParams(s *source) []float64 {
 // self-intersections.
 func (a *arranger) intersect() {
 	a.srcCut = make([]bool, len(a.sources))
+	a.analyticPrepass()
 	n := len(a.segs)
 	for i := 0; i < n; i++ {
 		for j := i + 1; j < n; j++ {
 			si, sj := &a.segs[i], &a.segs[j]
+			// Supported source pairs (line/circle/arc) were classified analytically
+			// in the pre-pass; their crossings are authoritative, so the sampled
+			// segment test must not add contradictory ones.
+			if si.src != sj.src {
+				if _, h := a.handled[pairKey(si.src, sj.src)]; h {
+					continue
+				}
+			}
 			sameSpline := false
 			if si.src == sj.src {
 				// A simple source's own polyline never self-crosses. A spline (open
@@ -652,11 +679,11 @@ func (a *arranger) intersect() {
 				a.flagDegenerate(p.x, p.y)
 			}
 			if interiorI {
-				si.cuts = append(si.cuts, p.ti)
+				si.cuts = append(si.cuts, cut{t: p.ti, px: p.x, py: p.y})
 				a.srcCut[si.src] = true
 			}
 			if interiorJ {
-				sj.cuts = append(sj.cuts, p.tj)
+				sj.cuts = append(sj.cuts, cut{t: p.tj, px: p.x, py: p.y})
 				a.srcCut[sj.src] = true
 			}
 			// Self-intersection: a single simple closed loop (its core vertices
@@ -675,6 +702,282 @@ func (a *arranger) intersect() {
 			}
 		}
 	}
+}
+
+// analyticPrepass classifies every supported (line/circle/arc) source pair with
+// the analytic event kernel and applies the result authoritatively: a transverse
+// crossing forces an exact cut on each source; a coincident overlap or an
+// unresolvable (ambiguous) classification flags degeneracy; a clean tangency is a
+// non-splitting contact that does NOT flag degeneracy — UNLESS it would merge into
+// a shared vertex between two cycle-bearing sources (where buildGraph's chord-angle
+// sort could branch-swap), which is conservatively flagged degenerate pending the
+// exact tangent-port handling of a later increment. Handled pairs are recorded so
+// the sampled segment loop skips them.
+func (a *arranger) analyticPrepass() {
+	a.handled = make(map[[2]int]struct{})
+	a.sourceSegs = make([][]int, len(a.sources))
+	for i := range a.segs {
+		a.sourceSegs[a.segs[i].src] = append(a.sourceSegs[a.segs[i].src], i)
+	}
+	for i := 0; i < len(a.sources); i++ {
+		si := &a.sources[i]
+		if !analyticKind(si.kind) {
+			continue
+		}
+		for j := i + 1; j < len(a.sources); j++ {
+			sj := &a.sources[j]
+			if !analyticKind(sj.kind) {
+				continue
+			}
+			events, ambiguous, ok := analyticEvents(si, sj, a.scale)
+			if !ok {
+				continue
+			}
+			nCross := 0
+			for _, e := range events {
+				if e.kind == evCross {
+					nCross++
+				}
+			}
+			// Curve/curve TRANSVERSE crossings (both sources circle/arc) are deferred
+			// to the sampled path. The sampled DCEL already resolves their topology
+			// correctly (the pre-analytic behaviour); injecting exact cuts buys exact
+			// area but, until increment 3's exact tangent-port certificate, can only be
+			// admitted by a gate that is either unsound (round-2: equal-count coarse
+			// crossings at the wrong locations fuse three regions into one) or so
+			// conservative it false-flags well-separated valid crossings (a sampled
+			// crossing one chord segment off the analytic param). Both are worse than
+			// deferring, so do not take analytic authority here: skip marking handled,
+			// flag a genuinely ambiguous verdict, and let the sampled loop run. Line-
+			// involved crossings and all tangencies keep analytic authority below.
+			if nCross > 0 && isCurvedKind(si.kind) && isCurvedKind(sj.kind) {
+				if ambiguous {
+					rx, ry := sourceRep(si)
+					sx, sy := sourceRep(sj)
+					a.flagDegenerate((rx+sx)/2, (ry+sy)/2)
+				}
+				continue
+			}
+			a.handled[[2]int{i, j}] = struct{}{}
+			// Consistency gate (curved pairs only): the sampled polyline must host
+			// the analytic crossings faithfully, or injecting exact cuts would warp
+			// the planar map (a vanished disk, a tangled face) while reading clean.
+			// Two conditions: (1) the same NUMBER of transverse crossings — a coarse
+			// chord that does not reach the true crossing shows too few; (2) each
+			// analytic crossing WITNESSED on its own host segment-pair. (The
+			// over-conservative branch of incidence only bites curve/curve pairs, which
+			// are deferred above; a line-involved curved pair has the exact line as one
+			// operand, so its sampled crossing tracks the analytic one.) Failing either,
+			// conservatively flag degeneracy. Pure line/line pairs are exact (sample ==
+			// geometry), so a clean shallow crossing is never false-flagged.
+			if isCurvedKind(si.kind) || isCurvedKind(sj.kind) {
+				if a.sampledCrossCount(i, j) != nCross || !a.analyticCrossHosted(i, j, events) {
+					rx, ry := sourceRep(si)
+					sx, sy := sourceRep(sj)
+					a.flagDegenerate((rx+sx)/2, (ry+sy)/2)
+				}
+			}
+			if ambiguous {
+				rx, ry := sourceRep(si)
+				sx, sy := sourceRep(sj)
+				a.flagDegenerate((rx+sx)/2, (ry+sy)/2)
+			}
+			for _, e := range events {
+				switch e.kind {
+				case evOverlap:
+					a.flagDegenerate(e.x, e.y)
+				case evCross:
+					a.applyAnalyticCut(i, e.ti, e.x, e.y)
+					a.applyAnalyticCut(j, e.tj, e.x, e.y)
+					// Two sources meeting only at their endpoints is a normal join /
+					// corner, not a self-crossing. Replicate the sampled path, which
+					// skips endpoint-endpoint contacts: self-intersection needs at least
+					// one interior contact.
+					if !atSourceEnd(si, e.ti) || !atSourceEnd(sj, e.tj) {
+						a.analyticSelfX(i, j, e.x, e.y)
+					}
+				case evTangent:
+					// A tangency at a SHARED ENDPOINT of both sources is a smooth (G1)
+					// join — a slot flank meeting its end cap, a fillet — and is always
+					// valid; no cut, no degeneracy.
+					if atSourceEnd(si, e.ti) && atSourceEnd(sj, e.tj) {
+						break
+					}
+					// An interior clean contact is no cut, no degeneracy — UNLESS it
+					// would canonicalize as a shared vertex between two cycle-bearing
+					// sources (where buildGraph's chord-angle sort could branch-swap),
+					// which is conservatively flagged pending exact tangent-port handling.
+					if a.core[i] && a.core[j] &&
+						a.sourceHasVertexNear(i, e.x, e.y) && a.sourceHasVertexNear(j, e.x, e.y) {
+						a.flagDegenerate(e.x, e.y)
+					}
+				}
+			}
+		}
+	}
+}
+
+func pairKey(i, j int) [2]int {
+	if i < j {
+		return [2]int{i, j}
+	}
+	return [2]int{j, i}
+}
+
+// isCurvedKind reports whether an analytic source kind is a curve sampled by
+// chords (circle/arc) rather than reproduced exactly (a line). Only curved
+// sources can have the sampled polyline disagree with the exact geometry.
+func isCurvedKind(k srcKind) bool {
+	return k == srcCircle || k == srcArc
+}
+
+// sampledCrossCount counts the transverse crossings between two sources'
+// sampled polylines: a hit strictly interior to BOTH segments, where the two
+// polylines genuinely cross from one side to the other. Requiring both-interior
+// (not merely one) excludes a tangential touch at a shared sample vertex — a
+// line grazing a circle exactly at a polygon vertex is interior to the line but
+// sits at the circle's vertex, a contact the analytic kernel correctly reports
+// as a tangency (zero crossings), not a transverse crossing.
+func (a *arranger) sampledCrossCount(i, j int) int {
+	cnt := 0
+	for _, ii := range a.sourceSegs[i] {
+		for _, jj := range a.sourceSegs[j] {
+			if a.segsCrossInterior(ii, jj) {
+				cnt++
+			}
+		}
+	}
+	return cnt
+}
+
+// segsCrossInterior reports whether two tiny segments cross at a point strictly
+// interior to both — the transverse-crossing predicate sampledCrossCount uses.
+func (a *arranger) segsCrossInterior(ii, jj int) bool {
+	p, ok := segParams(&a.segs[ii], &a.segs[jj])
+	if !ok {
+		return false
+	}
+	return p.ti > segEps && p.ti < 1-segEps && p.tj > segEps && p.tj < 1-segEps
+}
+
+// segContaining returns the index of the source's tiny segment whose natural
+// parameter range contains t, or -1 if none. Segments partition [0,1] in source
+// parameter; a closed circle's seam sits at a sample vertex (param 0≡1), so no
+// segment wraps it.
+func (a *arranger) segContaining(src int, t float64) int {
+	for _, si := range a.sourceSegs[src] {
+		s := &a.segs[si]
+		lo, hi := s.pa, s.pb
+		if hi < lo {
+			lo, hi = hi, lo
+		}
+		if t >= lo-segEps && t <= hi+segEps {
+			return si
+		}
+	}
+	return -1
+}
+
+// analyticCrossHosted reports whether every analytic transverse crossing of the
+// pair has a SAMPLED transverse crossing on the very segments that carry its
+// source parameters. Equal crossing counts are not enough: at coarse sampling two
+// circles can both show two polygon crossings that sit nowhere near the exact
+// intersections (the chords cross where the circles do not). Requiring each exact
+// crossing to be witnessed on its own host segment-pair certifies the sampled map
+// has the SAME crossing incidence the analytic kernel found — the precondition
+// buildGraph needs to resolve faces correctly. Any crossing whose host segments do
+// not themselves cross means the sampling is too coarse to host it.
+func (a *arranger) analyticCrossHosted(i, j int, events []xEvent) bool {
+	for _, e := range events {
+		if e.kind != evCross {
+			continue
+		}
+		si := a.segContaining(i, e.ti)
+		sj := a.segContaining(j, e.tj)
+		if si < 0 || sj < 0 || !a.segsCrossInterior(si, sj) {
+			return false
+		}
+	}
+	return true
+}
+
+// applyAnalyticCut records an exact cut at source-parameter t (event point x,y) on
+// the tiny segment of source src that contains t. A cut at a segment boundary or a
+// source endpoint reuses the existing vertex (no new record) but still marks the
+// source topologically split.
+func (a *arranger) applyAnalyticCut(src int, t, x, y float64) {
+	if atSourceEnd(&a.sources[src], t) {
+		return // a contact at the source's own endpoint does not split it (a join)
+	}
+	a.srcCut[src] = true
+	for _, si := range a.sourceSegs[src] {
+		s := &a.segs[si]
+		lo, hi := s.pa, s.pb
+		if hi < lo {
+			lo, hi = hi, lo
+		}
+		if t < lo-segEps || t > hi+segEps {
+			continue
+		}
+		local := (t - s.pa) / (s.pb - s.pa)
+		if local <= segEps || local >= 1-segEps {
+			return // interior split, but at an existing sample vertex
+		}
+		s.cuts = append(s.cuts, cut{t: local, px: x, py: y})
+		return
+	}
+}
+
+// atSourceEnd reports whether a natural source parameter is at a curve endpoint
+// (t≈0 or t≈1). A full circle is closed — its seam (t≈0/1) is a topologically
+// interior point, not an endpoint — so a crossing there still splits it.
+func atSourceEnd(s *source, t float64) bool {
+	if s.kind == srcCircle {
+		return false
+	}
+	return t <= sourceEndEps || t >= 1-sourceEndEps
+}
+
+const sourceEndEps = 1e-7
+
+// analyticSelfX replicates the sampled self-intersection rule for an analytic
+// crossing between two different sources: a crossing within one simple cycle-
+// bearing component (not a branched/subdivided wire) is a self-touch.
+func (a *arranger) analyticSelfX(i, j int, x, y float64) {
+	if !a.core[i] || !a.core[j] {
+		return
+	}
+	ci, cj := a.comp[i], a.comp[j]
+	if ci != cj {
+		return
+	}
+	if _, ns := a.notSimple[ci]; ns {
+		return
+	}
+	a.selfXc[ci] = struct{}{}
+	a.selfX = append(a.selfX, [2]float64{x, y})
+}
+
+// sourceHasVertexNear reports whether source src has a sampled vertex within the
+// merge tolerance of (x,y) — i.e. a contact there would canonicalize onto an
+// existing vertex of that source.
+func (a *arranger) sourceHasVertexNear(src int, x, y float64) bool {
+	for _, si := range a.sourceSegs[src] {
+		s := &a.segs[si]
+		if math.Hypot(s.ax-x, s.ay-y) <= a.merge || math.Hypot(s.bx-x, s.by-y) <= a.merge {
+			return true
+		}
+	}
+	return false
+}
+
+// sourceRep returns a representative interior point of a source, used only to
+// locate a degeneracy flag when the analytic classification is ambiguous.
+func sourceRep(s *source) (float64, float64) {
+	if s.kind == srcLine {
+		return (s.ax + s.bx) / 2, (s.ay + s.by) / 2
+	}
+	return s.cx, s.cy
 }
 
 const segEps = 1e-9
@@ -741,26 +1044,28 @@ func collinearOverlap(s, t *tinySeg) (float64, float64, bool) {
 func (a *arranger) split() {
 	for i := range a.segs {
 		s := &a.segs[i]
-		ts := append([]float64{0, 1}, s.cuts...)
-		sort.Float64s(ts)
-		// dedup local params
-		uniq := ts[:0:0]
-		for _, t := range ts {
-			if len(uniq) == 0 || t-uniq[len(uniq)-1] > segEps {
-				uniq = append(uniq, t)
+		// Boundaries along the segment: the two endpoints (chord positions) plus
+		// every cut, each carrying the EXACT point to canonicalize the vertex at.
+		bs := []cut{{t: 0, px: s.ax, py: s.ay}, {t: 1, px: s.bx, py: s.by}}
+		bs = append(bs, s.cuts...)
+		sort.Slice(bs, func(i, j int) bool { return bs[i].t < bs[j].t })
+		// dedup near-equal local params (keep the first, which for an analytic cut at
+		// a seg boundary keeps the endpoint's exact point)
+		uniq := bs[:0:0]
+		for _, b := range bs {
+			if len(uniq) == 0 || b.t-uniq[len(uniq)-1].t > segEps {
+				uniq = append(uniq, b)
 			}
 		}
 		for k := 1; k < len(uniq); k++ {
-			t0, t1 := uniq[k-1], uniq[k]
-			x0, y0 := s.ax+t0*(s.bx-s.ax), s.ay+t0*(s.by-s.ay)
-			x1, y1 := s.ax+t1*(s.bx-s.ax), s.ay+t1*(s.by-s.ay)
-			u := a.verts.canon(x0, y0)
-			v := a.verts.canon(x1, y1)
+			b0, b1 := uniq[k-1], uniq[k]
+			u := a.verts.canon(b0.px, b0.py)
+			v := a.verts.canon(b1.px, b1.py)
 			if u == v {
 				continue // collapsed to a point
 			}
-			p0 := s.pa + t0*(s.pb-s.pa)
-			p1 := s.pa + t1*(s.pb-s.pa)
+			p0 := s.pa + b0.t*(s.pb-s.pa)
+			p1 := s.pa + b1.t*(s.pb-s.pa)
 			a.edges = append(a.edges, arrEdge{u: u, v: v, src: s.src, pu: p0, pv: p1})
 		}
 	}

@@ -1,7 +1,8 @@
 # Analytic Arrangement — Design & Increment Plan
 
-Status: **in progress** — increment 1 (the analytic event kernel) is implemented
-(`geom/arrange_events.go`); the rest is the roadmap below. Resolves the
+Status: **in progress** — increments 1 (the analytic event kernel,
+`geom/arrange_events.go`) and 2 (the analytic-authoritative wiring,
+`geom/arrange.go`) are implemented; the rest is the roadmap below. Resolves the
 "analytic (non-sampled) arrangement" open follow-up of the Profile/region engine
 (`docs/verification-roadmap.md`).
 
@@ -71,14 +72,35 @@ Same-component interior tangency is a **self-touch** → `SelfIntersections`, no
    miss/secant, the zone between → ambiguous). Unsupported kinds return `ok=false`.
    White-box tested in `geom/arrange_events_internal_test.go`.
 
-2. **Analytic-authoritative wiring** — *next*. A pre-pass over source pairs makes
-   supported pairs analytic-authoritative; sampled `segParams` is skipped for them.
-   See "Wiring design" below.
+2. **Analytic-authoritative wiring** — *done* (`geom/arrange.go`: `analyticPrepass`,
+   the `cut{t,px,py}` exact-point record, the handled-pair skip, the
+   `sampledCrossCount` + `analyticCrossHosted` consistency gate). Analytic authority
+   is taken for **line-involved crossings and all tangencies**: the oracle no longer
+   false-flags clean shallow crossings or clean tangencies (tangent line+circle → one
+   disk; non-merged tangent circles → two disks) and line/circle cuts are
+   sampling-stable. **Curve/curve transverse crossings are deferred to the sampled
+   path** (see "Scope of analytic authority"): their sampled topology is already
+   correct, and exact cuts there are unsound-or-over-conservative until increment 3,
+   so injecting them is net-negative. A line-involved curved pair whose exact crossing
+   the coarse sampled map cannot host (a sub-sample cap, or a crossing the polyline
+   never reaches) is conservatively `Degenerate` via the gate, never a blessed wrong
+   topology. Tangencies that would merge into a shared cycle-bearing vertex are
+   conservatively `Degenerate` (see the tangency contract) pending increment 3. Tested
+   in `geom/arrange_analytic_test.go`. See "Wiring design" below.
 
 3. **Exact tangent/port ordering** — replace chord departure angles at analytic
    vertices with exact source tangents; add tangent-port handling so a shared
    tangent vertex no longer branch-swaps — this is what lets increment 2's
-   conservative `flagDegenerate` become a real tangent blessing.
+   conservative `flagDegenerate` become a real tangent blessing. The sound design
+   is a per-event **hostability certificate** (richer than increment 2's count
+   gate): fragment **incidence** (the straight fragments `split`/`buildGraph` emit
+   have no extra/missing crossings vs the analytic event set), **port order** (the
+   chord-angle rotation at each analytic vertex matches the exact source-tangent
+   rotation, so no branch-swap), and **closed containment** (a strictly nested /
+   internally-tangent circle pair has its inner cycle certified inside the outer
+   sampled cycle). Each certificate that cannot be met stays `Degenerate`. This is
+   what upgrades the count gate (which conservatively rejects internal tangencies
+   and merged-vertex tangencies) into selective blessing.
 
 4. **Analytic overlap / self-intersection coverage** for supported primitives
    (coincident lines, duplicate/overlapping arcs, identical circles, same-source
@@ -119,6 +141,50 @@ at the **shared exact event point** so both sources land on one canonical vertex
 8. In the existing segment loop, skip pairs where `si.src != sj.src && handled[pair]`;
    keep same-source spline logic unchanged.
 
+**Scope of analytic authority (load-bearing).** Injecting an *exact* analytic cut
+into a *coarse* sampled chord is only safe when the sampled polyline can host the
+crossing. The decisive split is by operand kind:
+
+- **Curve/curve transverse crossings** (BOTH sources circle/arc, ≥1 `evCross`) are
+  **deferred to the sampled path** — they are *not* taken as analytic-authoritative
+  (not marked `handled`; the sampled loop processes them). The sampled DCEL already
+  resolves their topology correctly (the pre-analytic behaviour, byte-identical to a
+  no-wiring build), so exact cuts buy only exact *area*, and until increment 3's
+  tangent-port certificate that exactness cannot be admitted without being either
+  **unsound** (two equal-count coarse crossings at the *wrong* locations fuse three
+  regions into one — a real round-2 bug) or **over-conservative** (a valid
+  well-separated crossing whose sampled crossing sits one chord segment off the
+  analytic param gets false-flagged — an ~18%-at-spt-16 false-degenerate rate, a
+  regression versus the sampled path's 0%). Both are worse than deferring. A
+  genuinely ambiguous verdict still `flagDegenerate`s. Exact-area curve/curve
+  crossings are increment 3.
+- **Line-involved crossings + all tangencies** keep analytic authority (the wins:
+  shallow line/line not degenerate, tangent line+circle → one disk, non-merged
+  tangent circles → two disks, chord-through-circle exact area). A line operand is
+  reproduced exactly, so its sampled crossing tracks the analytic one — there is no
+  wrong-location failure mode and no over-conservatism (measured ~0.3%, all genuine
+  near-tangents).
+
+For a handled pair with a curved source (i.e. line/circle, line/arc, or a curved
+*tangency*) the prepass still runs a **two-part consistency gate**, both parts
+**threshold-free and scale-invariant** (parametric `segEps` only, no coordinate
+tolerance), to reject the disk-vanishing failure where a coarse polyline does not
+reach a crossing the exact geometry has:
+
+1. **Count** — `sampledCrossCount(i,j)` (transverse hits strictly interior to BOTH
+   sampled segments; a tangential touch at a shared vertex is interior to only one,
+   so it is *not* counted) must equal the number of analytic `evCross` events.
+2. **Incidence** — each analytic `evCross` must be *witnessed on its own host
+   segment-pair*: the segment of source `i` carrying `e.ti` and the segment of `j`
+   carrying `e.tj` must themselves cross (`analyticCrossHosted` via `segContaining`
+   + `segsCrossInterior`).
+
+Failing either part `flagDegenerate`. Pure line/line pairs are exempt (lines
+reproduce exactly, so sampled == analytic — a clean shallow crossing is never
+false-flagged). This is the conservative escape hatch the tangency contract already
+mandates, extended from tangencies to line/curve secants: when the sampled DCEL
+cannot faithfully host the exact crossings, refuse rather than bless.
+
 **Self-intersection preservation.** For an analytic `evCross` between *different*
 sources, replicate the current core/component check: require
 `a.core[srcA] && a.core[srcB]`, `a.comp[srcA]==a.comp[srcB]`, suppress if the
@@ -147,7 +213,11 @@ hole, collinear-overlap degeneracy, spline self-intersection/fallback.
 
 - All existing profile/region/self-intersection/degenerate tests pass.
 - Supported pairs are analytic-authoritative; unsupported pairs stay sampled.
-- Coarse vs fine sampling gives the same topology for analytically-covered pairs.
+- Coarse vs fine sampling gives the same topology for analytically-covered pairs —
+  or, where the coarse sampled map cannot host the exact crossings, the
+  count-consistency gate makes it conservatively `Degenerate`. A *blessed* curved
+  pair always has the same (correct) topology across sampling; the verdict never
+  blesses a wrong/empty topology.
 - Scaling geometry tiny/huge does not change classification (scale-relative bands).
 - Input order and curve reversal do not change region areas/counts.
 - `Degenerate` always forces `ProfilesValid=false` and therefore `Trustworthy=false`.

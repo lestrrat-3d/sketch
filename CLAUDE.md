@@ -113,7 +113,28 @@ sin Δφ), the elliptical analog, rotation/translation-invariant), and **splines
 3-point Gauss–Legendre per knot span — exact because the integrand is degree-5 —
 needing analytic spline derivatives `EvalCubicBSplineDeriv`/
 `EvalPeriodicCubicBSplineDeriv`/`fitEvaluator.derivAt`). So the reported `Area`
-is sampling-independent for all sources. `Sketch.Profiles()` is its consumer.
+is sampling-independent for all sources. **Crossing detection is becoming
+analytic** (`arrange_events.go` + the `analyticPrepass` in `arrange.go`; design +
+increment plan in `docs/analytic-arrangement-design.md`): the exact closed-form
+contact (`Cross`/`Tangent`/`Overlap`) is **authoritative for line-involved crossings
+and all tangencies** — the sampled `segParams` is skipped for them, cuts land on the
+exact intersection point (`cut{t,px,py}`, so two sources merge to one vertex), and
+the oracle no longer false-flags clean tangencies (tangent line+circle → one disk;
+non-merged tangent circles → two disks) or shallow crossings as `Degenerate`.
+**Curve/curve transverse crossings (both circle/arc) are deferred to the sampled
+path** (behaviour byte-identical to a no-wiring build): their sampled topology is
+already correct, and exact-cut injection there is unsound (coarse equal-count
+crossings at wrong locations fuse three regions into one) or over-conservative
+(a valid crossing one chord-segment off gets false-flagged) until increment 3's
+tangent-port certificate. For a handled line-involved curved pair a **two-part
+consistency gate** keeps it sound at coarse sampling: blessed only when the sampled
+polyline shows the same number of transverse crossings (`sampledCrossCount`,
+both-segment-interior) the kernel found AND each analytic crossing is witnessed on
+its own host segment-pair (`analyticCrossHosted`); otherwise — a sub-sample cap or a
+crossing the coarse polyline never reaches — it is conservatively `Degenerate` rather
+than a vanished disk. A tangency that would merge onto a shared cycle-bearing vertex
+stays conservatively `Degenerate` pending the tangent-port increment. Ellipse/spline
+pairs keep the sampled fallback. `Sketch.Profiles()` is its consumer.
 
 ### The `space` package (slated for extraction)
 
