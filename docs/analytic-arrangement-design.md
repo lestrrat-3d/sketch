@@ -117,18 +117,33 @@ Same-component interior tangency is a **self-touch** → `SelfIntersections`, no
    event vertex, and **closed containment** (a nested/internally-tangent inner cycle
    certified inside the outer) — is the remaining increment-3+ work.
 
-   *Internal-tangency finding (why it is NOT a quick gate-relaxation):* an experiment
-   that simply let `externalCurvedTangency` accept internal tangencies too gets the
-   exact ordering *right* in the common case (e.g. outer r=6 + inner r=3 → a single
-   annulus face π·(R²−r²) + the inner disk π·r², exact at every spt). But a sweep
-   found it **blessed-wrong** at **tiny inner + coarse spt** (r/R≈0.05, spt 5–6): the
-   shared-contact-vertex face walk fails to subtract the inner, so the outer reads as
-   the FULL disk π·R² and the inner disk is double-counted (total π·R²+π·r²). This is
-   a NEW failure of the tangent face walk, *not* pre-existing — disjoint nested
-   circles at the same tiny-inner/coarse-spt are correctly hole-assigned (verified
-   `bad=0` on the sampled path). So internal tangency stays `Degenerate`; lifting it
-   needs a real **closed-containment certificate** (or an area-consistency gate:
-   total must equal π·R_outer²), not just dropping the `d > max(r)` guard.
+   *Internal-tangency finding (why it is increment-7-level, not a focused increment).*
+   The current behaviour is **sound**: the count-consistency gate flags EVERY internal
+   tangency `Degenerate` (the inner sampled polygon pokes OUTSIDE the outer near the
+   contact — inherent to tangency — so `sampledCrossCount>0` while analytic `nCross=0`,
+   a mismatch). At the oracle's default sampling the underlying result is in fact
+   correct (regions=2, exact π·R² area via the circular-segment correction + hole
+   assignment), it is simply flagged. So `Sketch.Verify` never blesses a wrong internal
+   tangency (a broad sweep: blessed=0, flagged=72, false-valids=0).
+   Two blessing attempts both fail, for the SAME root cause: (a) relaxing
+   `externalCurvedTangency` to record an exactPortVert → the exact-ordering face walk
+   double-counts the inner at tiny-inner/coarse-spt; (b) merely SUPPRESSING the
+   count-gate flag (no exact ordering, rely on hole assignment) → also double-counts at
+   tiny-inner/coarse-spt, because the inner's poke-out moves the hole-assignment
+   containment probe outside the coarse outer polygon, so the inner is not subtracted
+   (outer reads as the full disk π·R², total π·R²+π·r²). The poke-out is the load-bearing
+   obstacle: it is intrinsic to a tangency sampled as chords, and it breaks BOTH the
+   shared-vertex face walk and the disjoint-style hole assignment. The robust fix is
+   **exact curve fragments** between event params (the increment-7 full curved DCEL),
+   which eliminate the poke-out entirely — not a closed-containment or area-consistency
+   gate bolted onto the sampled map (an area gate also fails to compose with other
+   geometry, since `total == π·R_outer²` only holds for an isolated pair). Until then
+   internal tangency stays conservatively `Degenerate` — sound, niche, deferred.
+   (A separate low-level caveat, NOT reachable through the oracle: `geom.Regions` called
+   directly with an explicit `WithSegmentsPerTurn(4|5)` can bless the double-count,
+   because the inner is so coarse the poke-out crossings vanish and the gate sees
+   nothing. `Sketch.Profiles` always uses the adaptive default (~64+), so the oracle is
+   unaffected.)
 
 4. **Analytic overlap / self-intersection coverage** for supported primitives
    (coincident lines, duplicate/overlapping arcs, identical circles, same-source
