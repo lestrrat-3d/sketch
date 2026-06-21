@@ -92,28 +92,43 @@ Same-component interior tangency is a **self-touch** → `SelfIntersections`, no
    in `geom/arrange_analytic_test.go`. See "Wiring design" below.
 
 3. **Exact tangent/port ordering** — *partly done* (`geom/arrange.go`:
-   `source.differential`, `portKey`, `portLess`, `useExactPorts`, `scanOsculation`,
+   `source.differential`, `portKey`, `sortExactPorts`, `useExactPorts`,
    `externalCurvedTangency`). At a certified analytic tangency contact the rotation
    system orders coincident-tangent ports by exact source tangent + signed
-   **curvature** (a robust half-plane + cross-product direction compare, no atan2
-   seam; curvature compared scale-normalized) instead of chord angle, so a shared
-   tangent vertex no longer branch-swaps. The increment-2 conservative
-   `flagDegenerate` for a **merged-vertex EXTERNAL circle/arc tangency** is lifted:
-   it is blessed as two clean disks at every sampling (opposite curvature sign
-   separates the loops). **Load-bearing scope rule:** exact ordering is used ONLY at
-   the certified tangency contacts (`exactPortVerts`), never at a sampled crossing
-   vertex — there the edges are *chords*, so chord ordering is what matches the
-   polyline geometry the face walk traverses; ordering those by exact tangents
-   corrupts the map. Still `Degenerate` (deferred): **internal/containment**
-   tangency (the inner-as-hole assignment is not yet certified), line-involved
-   merged tangency, a genuine **osculation** (equal tangent AND equal curvature,
-   caught by `scanOsculation`), and curve/curve transverse **crossing** authority
-   (still deferred to the sampled path — lifting it needs the post-split fragment
+   **curvature** (`sortExactPorts` clusters same-ray ports into direction buckets,
+   then sorts by an EXACT lexicographic key (groupAngle, curvature, index) — a
+   transitive strict-weak order, no epsilon in the comparator; the seam-free
+   half-plane + cross-product direction compare is used only for clustering and the
+   osculation flag) instead of chord angle, so a shared tangent vertex no longer
+   branch-swaps. The increment-2 conservative `flagDegenerate` for a **merged-vertex
+   EXTERNAL circle/arc tangency** is lifted: it is blessed as two clean disks at
+   every sampling (opposite curvature sign separates the loops). **Load-bearing scope
+   rule:** exact ordering is used ONLY at the certified tangency contacts
+   (`exactPortVerts`), never at a sampled crossing vertex — there the edges are
+   *chords*, so chord ordering is what matches the polyline geometry the face walk
+   traverses; ordering those by exact tangents corrupts the map. Still `Degenerate`
+   (deferred): **internal/containment** tangency, line-involved merged tangency, a
+   genuine **osculation** (equal tangent AND equal curvature), and curve/curve
+   transverse **crossing** authority (still deferred to the sampled path — lifting it
+   needs the post-split fragment
    certificate below). The richer per-event **hostability certificate** that would
    bless those — fragment **incidence** (the emitted straight fragments have no
    extra/missing crossings vs the analytic event set), full **port order** at every
    event vertex, and **closed containment** (a nested/internally-tangent inner cycle
    certified inside the outer) — is the remaining increment-3+ work.
+
+   *Internal-tangency finding (why it is NOT a quick gate-relaxation):* an experiment
+   that simply let `externalCurvedTangency` accept internal tangencies too gets the
+   exact ordering *right* in the common case (e.g. outer r=6 + inner r=3 → a single
+   annulus face π·(R²−r²) + the inner disk π·r², exact at every spt). But a sweep
+   found it **blessed-wrong** at **tiny inner + coarse spt** (r/R≈0.05, spt 5–6): the
+   shared-contact-vertex face walk fails to subtract the inner, so the outer reads as
+   the FULL disk π·R² and the inner disk is double-counted (total π·R²+π·r²). This is
+   a NEW failure of the tangent face walk, *not* pre-existing — disjoint nested
+   circles at the same tiny-inner/coarse-spt are correctly hole-assigned (verified
+   `bad=0` on the sampled path). So internal tangency stays `Degenerate`; lifting it
+   needs a real **closed-containment certificate** (or an area-consistency gate:
+   total must equal π·R_outer²), not just dropping the `d > max(r)` guard.
 
 4. **Analytic overlap / self-intersection coverage** for supported primitives
    (coincident lines, duplicate/overlapping arcs, identical circles, same-source
