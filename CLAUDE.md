@@ -63,7 +63,7 @@ from a solid — the seam is first-class reference geometry), live in
 | `reference.go` | Reference geometry — the sketch/3D separation keystone: read-only, externally-locked 2D snapshots of 3D-derived geometry (`AddReferencePoint`/`AddReferenceLine`/`AddReferenceArc`/`AddReferenceCircle`) carrying a `source` id + staleness; locked via `fixed[]`, a topology seal (`refSeals`), `RefreshReference`/`RefreshReferenceCircle`/`MarkStale`, and the Verify integrity/staleness/reachability scan. Design in `docs/reference-geometry-design.md`. |
 | `probe.go` | `Sketch.ProbeConfigurations`: multi-solution ambiguity probe — deterministic multi-start search (structured mirrors + splitmix64 restarts) for the discrete configurations a DOF-0 sketch admits. A falsifier: ≥2 found proves ambiguity, 1 never proves uniqueness. Design in `docs/ambiguity-probe-design.md`. |
 | `plane.go` / `world.go` | 3D world & construction planes. `Plane` (datum = `space.Frame` derived from a stored definition), package-level world-frame datum constructors, `World` (owns planes + sketches, plane builders incl. derived `OffsetPlane`, `RemovePlane`). Design in `docs/3d-planes-design.md`. |
-| `svg.go` / `png.go` / `dxf.go` / `json.go` / `json_world.go` | Exporters / serialization. `png.go` is a stdlib-only rasterizer (`image/png`) so agents/tools that read raster images can sanity-check sketches; visually equivalent to the SVG output. `json_world.go` is the v2 `World`/`Plane` serialization + the `kind`-discriminator preflight. |
+| `svg.go` / `png.go` / `dxf.go` / `json.go` / `json_world.go` | Exporters / serialization. `png.go` is a stdlib-only rasterizer (`image/png`) so agents/tools that read raster images can sanity-check sketches; visually equivalent to the SVG output. `dxf.go` emits length fields in the sketch's **display length unit** (via the `units` library — angles/ratios/knots stay raw) with a matching `$INSUNITS`/`$MEASUREMENT` + `$EXTMIN`/`$EXTMAX` header, so a CAD importer reads the drawing at the right scale (metric output is unchanged); coordinates are still plane-**local** (world-space placement is a separate follow-up). `json_world.go` is the v2 `World`/`Plane` serialization + the `kind`-discriminator preflight. |
 | `geom/` | **Self-contained** context-agnostic 2D geometry (own package). |
 | `space/` | **Self-contained** 3D coordinate math (own package): `Vec3` + orthonormal `Frame` with the local↔world transform. |
 | `param/` | **Self-contained** parameter & expression engine (own package). |
@@ -620,9 +620,11 @@ These are unsettled. If you resolve one, record the decision here.
   silently blessed. *Limited on purpose:* this is **kind** algebra, not full
   **dimensional** algebra — there are no area/inverse units, so those products are
   *rejected* rather than represented; custom `SetFunc` functions are
-  dimensionless-only (typed custom functions are a follow-up). *Open follow-ups:*
-  should points/coordinates expose unit-carrying accessors; should exporters
-  honour the display `System`. *Note:* the entire read surface
+  dimensionless-only (typed custom functions are a follow-up). **The DXF
+  exporter honours the display `System`** (`dxf.go`: length fields in the
+  display length unit + `$INSUNITS`/`$MEASUREMENT`); SVG/PNG stay unitless raster/
+  vector renders by design. *Open follow-ups:*
+  should points/coordinates expose unit-carrying accessors. *Note:* the entire read surface
   — coordinate accessors and the measurement queries (`DistanceTo`/`AngleTo`/…)
   — currently returns raw base-unit `float64` (mm/radians), matching the
   solver's currency. Making reads unit-carrying is the deferred all-or-nothing

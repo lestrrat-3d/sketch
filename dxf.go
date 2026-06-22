@@ -6,12 +6,21 @@ import (
 	"strings"
 
 	"github.com/lestrrat-3d/sketch/geom"
+	"github.com/lestrrat-3d/sketch/units"
 )
 
 // DXF renders the sketch as a minimal AutoCAD R12 ASCII DXF document
 // containing LINE, CIRCLE, ARC, ELLIPSE and SPLINE entities (ELLIPSE and
 // SPLINE are formally R13+, but widely accepted). It is intended for
 // interchange with CAD tools; only geometry is exported, not constraints.
+//
+// Lengths are emitted in the sketch's display length unit (see
+// [Sketch.SetUnits]) — a metric (millimetre) sketch is unchanged, while an
+// imperial sketch exports inch-valued coordinates — and the HEADER carries the
+// matching $INSUNITS / $MEASUREMENT so a CAD importer reads the drawing at the
+// correct scale instead of guessing. Angles (degrees), the ellipse axis ratio
+// and spline knots are unitless and emitted as-is. The drawing extents
+// ($EXTMIN/$EXTMAX) are written when the sketch has geometry.
 func (s *Sketch) DXF() (string, error) {
 	var sb strings.Builder
 
@@ -22,11 +31,33 @@ func (s *Sketch) DXF() (string, error) {
 	pairf := func(code int, value float64) {
 		fmt.Fprintf(&sb, "%d\n%s\n", code, dxff(value))
 	}
+	// lengthMag converts a base-unit (millimetre) length into the sketch's
+	// display length unit through the units library — never by relabelling a
+	// magnitude. pairL emits a length-valued group code so converted; angles,
+	// ratios, knots and eccentric params stay raw via pairf.
+	lengthMag := func(base float64) float64 {
+		return units.FromBase(base, s.sys.Length).Mag()
+	}
+	pairL := func(code int, base float64) { pairf(code, lengthMag(base)) }
 
 	pair(0, "SECTION")
 	pair(2, "HEADER")
 	pair(9, "$ACADVER")
 	pair(1, "AC1009")
+	pair(9, "$INSUNITS")
+	pair(70, fmt.Sprintf("%d", dxfInsUnits(s.sys.Length)))
+	pair(9, "$MEASUREMENT")
+	pair(70, fmt.Sprintf("%d", dxfMeasurement(s.sys.Length)))
+	if b, ok := s.bounds(); ok {
+		pair(9, "$EXTMIN")
+		pairL(10, b.minX)
+		pairL(20, b.minY)
+		pairf(30, 0)
+		pair(9, "$EXTMAX")
+		pairL(10, b.maxX)
+		pairL(20, b.maxY)
+		pairf(30, 0)
+	}
 	pair(0, "ENDSEC")
 
 	pair(0, "SECTION")
@@ -44,26 +75,26 @@ func (s *Sketch) DXF() (string, error) {
 		case *Line:
 			pair(0, "LINE")
 			pair(8, layer)
-			pairf(10, t.Start.x())
-			pairf(20, t.Start.y())
+			pairL(10, t.Start.x())
+			pairL(20, t.Start.y())
 			pairf(30, 0)
-			pairf(11, t.End.x())
-			pairf(21, t.End.y())
+			pairL(11, t.End.x())
+			pairL(21, t.End.y())
 			pairf(31, 0)
 		case *Circle:
 			pair(0, "CIRCLE")
 			pair(8, layer)
-			pairf(10, t.Center.x())
-			pairf(20, t.Center.y())
+			pairL(10, t.Center.x())
+			pairL(20, t.Center.y())
 			pairf(30, 0)
-			pairf(40, t.r())
+			pairL(40, t.r())
 		case *Arc:
 			pair(0, "ARC")
 			pair(8, layer)
-			pairf(10, t.Center.x())
-			pairf(20, t.Center.y())
+			pairL(10, t.Center.x())
+			pairL(20, t.Center.y())
 			pairf(30, 0)
-			pairf(40, t.R())
+			pairL(40, t.R())
 			// DXF arc angles are degrees, measured counter-clockwise.
 			pairf(50, deg(t.StartAngle()))
 			pairf(51, deg(t.EndAngle()))
@@ -79,15 +110,15 @@ func (s *Sketch) DXF() (string, error) {
 			}
 			pair(0, "ELLIPSE")
 			pair(8, layer)
-			pairf(10, t.Center.x())
-			pairf(20, t.Center.y())
+			pairL(10, t.Center.x())
+			pairL(20, t.Center.y())
 			pairf(30, 0)
 			ratio := 1.0
 			if major > 0 {
 				ratio = minor / major
 			}
-			pairf(11, major*math.Cos(axis))
-			pairf(21, major*math.Sin(axis))
+			pairL(11, major*math.Cos(axis))
+			pairL(21, major*math.Sin(axis))
 			pairf(31, 0)
 			pairf(40, ratio)
 			pairf(41, 0)
@@ -106,15 +137,15 @@ func (s *Sketch) DXF() (string, error) {
 			}
 			pair(0, "ELLIPSE")
 			pair(8, layer)
-			pairf(10, t.Center.x())
-			pairf(20, t.Center.y())
+			pairL(10, t.Center.x())
+			pairL(20, t.Center.y())
 			pairf(30, 0)
 			ratio := 1.0
 			if major > 0 {
 				ratio = minor / major
 			}
-			pairf(11, major*math.Cos(axis))
-			pairf(21, major*math.Sin(axis))
+			pairL(11, major*math.Cos(axis))
+			pairL(21, major*math.Sin(axis))
 			pairf(31, 0)
 			pairf(40, ratio)
 			pairf(41, startP)
@@ -136,8 +167,8 @@ func (s *Sketch) DXF() (string, error) {
 				pairf(40, k)
 			}
 			for _, c := range t.Control {
-				pairf(10, c.x())
-				pairf(20, c.y())
+				pairL(10, c.x())
+				pairL(20, c.y())
 				pairf(30, 0)
 			}
 		case *ClosedSpline:
@@ -152,8 +183,8 @@ func (s *Sketch) DXF() (string, error) {
 			pair(90, fmt.Sprintf("%d", len(pts)))
 			pair(70, "1") // closed
 			for _, p := range pts {
-				pairf(10, p[0])
-				pairf(20, p[1])
+				pairL(10, p[0])
+				pairL(20, p[1])
 			}
 		case *FitSpline:
 			// The fit spline's control points are a derived interpolation artifact,
@@ -165,8 +196,8 @@ func (s *Sketch) DXF() (string, error) {
 			pair(90, fmt.Sprintf("%d", len(pts)))
 			pair(70, "0") // open
 			for _, p := range pts {
-				pairf(10, p[0])
-				pairf(20, p[1])
+				pairL(10, p[0])
+				pairL(20, p[1])
 			}
 		}
 	}
@@ -185,3 +216,34 @@ func deg(rad float64) float64 {
 }
 
 func dxff(v float64) string { return trimFloat(v, 6) }
+
+// dxfInsUnits maps a length unit to its AutoCAD $INSUNITS code so an importer
+// scales the drawing correctly. An unrecognised unit is reported unitless (0).
+func dxfInsUnits(u units.Unit) int {
+	switch u.Symbol() {
+	case "mm":
+		return 4
+	case "cm":
+		return 5
+	case "m":
+		return 6
+	case "in":
+		return 1
+	case "ft":
+		return 2
+	default:
+		return 0
+	}
+}
+
+// dxfMeasurement maps a length unit to the $MEASUREMENT flag (1 metric, 0
+// imperial) that selects the linetype/hatch tables a reader loads. Anything
+// other than the imperial units defaults to metric.
+func dxfMeasurement(u units.Unit) int {
+	switch u.Symbol() {
+	case "in", "ft":
+		return 0
+	default:
+		return 1
+	}
+}
