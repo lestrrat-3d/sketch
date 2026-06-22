@@ -287,6 +287,34 @@ func TestAnalyticExactContainmentConcentricNested(t *testing.T) {
 	}
 }
 
+func TestAnalyticExactContainmentSeamHole(t *testing.T) {
+	// A circular hole sitting near the angle-0 (+x) param seam of a circular face.
+	// The exact ray-cast's horizontal ray crosses the face circle right at its seam,
+	// where the seam param rounds to the fragment-endpoint boundary; without the
+	// generic probe perturbation the half-open test dropped that crossing and the hole
+	// was double-counted (blessed wrong). The hole must be subtracted from the lune and
+	// the inner disk counted as its own region — total nets the full outer disk.
+	const R, hr = 2.0, 0.05
+	outer := geom.NewCircle(geom.NewPoint(0, 0), R)
+	for _, hx := range []float64{1.80, 1.85, 1.90, 1.93} { // sweep the hole across the +x extreme
+		for _, spt := range []int{16, 32, 64, 128, 256} {
+			arr := geom.Regions(
+				[]geom.Curve{geom.NewLine(geom.NewPoint(1.7, -6), geom.NewPoint(1.7, 6))},
+				[]geom.ClosedCurve{outer, geom.NewCircle(geom.NewPoint(hx, 0), hr)},
+				geom.WithSegmentsPerTurn(spt))
+			require.Falsef(t, arr.Degenerate, "hx=%.2f spt=%d", hx, spt)
+			var total float64
+			holes := 0
+			for _, g := range arr.Regions {
+				total += g.Area
+				holes += len(g.Holes)
+			}
+			require.Equalf(t, 1, holes, "the hole is subtracted from the lune hx=%.2f spt=%d", hx, spt)
+			require.InDeltaf(t, math.Pi*R*R, total, 1e-9, "no seam double-count hx=%.2f spt=%d", hx, spt)
+		}
+	}
+}
+
 func TestAnalyticInternalTangentTinyInnerBlessed(t *testing.T) {
 	// The tiny-inner regime that defeated the sampled containment (the inner chord
 	// polygon poked outside the outer near the contact, so the hole was not subtracted

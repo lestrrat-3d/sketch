@@ -1574,6 +1574,14 @@ func (a *arranger) exactPointInRegion(q [2]float64, c *cycle) bool {
 			return pointInPolygon(q, c.dense)
 		}
 	}
+	// Perturb the probe by a tiny GENERIC offset — far above the float-rounding floor
+	// (~ULP·scale ≈ scale·1e-16) yet far below any real feature (and below the
+	// strictly-interior margin of the hole the probe came from). This stops the
+	// horizontal ray from crossing a circle exactly at its param seam (angle 0),
+	// where the seam param rounds to the fragment-endpoint boundary and the half-open
+	// test drops the crossing — the gap that double-counted a hole near angle 0. The
+	// offset's irrational ratio avoids re-aligning with another source's seam.
+	q = [2]float64{q[0] + a.scale*4.131e-9, q[1] + a.scale*9.073e-9}
 	crossings := 0
 	for _, f := range c.frags {
 		crossings += a.rayFragCrossings(q, f)
@@ -1645,12 +1653,13 @@ func (a *arranger) angInFragment(s *source, f cycFrag, ang float64) bool {
 		lo, hi = hi, lo
 	}
 	// A whole, uncut circle (the fragment spans the full period) has no endpoint —
-	// every angle is on it. The half-open test below would otherwise drop the seam
-	// (t=0≡1) when a ray hits exactly there (e.g. a centre-aligned probe).
+	// every angle is on it.
 	if s.kind == srcCircle && hi-lo >= 1-1e-9 {
 		return true
 	}
 	// bring t into [lo, lo+1) by whole turns (param period is 1), then test [lo,hi).
+	// The caller perturbs the probe generically so a ray never crosses exactly at a
+	// fragment endpoint (the seam), keeping this half-open test off the float boundary.
 	t -= math.Floor((t - lo))
 	return t >= lo && t < hi
 }
