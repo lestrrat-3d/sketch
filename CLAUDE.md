@@ -538,8 +538,11 @@ These are unsettled. If you resolve one, record the decision here.
   `Curve` like the elliptical arc: authorable, profile-participating (exact
   whole-curve area via `conicBulgeSpan`), serializable (`"conic"`), exportable
   (native degree-2 rational `SPLINE` with weights `1,w,1`, incl. world-space).
-  `rho` is a single free solver var (a free conic is DOF 7); no constraints on it
-  yet. *Follow-ups:* point-on/tangency, a rho dimension, analytic line/conic &
+  `rho` is a single free solver var (a free conic is DOF 7). A point can be
+  confined to it (`NewPointOnConic` — bounded foot parameter `t∈[0,1]` witness like
+  `NewPointOnSpline`) and a line made tangent (`NewTangentToConic` — the five-row
+  bounded-`t` witness like `NewTangentToSpline`, using the analytic
+  `geom.Conic.EvalDeriv`). *Follow-ups:* a rho dimension, analytic line/conic &
   conic/conic intersections.
   **NURBS** are in as a geometry primitive (`AddNURBS(degree, control, weights,
   knots)` — a general non-uniform **rational** B-spline of arbitrary degree over a
@@ -555,9 +558,12 @@ These are unsettled. If you resolve one, record the decision here.
   can loop, unlike the convex-hull-bounded conic), `"nurbs"` serialization, and
   **native DXF `SPLINE`** export (degree + knots + rational weights, incl.
   world-space). It does **not** replace the uniform-cubic `Spline` (the ergonomic
-  common case). *Follow-ups:* point-on/tangency, knot-insertion/refinement tools,
-  periodic/unclamped NURBS, weight dimensions, analytic NURBS intersections, and a
-  possible later re-expression of `Spline` on the NURBS kernel.
+  common case). A point can be confined to it (`NewPointOnNURBS`) and a line made
+  tangent (`NewTangentToNURBS`) — the same bounded-`t∈[0,1]` witnesses as the
+  spline, working in normalized `t` mapped to the knot domain via `NURBS.Domain()`,
+  with the analytic `geom.NURBS.EvalDeriv`. *Follow-ups:* knot-insertion/refinement
+  tools, periodic/unclamped NURBS, weight dimensions, analytic NURBS intersections,
+  and a possible later re-expression of `Spline` on the NURBS kernel.
   Slots/fillet/chamfer exist as compound builders and `geom` template helpers.
 - **Solver evolution.** Numerical Jacobian is fine at current scale. **The
   rank/DOF/redundancy/free-point analysis is scale- and unit-invariant**: all

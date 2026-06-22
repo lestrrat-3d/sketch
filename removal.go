@@ -281,6 +281,14 @@ func constraintRefs(c Constraint) ([]*Point, []Entity) {
 		return nil, []Entity{t.L, t.Sp}
 	case *tangentToFitSpline:
 		return nil, []Entity{t.L, t.Sp}
+	case *pointOnConic:
+		return []*Point{t.P}, []Entity{t.C}
+	case *tangentToConic:
+		return nil, []Entity{t.L, t.C}
+	case *pointOnNURBS:
+		return []*Point{t.P}, []Entity{t.C}
+	case *tangentToNURBS:
+		return nil, []Entity{t.L, t.C}
 	case *tangentConics:
 		// The cached shared endpoint (shared) is a point this constraint reads, so
 		// it must be enumerated for the removal cascade and reachability check.

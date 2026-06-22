@@ -251,6 +251,28 @@ func condRowKinds(c Constraint, out []rowKind) []rowKind {
 		}
 		// contact(L), parallel(D), two box slacks(D), no-cusp(D)
 		return append(out, rowLength, rowDimensionless, rowDimensionless, rowDimensionless, rowDimensionless)
+	case *pointOnConic:
+		if t.tvar < 0 {
+			return out
+		}
+		return append(out, rowLength, rowLength, rowDimensionless, rowDimensionless)
+	case *tangentToConic:
+		if t.tvar < 0 {
+			return out
+		}
+		// contact(L), parallel(D), two box slacks(D), no-cusp(D)
+		return append(out, rowLength, rowDimensionless, rowDimensionless, rowDimensionless, rowDimensionless)
+	case *pointOnNURBS:
+		if t.tvar < 0 {
+			return out
+		}
+		return append(out, rowLength, rowLength, rowDimensionless, rowDimensionless)
+	case *tangentToNURBS:
+		if t.tvar < 0 {
+			return out
+		}
+		// contact(L), parallel(D), two box slacks(D), no-cusp(D)
+		return append(out, rowLength, rowDimensionless, rowDimensionless, rowDimensionless, rowDimensionless)
 	case *tangentConics:
 		if t.wSide < 0 {
 			return out

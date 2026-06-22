@@ -847,6 +847,356 @@ func (c *tangentToSpline) seedParam() float64 {
 	return seedTangentParam(eval, deriv, 16*(len(ctrl)-3), false, splineScale(c.Sp), ax, ay, dx, dy, norm(dx, dy))
 }
 
+// conicCoords returns the conic's three defining-point coordinates (Start, Apex,
+// End) at the current solved configuration.
+func conicCoords(c *Conic) (start, apex, end [2]float64) {
+	return [2]float64{c.Start.x(), c.Start.y()},
+		[2]float64{c.Apex.x(), c.Apex.y()},
+		[2]float64{c.End.x(), c.End.y()}
+}
+
+// conicScale returns a length scale for a conic: the diagonal of the box bounding
+// its three control points (Start, Apex, End), floored to 1, used to make the
+// no-cusp and zero-line tangency thresholds scale-relative (mirroring splineScale).
+func conicScale(c *Conic) float64 {
+	start, apex, end := conicCoords(c)
+	return splineCoordScale([][2]float64{start, apex, end})
+}
+
+// nurbsControlCoords returns the curve's control-point coordinates at the current
+// solved configuration.
+func nurbsControlCoords(c *NURBS) [][2]float64 {
+	pts := make([][2]float64, len(c.Control))
+	for i, p := range c.Control {
+		pts[i] = [2]float64{p.x(), p.y()}
+	}
+	return pts
+}
+
+// nurbsScale returns a length scale for a NURBS curve: the diagonal of the box
+// bounding its control points, floored to 1 (mirroring splineScale).
+func nurbsScale(c *NURBS) float64 { return splineCoordScale(nurbsControlCoords(c)) }
+
+// pointOnConic confines a point to a conic arc (a rational quadratic Bézier). A
+// conic has the parametric form C(t), t ∈ [0,1], with no implicit F(x,y)=0, so —
+// exactly like [pointOnSpline] — membership is existential: the constraint owns
+// the foot parameter t as a bounded aux solver variable (t = w0², 1−t = w1²) so
+// out-of-range t is infeasible rather than silently clamped. Committed residual
+// (4 rows): P.x−C.x(t), P.y−C.y(t) (length), t−w0², (1−t)−w1² (the [0,1] box).
+// A free point on a fixed conic then has 5 unknowns (P.x,P.y,t,w0,w1) and 4
+// independent rows — one sliding DOF, as a point on a 1-D curve should. The aux
+// vars are not serialized; allocVars re-seeds t by foot-point projection on load.
+type pointOnConic struct {
+	P            *Point
+	C            *Conic
+	s            *Sketch // set by allocVars, for aux-var access
+	tvar, w0, w1 int     // foot parameter + box slacks; -1 = not yet allocated
+}
+
+// NewPointOnConic forces a point to lie on a conic arc. The point may sit anywhere
+// along the curve; the attachment parameter is solved for. (To pin the point to an
+// endpoint, make it coincident with the conic's Start or End, which it passes
+// through.)
+func NewPointOnConic(p *Point, c *Conic) Constraint {
+	return &pointOnConic{P: p, C: c, tvar: -1, w0: -1, w1: -1}
+}
+
+func (c *pointOnConic) allocVars(s *Sketch) {
+	c.s = s
+	if c.tvar >= 0 {
+		return // idempotent: re-adding the handle must not leak fresh aux vars
+	}
+	start, apex, end := conicCoords(c.C)
+	t := geom.NearestParamConic(start, apex, end, c.C.rho(), c.P.x(), c.P.y())
+	c.tvar = s.newVar(t)
+	c.w0 = s.newVar(slackFor(t))     // t = w0²  → w0 = √t
+	c.w1 = s.newVar(slackFor(1 - t)) // 1−t = w1² → w1 = √(1−t)
+}
+
+func (c *pointOnConic) retireVars(s *Sketch) {
+	if c.tvar >= 0 {
+		s.retireVar(c.tvar)
+		s.retireVar(c.w0)
+		s.retireVar(c.w1)
+		c.tvar, c.w0, c.w1 = -1, -1, -1
+	}
+}
+
+func (c *pointOnConic) residual(out []float64) []float64 {
+	if c.tvar < 0 {
+		return out // not yet parameterized; allocVars runs at commit (and in CheckConstraint)
+	}
+	t := c.s.vars[c.tvar]
+	g := c.C.Geometry()
+	sx, sy := g.Eval(clamp01(t)) // bound rows below, not the clamp, enforce [0,1]
+	w0, w1 := c.s.vars[c.w0], c.s.vars[c.w1]
+	return append(out,
+		c.P.x()-sx,  // on the curve (x), length units
+		c.P.y()-sy,  // on the curve (y), length units
+		t-w0*w0,     // t ≥ 0  (t = w0²)
+		(1-t)-w1*w1, // t ≤ 1  (1−t = w1²)
+	)
+}
+
+// tangentToConic forces a line tangent to a conic arc. Tangency is existential
+// over the contact parameter t ∈ [0,1] (the same bounded witness as
+// [pointOnConic]: t plus the box slacks w0,w1). The committed residual is five
+// rows — exactly like [tangentToSpline]: the contact C(t) on the line's infinite
+// carrier (signed perpendicular distance, length); the line direction parallel to
+// the analytic conic tangent C'(t) (a dimensionless sin-of-angle); the two box
+// rows; and a no-cusp guard |C'(t)|/scale ≥ epsTan (slack ws). C'(t) is the
+// analytic geom.Conic.EvalDeriv (a numerical tangent inside the residual would be
+// a nested finite difference the Jacobian re-differentiates).
+type tangentToConic struct {
+	L                *Line
+	C                *Conic
+	s                *Sketch
+	tvar, w0, w1, ws int // contact parameter, box slacks, speed-guard slack; -1 = unallocated
+}
+
+// NewTangentToConic forces a line tangent to a conic arc. The line is its infinite
+// carrier (the contact may fall anywhere along it); the contact parameter on the
+// conic is solved for and confined to the curve. A line tangent at more than one
+// parameter witnesses one of them ([Sketch.ProbeConfigurations] can surface the
+// alternates).
+func NewTangentToConic(l *Line, c *Conic) Constraint {
+	return &tangentToConic{L: l, C: c, tvar: -1, w0: -1, w1: -1, ws: -1}
+}
+
+func (c *tangentToConic) allocVars(s *Sketch) {
+	c.s = s
+	if c.tvar >= 0 {
+		return // idempotent
+	}
+	t := c.seedParam()
+	g := c.C.Geometry()
+	spx, spy := g.EvalDeriv(clamp01(t))
+	speed := norm(spx, spy)
+	c.tvar = s.newVar(t)
+	c.w0 = s.newVar(slackFor(t))
+	c.w1 = s.newVar(slackFor(1 - t))
+	c.ws = s.newVar(slackFor(speed/conicScale(c.C) - splineEpsTan))
+}
+
+func (c *tangentToConic) retireVars(s *Sketch) {
+	if c.tvar >= 0 {
+		s.retireVar(c.tvar)
+		s.retireVar(c.w0)
+		s.retireVar(c.w1)
+		s.retireVar(c.ws)
+		c.tvar, c.w0, c.w1, c.ws = -1, -1, -1, -1
+	}
+}
+
+func (c *tangentToConic) seedParam() float64 {
+	g := c.C.Geometry()
+	ax, ay := c.L.Start.x(), c.L.Start.y()
+	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
+	eval := func(t float64) (float64, float64) { return g.Eval(t) }
+	deriv := func(t float64) (float64, float64) { return g.EvalDeriv(t) }
+	return seedTangentParam(eval, deriv, 64, false, conicScale(c.C), ax, ay, dx, dy, norm(dx, dy))
+}
+
+func (c *tangentToConic) residual(out []float64) []float64 {
+	if c.tvar < 0 {
+		return out // not yet parameterized; allocVars runs at commit (and in CheckConstraint)
+	}
+	tv := c.s.vars[c.tvar]
+	t := clamp01(tv)
+	g := c.C.Geometry()
+	sx, sy := g.Eval(t)
+	spx, spy := g.EvalDeriv(t)
+	speed := norm(spx, spy)
+	ax, ay := c.L.Start.x(), c.L.Start.y()
+	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
+	dlen := norm(dx, dy)
+	w0, w1, ws := c.s.vars[c.w0], c.s.vars[c.w1], c.s.vars[c.ws]
+	// Scale is recomputed every evaluation, not snapshotted: a free or reshaped
+	// conic must use its current size so the scale-relative thresholds stay valid.
+	scale := conicScale(c.C)
+
+	// Contact: signed perpendicular distance from C(t) to the infinite carrier
+	// line (length units).
+	contact := (dx*(sy-ay) - dy*(sx-ax)) / dlen
+	// Parallel: sin of the angle between the line direction and the conic tangent
+	// (dimensionless), zero when parallel. A zero-length line has no direction —
+	// reject with a clearly-nonzero residual rather than reading 0/0 as tangent.
+	parallel := 1.0
+	if math.Hypot(dx, dy) >= splineEpsLine*scale {
+		parallel = (dx*spy - dy*spx) / (dlen * speed)
+	}
+	return append(out,
+		contact,                        // on the carrier line (length)
+		parallel,                       // line ∥ conic tangent (dimensionless)
+		tv-w0*w0,                       // t ≥ 0
+		(1-tv)-w1*w1,                   // t ≤ 1
+		speed/scale-splineEpsTan-ws*ws, // |C'(t)| ≥ epsTan·scale (no cusp)
+	)
+}
+
+// pointOnNURBS confines a point to a NURBS curve. Like [pointOnConic]/[pointOnSpline]
+// a NURBS has only the parametric form C(u), so membership is existential. The
+// constraint works in a NORMALIZED foot parameter t ∈ [0,1] (mapped to the knot
+// domain by u = lo + t·(hi−lo)), bounded by a slack box (t = w0², 1−t = w1²) so
+// out-of-range t is infeasible. Committed residual (4 rows): P.x−C.x, P.y−C.y
+// (length), t−w0², (1−t)−w1². A free point on a fixed NURBS then has 5 unknowns
+// (P.x,P.y,t,w0,w1) and 4 independent rows — one sliding DOF. The aux vars are not
+// serialized; allocVars re-seeds t by foot-point projection on load.
+type pointOnNURBS struct {
+	P            *Point
+	C            *NURBS
+	s            *Sketch // set by allocVars, for aux-var access
+	tvar, w0, w1 int     // normalized foot parameter + box slacks; -1 = not yet allocated
+}
+
+// NewPointOnNURBS forces a point to lie on a NURBS curve. The point may sit
+// anywhere along the curve; the attachment parameter is solved for. (To pin the
+// point to an endpoint, make it coincident with the first or last control point,
+// which a clamped curve passes through.)
+func NewPointOnNURBS(p *Point, c *NURBS) Constraint {
+	return &pointOnNURBS{P: p, C: c, tvar: -1, w0: -1, w1: -1}
+}
+
+func (c *pointOnNURBS) allocVars(s *Sketch) {
+	c.s = s
+	if c.tvar >= 0 {
+		return // idempotent: re-adding the handle must not leak fresh aux vars
+	}
+	g := c.C.Geometry()
+	t := geom.NearestParamNURBS(nurbsControlCoords(c.C), g.Degree, g.Knots, g.Weights, c.P.x(), c.P.y())
+	c.tvar = s.newVar(t)
+	c.w0 = s.newVar(slackFor(t))     // t = w0²  → w0 = √t
+	c.w1 = s.newVar(slackFor(1 - t)) // 1−t = w1² → w1 = √(1−t)
+}
+
+func (c *pointOnNURBS) retireVars(s *Sketch) {
+	if c.tvar >= 0 {
+		s.retireVar(c.tvar)
+		s.retireVar(c.w0)
+		s.retireVar(c.w1)
+		c.tvar, c.w0, c.w1 = -1, -1, -1
+	}
+}
+
+func (c *pointOnNURBS) residual(out []float64) []float64 {
+	if c.tvar < 0 {
+		return out // not yet parameterized; allocVars runs at commit (and in CheckConstraint)
+	}
+	t := c.s.vars[c.tvar]
+	g := c.C.Geometry()
+	lo, hi := g.Domain()
+	sx, sy := g.Eval(lo + clamp01(t)*(hi-lo)) // bound rows below, not the clamp, enforce [0,1]
+	w0, w1 := c.s.vars[c.w0], c.s.vars[c.w1]
+	return append(out,
+		c.P.x()-sx,  // on the curve (x), length units
+		c.P.y()-sy,  // on the curve (y), length units
+		t-w0*w0,     // t ≥ 0  (t = w0²)
+		(1-t)-w1*w1, // t ≤ 1  (1−t = w1²)
+	)
+}
+
+// tangentToNURBS forces a line tangent to a NURBS curve. Tangency is existential
+// over the NORMALIZED contact parameter t ∈ [0,1] (mapped to the knot domain by
+// u = lo + t·(hi−lo)), the same bounded witness as [pointOnNURBS]. The committed
+// residual is five rows — exactly like [tangentToSpline]: the contact C(u) on the
+// line's infinite carrier (signed perpendicular distance, length); the line
+// direction parallel to the analytic NURBS tangent C'(u) (a dimensionless
+// sin-of-angle — normalized, so invariant to the hi−lo chain factor); the two box
+// rows; and a no-cusp guard |C'(u)|/scale ≥ epsTan (slack ws). C'(u) is the
+// analytic geom.NURBS.EvalDeriv (a numerical tangent inside the residual would be
+// a nested finite difference the Jacobian re-differentiates).
+type tangentToNURBS struct {
+	L                *Line
+	C                *NURBS
+	s                *Sketch
+	tvar, w0, w1, ws int // normalized contact parameter, box slacks, speed-guard slack; -1 = unallocated
+}
+
+// NewTangentToNURBS forces a line tangent to a NURBS curve. The line is its
+// infinite carrier (the contact may fall anywhere along it); the contact parameter
+// on the curve is solved for and confined to it. A line tangent at more than one
+// parameter witnesses one of them ([Sketch.ProbeConfigurations] can surface the
+// alternates).
+func NewTangentToNURBS(l *Line, c *NURBS) Constraint {
+	return &tangentToNURBS{L: l, C: c, tvar: -1, w0: -1, w1: -1, ws: -1}
+}
+
+func (c *tangentToNURBS) allocVars(s *Sketch) {
+	c.s = s
+	if c.tvar >= 0 {
+		return // idempotent
+	}
+	t := c.seedParam()
+	g := c.C.Geometry()
+	lo, hi := g.Domain()
+	spx, spy := g.EvalDeriv(lo + clamp01(t)*(hi-lo))
+	speed := norm(spx, spy)
+	c.tvar = s.newVar(t)
+	c.w0 = s.newVar(slackFor(t))
+	c.w1 = s.newVar(slackFor(1 - t))
+	c.ws = s.newVar(slackFor(speed/nurbsScale(c.C) - splineEpsTan))
+}
+
+func (c *tangentToNURBS) retireVars(s *Sketch) {
+	if c.tvar >= 0 {
+		s.retireVar(c.tvar)
+		s.retireVar(c.w0)
+		s.retireVar(c.w1)
+		s.retireVar(c.ws)
+		c.tvar, c.w0, c.w1, c.ws = -1, -1, -1, -1
+	}
+}
+
+func (c *tangentToNURBS) seedParam() float64 {
+	g := c.C.Geometry()
+	lo, hi := g.Domain()
+	ax, ay := c.L.Start.x(), c.L.Start.y()
+	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
+	eval := func(t float64) (float64, float64) { return g.Eval(lo + t*(hi-lo)) }
+	deriv := func(t float64) (float64, float64) { return g.EvalDeriv(lo + t*(hi-lo)) }
+	return seedTangentParam(eval, deriv, 16*len(c.C.Control), false, nurbsScale(c.C), ax, ay, dx, dy, norm(dx, dy))
+}
+
+func (c *tangentToNURBS) residual(out []float64) []float64 {
+	if c.tvar < 0 {
+		return out // not yet parameterized; allocVars runs at commit (and in CheckConstraint)
+	}
+	tv := c.s.vars[c.tvar]
+	t := clamp01(tv)
+	g := c.C.Geometry()
+	lo, hi := g.Domain()
+	u := lo + t*(hi-lo)
+	sx, sy := g.Eval(u)
+	spx, spy := g.EvalDeriv(u)
+	speed := norm(spx, spy)
+	ax, ay := c.L.Start.x(), c.L.Start.y()
+	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
+	dlen := norm(dx, dy)
+	w0, w1, ws := c.s.vars[c.w0], c.s.vars[c.w1], c.s.vars[c.ws]
+	// Scale is recomputed every evaluation, not snapshotted: a free or reshaped
+	// curve must use its current size so the scale-relative thresholds stay valid.
+	scale := nurbsScale(c.C)
+
+	// Contact: signed perpendicular distance from C(u) to the infinite carrier
+	// line (length units).
+	contact := (dx*(sy-ay) - dy*(sx-ax)) / dlen
+	// Parallel: sin of the angle between the line direction and the NURBS tangent
+	// (dimensionless), zero when parallel. The (hi−lo) chain factor in C'(u) cancels
+	// in this normalized ratio. A zero-length line has no direction — reject with a
+	// clearly-nonzero residual rather than reading 0/0 as tangent.
+	parallel := 1.0
+	if math.Hypot(dx, dy) >= splineEpsLine*scale {
+		parallel = (dx*spy - dy*spx) / (dlen * speed)
+	}
+	return append(out,
+		contact,                        // on the carrier line (length)
+		parallel,                       // line ∥ NURBS tangent (dimensionless)
+		tv-w0*w0,                       // t ≥ 0
+		(1-tv)-w1*w1,                   // t ≤ 1
+		speed/scale-splineEpsTan-ws*ws, // |C'(u)| ≥ epsTan·scale (no cusp)
+	)
+}
+
 // --- conic-conic tangency ---------------------------------------------------
 //
 // Two conics (an ellipse with a circle, or two ellipses) have no closed-form

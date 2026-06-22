@@ -56,6 +56,11 @@ func (c *NURBS) domain() (lo, hi float64) {
 	return c.Knots[p], c.Knots[n+1]
 }
 
+// Domain returns the parametric interval [lo, hi] the clamped curve is defined
+// on. A caller working in a normalized t ∈ [0, 1] maps to a knot parameter with
+// u = lo + t·(hi−lo) before calling [NURBS.Eval] / [NURBS.EvalDeriv].
+func (c *NURBS) Domain() (lo, hi float64) { return c.domain() }
+
 // findSpan returns the knot span index i such that U[i] <= u < U[i+1], with the
 // clamped-end conventions (The NURBS Book A2.1). n = len(control)-1.
 func findSpan(n, p int, u float64, U []float64) int {

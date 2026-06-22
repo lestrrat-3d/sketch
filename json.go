@@ -274,6 +274,14 @@ func marshalConstraint(c Constraint) (jsonConstraint, bool) {
 		return jsonConstraint{Type: "tangent_closed_spline", Entities: []int{t.L.id, t.Sp.id}}, true
 	case *tangentToFitSpline:
 		return jsonConstraint{Type: "tangent_fit_spline", Entities: []int{t.L.id, t.Sp.id}}, true
+	case *pointOnConic:
+		return jsonConstraint{Type: "point_on_conic", Points: []int{t.P.id}, Entities: []int{t.C.id}}, true
+	case *tangentToConic:
+		return jsonConstraint{Type: "tangent_conic", Entities: []int{t.L.id, t.C.id}}, true
+	case *pointOnNURBS:
+		return jsonConstraint{Type: "point_on_nurbs", Points: []int{t.P.id}, Entities: []int{t.C.id}}, true
+	case *tangentToNURBS:
+		return jsonConstraint{Type: "tangent_nurbs", Entities: []int{t.L.id, t.C.id}}, true
 	case *tangentConics:
 		typ := "tangent_ellipses"
 		switch t.B.(type) {
@@ -646,6 +654,8 @@ var constraintArity = map[string][2]int{
 	"point_on_ellipse": {1, 1}, "point_on_spline": {1, 1}, "point_on_closed_spline": {1, 1},
 	"point_on_fit_spline": {1, 1}, "tangent_spline": {0, 2}, "tangent_closed_spline": {0, 2},
 	"tangent_fit_spline": {0, 2}, "midpoint": {1, 1},
+	"point_on_conic": {1, 1}, "tangent_conic": {0, 2},
+	"point_on_nurbs": {1, 1}, "tangent_nurbs": {0, 2},
 	"tangent_ellipse_circle": {0, 2}, "tangent_ellipses": {0, 2},
 	"midpoint_of": {3, 0},
 	"symmetric":   {2, 1}, "symmetric_lines": {0, 3}, "symmetric_circles": {0, 3},
@@ -810,6 +820,38 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 			return fmt.Errorf("sketch: tangent_fit_spline requires a fit spline")
 		}
 		s.AddConstraint(NewTangentToFitSpline(l, sp))
+	case "point_on_conic":
+		cn, ok := s.entByID(jc.Entities[0]).(*Conic)
+		if !ok {
+			return fmt.Errorf("sketch: point_on_conic requires a conic")
+		}
+		s.AddConstraint(NewPointOnConic(pt(0), cn))
+	case "tangent_conic":
+		l, err := line(jc.Entities[0])
+		if err != nil {
+			return err
+		}
+		cn, ok := s.entByID(jc.Entities[1]).(*Conic)
+		if !ok {
+			return fmt.Errorf("sketch: tangent_conic requires a conic")
+		}
+		s.AddConstraint(NewTangentToConic(l, cn))
+	case "point_on_nurbs":
+		cn, ok := s.entByID(jc.Entities[0]).(*NURBS)
+		if !ok {
+			return fmt.Errorf("sketch: point_on_nurbs requires a NURBS curve")
+		}
+		s.AddConstraint(NewPointOnNURBS(pt(0), cn))
+	case "tangent_nurbs":
+		l, err := line(jc.Entities[0])
+		if err != nil {
+			return err
+		}
+		cn, ok := s.entByID(jc.Entities[1]).(*NURBS)
+		if !ok {
+			return fmt.Errorf("sketch: tangent_nurbs requires a NURBS curve")
+		}
+		s.AddConstraint(NewTangentToNURBS(l, cn))
 	case "tangent_ellipse_circle":
 		e, err := elliptical(jc.Entities[0])
 		if err != nil {

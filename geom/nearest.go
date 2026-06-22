@@ -109,3 +109,32 @@ func NearestParamFitSpline(fit [][2]float64, px, py float64) float64 {
 	}
 	return nearestParamSampled(eval, 16*len(fit), false, px, py)
 }
+
+// NearestParamConic returns the parameter t ∈ [0, 1] whose curve point is
+// closest to (px, py) on the conic arc through start, apex and end with fullness
+// rho. A robust seed for a foot-point aux variable, not an exact projection.
+func NearestParamConic(start, apex, end [2]float64, rho, px, py float64) float64 {
+	c := &Conic{
+		Start: &Point{X: start[0], Y: start[1]},
+		Apex:  &Point{X: apex[0], Y: apex[1]},
+		End:   &Point{X: end[0], Y: end[1]},
+		Rho:   rho,
+	}
+	return nearestParamSampled(c.Eval, 64, false, px, py)
+}
+
+// NearestParamNURBS returns the NORMALIZED parameter t ∈ [0, 1] whose curve
+// point is closest to (px, py) on the clamped NURBS curve defined by control,
+// degree, knots and weights. The normalized t maps to the knot domain
+// internally (u = lo + t·(hi−lo)); the returned value is the normalized t, a
+// robust seed for a foot-point aux variable, not an exact projection.
+func NearestParamNURBS(control [][2]float64, degree int, knots, weights []float64, px, py float64) float64 {
+	ctrl := make([]*Point, len(control))
+	for i, p := range control {
+		ctrl[i] = &Point{X: p[0], Y: p[1]}
+	}
+	c := &NURBS{Degree: degree, Control: ctrl, Knots: knots, Weights: weights}
+	lo, hi := c.domain()
+	eval := func(t float64) (float64, float64) { return c.Eval(lo + t*(hi-lo)) }
+	return nearestParamSampled(eval, 16*len(control), false, px, py)
+}
