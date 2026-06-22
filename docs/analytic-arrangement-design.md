@@ -160,6 +160,41 @@ Same-component interior tangency is a **self-touch** → `SelfIntersections`, no
    between event params; face traversal on exact tangents/ports;
    `BoundaryEdge.Polyline` becomes an output artifact only.
 
+   *Scope refinement (the load-bearing insight that de-risks this increment).* The
+   region **AREA is already exact** — `makeCycle` computes `signedPolyArea(chord) +
+   Σ bulge`, where each curved fragment's bulge is an analytic, sampling-independent
+   correction (`chordArcCorrection`/`chordEllipseCorrection`/`splineBulge`) keyed on
+   the fragment's natural-param range, not on the polyline density. So increment 7 is
+   NOT about area; it is purely about making the **topology decisions** exact. Only
+   three topology decisions are still sampled, and the deferred cases (internal
+   tangency, curve/curve crossings) fail on exactly two of them:
+   - **Crossing incidence** — for line/circle/arc this is already analytic
+     (`analyticEvents`); the count/incidence gate only *flags* when the sampled
+     chords disagree (a poke-out spurious crossing, a sub-sample cap). The exact
+     verdict already exists; the gate is a sampled cross-check.
+   - **Containment for hole assignment** — `extract` assigns a hole to a face via
+     `pointInPolygon(probe, face.dense)` on the CHORD densification. This is the
+     load-bearing failure for internal tangency: the inner circle's chord polygon
+     pokes outside the outer's chord polygon near the contact, so the interior
+     probe falls in the cut-off sliver and the inner is not subtracted (double
+     count). An **exact point-in-region test** (winding number summing each
+     boundary fragment's exact subtended angle — closed form for line/circle/arc)
+     is immune to the poke-out.
+   - **Rotation system at shared vertices** — already exact (`sortExactPorts`,
+     increment 3).
+
+   So the tractable path to bless the deferred cases is NOT a blind `tinySeg`
+   rewrite but two targeted exactness upgrades: (a) an **exact containment** test
+   for hole assignment, and (b) **trusting the analytic crossing/tangency verdict**
+   for curve/curve handled pairs (suppress the sampled count-gate flag once
+   containment is exact, since the poke-out crossings are an artifact the exact
+   verdict already classifies as a tangency/clean miss). Staged plan: §7a exact
+   containment + internal-tangency blessing; §7b lift the curve/curve crossing
+   deferral behind the same exact-containment + analytic-authority basis; §7c (only
+   if needed) replace `BoundaryEdge.Polyline` topology with exact fragments for the
+   residual ellipse/spline cases. Each stage is independently testable against the
+   soundness invariant (blessed ⇒ correct, else `Degenerate`).
+
 ## Wiring design (increment 2)
 
 **The cut-record caveat (load-bearing).** Keeping `tinySeg.cuts []float64` is NOT
