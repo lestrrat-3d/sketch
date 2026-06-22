@@ -6,8 +6,37 @@ import (
 	"strings"
 
 	"github.com/lestrrat-3d/sketch/geom"
+	"github.com/lestrrat-3d/sketch/space"
 	"github.com/lestrrat-3d/sketch/units"
+	"github.com/lestrrat-go/option/v3"
 )
+
+// DXFOption configures [Sketch.DXF]. Construct values with the With… functions.
+type DXFOption interface {
+	option.Interface
+	dxfOption()
+}
+
+type dxfOption struct{ option.Interface }
+
+func (dxfOption) dxfOption() {}
+
+type identWorldSpace struct{}
+
+// WithWorldSpace places the exported geometry in 3D world coordinates using the
+// sketch's construction-plane frame, instead of the default plane-local 2D
+// (z = 0). LINE/SPLINE/ELLIPSE carry true world coordinates; CIRCLE/ARC and the
+// sampled (closed/fit) splines carry the plane's extrusion direction and are
+// expressed in the entity's object coordinate system (OCS), so a sketch on a
+// tilted or offset plane imports at its real 3D placement. A plane-XY sketch is
+// unchanged apart from the now-explicit +Z extrusion direction.
+func WithWorldSpace(v bool) DXFOption {
+	return dxfOption{option.New(identWorldSpace{}, v)}
+}
+
+type dxfConfig struct{ worldSpace bool }
+
+func defaultDXFConfig() dxfConfig { return dxfConfig{} }
 
 // DXF renders the sketch as a minimal AutoCAD R12 ASCII DXF document
 // containing LINE, CIRCLE, ARC, ELLIPSE and SPLINE entities (ELLIPSE and
@@ -21,7 +50,19 @@ import (
 // correct scale instead of guessing. Angles (degrees), the ellipse axis ratio
 // and spline knots are unitless and emitted as-is. The drawing extents
 // ($EXTMIN/$EXTMAX) are written when the sketch has geometry.
-func (s *Sketch) DXF() (string, error) {
+//
+// By default geometry is emitted in plane-local 2D (z = 0). Pass
+// [WithWorldSpace](true) to place it in 3D world coordinates via the sketch's
+// construction-plane frame.
+func (s *Sketch) DXF(opts ...DXFOption) (string, error) {
+	cfg := defaultDXFConfig()
+	for _, o := range opts {
+		switch o.Ident().(type) {
+		case identWorldSpace:
+			cfg.worldSpace = option.MustGet[bool](o)
+		}
+	}
+
 	var sb strings.Builder
 
 	// Minimal but valid R12 header.
@@ -39,6 +80,97 @@ func (s *Sketch) DXF() (string, error) {
 		return units.FromBase(base, s.sys.Length).Mag()
 	}
 	pairL := func(code int, base float64) { pairf(code, lengthMag(base)) }
+
+	// World-space placement: resolve the plane frame and the OCS axes the
+	// arbitrary-axis algorithm derives from its normal, once. In local mode
+	// these stay zero and every put… helper takes its 2D branch.
+	var frame space.Frame
+	var ax, ay, nrm space.Vec3
+	if cfg.worldSpace {
+		f, err := s.plane().Frame()
+		if err != nil {
+			return "", err
+		}
+		frame = f
+		nrm = frame.N()
+		ax, ay = arbitraryAxis(nrm)
+	}
+	// putWCS emits a plane-local point as a world coordinate triple (codes
+	// c10 / c10+10 / c10+20); local mode is the bare (x, y, 0).
+	putWCS := func(c10 int, lx, ly float64) {
+		if cfg.worldSpace {
+			w := frame.ToWorldUV(lx, ly)
+			pairL(c10, w.X)
+			pairL(c10+10, w.Y)
+			pairL(c10+20, w.Z)
+		} else {
+			pairL(c10, lx)
+			pairL(c10+10, ly)
+			pairf(c10+20, 0)
+		}
+	}
+	// putWCSDir emits a plane-local DIRECTION (no origin translation) as a world
+	// vector — the ellipse major-axis endpoint relative to its center.
+	putWCSDir := func(c10 int, lx, ly float64) {
+		if cfg.worldSpace {
+			d := frame.ToWorldUV(lx, ly).Sub(frame.Origin())
+			pairL(c10, d.X)
+			pairL(c10+10, d.Y)
+			pairL(c10+20, d.Z)
+		} else {
+			pairL(c10, lx)
+			pairL(c10+10, ly)
+			pairf(c10+20, 0)
+		}
+	}
+	// putOCS emits a plane-local point in the entity's object coordinate system
+	// (CIRCLE/ARC), projecting the world point onto the OCS axes.
+	putOCS := func(c10 int, lx, ly float64) {
+		if cfg.worldSpace {
+			w := frame.ToWorldUV(lx, ly)
+			pairL(c10, w.Dot(ax))
+			pairL(c10+10, w.Dot(ay))
+			pairL(c10+20, w.Dot(nrm))
+		} else {
+			pairL(c10, lx)
+			pairL(c10+10, ly)
+			pairf(c10+20, 0)
+		}
+	}
+	// putLW emits an LWPOLYLINE 2D vertex (codes 10/20). World mode projects the
+	// world point onto the OCS axes; the shared elevation is emitted once via
+	// group 38, the extrusion via 210/220/230.
+	putLW := func(lx, ly float64) {
+		if cfg.worldSpace {
+			w := frame.ToWorldUV(lx, ly)
+			pairL(10, w.Dot(ax))
+			pairL(20, w.Dot(ay))
+		} else {
+			pairL(10, lx)
+			pairL(20, ly)
+		}
+	}
+	// extrusion emits the 210/220/230 extrusion direction (a unit vector, so
+	// unitless) in world mode; a no-op in local mode (the implied +Z default).
+	extrusion := func() {
+		if cfg.worldSpace {
+			pairf(210, nrm.X)
+			pairf(220, nrm.Y)
+			pairf(230, nrm.Z)
+		}
+	}
+	// arcAngles returns the DXF start/end angles (degrees). In world mode they
+	// are recomputed in the OCS frame from the world endpoints, since the
+	// plane's U/V axes need not coincide with the OCS axes.
+	arcAngles := func(t *Arc) (float64, float64) {
+		if !cfg.worldSpace {
+			return deg(t.StartAngle()), deg(t.EndAngle())
+		}
+		c := frame.ToWorldUV(t.Center.x(), t.Center.y())
+		sp := frame.ToWorldUV(t.Start.x(), t.Start.y()).Sub(c)
+		ep := frame.ToWorldUV(t.End.x(), t.End.y()).Sub(c)
+		return deg(math.Atan2(sp.Dot(ay), sp.Dot(ax))), deg(math.Atan2(ep.Dot(ay), ep.Dot(ax)))
+	}
 
 	pair(0, "SECTION")
 	pair(2, "HEADER")
@@ -75,29 +207,25 @@ func (s *Sketch) DXF() (string, error) {
 		case *Line:
 			pair(0, "LINE")
 			pair(8, layer)
-			pairL(10, t.Start.x())
-			pairL(20, t.Start.y())
-			pairf(30, 0)
-			pairL(11, t.End.x())
-			pairL(21, t.End.y())
-			pairf(31, 0)
+			putWCS(10, t.Start.x(), t.Start.y())
+			putWCS(11, t.End.x(), t.End.y())
 		case *Circle:
 			pair(0, "CIRCLE")
 			pair(8, layer)
-			pairL(10, t.Center.x())
-			pairL(20, t.Center.y())
-			pairf(30, 0)
+			putOCS(10, t.Center.x(), t.Center.y())
 			pairL(40, t.r())
+			extrusion()
 		case *Arc:
 			pair(0, "ARC")
 			pair(8, layer)
-			pairL(10, t.Center.x())
-			pairL(20, t.Center.y())
-			pairf(30, 0)
+			putOCS(10, t.Center.x(), t.Center.y())
 			pairL(40, t.R())
-			// DXF arc angles are degrees, measured counter-clockwise.
-			pairf(50, deg(t.StartAngle()))
-			pairf(51, deg(t.EndAngle()))
+			// DXF arc angles are degrees, measured counter-clockwise (in the OCS
+			// when placed in world space).
+			sa, ea := arcAngles(t)
+			pairf(50, sa)
+			pairf(51, ea)
+			extrusion()
 		case *Ellipse:
 			// ELLIPSE is an R13+ entity; most modern tools accept it in this
 			// otherwise-R12 stream. Codes: 11/21 = major-axis endpoint
@@ -110,19 +238,16 @@ func (s *Sketch) DXF() (string, error) {
 			}
 			pair(0, "ELLIPSE")
 			pair(8, layer)
-			pairL(10, t.Center.x())
-			pairL(20, t.Center.y())
-			pairf(30, 0)
+			putWCS(10, t.Center.x(), t.Center.y())
 			ratio := 1.0
 			if major > 0 {
 				ratio = minor / major
 			}
-			pairL(11, major*math.Cos(axis))
-			pairL(21, major*math.Sin(axis))
-			pairf(31, 0)
+			putWCSDir(11, major*math.Cos(axis), major*math.Sin(axis))
 			pairf(40, ratio)
 			pairf(41, 0)
 			pairf(42, 2*math.Pi)
+			extrusion()
 		case *EllipticalArc:
 			// Like ELLIPSE above, but 41/42 carry the real eccentric-angle sweep.
 			// DXF measures the parameter from the major-axis endpoint (11/21), so
@@ -137,19 +262,16 @@ func (s *Sketch) DXF() (string, error) {
 			}
 			pair(0, "ELLIPSE")
 			pair(8, layer)
-			pairL(10, t.Center.x())
-			pairL(20, t.Center.y())
-			pairf(30, 0)
+			putWCS(10, t.Center.x(), t.Center.y())
 			ratio := 1.0
 			if major > 0 {
 				ratio = minor / major
 			}
-			pairL(11, major*math.Cos(axis))
-			pairL(21, major*math.Sin(axis))
-			pairf(31, 0)
+			putWCSDir(11, major*math.Cos(axis), major*math.Sin(axis))
 			pairf(40, ratio)
 			pairf(41, startP)
 			pairf(42, startP+sweep)
+			extrusion()
 		case *Spline:
 			// SPLINE is an R13+ entity, like ELLIPSE above. Flags (70): 8 =
 			// planar. Degree 3, clamped uniform knots, then the control
@@ -167,9 +289,7 @@ func (s *Sketch) DXF() (string, error) {
 				pairf(40, k)
 			}
 			for _, c := range t.Control {
-				pairL(10, c.x())
-				pairL(20, c.y())
-				pairf(30, 0)
+				putWCS(10, c.x(), c.y())
 			}
 		case *ClosedSpline:
 			// No periodic SPLINE form is honored uniformly across readers; emit a
@@ -182,10 +302,13 @@ func (s *Sketch) DXF() (string, error) {
 			pair(8, layer)
 			pair(90, fmt.Sprintf("%d", len(pts)))
 			pair(70, "1") // closed
-			for _, p := range pts {
-				pairL(10, p[0])
-				pairL(20, p[1])
+			if cfg.worldSpace {
+				pairL(38, frame.Origin().Dot(nrm)) // OCS elevation (the loop is planar)
 			}
+			for _, p := range pts {
+				putLW(p[0], p[1])
+			}
+			extrusion()
 		case *FitSpline:
 			// The fit spline's control points are a derived interpolation artifact,
 			// not clamped-uniform B-spline controls, so emit the sampled
@@ -195,10 +318,13 @@ func (s *Sketch) DXF() (string, error) {
 			pair(8, layer)
 			pair(90, fmt.Sprintf("%d", len(pts)))
 			pair(70, "0") // open
-			for _, p := range pts {
-				pairL(10, p[0])
-				pairL(20, p[1])
+			if cfg.worldSpace {
+				pairL(38, frame.Origin().Dot(nrm)) // OCS elevation (the curve is planar)
 			}
+			for _, p := range pts {
+				putLW(p[0], p[1])
+			}
+			extrusion()
 		}
 	}
 
@@ -216,6 +342,24 @@ func deg(rad float64) float64 {
 }
 
 func dxff(v float64) string { return trimFloat(v, 6) }
+
+// arbitraryAxis derives the OCS x/y axes DXF associates with an extrusion
+// direction n (assumed unit) via AutoCAD's arbitrary-axis algorithm: it picks a
+// reference world axis avoiding near-degeneracy with n, then builds a
+// right-handed (ax, ay, n) frame. A CIRCLE/ARC/LWPOLYLINE whose center is given
+// in this OCS plus extrusion n round-trips to the correct world placement.
+func arbitraryAxis(n space.Vec3) (space.Vec3, space.Vec3) {
+	const tol = 1.0 / 64.0
+	var a space.Vec3
+	if math.Abs(n.X) < tol && math.Abs(n.Y) < tol {
+		a = space.NewVec3(0, 1, 0).Cross(n)
+	} else {
+		a = space.NewVec3(0, 0, 1).Cross(n)
+	}
+	ax, _ := a.Normalize()
+	ay, _ := n.Cross(ax).Normalize()
+	return ax, ay
+}
 
 // dxfInsUnits maps a length unit to its AutoCAD $INSUNITS code so an importer
 // scales the drawing correctly. An unrecognised unit is reported unitless (0).
