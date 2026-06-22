@@ -23,18 +23,20 @@ type jsonPoint struct {
 }
 
 type jsonEntity struct {
-	Type         string  `json:"type"` // "line" | "circle" | "arc" | "ellipse" | "spline"
-	Points       []int   `json:"points"`
-	Radius       float64 `json:"radius,omitempty"`
-	Rx           float64 `json:"rx,omitempty"`       // ellipse semi-axis (local x)
-	Ry           float64 `json:"ry,omitempty"`       // ellipse semi-axis (local y)
-	Rotation     float64 `json:"rotation,omitempty"` // ellipse frame rotation, radians
-	Rho          float64 `json:"rho,omitempty"`      // conic fullness parameter, in (0, 1)
-	Degree       int     `json:"degree,omitempty"`   // spline degree (always 3 today)
-	Construction bool    `json:"construction,omitempty"`
-	Reference    bool    `json:"reference,omitempty"`
-	Source       string  `json:"source,omitempty"`
-	Stale        bool    `json:"stale,omitempty"` // reference circle radius freshness only
+	Type         string    `json:"type"` // "line" | "circle" | "arc" | "ellipse" | "spline"
+	Points       []int     `json:"points"`
+	Radius       float64   `json:"radius,omitempty"`
+	Rx           float64   `json:"rx,omitempty"`       // ellipse semi-axis (local x)
+	Ry           float64   `json:"ry,omitempty"`       // ellipse semi-axis (local y)
+	Rotation     float64   `json:"rotation,omitempty"` // ellipse frame rotation, radians
+	Rho          float64   `json:"rho,omitempty"`      // conic fullness parameter, in (0, 1)
+	Degree       int       `json:"degree,omitempty"`   // spline degree (always 3 today); NURBS degree
+	Knots        []float64 `json:"knots,omitempty"`    // NURBS knot vector
+	Weights      []float64 `json:"weights,omitempty"`  // NURBS per-control weights
+	Construction bool      `json:"construction,omitempty"`
+	Reference    bool      `json:"reference,omitempty"`
+	Source       string    `json:"source,omitempty"`
+	Stale        bool      `json:"stale,omitempty"` // reference circle radius freshness only
 }
 
 type jsonConstraint struct {
@@ -197,6 +199,16 @@ func (s *Sketch) marshalBody() (jsonSketchBody, error) {
 				Type: "conic", Points: []int{t.Start.id, t.Apex.id, t.End.id},
 				Rho: t.rho(), Construction: t.construction,
 			})
+		case *NURBS:
+			je := jsonEntity{
+				Type: "nurbs", Degree: t.degree, Construction: t.construction,
+				Knots:   append([]float64(nil), t.knots...),
+				Weights: append([]float64(nil), t.weights...),
+			}
+			for _, c := range t.Control {
+				je.Points = append(je.Points, c.id)
+			}
+			body.Entities = append(body.Entities, je)
 		}
 	}
 
@@ -560,6 +572,14 @@ func (s *Sketch) buildFromBody(body jsonSketchBody) error {
 				return fmt.Errorf("sketch: conic needs 3 points, got %d", len(ps))
 			}
 			c, err := s.AddConic(ps[0], ps[1], ps[2], je.Rho) // validates rho ∈ (0, 1)
+			if err != nil {
+				return err
+			}
+			c.SetConstruction(je.Construction)
+		case "nurbs":
+			// AddNURBS validates degree, control count, knot vector and weights;
+			// a nil/empty weights slice means non-rational (all weights 1).
+			c, err := s.AddNURBS(je.Degree, ps, je.Weights, je.Knots)
 			if err != nil {
 				return err
 			}

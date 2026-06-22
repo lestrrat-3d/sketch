@@ -115,7 +115,11 @@ needing analytic spline derivatives `EvalCubicBSplineDeriv`/
 `EvalPeriodicCubicBSplineDeriv`/`fitEvaluator.derivAt`), and **conics**
 (`conicBulgeSpan`: the rational-quadratic-Bézier closed form — the moment swept
 from `start` minus `triangle(start,P(t0),P(t1))`, i.e. the exact sub-arc/sub-chord
-area; whole-curve `conicBulge` is the `[0,1]` case). So the reported `Area` is
+area; whole-curve `conicBulge` is the `[0,1]` case), and **NURBS**
+(`nurbsBulgeSpan`/`nurbsMoment`: `splineBulge`'s shape — per-knot-span moment +
+chord-closure — with `p`-point Gauss exact for a non-rational degree-`p` curve and
+10-point adaptive bisection for the rational/`p>10` case, integrating the true
+curve). So the reported `Area` is
 sampling-independent **for a whole curve** (and for one split only at an analytic
 line/circle/arc crossing); a curve split at a *sampled* crossing
 (ellipse/spline/conic vs line, or curve/curve) has an approximate cut parameter,
@@ -536,8 +540,24 @@ These are unsettled. If you resolve one, record the decision here.
   (native degree-2 rational `SPLINE` with weights `1,w,1`, incl. world-space).
   `rho` is a single free solver var (a free conic is DOF 7); no constraints on it
   yet. *Follow-ups:* point-on/tangency, a rho dimension, analytic line/conic &
-  conic/conic intersections, and the **NURBS** half of the roadmap row (a general
-  non-uniform rational B-spline can reuse this rational-curve evaluator).
+  conic/conic intersections.
+  **NURBS** are in as a geometry primitive (`AddNURBS(degree, control, weights,
+  knots)` — a general non-uniform **rational** B-spline of arbitrary degree over a
+  clamped/open knot vector; design in `docs/nurbs-design.md`). Control points are
+  ordinary sketch points (the durable handles); **knots, weights and degree are
+  stored structural data, NOT solver vars** (a free NURBS is DOF `2(n+1)`, mirroring
+  `Spline` — promoting weights to dimensionable vars is a follow-up). An open
+  `Curve` (clamped endpoints = first/last control point) that participates in
+  profiles, with the de-Boor kernel (`geom/nurbs.go`:
+  `findSpan`/`basisFuns`/`dersBasisFuns`/`Eval`/`EvalDeriv`, general-degree, new and
+  separate from the uniform-cubic `EvalCubicBSpline`), exact/numerically-exact area
+  (see the area note), spline-family **self-crossing detection** (a high-degree NURBS
+  can loop, unlike the convex-hull-bounded conic), `"nurbs"` serialization, and
+  **native DXF `SPLINE`** export (degree + knots + rational weights, incl.
+  world-space). It does **not** replace the uniform-cubic `Spline` (the ergonomic
+  common case). *Follow-ups:* point-on/tangency, knot-insertion/refinement tools,
+  periodic/unclamped NURBS, weight dimensions, analytic NURBS intersections, and a
+  possible later re-expression of `Spline` on the NURBS kernel.
   Slots/fillet/chamfer exist as compound builders and `geom` template helpers.
 - **Solver evolution.** Numerical Jacobian is fine at current scale. **The
   rank/DOF/redundancy/free-point analysis is scale- and unit-invariant**: all

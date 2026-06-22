@@ -183,6 +183,8 @@ func renumberEntity(e Entity, id int) {
 		t.id = id
 	case *Conic:
 		t.id = id
+	case *NURBS:
+		t.id = id
 	}
 }
 
@@ -221,6 +223,12 @@ func entityUsesPoint(e Entity, p *Point) bool {
 		}
 	case *Conic:
 		return t.Start == p || t.Apex == p || t.End == p
+	case *NURBS:
+		for _, c := range t.Control {
+			if c == p {
+				return true
+			}
+		}
 	}
 	return false
 }

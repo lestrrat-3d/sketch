@@ -75,6 +75,9 @@ type source struct {
 	// fit-point spline: a prebuilt natural-cubic interpolant (the tridiagonal
 	// solve runs once when the source is created, then is reused per sample).
 	fitEval *fitEvaluator
+	// NURBS: the general rational B-spline (degree/knots/weights/control). The
+	// natural parameter t in [0, 1] maps linearly across the knot domain.
+	nurbs *NURBS
 }
 
 type srcKind int
@@ -89,6 +92,7 @@ const (
 	srcSpline        // a clamped cubic B-spline (open; may self-cross)
 	srcClosedSpline  // a periodic cubic B-spline (closed loop; may self-cross)
 	srcFitSpline     // a natural-cubic interpolating spline (open; may self-cross)
+	srcNURBS         // a general clamped rational B-spline (open; may self-cross)
 	srcDegenerate    // unsupported / nil input; contributes no geometry
 )
 
@@ -115,6 +119,10 @@ func (s *source) at(t float64) [2]float64 {
 		return [2]float64{x, y}
 	case srcFitSpline:
 		return s.fitEval.at(t)
+	case srcNURBS:
+		lo, hi := s.nurbs.domain()
+		x, y := s.nurbs.Eval(lo + (hi-lo)*t)
+		return [2]float64{x, y}
 	default: // ellipse
 		return s.ellipsePoint(2 * math.Pi * t)
 	}
@@ -400,6 +408,20 @@ func newArranger(curves []Curve, closed []ClosedCurve, cfg arrangeConfig) *arran
 			}
 			s.kind = srcFitSpline
 			s.fitEval = newFitEvaluator(coords)
+		case *NURBS:
+			nb, ok := nurbsSnapshot(t)
+			if !ok {
+				a.flagDegenerate(0, 0)
+				s.kind = srcDegenerate
+				break
+			}
+			if nurbsExtent(nb) < 1e-9 { // all-coincident controls: a point
+				a.flagDegenerate(nb.Control[0].X, nb.Control[0].Y)
+				s.kind = srcDegenerate
+				break
+			}
+			s.kind = srcNURBS
+			s.nurbs = nb
 		default:
 			a.flagDegenerate(0, 0) // unknown Curve implementation
 			s.kind = srcDegenerate
@@ -494,9 +516,91 @@ func safeEndpoints(c Curve) (*Point, *Point, bool) {
 			return nil, nil, false
 		}
 		return t.Fit[0], t.Fit[len(t.Fit)-1], true
+	case *NURBS:
+		if !nurbsValid(t) {
+			return nil, nil, false
+		}
+		return t.Control[0], t.Control[len(t.Control)-1], true
 	default:
 		return nil, nil, false
 	}
+}
+
+// nurbsValid reports whether a NURBS is structurally well-formed enough for the
+// arrangement to evaluate: non-nil, degree >= 1, at least degree+1 control
+// points (none nil), and a clamped non-decreasing knot vector of the right
+// length. The sketch entity's AddNURBS validates the same conditions up front, so
+// this is a defensive guard against a hand-built or typed-nil snapshot.
+func nurbsValid(c *NURBS) bool {
+	if c == nil || c.Degree < 1 || len(c.Control) < c.Degree+1 {
+		return false
+	}
+	if len(c.Knots) != len(c.Control)+c.Degree+1 {
+		return false
+	}
+	for _, p := range c.Control {
+		if p == nil {
+			return false
+		}
+	}
+	for i := 1; i < len(c.Knots); i++ {
+		if c.Knots[i] < c.Knots[i-1] {
+			return false
+		}
+	}
+	p := c.Degree
+	n := len(c.Control) - 1
+	for i := 0; i <= p; i++ {
+		if c.Knots[i] != c.Knots[0] || c.Knots[len(c.Knots)-1-i] != c.Knots[len(c.Knots)-1] {
+			return false
+		}
+	}
+	if c.Knots[p] >= c.Knots[n+1] { // empty domain
+		return false
+	}
+	if c.Weights != nil {
+		if len(c.Weights) != len(c.Control) {
+			return false
+		}
+		for _, w := range c.Weights {
+			if !(w > 0) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// nurbsSnapshot validates a NURBS and returns a defensive copy (control points,
+// knots and weights) the arranger can hold without aliasing the caller's slices.
+// ok is false for any degenerate/typed-nil input.
+func nurbsSnapshot(c *NURBS) (*NURBS, bool) {
+	if !nurbsValid(c) {
+		return nil, false
+	}
+	ctrl := make([]*Point, len(c.Control))
+	for i, p := range c.Control {
+		ctrl[i] = &Point{X: p.X, Y: p.Y}
+	}
+	knots := append([]float64(nil), c.Knots...)
+	var weights []float64
+	if c.Weights != nil {
+		weights = append([]float64(nil), c.Weights...)
+	}
+	return &NURBS{Degree: c.Degree, Control: ctrl, Knots: knots, Weights: weights}, true
+}
+
+// nurbsExtent returns the largest pairwise control-point separation along either
+// axis — used to reject an all-coincident (zero-extent) NURBS that is a point,
+// not a curve.
+func nurbsExtent(c *NURBS) float64 {
+	minX, minY := c.Control[0].X, c.Control[0].Y
+	maxX, maxY := minX, minY
+	for _, p := range c.Control {
+		minX, maxX = math.Min(minX, p.X), math.Max(maxX, p.X)
+		minY, maxY = math.Min(minY, p.Y), math.Max(maxY, p.Y)
+	}
+	return math.Max(maxX-minX, maxY-minY)
 }
 
 // fitSplineCoords validates a fit-point spline's points and returns their
@@ -632,7 +736,7 @@ func (a *arranger) sampleParams(s *source) []float64 {
 	switch s.kind {
 	case srcLine:
 		return []float64{0, 1}
-	case srcSpline, srcClosedSpline, srcFitSpline:
+	case srcSpline, srcClosedSpline, srcFitSpline, srcNURBS:
 		// No analytic crossings: sample densely enough that the polyline tracks
 		// the curve and a self-crossing is captured. Scale with control/fit count;
 		// an explicit WithSegmentsPerTurn can only raise it. A closed spline
@@ -643,6 +747,8 @@ func (a *arranger) sampleParams(s *source) []float64 {
 			n = 16 * len(s.ctrl)
 		case srcFitSpline:
 			n = 16 * len(s.fitEval.x) // active (deduplicated) fit-point count
+		case srcNURBS:
+			n = 16 * len(s.nurbs.Control)
 		default:
 			n = 16 * (len(s.ctrl) - 3)
 		}
@@ -707,7 +813,7 @@ func (a *arranger) intersect() {
 				// subdivision vertex. The closure seam (first meets last segment) is
 				// handled by the param-{0,1} check in the endpoint-meeting branch.
 				k := a.sources[si.src].kind
-				if (k != srcSpline && k != srcClosedSpline && k != srcFitSpline) || j == i+1 {
+				if (k != srcSpline && k != srcClosedSpline && k != srcFitSpline && k != srcNURBS) || j == i+1 {
 					continue
 				}
 				sameSpline = true
@@ -1593,6 +1699,12 @@ func (a *arranger) makeCycle(hs []int) cycle {
 			a0 := f.dense[0]
 			a1 := f.dense[len(f.dense)-1]
 			bulge += s.splineBulge(f.pStart, f.pEnd, a0[0], a0[1], a1[0], a1[1])
+		case srcNURBS:
+			// Exact (non-rational) / numerically exact (rational) area between the
+			// NURBS fragment and its chord, integrated on the true curve.
+			a0 := f.dense[0]
+			a1 := f.dense[len(f.dense)-1]
+			bulge += nurbsBulgeSpan(s.nurbs, f.pStart, f.pEnd, a0[0], a0[1], a1[0], a1[1])
 		}
 	}
 	c.area = signedPolyArea(chord) + bulge

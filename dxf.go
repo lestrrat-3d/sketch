@@ -352,6 +352,36 @@ func (s *Sketch) DXF(opts ...DXFOption) (string, error) {
 			for _, c := range ctrl {
 				putWCS(10, c.x(), c.y())
 			}
+		case *NURBS:
+			// A general clamped (rational) B-spline maps directly onto a native
+			// (R13+) SPLINE: degree (71), the explicit knot vector (40×, count 72),
+			// the control points (10/20/30 via the putWCS world-space path, count
+			// 73) and — when rational — the per-control weights (41×). Flags (70):
+			// 8 = planar, +4 = rational (set only when any weight ≠ 1) so a reader
+			// honours the weights and rebuilds the exact curve, not a sampled
+			// polyline. Knots and weights are raw (unitless) via pairf.
+			flags := 8
+			if t.Rational() {
+				flags |= 4
+			}
+			pair(0, "SPLINE")
+			pair(8, layer)
+			pair(70, fmt.Sprintf("%d", flags))
+			pair(71, fmt.Sprintf("%d", t.degree))
+			pair(72, fmt.Sprintf("%d", len(t.knots)))
+			pair(73, fmt.Sprintf("%d", len(t.Control)))
+			pair(74, "0")
+			for _, k := range t.knots {
+				pairf(40, k)
+			}
+			if t.Rational() {
+				for _, w := range t.weights {
+					pairf(41, w)
+				}
+			}
+			for _, c := range t.Control {
+				putWCS(10, c.x(), c.y())
+			}
 		}
 	}
 

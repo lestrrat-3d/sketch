@@ -135,6 +135,23 @@ func (s *Sketch) buildProfiles() ([]*Profile, bool, [][2]float64) {
 			}
 			curves = append(curves, &geom.FitSpline{Fit: fit})
 			openEnts = append(openEnts, t)
+		case *NURBS:
+			// An open curve like the spline; build over the shared geom.Point map so
+			// its first/last control points (the endpoints) join adjacent geometry by
+			// identity. Degree/knots/weights are the entity's stored structural data.
+			ctrl := make([]*geom.Point, len(t.Control))
+			for i, cp := range t.Control {
+				if cp != nil { // AddNURBS rejects nil; stay panic-safe regardless
+					ctrl[i] = pt(cp)
+				}
+			}
+			curves = append(curves, &geom.NURBS{
+				Degree:  t.degree,
+				Control: ctrl,
+				Knots:   append([]float64(nil), t.knots...),
+				Weights: append([]float64(nil), t.weights...),
+			})
+			openEnts = append(openEnts, t)
 		case *Circle:
 			closed = append(closed, t.Geometry())
 			closedEnts = append(closedEnts, t)
