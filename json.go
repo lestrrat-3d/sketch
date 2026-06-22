@@ -29,6 +29,7 @@ type jsonEntity struct {
 	Rx           float64 `json:"rx,omitempty"`       // ellipse semi-axis (local x)
 	Ry           float64 `json:"ry,omitempty"`       // ellipse semi-axis (local y)
 	Rotation     float64 `json:"rotation,omitempty"` // ellipse frame rotation, radians
+	Rho          float64 `json:"rho,omitempty"`      // conic fullness parameter, in (0, 1)
 	Degree       int     `json:"degree,omitempty"`   // spline degree (always 3 today)
 	Construction bool    `json:"construction,omitempty"`
 	Reference    bool    `json:"reference,omitempty"`
@@ -191,6 +192,11 @@ func (s *Sketch) marshalBody() (jsonSketchBody, error) {
 				je.Points = append(je.Points, c.id)
 			}
 			body.Entities = append(body.Entities, je)
+		case *Conic:
+			body.Entities = append(body.Entities, jsonEntity{
+				Type: "conic", Points: []int{t.Start.id, t.Apex.id, t.End.id},
+				Rho: t.rho(), Construction: t.construction,
+			})
 		}
 	}
 
@@ -549,6 +555,15 @@ func (s *Sketch) buildFromBody(body jsonSketchBody) error {
 				return err
 			}
 			sp.SetConstruction(je.Construction)
+		case "conic":
+			if len(ps) != 3 {
+				return fmt.Errorf("sketch: conic needs 3 points, got %d", len(ps))
+			}
+			c, err := s.AddConic(ps[0], ps[1], ps[2], je.Rho) // validates rho ∈ (0, 1)
+			if err != nil {
+				return err
+			}
+			c.SetConstruction(je.Construction)
 		default:
 			return fmt.Errorf("sketch: unknown entity type %q", je.Type)
 		}

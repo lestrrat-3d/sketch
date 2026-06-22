@@ -63,6 +63,24 @@ func (e *EllipticalArc) Polyline(segments int) [][2]float64 {
 	return pts
 }
 
+// Polyline samples the conic from Start to End at segments+1 points (minimum 2
+// segments) in the curve parameter t. The endpoints are pinned to the exact
+// Start/End points so the sampled curve joins its neighbours by shared-endpoint
+// identity.
+func (c *Conic) Polyline(segments int) [][2]float64 {
+	if segments < 2 {
+		segments = 2
+	}
+	pts := make([][2]float64, segments+1)
+	for i := 0; i <= segments; i++ {
+		x, y := c.Eval(float64(i) / float64(segments))
+		pts[i] = [2]float64{x, y}
+	}
+	pts[0] = [2]float64{c.Start.X, c.Start.Y}
+	pts[segments] = [2]float64{c.End.X, c.End.Y}
+	return pts
+}
+
 // Polyline samples the full ellipse counter-clockwise at segments+1 points
 // (minimum 2 segments), applying its local-frame rotation.
 func (e *Ellipse) Polyline(segments int) [][2]float64 {

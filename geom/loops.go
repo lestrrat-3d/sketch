@@ -1,8 +1,8 @@
 package geom
 
 // Curve is an open curve bounded by two endpoints: a *Line, an *Arc, an
-// *EllipticalArc or a *Spline. Closed primitives (Circle, Ellipse) form loops on
-// their own and do not participate in chain detection.
+// *EllipticalArc, a *Conic or a *Spline. Closed primitives (Circle, Ellipse)
+// form loops on their own and do not participate in chain detection.
 type Curve interface {
 	Endpoints() (*Point, *Point)
 }
@@ -13,6 +13,10 @@ func (l *Line) Endpoints() (*Point, *Point) { return l.Start, l.End }
 // Endpoints returns the arc's endpoints (start and end; the center is not an
 // endpoint).
 func (a *Arc) Endpoints() (*Point, *Point) { return a.Start, a.End }
+
+// Endpoints returns the conic's endpoints (Start and End; the apex is a control
+// point, not an endpoint).
+func (c *Conic) Endpoints() (*Point, *Point) { return c.Start, c.End }
 
 // Endpoints returns the spline's endpoints: its first and last control points,
 // which a clamped cubic B-spline passes through. Returns nil for a spline with

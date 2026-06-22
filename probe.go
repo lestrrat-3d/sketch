@@ -268,6 +268,11 @@ func (s *Sketch) ProbeConfigurations(options ...ProbeOption) (*ProbeResult, erro
 						v = 1e-9 * diag
 					}
 					s.vars[vi] = v
+				case varDimensionless:
+					// A conic's rho lives in (0, 1); seed across that range rather
+					// than by scene length, clamped away from the open bounds.
+					v := 0.05 + 0.9*u
+					s.vars[vi] = v
 				default:
 					s.vars[vi] = baseline[vi] + amp*(2*u-1)
 				}
@@ -328,9 +333,10 @@ func (s *Sketch) probeAxes(baseline []float64) []*geom.Line {
 type varKind uint8
 
 const (
-	varCoordinate varKind = iota // point x/y (the default)
-	varRadius                    // circle radius, ellipse semi-axes
-	varAngle                     // ellipse rotation
+	varCoordinate    varKind = iota // point x/y (the default)
+	varRadius                       // circle radius, ellipse semi-axes
+	varAngle                        // ellipse rotation
+	varDimensionless                // a bounded ratio: a conic's fullness rho ∈ (0, 1)
 )
 
 // varKinds classifies every variable index by walking the entities that own
@@ -350,6 +356,8 @@ func (s *Sketch) varKinds() []varKind {
 			kinds[t.rxi] = varRadius
 			kinds[t.ryi] = varRadius
 			kinds[t.roti] = varAngle
+		case *Conic:
+			kinds[t.rhoi] = varDimensionless
 		}
 	}
 	return kinds
@@ -359,16 +367,19 @@ func (s *Sketch) varKinds() []varKind {
 // free variables of the per-variable relative separation. Coordinates and
 // radii are relative to the bounding-box diagonal; angles are wrapped into
 // (-π, π], folded by π (an ellipse rotated by π is the same point set) and
-// relative to π.
+// relative to π; a bounded ratio (a conic's rho) is relative to its unit range.
 func configSep(a, b []float64, free []int, kinds []varKind, diag float64) float64 {
 	worst := 0.0
 	for _, vi := range free {
 		var sep float64
-		if kinds[vi] == varAngle {
+		switch kinds[vi] {
+		case varAngle:
 			delta := math.Abs(wrapPi(a[vi] - b[vi]))
 			folded := math.Abs(wrapPi(a[vi] - b[vi] - math.Pi))
 			sep = math.Min(delta, folded) / math.Pi
-		} else {
+		case varDimensionless:
+			sep = math.Abs(a[vi] - b[vi]) // already in [0, 1)
+		default:
 			sep = math.Abs(a[vi]-b[vi]) / diag
 		}
 		if sep > worst {

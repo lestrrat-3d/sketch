@@ -112,8 +112,15 @@ sin Δφ), the elliptical analog, rotation/translation-invariant), and **splines
 (`splineBulge`: the exact ½∫(x·y′−y·x′) of the fragment's piecewise cubic via
 3-point Gauss–Legendre per knot span — exact because the integrand is degree-5 —
 needing analytic spline derivatives `EvalCubicBSplineDeriv`/
-`EvalPeriodicCubicBSplineDeriv`/`fitEvaluator.derivAt`). So the reported `Area`
-is sampling-independent for all sources. **Crossing detection is becoming
+`EvalPeriodicCubicBSplineDeriv`/`fitEvaluator.derivAt`), and **conics**
+(`conicBulgeSpan`: the rational-quadratic-Bézier closed form — the moment swept
+from `start` minus `triangle(start,P(t0),P(t1))`, i.e. the exact sub-arc/sub-chord
+area; whole-curve `conicBulge` is the `[0,1]` case). So the reported `Area` is
+sampling-independent **for a whole curve** (and for one split only at an analytic
+line/circle/arc crossing); a curve split at a *sampled* crossing
+(ellipse/spline/conic vs line, or curve/curve) has an approximate cut parameter,
+so its area *converges* with sampling rather than being exact — the correct
+topology with a convergent area, never a false bless. **Crossing detection is becoming
 analytic** (`arrange_events.go` + the `analyticPrepass` in `arrange.go`; design +
 increment plan in `docs/analytic-arrangement-design.md`): the exact closed-form
 contact (`Cross`/`Tangent`/`Overlap`) is **authoritative for line-involved crossings
@@ -521,6 +528,16 @@ These are unsettled. If you resolve one, record the decision here.
   **shared-endpoint branch** enforces tangency *at* that point — `parallel` +
   internal/external branch rows there, no free witness and no membership/sweep
   rows (an endpoint is already on both curves and in-sweep by definition).
+  **Conics** are in as a geometry primitive (`AddConic(start, apex, end, rho)` —
+  a rational quadratic Bézier; `rho ∈ (0,1)` sets fullness, `ρ<0.5` ellipse /
+  `ρ=0.5` parabola / `ρ>0.5` hyperbola arc, apex weight `w=ρ/(1−ρ)`). An open
+  `Curve` like the elliptical arc: authorable, profile-participating (exact
+  whole-curve area via `conicBulgeSpan`), serializable (`"conic"`), exportable
+  (native degree-2 rational `SPLINE` with weights `1,w,1`, incl. world-space).
+  `rho` is a single free solver var (a free conic is DOF 7); no constraints on it
+  yet. *Follow-ups:* point-on/tangency, a rho dimension, analytic line/conic &
+  conic/conic intersections, and the **NURBS** half of the roadmap row (a general
+  non-uniform rational B-spline can reuse this rational-curve evaluator).
   Slots/fillet/chamfer exist as compound builders and `geom` template helpers.
 - **Solver evolution.** Numerical Jacobian is fine at current scale. **The
   rank/DOF/redundancy/free-point analysis is scale- and unit-invariant**: all

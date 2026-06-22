@@ -66,6 +66,10 @@ type source struct {
 	// eccentric-angle sampling would otherwise project an off-ellipse endpoint).
 	pinEnds            bool
 	e0x, e0y, e1x, e1y float64
+	// conic: the rational-quadratic-Bézier control points and apex weight
+	// w = rho/(1−rho). The bulge uses these directly via the closed form.
+	conStart, conApex, conEnd [2]float64
+	conW                      float64
 	// spline: control-point coordinates for Cox–de Boor evaluation.
 	ctrl [][2]float64
 	// fit-point spline: a prebuilt natural-cubic interpolant (the tridiagonal
@@ -81,6 +85,7 @@ const (
 	srcCircle
 	srcEllipse
 	srcEllipticalArc // an ellipse restricted to an eccentric-angle sweep
+	srcConic         // a rational quadratic Bézier (open; convex-hull-bounded, cannot self-cross)
 	srcSpline        // a clamped cubic B-spline (open; may self-cross)
 	srcClosedSpline  // a periodic cubic B-spline (closed loop; may self-cross)
 	srcFitSpline     // a natural-cubic interpolating spline (open; may self-cross)
@@ -100,6 +105,8 @@ func (s *source) at(t float64) [2]float64 {
 		return [2]float64{s.cx + s.r*math.Cos(ang), s.cy + s.r*math.Sin(ang)}
 	case srcEllipticalArc:
 		return s.ellipsePoint(s.phi0 + t*s.sweep)
+	case srcConic:
+		return s.conicPoint(t)
 	case srcSpline:
 		x, y := EvalCubicBSpline(s.ctrl, t)
 		return [2]float64{x, y}
@@ -118,6 +125,16 @@ func (s *source) ellipsePoint(ang float64) [2]float64 {
 	lx, ly := s.rx*math.Cos(ang), s.ry*math.Sin(ang)
 	cosr, sinr := math.Cos(s.rot), math.Sin(s.rot)
 	return [2]float64{s.cx + lx*cosr - ly*sinr, s.cy + lx*sinr + ly*cosr}
+}
+
+// conicPoint evaluates the source's rational quadratic Bézier at parameter t.
+func (s *source) conicPoint(t float64) [2]float64 {
+	u := 1 - t
+	b0, b1, b2 := u*u, 2*u*t*s.conW, t*t
+	den := b0 + b1 + b2
+	x := (b0*s.conStart[0] + b1*s.conApex[0] + b2*s.conEnd[0]) / den
+	y := (b0*s.conStart[1] + b1*s.conApex[1] + b2*s.conEnd[1]) / den
+	return [2]float64{x, y}
 }
 
 // differential returns the first and second derivatives of the source's position
@@ -340,6 +357,18 @@ func newArranger(curves []Curve, closed []ClosedCurve, cfg arrangeConfig) *arran
 			s.sweep = t.Sweep()
 			s.pinEnds = true
 			s.e0x, s.e0y, s.e1x, s.e1y = t.Start.X, t.Start.Y, t.End.X, t.End.Y
+		case *Conic:
+			if t == nil || t.Start == nil || t.Apex == nil || t.End == nil ||
+				!(t.Rho > 0 && t.Rho < 1) {
+				a.flagDegenerate(0, 0)
+				s.kind = srcDegenerate
+				break
+			}
+			s.kind = srcConic
+			s.conStart = [2]float64{t.Start.X, t.Start.Y}
+			s.conApex = [2]float64{t.Apex.X, t.Apex.Y}
+			s.conEnd = [2]float64{t.End.X, t.End.Y}
+			s.conW = t.Rho / (1 - t.Rho)
 		case *Spline:
 			cc, ok := splineControlCoords(t)
 			if !ok {
@@ -447,6 +476,11 @@ func safeEndpoints(c Curve) (*Point, *Point, bool) {
 		return t.Start, t.End, true
 	case *EllipticalArc:
 		if t == nil {
+			return nil, nil, false
+		}
+		return t.Start, t.End, true
+	case *Conic:
+		if t == nil || t.Start == nil || t.End == nil {
 			return nil, nil, false
 		}
 		return t.Start, t.End, true
@@ -1549,6 +1583,12 @@ func (a *arranger) makeCycle(hs []int) cycle {
 			bulge += chordEllipseCorrection(s.rx, s.ry, (f.pEnd-f.pStart)*2*math.Pi)
 		case srcEllipticalArc:
 			bulge += chordEllipseCorrection(s.rx, s.ry, (f.pEnd-f.pStart)*s.sweep)
+		case srcConic:
+			// Exact, sampling-independent area between the conic fragment
+			// (parameters f.pStart→f.pEnd in walk order) and its chord. The closed
+			// form is signed by the parameter order, exactly like the arc/ellipse
+			// cases (a reversed fragment has pEnd < pStart, flipping the sign).
+			bulge += conicBulgeSpan(s.conStart, s.conApex, s.conEnd, s.conW, f.pStart, f.pEnd)
 		case srcSpline, srcClosedSpline, srcFitSpline:
 			a0 := f.dense[0]
 			a1 := f.dense[len(f.dense)-1]
@@ -1683,6 +1723,92 @@ func chordArcCorrection(r, theta float64) float64 {
 // walk via the signed dphi, exactly like the circular case.
 func chordEllipseCorrection(rx, ry, dphi float64) float64 {
 	return 0.5 * rx * ry * (dphi - math.Sin(dphi))
+}
+
+// conicBulge returns the exact signed area between a conic (rational quadratic
+// Bézier with control points start/apex/end and apex weight w = rho/(1−rho)) and
+// its chord Start→End, over the whole curve t ∈ [0, 1] — the conic analog of
+// chordArcCorrection / chordEllipseCorrection. With Start at the origin, a =
+// Apex−Start, b = End−Start, the bulge is w·(a×b)·∫₀¹ t²/W(t)² dt with W = 2c·t²
+// − 2c·t + 1, c = 1−w; the rational integral has a closed form. At w = 1 (the
+// parabola) this is (a×b)/3, the known quadratic-Bézier result. Verified against
+// fine numerical integration to ~1e-13 across the ellipse/parabola/hyperbola
+// range. It is exact and sampling-independent.
+func conicBulge(start, apex, end [2]float64, w float64) float64 {
+	return conicBulgeSpan(start, apex, end, w, 0, 1)
+}
+
+// conicBulgeSpan returns the exact signed area between a conic FRAGMENT — the
+// curve restricted to parameters [t0, t1] in walk order — and the straight chord
+// closing it, the conic analog of the per-fragment arc/ellipse/spline bulge so a
+// conic split by a crossing still contributes exact area. The whole-curve
+// conicBulge is the [0, 1] case. With a = apex−start, b = end−start, the moment
+// swept FROM start over the fragment is w·(a×b)·∫_{t0}^{t1} t²/W(t)² dt, W =
+// 2c·t² − 2c·t + 1, c = 1−w, via the closed-form antiderivative of t²/W²
+// (substitution u = t − ½, W = α·u² + k, α = 2c, k = (1+w)/2; the α→0 parabola
+// branch uses the polynomial antiderivative, avoiding the 1/α singularity).
+// That moment is the area between the arc and the two radii start→P(t0)→P(t1);
+// subtracting the triangle (start, P(t0), P(t1)) leaves the area between the arc
+// and ITS chord P(t0)→P(t1) — the correction makeCycle adds to
+// signedPolyArea(chord). For the whole curve t0 = 0 ⇒ P(t0) = start ⇒ the
+// triangle vanishes. Both terms are antisymmetric in (t0, t1), so a reversed
+// fragment flips sign, exactly like the other curved cases.
+func conicBulgeSpan(start, apex, end [2]float64, w, t0, t1 float64) float64 {
+	ax, ay := apex[0]-start[0], apex[1]-start[1]
+	bx, by := end[0]-start[0], end[1]-start[1]
+	crossAB := ax*by - ay*bx
+	c := 1 - w
+	k := (1 + w) / 2
+	alpha := 2 * c
+	i := conicMomentIndef(t1-0.5, alpha, k) - conicMomentIndef(t0-0.5, alpha, k)
+	moment := w * crossAB * i
+	p0 := conicEvalRaw(start, apex, end, w, t0)
+	p1 := conicEvalRaw(start, apex, end, w, t1)
+	tri := ((p0[0]-start[0])*(p1[1]-start[1]) - (p1[0]-start[0])*(p0[1]-start[1])) / 2
+	return moment - tri
+}
+
+// conicEvalRaw evaluates the rational quadratic Bézier (control points
+// start/apex/end, apex weight w) at parameter t — the same map as
+// source.conicPoint, on bare coordinates for the area helpers.
+func conicEvalRaw(start, apex, end [2]float64, w, t float64) [2]float64 {
+	u := 1 - t
+	b0, b1, b2 := u*u, 2*u*t*w, t*t
+	den := b0 + b1 + b2
+	return [2]float64{
+		(b0*start[0] + b1*apex[0] + b2*end[0]) / den,
+		(b0*start[1] + b1*apex[1] + b2*end[1]) / den,
+	}
+}
+
+// conicMomentIndef is the antiderivative, evaluated at u = t − ½, of
+// (u² + u + ¼)/(α·u² + k)² — i.e. of t²/W(t)² in the shifted variable. It sums
+// the three standard moment antiderivatives J2 + J1 + ¼·J0 of 1/(α·u²+k)². For
+// |α| ≈ 0 (parabola) it returns the exact polynomial antiderivative
+// (u³/3 + u²/2 + u/4)/k², the removable-singularity limit.
+func conicMomentIndef(u, alpha, k float64) float64 {
+	if math.Abs(alpha) < 1e-9 {
+		return (u*u*u/3 + u*u/2 + u/4) / (k * k)
+	}
+	den := alpha*u*u + k
+	f := conicF(u, alpha, k)             // ∫ du/(α·u²+k)
+	j0 := u/(2*k*den) + f/(2*k)          // ∫ du/(α·u²+k)²
+	j1 := -1 / (2 * alpha * den)         // ∫ u du/(α·u²+k)²
+	j2 := -u/(2*alpha*den) + f/(2*alpha) // ∫ u² du/(α·u²+k)²
+	return j2 + j1 + 0.25*j0
+}
+
+// conicF is the antiderivative ∫ du/(α·u² + k): atan for α > 0 (rho < ½, the
+// ellipse arc), atanh for α < 0 (rho > ½, the hyperbola arc). k = (1+w)/2 > 0
+// always, so the radicands are well-defined on their respective branches. The
+// α ≈ 0 (parabola) case never reaches here — conicMomentIndef short-circuits it.
+func conicF(u, alpha, k float64) float64 {
+	if alpha > 0 {
+		s := math.Sqrt(alpha * k)
+		return math.Atan(u*math.Sqrt(alpha/k)) / s
+	}
+	s := math.Sqrt(-alpha * k)
+	return math.Atanh(u*math.Sqrt(-alpha/k)) / s
 }
 
 // splineBulge returns the exact signed area between a spline fragment's true

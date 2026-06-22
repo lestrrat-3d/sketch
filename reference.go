@@ -198,6 +198,8 @@ func isNilEntity(e Entity) bool {
 		return t == nil
 	case *FitSpline:
 		return t == nil
+	case *Conic:
+		return t == nil
 	}
 	return false
 }
@@ -222,6 +224,8 @@ func entityPoints(e Entity) []*Point {
 		return t.Control
 	case *FitSpline:
 		return t.Fit
+	case *Conic:
+		return []*Point{t.Start, t.Apex, t.End}
 	}
 	return nil
 }

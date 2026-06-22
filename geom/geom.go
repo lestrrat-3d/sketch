@@ -120,6 +120,61 @@ func (e *EllipticalArc) Sweep() float64 {
 // the open-curve Curve interface.
 func (e *EllipticalArc) Endpoints() (*Point, *Point) { return e.Start, e.End }
 
+// Conic is a conic arc represented exactly as a rational quadratic Bézier: two
+// endpoints Start and End, an apex control point Apex (the intersection of the
+// endpoint tangents), and a fullness parameter Rho in (0, 1). Rho selects the
+// conic family — Rho < 0.5 is an ellipse arc, Rho = 0.5 a parabola, Rho > 0.5 a
+// hyperbola arc — via the apex weight w = Rho/(1−Rho) (the endpoints have weight
+// 1). The curve passes through Start and End and is tangent to Start→Apex and
+// End→Apex.
+type Conic struct {
+	Start, Apex, End *Point
+	Rho              float64
+}
+
+// NewConic returns a conic arc through start and end with apex control point
+// apex and fullness rho.
+func NewConic(start, apex, end *Point, rho float64) *Conic {
+	return &Conic{Start: start, Apex: apex, End: end, Rho: rho}
+}
+
+// weight returns the apex Bézier weight w = rho/(1−rho); rho is kept in (0, 1)
+// by the constructor, so the denominator never vanishes (floored for safety).
+func (c *Conic) weight() float64 { return c.Rho / floor(1-c.Rho) }
+
+// Eval returns the curve point at parameter t in [0, 1]. Eval(0) = Start and
+// Eval(1) = End.
+func (c *Conic) Eval(t float64) (float64, float64) {
+	w := c.weight()
+	u := 1 - t
+	b0, b1, b2 := u*u, 2*u*t*w, t*t
+	den := b0 + b1 + b2
+	x := (b0*c.Start.X + b1*c.Apex.X + b2*c.End.X) / den
+	y := (b0*c.Start.Y + b1*c.Apex.Y + b2*c.End.Y) / den
+	return x, y
+}
+
+// EvalDeriv returns the analytic first derivative dP/dt of the rational
+// quadratic at parameter t in [0, 1]. It is exact (the quotient rule on the
+// homogeneous numerator and denominator), so a tangent or area integrand built
+// on it carries no nested finite difference.
+func (c *Conic) EvalDeriv(t float64) (float64, float64) {
+	w := c.weight()
+	u := 1 - t
+	b0, b1, b2 := u*u, 2*u*t*w, t*t
+	den := b0 + b1 + b2
+	// Numerator N(t) and denominator W(t) derivatives.
+	db0, db1, db2 := -2*u, 2*w*(1-2*t), 2*t
+	dden := db0 + db1 + db2
+	nx := b0*c.Start.X + b1*c.Apex.X + b2*c.End.X
+	ny := b0*c.Start.Y + b1*c.Apex.Y + b2*c.End.Y
+	dnx := db0*c.Start.X + db1*c.Apex.X + db2*c.End.X
+	dny := db0*c.Start.Y + db1*c.Apex.Y + db2*c.End.Y
+	dx := (dnx*den - nx*dden) / (den * den)
+	dy := (dny*den - ny*dden) / (den * den)
+	return dx, dy
+}
+
 // floor returns v away from zero so divisions by a degenerate semi-axis stay
 // finite (matching the solver's norm convention).
 func floor(v float64) float64 {

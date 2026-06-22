@@ -105,6 +105,8 @@ func (s *Sketch) condVarScales(L float64) []float64 {
 			scale[i] = L
 		case varAngle:
 			scale[i] = 1
+		case varDimensionless:
+			scale[i] = 1 // a conic's rho is a bounded ratio
 		}
 	}
 	// The only length-kind aux variables are the conic-tangency contact-witness

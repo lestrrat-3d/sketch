@@ -149,6 +149,8 @@ func (s *Sketch) localPolyline(e Entity) ([][2]float64, error) {
 		return t.Polyline(worldPolylineSegments), nil
 	case *FitSpline:
 		return t.Polyline(worldPolylineSegments), nil
+	case *Conic:
+		return t.Polyline(worldPolylineSegments), nil
 	}
 	return nil, fmt.Errorf("sketch: entity type %T cannot be sampled", e)
 }
@@ -305,6 +307,8 @@ func (s *Sketch) entityPoints(e Entity) []*Point {
 		return t.Control
 	case *FitSpline:
 		return t.Fit
+	case *Conic:
+		return []*Point{t.Start, t.Apex, t.End}
 	}
 	return nil
 }
@@ -317,6 +321,8 @@ func (s *Sketch) entitySizeVars(e Entity) []int {
 		return []int{t.rxi, t.ryi, t.roti}
 	case *EllipticalArc:
 		return []int{t.rxi, t.ryi, t.roti}
+	case *Conic:
+		return []int{t.rhoi}
 	}
 	return nil
 }
@@ -679,6 +685,73 @@ func (s *Sketch) AddEllipticalArc(center, start, end *Point, rx, ry, rotation fl
 	s.ents = append(s.ents, e)
 	s.cons = append(s.cons, &ellipticalArcOn{e, start}, &ellipticalArcOn{e, end})
 	return e
+}
+
+// Conic is a conic arc: a rational quadratic Bézier through Start and End with
+// apex control point Apex (the intersection of the endpoint tangents) and a
+// fullness parameter Rho in (0, 1). Rho is a solver variable (like an ellipse's
+// semi-axis), so a later increment can dimension or constrain it; until then it
+// is a free degree of freedom. Rho < 0.5 yields an ellipse arc, 0.5 a parabola,
+// and > 0.5 a hyperbola arc. The conic carries no internal constraints — it pins
+// no point onto an implicit curve.
+type Conic struct {
+	s                *Sketch
+	Start, Apex, End *Point
+	rhoi             int // var index of the fullness rho, kept in (0, 1)
+	id               int
+	construction     bool
+	refState         // reference conics are a follow-up; stale derived from points
+}
+
+func (c *Conic) entity()              {}
+func (c *Conic) entID() int           { return c.id }
+func (c *Conic) IsConstruction() bool { return c.construction }
+func (c *Conic) SetConstruction(v bool) {
+	if !c.reference {
+		c.construction = v
+	}
+}
+
+// IsStale reports whether any defining point is stale (derived).
+func (c *Conic) IsStale() bool {
+	return c.Start.IsStale() || c.Apex.IsStale() || c.End.IsStale()
+}
+
+// Geometry returns a fresh [geom.Conic] snapshot at the current state.
+func (c *Conic) Geometry() *geom.Conic {
+	return geom.NewConic(c.Start.Geometry(), c.Apex.Geometry(), c.End.Geometry(), c.rho())
+}
+
+// Rho returns the conic's current fullness parameter (in (0, 1)).
+func (c *Conic) Rho() float64 { return c.s.vars[c.rhoi] }
+
+func (c *Conic) rho() float64 { return c.s.vars[c.rhoi] }
+
+// Eval returns the conic curve point at parameter t in [0, 1]; Eval(0) = Start,
+// Eval(1) = End.
+func (c *Conic) Eval(t float64) (float64, float64) { return c.Geometry().Eval(t) }
+
+// Polyline samples the solved conic from Start to End at segments+1 points.
+func (c *Conic) Polyline(segments int) [][2]float64 { return c.Geometry().Polyline(segments) }
+
+// AddConic adds a conic arc — a rational quadratic Bézier — through start and end
+// with apex control point apex and fullness rho. It allocates rho as a solver
+// variable and returns the handle. It returns [ErrInvalidShape] if rho is not in
+// the open interval (0, 1) or any point is nil.
+func (s *Sketch) AddConic(start, apex, end *Point, rho float64) (*Conic, error) {
+	if start == nil || apex == nil || end == nil {
+		return nil, fmt.Errorf("%w: AddConic requires non-nil start, apex and end points", ErrInvalidShape)
+	}
+	if !(rho > 0 && rho < 1) {
+		return nil, fmt.Errorf("%w: AddConic rho must be in (0, 1), got %v", ErrInvalidShape, rho)
+	}
+	c := &Conic{
+		s: s, Start: start, Apex: apex, End: end,
+		rhoi: s.newVar(rho),
+		id:   len(s.ents),
+	}
+	s.ents = append(s.ents, c)
+	return c, nil
 }
 
 // --- Errors -----------------------------------------------------------------

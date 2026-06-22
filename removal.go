@@ -76,6 +76,8 @@ func (s *Sketch) RemoveEntity(e Entity) bool {
 		s.retireVar(t.rxi)
 		s.retireVar(t.ryi)
 		s.retireVar(t.roti)
+	case *Conic:
+		s.retireVar(t.rhoi)
 	}
 	s.ents = append(s.ents[:idx], s.ents[idx+1:]...)
 	for i := idx; i < len(s.ents); i++ {
@@ -179,6 +181,8 @@ func renumberEntity(e Entity, id int) {
 		t.id = id
 	case *FitSpline:
 		t.id = id
+	case *Conic:
+		t.id = id
 	}
 }
 
@@ -215,6 +219,8 @@ func entityUsesPoint(e Entity, p *Point) bool {
 				return true
 			}
 		}
+	case *Conic:
+		return t.Start == p || t.Apex == p || t.End == p
 	}
 	return false
 }

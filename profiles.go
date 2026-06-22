@@ -106,6 +106,11 @@ func (s *Sketch) buildProfiles() ([]*Profile, bool, [][2]float64) {
 		case *EllipticalArc:
 			curves = append(curves, geom.NewEllipticalArc(pt(t.Center), pt(t.Start), pt(t.End), t.rx(), t.ry(), t.rot()))
 			openEnts = append(openEnts, t)
+		case *Conic:
+			// A conic is an open curve (like an arc), built over the shared
+			// geom.Point map so its endpoints join adjacent geometry by identity.
+			curves = append(curves, geom.NewConic(pt(t.Start), pt(t.Apex), pt(t.End), t.rho()))
+			openEnts = append(openEnts, t)
 		case *Spline:
 			// Build over the shared geom.Point map so the spline's first/last
 			// control points (the curve's endpoints) join adjacent lines/arcs by

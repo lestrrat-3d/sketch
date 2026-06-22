@@ -325,6 +325,33 @@ func (s *Sketch) DXF(opts ...DXFOption) (string, error) {
 				putLW(p[0], p[1])
 			}
 			extrusion()
+		case *Conic:
+			// A conic is exactly a degree-2 rational Bézier, so emit it as a native
+			// (R13+) rational SPLINE: clamped knots [0,0,0,1,1,1], the three control
+			// points Start/Apex/End in WCS (ordinary points → the putWCS path), and
+			// the rational weights 1, w, 1 (group 41), w = rho/(1−rho). Flags (70):
+			// 8 = planar + 4 = rational = 12. A reader honours the weights, so the
+			// imported curve is the exact conic, not a sampled polyline.
+			w := t.rho() / (1 - t.rho())
+			knots := []float64{0, 0, 0, 1, 1, 1}
+			weights := []float64{1, w, 1}
+			ctrl := []*Point{t.Start, t.Apex, t.End}
+			pair(0, "SPLINE")
+			pair(8, layer)
+			pair(70, "12")
+			pair(71, "2")
+			pair(72, fmt.Sprintf("%d", len(knots)))
+			pair(73, fmt.Sprintf("%d", len(ctrl)))
+			pair(74, "0")
+			for _, k := range knots {
+				pairf(40, k)
+			}
+			for _, wt := range weights {
+				pairf(41, wt)
+			}
+			for _, c := range ctrl {
+				putWCS(10, c.x(), c.y())
+			}
 		}
 	}
 
