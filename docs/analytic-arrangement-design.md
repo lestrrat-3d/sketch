@@ -188,8 +188,14 @@ Same-component interior tangency is a **self-touch** → `SelfIntersections`, no
    for hole assignment, and (b) **trusting the analytic crossing/tangency verdict**
    for curve/curve handled pairs (suppress the sampled count-gate flag once
    containment is exact, since the poke-out crossings are an artifact the exact
-   verdict already classifies as a tangency/clean miss). Staged plan: §7a exact
-   containment + internal-tangency blessing; §7b lift the curve/curve crossing
+   verdict already classifies as a tangency/clean miss). Staged plan: **§7a — DONE**
+   (`exactPointInRegion` ray-cast containment + internal-tangency blessing: the count
+   gate and merged-vertex flag are skipped for an internal curved tangency
+   (`internalCurvedTangency`), the shared contact is port-ordered like an external
+   one, and hole assignment uses the exact ray-cast so the inner nests into the outer
+   — annulus π·(R²−r²) + inner disk π·r², exact at every sampling, tiny inner and
+   merged/cardinal contact included; disjoint-nested and mixed line+curve containment
+   unchanged, the whole-uncut-circle seam handled). §7b lift the curve/curve crossing
    deferral behind the same exact-containment + analytic-authority basis; §7c (only
    if needed) replace `BoundaryEdge.Polyline` topology with exact fragments for the
    residual ellipse/spline cases. Each stage is independently testable against the

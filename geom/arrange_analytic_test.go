@@ -235,13 +235,81 @@ func TestAnalyticMergedExternalTangentBlessed(t *testing.T) {
 	}
 }
 
-func TestAnalyticMergedInternalTangentDegenerate(t *testing.T) {
-	// Internal (containment) tangency at a shared vertex stays conservatively
-	// degenerate: exact tangent-port ordering separates the loops, but the
-	// inner-as-hole assignment is not yet certified (a later increment).
-	arr := geom.Regions(nil, []geom.ClosedCurve{
-		geom.NewCircle(geom.NewPoint(0, 0), 6),
-		geom.NewCircle(geom.NewPoint(3, 0), 3), // internally tangent at (6,0), a shared cardinal vertex
-	}, geom.WithSegmentsPerTurn(32))
-	require.True(t, arr.Degenerate, "merged internal tangency stays conservatively degenerate")
+func TestAnalyticInternalTangentBlessed(t *testing.T) {
+	// Internal (containment) tangency is now blessed (increment 7 §7a): exact
+	// tangent-port ordering separates the loops at the shared vertex and exact
+	// point-in-region containment nests the inner cycle into the outer, so the result
+	// is the annulus π·(R²−r²) plus the inner disk π·r² — at every sampling, for a
+	// merged (shared-vertex) contact and for a tiny inner alike (where the chord
+	// poke-out used to defeat the sampled containment).
+	const R, r = 6.0, 3.0
+	for _, spt := range []int{8, 16, 32, 64, 128} {
+		arr := geom.Regions(nil, []geom.ClosedCurve{
+			geom.NewCircle(geom.NewPoint(0, 0), R),
+			geom.NewCircle(geom.NewPoint(R-r, 0), r), // internally tangent at (R,0), a shared cardinal vertex
+		}, geom.WithSegmentsPerTurn(spt))
+		require.Falsef(t, arr.Degenerate, "merged internal tangency is certified clean at spt=%d", spt)
+		require.Lenf(t, arr.Regions, 2, "annulus + inner disk at spt=%d", spt)
+		var total float64
+		for _, g := range arr.Regions {
+			total += g.Area
+		}
+		require.InDeltaf(t, math.Pi*R*R, total, 1e-9, "total nets the outer disk at spt=%d", spt)
+		// the two regions are exactly {π·r², π·(R²−r²)}, in either order
+		got0, got1 := arr.Regions[0].Area, arr.Regions[1].Area
+		want0, want1 := math.Pi*r*r, math.Pi*(R*R-r*r)
+		ok := (math.Abs(got0-want0) < 1e-9 && math.Abs(got1-want1) < 1e-9) ||
+			(math.Abs(got0-want1) < 1e-9 && math.Abs(got1-want0) < 1e-9)
+		require.Truef(t, ok, "regions are the inner disk + annulus at spt=%d: got %v", spt, []float64{got0, got1})
+	}
+}
+
+func TestAnalyticExactContainmentConcentricNested(t *testing.T) {
+	// Disjoint nested circles, including CONCENTRIC (the exact ray-cast containment's
+	// whole-circle seam edge case: a centre-aligned probe's +x ray hits the outer
+	// circle exactly at its param seam, which must still count as one crossing). The
+	// inner must be subtracted as a hole — annulus + inner disk, never a double count.
+	const R, r = 5.0, 1.5
+	for _, off := range []float64{0.0, 0.0001, 2.0, 3.0} {
+		for _, spt := range []int{8, 16, 32, 64} {
+			arr := geom.Regions(nil, []geom.ClosedCurve{
+				geom.NewCircle(geom.NewPoint(0, 0), R),
+				geom.NewCircle(geom.NewPoint(off, 0), r),
+			}, geom.WithSegmentsPerTurn(spt))
+			require.Falsef(t, arr.Degenerate, "disjoint nested is clean off=%.4f spt=%d", off, spt)
+			require.Lenf(t, arr.Regions, 2, "annulus + inner disk off=%.4f spt=%d", off, spt)
+			var total float64
+			for _, g := range arr.Regions {
+				total += g.Area
+			}
+			require.InDeltaf(t, math.Pi*R*R, total, 1e-9, "inner subtracted (no double count) off=%.4f spt=%d", off, spt)
+		}
+	}
+}
+
+func TestAnalyticInternalTangentTinyInnerBlessed(t *testing.T) {
+	// The tiny-inner regime that defeated the sampled containment (the inner chord
+	// polygon poked outside the outer near the contact, so the hole was not subtracted
+	// and the area double-counted) is now exact. Sweep small radii and contact angles.
+	const R = 5.0
+	for _, r := range []float64{0.2, 0.5, 1.0} {
+		for _, th := range []float64{0.0, 0.37, 1.1, 2.6} {
+			d := R - r
+			for _, spt := range []int{8, 24, 64} {
+				arr := geom.Regions(nil, []geom.ClosedCurve{
+					geom.NewCircle(geom.NewPoint(0, 0), R),
+					geom.NewCircle(geom.NewPoint(d*math.Cos(th), d*math.Sin(th)), r),
+				}, geom.WithSegmentsPerTurn(spt))
+				if arr.Degenerate {
+					continue
+				}
+				var total float64
+				for _, g := range arr.Regions {
+					total += g.Area
+				}
+				require.Lenf(t, arr.Regions, 2, "annulus + inner disk r=%.1f th=%.2f spt=%d", r, th, spt)
+				require.InDeltaf(t, math.Pi*R*R, total, 1e-9, "no double-count r=%.1f th=%.2f spt=%d", r, th, spt)
+			}
+		}
+	}
 }

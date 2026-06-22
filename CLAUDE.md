@@ -139,11 +139,17 @@ orders coincident-tangent half-edges by exact source tangent + signed **curvatur
 instead of chord angle, so a **merged-vertex EXTERNAL circle/arc tangency** is now
 blessed as two clean disks (opposite curvature separates the loops) rather than
 flagged. Used ONLY at those certified contacts — at a sampled crossing vertex the
-edges are chords, so chord ordering is what matches the traversed geometry. Internal/
-containment tangency, line-involved merged tangency, genuine osculation
-(`scanOsculation`), and curve/curve crossing authority stay conservatively
-`Degenerate`/deferred. Ellipse/spline pairs keep the sampled fallback.
-`Sketch.Profiles()` is its consumer.
+edges are chords, so chord ordering is what matches the traversed geometry.
+**Internal (containment) tangency is now also blessed (increment 7 §7a):** the
+shared contact gets the same exact tangent-port ordering, and hole assignment uses
+an **exact point-in-region** test (`exactPointInRegion`: a ray-cast with closed-form
+circle/arc crossings, immune to the chord poke-out that defeated the sampled
+`pointInPolygon` near the contact), so the inner cycle nests into the outer as an
+annulus + inner disk — exact at every sampling, tiny inner included. Line-involved
+merged tangency, genuine osculation, and curve/curve crossing authority stay
+conservatively `Degenerate`/deferred. Ellipse/spline pairs keep the sampled fallback
+(exact containment falls back to the chord polygon for them). `Sketch.Profiles()` is
+its consumer.
 
 ### The `space` package (slated for extraction)
 

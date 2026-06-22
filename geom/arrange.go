@@ -768,12 +768,24 @@ func (a *arranger) analyticPrepass() {
 			if !ok {
 				continue
 			}
-			nCross := 0
+			nCross, nTangent := 0, 0
 			for _, e := range events {
 				if e.kind == evCross {
 					nCross++
 				}
+				if e.kind == evTangent {
+					nTangent++
+				}
 			}
+			// An INTERNAL curved tangency (one circle/arc inside the other, touching
+			// at one point) is blessed via exact containment: the inner is a hole of
+			// the outer, resolved by the exact point-in-region test in hole assignment.
+			// The inner's chord polygon pokes outside the outer near the contact (so the
+			// sampled count gate would flag it, and a sampled containment would miss the
+			// hole) — both artifacts the exact path is immune to. So neither flag it nor
+			// certify a port vertex; let the separate inner/outer loops + exact hole
+			// assignment produce the annulus.
+			internalTan := nTangent > 0 && a.internalCurvedTangency(i, j)
 			// Curve/curve TRANSVERSE crossings (both sources circle/arc) are deferred
 			// to the sampled path. The sampled DCEL already resolves their topology
 			// correctly (the pre-analytic behaviour); injecting exact cuts buys exact
@@ -805,7 +817,7 @@ func (a *arranger) analyticPrepass() {
 			// operand, so its sampled crossing tracks the analytic one.) Failing either,
 			// conservatively flag degeneracy. Pure line/line pairs are exact (sample ==
 			// geometry), so a clean shallow crossing is never false-flagged.
-			if isCurvedKind(si.kind) || isCurvedKind(sj.kind) {
+			if (isCurvedKind(si.kind) || isCurvedKind(sj.kind)) && !internalTan {
 				if a.sampledCrossCount(i, j) != nCross || !a.analyticCrossHosted(i, j, events) {
 					rx, ry := sourceRep(si)
 					sx, sy := sourceRep(sj)
@@ -847,12 +859,15 @@ func (a *arranger) analyticPrepass() {
 					// tangencies stay conservatively degenerate pending later increments.
 					if a.core[i] && a.core[j] &&
 						a.sourceHasVertexNear(i, e.x, e.y) && a.sourceHasVertexNear(j, e.x, e.y) {
-						if a.externalCurvedTangency(i, j) {
-							// Certify this contact for exact tangent-port ordering at the
-							// shared vertex; buildGraph orders its coincident-tangent ports
-							// by curvature so the two loops separate.
+						switch {
+						case internalTan || a.externalCurvedTangency(i, j):
+							// Certify this shared contact for exact tangent-port ordering;
+							// buildGraph orders its coincident-tangent ports by curvature so
+							// the loops separate (external → two disks; internal → the outer
+							// cycle and the inner cycle, which exact hole assignment nests
+							// into an annulus + inner disk).
 							a.exactPortVerts = append(a.exactPortVerts, [2]float64{e.x, e.y})
-						} else {
+						default:
 							a.flagDegenerate(e.x, e.y)
 						}
 					}
@@ -1296,6 +1311,19 @@ func (a *arranger) useExactPorts(v int, ring []int) bool {
 // sign at the contact), so the merged shared vertex no longer needs a conservative
 // degeneracy flag. Internal tangency (containment) still does — its hole
 // assignment is not yet certified — so it is excluded here.
+// internalCurvedTangency reports whether sources i and j are two circle/arc
+// carriers in INTERNAL tangency — one inside the other (centre distance below the
+// larger radius), touching at one point (d = |R−r|). The inner is a hole of the
+// outer, resolved by exact containment in hole assignment.
+func (a *arranger) internalCurvedTangency(i, j int) bool {
+	si, sj := &a.sources[i], &a.sources[j]
+	if !isCurvedKind(si.kind) || !isCurvedKind(sj.kind) {
+		return false
+	}
+	d := math.Hypot(si.cx-sj.cx, si.cy-sj.cy)
+	return d < math.Max(si.r, sj.r)
+}
+
 func (a *arranger) externalCurvedTangency(i, j int) bool {
 	si, sj := &a.sources[i], &a.sources[j]
 	if !isCurvedKind(si.kind) || !isCurvedKind(sj.kind) {
@@ -1402,7 +1430,7 @@ func (a *arranger) extract() *Arrangement {
 			if f.area <= -h.area+epsArea {
 				continue // not strictly larger than the hole (excludes the twin)
 			}
-			if !pointInPolygon(probe, f.dense) {
+			if !a.exactPointInRegion(probe, f) {
 				continue
 			}
 			if best < 0 || faces[best].area > f.area {
@@ -1433,8 +1461,18 @@ func (a *arranger) extract() *Arrangement {
 type cycle struct {
 	boundary []BoundaryEdge
 	dense    [][2]float64
+	frags    []cycFrag // source + natural-param range of each boundary fragment
 	area     float64
 	selfX    bool
+}
+
+// cycFrag is one boundary fragment of a cycle: its source and the natural-param
+// range it spans (pStart→pEnd, reversed if pEnd<pStart). It carries the exact
+// geometry needed for the exact point-in-region (winding/ray-cast) containment
+// test, independent of how finely the fragment was densified.
+type cycFrag struct {
+	src          int
+	pStart, pEnd float64
 }
 
 // makeCycle coalesces a run of half-edges into BoundaryEdges, builds the dense
@@ -1492,6 +1530,7 @@ func (a *arranger) makeCycle(hs []int) cycle {
 		c.boundary = append(c.boundary, BoundaryEdge{
 			SourceIndex: f.src, Whole: whole, Reversed: reversed, Polyline: f.dense,
 		})
+		c.frags = append(c.frags, cycFrag{src: f.src, pStart: f.pStart, pEnd: f.pEnd})
 		c.dense = append(c.dense, f.dense[:len(f.dense)-1]...)
 		chord = append(chord, f.dense[0])
 		// Area between this fragment's true curve and its chord. Every curved
@@ -1518,6 +1557,102 @@ func (a *arranger) makeCycle(hs []int) cycle {
 	}
 	c.area = signedPolyArea(chord) + bulge
 	return c
+}
+
+// exactPointInRegion reports whether q is inside the cycle, by ray-casting a
+// horizontal +x ray and counting EXACT crossings with each boundary fragment
+// (closed-form for line/circle/arc). This is immune to the chord poke-out that
+// defeats the sampled pointInPolygon at a tangency (the inner circle's chord
+// polygon dips outside the outer's near the contact). Falls back to the chord
+// polygon when any boundary fragment is an ellipse/spline (no closed-form ray
+// crossing here, and those are not the poke-out case).
+func (a *arranger) exactPointInRegion(q [2]float64, c *cycle) bool {
+	for _, f := range c.frags {
+		switch a.sources[f.src].kind {
+		case srcLine, srcCircle, srcArc:
+		default:
+			return pointInPolygon(q, c.dense)
+		}
+	}
+	crossings := 0
+	for _, f := range c.frags {
+		crossings += a.rayFragCrossings(q, f)
+	}
+	return crossings%2 == 1
+}
+
+// rayFragCrossings counts how many times the horizontal +x ray from q crosses the
+// line/circle/arc fragment f. Endpoints use a half-open convention (the lower-y
+// endpoint counts, the upper-y one does not) so a ray through a shared vertex is
+// counted once; a ray grazing a circle tangentially (zero discriminant) counts 0.
+func (a *arranger) rayFragCrossings(q [2]float64, f cycFrag) int {
+	s := &a.sources[f.src]
+	if s.kind == srcLine {
+		A := s.at(f.pStart)
+		B := s.at(f.pEnd)
+		return raySegCrossings(q, A, B)
+	}
+	// circle / arc: the ray's carrier line y=q.y meets the circle at
+	// x = cx ± sqrt(r² − (q.y−cy)²); keep roots to the right of q within the sweep.
+	dy := q[1] - s.cy
+	disc := s.r*s.r - dy*dy
+	if disc <= 0 {
+		return 0 // miss or tangential graze (no net crossing)
+	}
+	sq := math.Sqrt(disc)
+	count := 0
+	for _, x := range [2]float64{s.cx - sq, s.cx + sq} {
+		if x <= q[0] {
+			continue
+		}
+		ang := math.Atan2(dy, x-s.cx)
+		if a.angInFragment(s, f, ang) {
+			count++
+		}
+	}
+	return count
+}
+
+// raySegCrossings is the standard half-open horizontal-ray vs segment test.
+func raySegCrossings(q, A, B [2]float64) int {
+	if (A[1] > q[1]) == (B[1] > q[1]) {
+		return 0
+	}
+	x := A[0] + (q[1]-A[1])/(B[1]-A[1])*(B[0]-A[0])
+	if x > q[0] {
+		return 1
+	}
+	return 0
+}
+
+// angInFragment reports whether circle/arc angle ang lies on the fragment's swept
+// natural-param range [pStart,pEnd] (in either direction). Uses a half-open
+// convention at the param endpoints so a ray through a fragment boundary vertex is
+// counted by exactly one of the two adjoining fragments.
+func (a *arranger) angInFragment(s *source, f cycFrag, ang float64) bool {
+	// natural param of this angle on the source
+	var t float64
+	if s.kind == srcCircle {
+		t = ang / (2 * math.Pi)
+	} else { // srcArc
+		if s.sweep == 0 {
+			return false
+		}
+		t = (ang - s.phi0) / s.sweep
+	}
+	lo, hi := f.pStart, f.pEnd
+	if hi < lo {
+		lo, hi = hi, lo
+	}
+	// A whole, uncut circle (the fragment spans the full period) has no endpoint —
+	// every angle is on it. The half-open test below would otherwise drop the seam
+	// (t=0≡1) when a ray hits exactly there (e.g. a centre-aligned probe).
+	if s.kind == srcCircle && hi-lo >= 1-1e-9 {
+		return true
+	}
+	// bring t into [lo, lo+1) by whole turns (param period is 1), then test [lo,hi).
+	t -= math.Floor((t - lo))
+	return t >= lo && t < hi
 }
 
 // chordArcCorrection returns the signed area between an arc's chord and the arc,
