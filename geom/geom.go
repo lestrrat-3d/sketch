@@ -68,13 +68,19 @@ func (a *Arc) StartAngle() float64 { return math.Atan2(a.Start.Y-a.Center.Y, a.S
 // EndAngle returns the angle (radians) of the end point about the center.
 func (a *Arc) EndAngle() float64 { return math.Atan2(a.End.Y-a.Center.Y, a.End.X-a.Center.X) }
 
-// Sweep returns the counter-clockwise sweep angle in (0, 2π].
-func (a *Arc) Sweep() float64 {
-	d := math.Mod(a.EndAngle()-a.StartAngle(), 2*math.Pi)
+// wrapSweep returns the counter-clockwise angular sweep from start to end,
+// wrapped into (0, 2π].
+func wrapSweep(start, end float64) float64 {
+	d := math.Mod(end-start, 2*math.Pi)
 	if d <= 0 {
 		d += 2 * math.Pi
 	}
 	return d
+}
+
+// Sweep returns the counter-clockwise sweep angle in (0, 2π].
+func (a *Arc) Sweep() float64 {
+	return wrapSweep(a.StartAngle(), a.EndAngle())
 }
 
 // EllipticalArc is an arc on an ellipse: an ellipse (center, semi-axes Rx/Ry,
@@ -109,11 +115,7 @@ func (e *EllipticalArc) EndParam() float64   { return e.eccentric(e.End) }
 
 // Sweep returns the counter-clockwise eccentric-angle sweep in (0, 2π].
 func (e *EllipticalArc) Sweep() float64 {
-	d := math.Mod(e.EndParam()-e.StartParam(), 2*math.Pi)
-	if d <= 0 {
-		d += 2 * math.Pi
-	}
-	return d
+	return wrapSweep(e.StartParam(), e.EndParam())
 }
 
 // Endpoints returns the elliptical arc's start and end points, so it satisfies
