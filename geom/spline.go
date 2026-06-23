@@ -5,16 +5,16 @@ import (
 	"fmt"
 )
 
-// requireMinPoints panics when n is below min, with the kernel guard message
-// "geom: <noun> needs at least <min> <kind>, got <n>". It is the shared guard
-// behind the spline-family math kernels (whose precondition the public
-// constructors already enforce by returning an error); noun and kind carry the
-// per-family wording ("cubic B-spline"/"control points", "fit-point
-// spline"/"fit points", …) so each site's message is reproduced verbatim.
-func requireMinPoints(n, min int, noun, kind string) {
+// tooFewPoints builds the kernel guard error when n is below min, wrapping the
+// per-family sentinel ([ErrTooFewControlPoints]/[ErrTooFewClosedControlPoints]/
+// [ErrTooFewFitPoints]) with the actual count; it returns nil when n is in
+// range. It is the shared guard behind the spline-family math kernels (whose
+// precondition the public constructors already enforce by returning an error).
+func tooFewPoints(n, min int, sentinel error) error {
 	if n < min {
-		panic(fmt.Sprintf("geom: %s needs at least %d %s, got %d", noun, min, kind, n))
+		return fmt.Errorf("%w, got %d", sentinel, n)
 	}
+	return nil
 }
 
 // Spline is an open cubic B-spline defined by its control points, using a
@@ -40,12 +40,15 @@ func NewSpline(control ...*Point) (*Spline, error) {
 
 // Eval returns the curve point at parameter t ∈ [0, 1] (clamped).
 func (sp *Spline) Eval(t float64) (float64, float64) {
-	return EvalCubicBSpline(controlCoords(sp.Control), t)
+	// control-point count is guaranteed >=4 by the Spline constructor.
+	x, y, _ := EvalCubicBSpline(controlCoords(sp.Control), t)
+	return x, y
 }
 
 // Polyline samples the spline at segments+1 evenly spaced parameters.
 func (sp *Spline) Polyline(segments int) [][2]float64 {
-	return SampleCubicBSpline(controlCoords(sp.Control), segments)
+	pts, _ := SampleCubicBSpline(controlCoords(sp.Control), segments)
+	return pts
 }
 
 func controlCoords(control []*Point) [][2]float64 {
@@ -60,16 +63,18 @@ func controlCoords(control []*Point) [][2]float64 {
 // control coordinates at t ∈ [0, 1] (values outside are clamped). At t = 1
 // the last control point is returned directly: the standard half-open
 // Cox–de Boor basis is zero at the trailing multiplicity-4 knot, and the
-// shortcut is exact for a clamped curve. It panics with fewer than 4 control
-// points.
-func EvalCubicBSpline(ctrl [][2]float64, t float64) (float64, float64) {
+// shortcut is exact for a clamped curve. It returns [ErrTooFewControlPoints]
+// with fewer than 4 control points.
+func EvalCubicBSpline(ctrl [][2]float64, t float64) (float64, float64, error) {
 	n := len(ctrl)
-	requireMinPoints(n, 4, "cubic B-spline", "control points")
+	if err := tooFewPoints(n, 4, ErrTooFewControlPoints); err != nil {
+		return 0, 0, err
+	}
 	if t <= 0 {
-		return ctrl[0][0], ctrl[0][1]
+		return ctrl[0][0], ctrl[0][1], nil
 	}
 	if t >= 1 {
-		return ctrl[n-1][0], ctrl[n-1][1]
+		return ctrl[n-1][0], ctrl[n-1][1], nil
 	}
 	knots := ClampedKnots(n)
 	var x, y float64
@@ -78,21 +83,26 @@ func EvalCubicBSpline(ctrl [][2]float64, t float64) (float64, float64) {
 		x += b * ctrl[i][0]
 		y += b * ctrl[i][1]
 	}
-	return x, y
+	return x, y, nil
 }
 
 // SampleCubicBSpline samples the spline at segments+1 evenly spaced
-// parameters (minimum 2 segments).
-func SampleCubicBSpline(ctrl [][2]float64, segments int) [][2]float64 {
+// parameters (minimum 2 segments). It returns [ErrTooFewControlPoints] with
+// fewer than 4 control points.
+func SampleCubicBSpline(ctrl [][2]float64, segments int) ([][2]float64, error) {
+	if err := tooFewPoints(len(ctrl), 4, ErrTooFewControlPoints); err != nil {
+		return nil, err
+	}
 	if segments < 2 {
 		segments = 2
 	}
 	pts := make([][2]float64, segments+1)
 	for i := 0; i <= segments; i++ {
-		x, y := EvalCubicBSpline(ctrl, float64(i)/float64(segments))
+		// length already validated up front; the in-loop error is unreachable.
+		x, y, _ := EvalCubicBSpline(ctrl, float64(i)/float64(segments))
 		pts[i] = [2]float64{x, y}
 	}
-	return pts
+	return pts, nil
 }
 
 // EvalCubicBSplineDeriv returns the first derivative dS/dt of the clamped uniform
@@ -101,10 +111,12 @@ func SampleCubicBSpline(ctrl [][2]float64, segments int) [][2]float64 {
 // control vectors Qᵢ = 3·(Pᵢ₊₁−Pᵢ)/(Uᵢ₊₄−Uᵢ₊₁). At the clamped ends it returns
 // the one-sided endpoint tangent (Q₀ at t≤0, Q_{n−2} at t≥1) — the t≥1 shortcut
 // is mandatory because the half-open basis is zero at the trailing knot. It
-// panics with fewer than 4 control points.
-func EvalCubicBSplineDeriv(ctrl [][2]float64, t float64) (float64, float64) {
+// returns [ErrTooFewControlPoints] with fewer than 4 control points.
+func EvalCubicBSplineDeriv(ctrl [][2]float64, t float64) (float64, float64, error) {
 	n := len(ctrl)
-	requireMinPoints(n, 4, "cubic B-spline", "control points")
+	if err := tooFewPoints(n, 4, ErrTooFewControlPoints); err != nil {
+		return 0, 0, err
+	}
 	knots := ClampedKnots(n)
 	q := func(i int) (float64, float64) {
 		den := knots[i+4] - knots[i+1]
@@ -114,10 +126,12 @@ func EvalCubicBSplineDeriv(ctrl [][2]float64, t float64) (float64, float64) {
 		return 3 * (ctrl[i+1][0] - ctrl[i][0]) / den, 3 * (ctrl[i+1][1] - ctrl[i][1]) / den
 	}
 	if t <= 0 {
-		return q(0)
+		qx, qy := q(0)
+		return qx, qy, nil
 	}
 	if t >= 1 {
-		return q(n - 2)
+		qx, qy := q(n - 2)
+		return qx, qy, nil
 	}
 	dknots := knots[1 : n+3] // trimmed knot vector for the degree-2 derivative basis
 	var dx, dy float64
@@ -130,7 +144,7 @@ func EvalCubicBSplineDeriv(ctrl [][2]float64, t float64) (float64, float64) {
 		dx += b * qx
 		dy += b * qy
 	}
-	return dx, dy
+	return dx, dy, nil
 }
 
 // NearestParamCubicBSpline returns the parameter t ∈ [0, 1] whose curve point is
@@ -138,12 +152,19 @@ func EvalCubicBSplineDeriv(ctrl [][2]float64, t float64) (float64, float64) {
 // exact projection: a dense polyline broad phase (each segment projected onto,
 // not just its samples) locates the best span, then a few golden-section steps
 // refine within it. Density scales with the control count so narrow loops are
-// not missed. It panics with fewer than 4 control points.
-func NearestParamCubicBSpline(ctrl [][2]float64, px, py float64) float64 {
+// not missed. It returns [ErrTooFewControlPoints] with fewer than 4 control
+// points.
+func NearestParamCubicBSpline(ctrl [][2]float64, px, py float64) (float64, error) {
 	n := len(ctrl)
-	requireMinPoints(n, 4, "cubic B-spline", "control points")
-	eval := func(t float64) (float64, float64) { return EvalCubicBSpline(ctrl, t) }
-	return nearestParamSampled(eval, 16*(n-3), false, px, py)
+	if err := tooFewPoints(n, 4, ErrTooFewControlPoints); err != nil {
+		return 0, err
+	}
+	// length already validated up front; the in-loop error is unreachable.
+	eval := func(t float64) (float64, float64) {
+		x, y, _ := EvalCubicBSpline(ctrl, t)
+		return x, y
+	}
+	return nearestParamSampled(eval, 16*(n-3), false, px, py), nil
 }
 
 // ClampedKnots builds the clamped uniform knot vector used by all splines in

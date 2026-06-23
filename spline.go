@@ -55,12 +55,15 @@ func (sp *Spline) Geometry() *geom.Spline {
 // Eval returns the curve point at parameter t ∈ [0, 1] (clamped), using the
 // solved control-point coordinates.
 func (sp *Spline) Eval(t float64) (float64, float64) {
-	return geom.EvalCubicBSpline(sp.controlCoords(), t)
+	// control-point count is guaranteed >=4 by the Spline constructor (AddSpline).
+	x, y, _ := geom.EvalCubicBSpline(sp.controlCoords(), t)
+	return x, y
 }
 
 // Polyline samples the solved curve at segments+1 evenly spaced parameters.
 func (sp *Spline) Polyline(segments int) [][2]float64 {
-	return geom.SampleCubicBSpline(sp.controlCoords(), segments)
+	pts, _ := geom.SampleCubicBSpline(sp.controlCoords(), segments)
+	return pts
 }
 
 func (sp *Spline) controlCoords() [][2]float64 {
@@ -134,13 +137,15 @@ func (sp *ClosedSpline) Geometry() *geom.ClosedSpline {
 // Eval returns the curve point at parameter t (reduced modulo 1 into the periodic
 // domain), using the solved control-point coordinates.
 func (sp *ClosedSpline) Eval(t float64) (float64, float64) {
-	return geom.EvalPeriodicCubicBSpline(sp.controlCoords(), t)
+	x, y, _ := geom.EvalPeriodicCubicBSpline(sp.controlCoords(), t)
+	return x, y
 }
 
 // Polyline samples the solved closed curve at segments+1 evenly spaced
 // parameters; the last point equals the first, closing the ring.
 func (sp *ClosedSpline) Polyline(segments int) [][2]float64 {
-	return geom.SamplePeriodicCubicBSpline(sp.controlCoords(), segments)
+	pts, _ := geom.SamplePeriodicCubicBSpline(sp.controlCoords(), segments)
+	return pts
 }
 
 func (sp *ClosedSpline) controlCoords() [][2]float64 {
@@ -216,13 +221,15 @@ func (sp *FitSpline) Geometry() *geom.FitSpline {
 // Eval returns the interpolated curve point at parameter t ∈ [0, 1] (normalized
 // chord length), using the solved fit-point coordinates.
 func (sp *FitSpline) Eval(t float64) (float64, float64) {
-	return geom.EvalFitSpline(sp.fitCoords(), t)
+	x, y, _ := geom.EvalFitSpline(sp.fitCoords(), t)
+	return x, y
 }
 
 // Polyline samples the solved interpolating curve at segments+1 evenly spaced
 // (in chord length) parameters.
 func (sp *FitSpline) Polyline(segments int) [][2]float64 {
-	return geom.SampleFitSpline(sp.fitCoords(), segments)
+	pts, _ := geom.SampleFitSpline(sp.fitCoords(), segments)
+	return pts
 }
 
 func (sp *FitSpline) fitCoords() [][2]float64 {

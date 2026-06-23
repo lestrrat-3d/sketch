@@ -10,15 +10,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// getParam reads a parameter's base-unit magnitude, failing the test (rather
+// than panicking) on error.
+func getParam(t *testing.T, tb *param.Table, name string) float64 {
+	v, err := tb.Get(name)
+	require.NoError(t, err)
+	return v
+}
+
 func TestLiteralAndExpression(t *testing.T) {
 	tb := param.New()
 	require.NoError(t, tb.Set("height", "60"))
 	require.NoError(t, tb.Set("width", "height * 1.5"))
 	require.NoError(t, tb.Set("area", "width * height"))
 
-	require.InDelta(t, 60, tb.MustGet("height"), 1e-9, "height")
-	require.InDelta(t, 90, tb.MustGet("width"), 1e-9, "width")
-	require.InDelta(t, 5400, tb.MustGet("area"), 1e-9, "area")
+	require.InDelta(t, 60, getParam(t, tb, "height"), 1e-9, "height")
+	require.InDelta(t, 90, getParam(t, tb, "width"), 1e-9, "width")
+	require.InDelta(t, 5400, getParam(t, tb, "area"), 1e-9, "area")
 }
 
 func TestParametricUpdate(t *testing.T) {
@@ -26,18 +34,18 @@ func TestParametricUpdate(t *testing.T) {
 	require.NoError(t, tb.Set("height", "60"))
 	require.NoError(t, tb.Set("width", "height * 1.5"))
 	require.NoError(t, tb.Set("area", "width * height"))
-	require.InDelta(t, 5400, tb.MustGet("area"), 1e-9, "area")
+	require.InDelta(t, 5400, getParam(t, tb, "area"), 1e-9, "area")
 
 	require.NoError(t, tb.Set("height", "40")) // edit propagates downstream
-	require.InDelta(t, 60, tb.MustGet("width"), 1e-9, "width after edit")
-	require.InDelta(t, 2400, tb.MustGet("area"), 1e-9, "area after edit")
+	require.InDelta(t, 60, getParam(t, tb, "width"), 1e-9, "width after edit")
+	require.InDelta(t, 2400, getParam(t, tb, "area"), 1e-9, "area after edit")
 }
 
 func TestForwardReference(t *testing.T) {
 	tb := param.New()
 	require.NoError(t, tb.Set("a", "b + 1")) // b defined later
 	require.NoError(t, tb.SetNumber("b", 2))
-	require.InDelta(t, 3, tb.MustGet("a"), 1e-9, "a")
+	require.InDelta(t, 3, getParam(t, tb, "a"), 1e-9, "a")
 }
 
 func TestTypedValues(t *testing.T) {
@@ -46,8 +54,8 @@ func TestTypedValues(t *testing.T) {
 	require.NoError(t, tb.SetExpr("half", "width / 2", units.Millimeter))
 
 	// Get returns the base-unit (mm) magnitude.
-	require.InDelta(t, 1000, tb.MustGet("width"), 1e-9, "width base")
-	require.InDelta(t, 500, tb.MustGet("half"), 1e-9, "half base")
+	require.InDelta(t, 1000, getParam(t, tb, "width"), 1e-9, "width base")
+	require.InDelta(t, 500, getParam(t, tb, "half"), 1e-9, "half base")
 
 	// GetValue carries the declared unit.
 	w, err := tb.GetValue("width")
@@ -64,7 +72,7 @@ func TestTypedValues(t *testing.T) {
 func TestTypedAngle(t *testing.T) {
 	tb := param.New()
 	require.NoError(t, tb.SetValue("a", units.Degrees(90)))
-	require.InDelta(t, math.Pi/2, tb.MustGet("a"), 1e-9, "90deg base (rad)")
+	require.InDelta(t, math.Pi/2, getParam(t, tb, "a"), 1e-9, "90deg base (rad)")
 	v, err := tb.GetValue("a")
 	require.NoError(t, err)
 	require.InDelta(t, 90, v.Mag(), 1e-9, "mag in deg")
@@ -93,9 +101,9 @@ func TestJSONRoundTripUnits(t *testing.T) {
 	w, err := tb2.GetValue("width")
 	require.NoError(t, err)
 	require.Equal(t, units.Meter, w.Unit(), "reloaded width unit")
-	require.InDelta(t, 2000, tb2.MustGet("width"), 1e-9, "reloaded width base")
-	require.InDelta(t, 500, tb2.MustGet("height"), 1e-9, "reloaded height base")
-	require.InDelta(t, 1.5, tb2.MustGet("ratio"), 1e-9, "reloaded ratio")
+	require.InDelta(t, 2000, getParam(t, &tb2, "width"), 1e-9, "reloaded width base")
+	require.InDelta(t, 500, getParam(t, &tb2, "height"), 1e-9, "reloaded height base")
+	require.InDelta(t, 1.5, getParam(t, &tb2, "ratio"), 1e-9, "reloaded ratio")
 }
 
 func TestPrecedenceAndAssociativity(t *testing.T) {
@@ -220,7 +228,7 @@ func TestValidate(t *testing.T) {
 func TestParamShadowsConstant(t *testing.T) {
 	tb := param.New()
 	require.NoError(t, tb.Set("pi", "3")) // parameter named pi shadows the constant
-	require.InDelta(t, 3, tb.MustGet("pi"), 1e-9, "pi param")
+	require.InDelta(t, 3, getParam(t, tb, "pi"), 1e-9, "pi param")
 	v, err := tb.Eval("pi * 2")
 	require.NoErrorf(t, err, "eval %q", "pi * 2")
 	require.InDelta(t, 6, v, 1e-9, "uses shadow")
@@ -249,6 +257,6 @@ func TestJSONRoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &tb2))
 
 	require.Equal(t, []string{"height", "width", "corner_r"}, tb2.Names(), "order preserved")
-	require.InDelta(t, 90, tb2.MustGet("width"), 1e-9, "reloaded width")
-	require.InDelta(t, 7.5, tb2.MustGet("corner_r"), 1e-9, "reloaded corner_r")
+	require.InDelta(t, 90, getParam(t, &tb2, "width"), 1e-9, "reloaded width")
+	require.InDelta(t, 7.5, getParam(t, &tb2, "corner_r"), 1e-9, "reloaded corner_r")
 }

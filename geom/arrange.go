@@ -112,10 +112,11 @@ func (s *source) at(t float64) [2]float64 {
 	case srcConic:
 		return s.conicPoint(t)
 	case srcSpline:
-		x, y := EvalCubicBSpline(s.ctrl, t)
+		// control-point count is guaranteed valid by the source builder.
+		x, y, _ := EvalCubicBSpline(s.ctrl, t)
 		return [2]float64{x, y}
 	case srcClosedSpline:
-		x, y := EvalPeriodicCubicBSpline(s.ctrl, t)
+		x, y, _ := EvalPeriodicCubicBSpline(s.ctrl, t)
 		return [2]float64{x, y}
 	case srcFitSpline:
 		return s.fitEval.at(t)
@@ -1996,10 +1997,10 @@ func (s *source) splineBreaks() []float64 {
 func (s *source) derivAt(t float64) [2]float64 {
 	switch s.kind {
 	case srcSpline:
-		dx, dy := EvalCubicBSplineDeriv(s.ctrl, t)
+		dx, dy, _ := EvalCubicBSplineDeriv(s.ctrl, t)
 		return [2]float64{dx, dy}
 	case srcClosedSpline:
-		dx, dy := EvalPeriodicCubicBSplineDeriv(s.ctrl, t)
+		dx, dy, _ := EvalPeriodicCubicBSplineDeriv(s.ctrl, t)
 		return [2]float64{dx, dy}
 	case srcFitSpline:
 		return s.fitEval.derivAt(t)

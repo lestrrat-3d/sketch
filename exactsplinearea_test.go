@@ -26,7 +26,8 @@ func TestProfileClosedSplineAreaExact(t *testing.T) {
 	require.True(t, profiles[0].Valid)
 
 	ctrl := [][2]float64{{0, 0}, {4, 0}, {5, 3}, {2, 5}, {-1, 3}}
-	ring := geom.SamplePeriodicCubicBSpline(ctrl, 200000)
+	ring, err := geom.SamplePeriodicCubicBSpline(ctrl, 200000)
+	require.NoError(t, err)
 	var sum float64
 	n := len(ring) - 1 // drop the repeated closing point
 	for i := 0; i < n; i++ {

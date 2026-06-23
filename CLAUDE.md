@@ -417,9 +417,15 @@ when `allocVars` re-runs on load. This is the deliberate, narrow exception to
   `AddPatternRect`/`AddPatternCircular` → `ErrInvalidShape`), `NewOn`
   (`ErrWorldOwnedPlane`/`ErrPlaneRemoved`), and the plane/frame constructors
   (`space.ErrDegenerateFrame`, `geom.ErrTooFewControlPoints`) all return
-  `(…, error)`. Only pure math kernels whose precondition is guaranteed by their
-  constructor (`geom.EvalCubicBSpline`/`SampleCubicBSpline`) may still panic —
-  like an out-of-range index, not input validation.
+  `(…, error)`. **Production code contains no explicit panics.** Even the pure
+  spline-family math kernels (`geom.EvalCubicBSpline`/`SampleCubicBSpline`/
+  `EvalCubicBSplineDeriv`/`NearestParamCubicBSpline` and the periodic/fit-point
+  analogs) return a trailing `error` — the per-family sentinel
+  (`ErrTooFewControlPoints`/`ErrTooFewClosedControlPoints`/`ErrTooFewFitPoints`)
+  on too-few points — rather than panicking. Their callers inside the engine
+  feed construction-guaranteed-valid input (the `Add…`/`New…` constructors
+  already enforce the minimums), so those call sites discard the error with `_`;
+  the error path is the public contract for direct kernel callers.
 - Keep exported API documented with Go doc comments; primitives expose value
   accessors (`X()`, `Y()`, `R()`, …), a `Geometry()` snapshot, and measurement
   queries (`Point.DistanceTo`/`DistanceToLine`, `Line.AngleTo`), while

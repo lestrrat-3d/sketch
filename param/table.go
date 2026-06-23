@@ -139,16 +139,6 @@ func (t *Table) Unit(name string) (units.Unit, bool) {
 	return e.unit, true
 }
 
-// MustGet is like [Table.Get] but panics on error. Intended for tests and
-// statically known-good tables.
-func (t *Table) MustGet(name string) float64 {
-	v, err := t.Get(name)
-	if err != nil {
-		panic(err)
-	}
-	return v
-}
-
 // Eval evaluates an ad-hoc expression against the table without storing it,
 // returning its base-unit magnitude. It validates unit kinds, so an expression
 // that mixes kinds incompatibly (e.g. a length plus an angle) returns

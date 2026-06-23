@@ -55,7 +55,7 @@ func TestAuditSelfCrossingSplinesScanNeverBlessedSimple(t *testing.T) {
 		const n = 2000
 		pts := make([][2]float64, n)
 		for i := 0; i < n; i++ {
-			x, y := geom.EvalPeriodicCubicBSpline(ctrl, float64(i)/float64(n))
+			x, y, _ := geom.EvalPeriodicCubicBSpline(ctrl, float64(i)/float64(n))
 			pts[i] = [2]float64{x, y}
 		}
 		sep := n / 8 // cyclic separation > 0.125 turn → genuinely far-apart branches

@@ -43,7 +43,8 @@ func TestExactClosedSplineArea(t *testing.T) {
 
 	// SamplePeriodicCubicBSpline repeats the first point as the last; drop it so
 	// the shoelace's implied closing edge is not a zero-length duplicate.
-	ring := geom.SamplePeriodicCubicBSpline(closedCtrl, 200000)
+	ring, err := geom.SamplePeriodicCubicBSpline(closedCtrl, 200000)
+	require.NoError(t, err)
 	ref := closedShoelace(ring[:len(ring)-1])
 	require.InDelta(t, ref, coarse.Regions[0].Area, 1e-6)
 }
@@ -81,7 +82,9 @@ func TestExactOpenSplineProfileArea(t *testing.T) {
 	require.InDelta(t, coarse.Regions[0].Area, fine.Regions[0].Area, 1e-9)
 
 	ctrl := [][2]float64{{0, 0}, {1, 2}, {3, 2}, {4, 0}}
-	ref := closedShoelace(geom.SampleCubicBSpline(ctrl, 200000))
+	poly, err := geom.SampleCubicBSpline(ctrl, 200000)
+	require.NoError(t, err)
+	ref := closedShoelace(poly)
 	require.InDelta(t, ref, coarse.Regions[0].Area, 1e-6)
 }
 
@@ -103,7 +106,9 @@ func TestExactFitSplineProfileArea(t *testing.T) {
 	require.InDelta(t, coarse.Regions[0].Area, fine.Regions[0].Area, 1e-9)
 
 	fit := [][2]float64{{0, 0}, {1, 1.5}, {3, 1.2}, {5, 0}}
-	ref := closedShoelace(geom.SampleFitSpline(fit, 200000))
+	poly, err := geom.SampleFitSpline(fit, 200000)
+	require.NoError(t, err)
+	ref := closedShoelace(poly)
 	require.InDelta(t, ref, coarse.Regions[0].Area, 1e-6)
 }
 
@@ -127,7 +132,8 @@ func TestExactSplineHoleArea(t *testing.T) {
 	arr := geom.Regions(rect, []geom.ClosedCurve{cs})
 	require.Len(t, arr.Regions, 2, "annulus + inner spline region")
 
-	ring := geom.SamplePeriodicCubicBSpline(closedCtrl, 200000)
+	ring, err := geom.SamplePeriodicCubicBSpline(closedCtrl, 200000)
+	require.NoError(t, err)
 	splineArea := closedShoelace(ring[:len(ring)-1])
 
 	var annulus, inner *geom.Region
@@ -150,9 +156,12 @@ func TestExactSplineHoleArea(t *testing.T) {
 func TestPeriodicSplineDeriv(t *testing.T) {
 	const h = 1e-6
 	for _, tp := range []float64{0.07, 0.25, 0.5, 0.73, 0.95} {
-		dx, dy := geom.EvalPeriodicCubicBSplineDeriv(closedCtrl, tp)
-		x0, y0 := geom.EvalPeriodicCubicBSpline(closedCtrl, tp-h)
-		x1, y1 := geom.EvalPeriodicCubicBSpline(closedCtrl, tp+h)
+		dx, dy, err := geom.EvalPeriodicCubicBSplineDeriv(closedCtrl, tp)
+		require.NoError(t, err)
+		x0, y0, err := geom.EvalPeriodicCubicBSpline(closedCtrl, tp-h)
+		require.NoError(t, err)
+		x1, y1, err := geom.EvalPeriodicCubicBSpline(closedCtrl, tp+h)
+		require.NoError(t, err)
 		require.InDelta(t, (x1-x0)/(2*h), dx, 1e-4)
 		require.InDelta(t, (y1-y0)/(2*h), dy, 1e-4)
 	}

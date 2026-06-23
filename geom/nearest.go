@@ -82,27 +82,35 @@ func nearestParamSampled(eval func(float64) (float64, float64), segs int, period
 
 // NearestParamPeriodicCubicBSpline returns the parameter t ∈ [0, 1) whose curve
 // point is closest to (px, py) on the closed (periodic) cubic B-spline. A robust
-// seed for a foot-point aux variable, not an exact projection. It panics with
-// fewer than 3 control points.
-func NearestParamPeriodicCubicBSpline(ctrl [][2]float64, px, py float64) float64 {
+// seed for a foot-point aux variable, not an exact projection. It returns
+// [ErrTooFewClosedControlPoints] with fewer than 3 control points.
+func NearestParamPeriodicCubicBSpline(ctrl [][2]float64, px, py float64) (float64, error) {
 	n := len(ctrl)
-	requireMinPoints(n, 3, "closed cubic B-spline", "control points")
-	eval := func(t float64) (float64, float64) { return EvalPeriodicCubicBSpline(ctrl, t) }
-	return nearestParamSampled(eval, 16*n, true, px, py)
+	if err := tooFewPoints(n, 3, ErrTooFewClosedControlPoints); err != nil {
+		return 0, err
+	}
+	// length already validated up front; the in-loop error is unreachable.
+	eval := func(t float64) (float64, float64) {
+		x, y, _ := EvalPeriodicCubicBSpline(ctrl, t)
+		return x, y
+	}
+	return nearestParamSampled(eval, 16*n, true, px, py), nil
 }
 
 // NearestParamFitSpline returns the parameter t ∈ [0, 1] whose curve point is
 // closest to (px, py) on the natural-cubic interpolating spline through fit. A
-// robust seed for a foot-point aux variable, not an exact projection. It panics
-// with fewer than 2 fit points.
-func NearestParamFitSpline(fit [][2]float64, px, py float64) float64 {
-	requireMinPoints(len(fit), 2, "fit-point spline", "fit points")
+// robust seed for a foot-point aux variable, not an exact projection. It returns
+// [ErrTooFewFitPoints] with fewer than 2 fit points.
+func NearestParamFitSpline(fit [][2]float64, px, py float64) (float64, error) {
+	if err := tooFewPoints(len(fit), 2, ErrTooFewFitPoints); err != nil {
+		return 0, err
+	}
 	e := newFitEvaluator(fit) // build once, reuse across samples
 	eval := func(t float64) (float64, float64) {
 		p := e.at(t)
 		return p[0], p[1]
 	}
-	return nearestParamSampled(eval, 16*len(fit), false, px, py)
+	return nearestParamSampled(eval, 16*len(fit), false, px, py), nil
 }
 
 // NearestParamConic returns the parameter t ∈ [0, 1] whose curve point is

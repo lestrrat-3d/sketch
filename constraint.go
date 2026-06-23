@@ -359,7 +359,8 @@ func (c *pointOnSpline) allocVars(s *Sketch) {
 	if c.tvar >= 0 {
 		return // idempotent: re-adding the handle must not leak fresh aux vars
 	}
-	t := geom.NearestParamCubicBSpline(c.Sp.controlCoords(), c.P.x(), c.P.y())
+	// control-point count is guaranteed >=4 by the Spline constructor (AddSpline).
+	t, _ := geom.NearestParamCubicBSpline(c.Sp.controlCoords(), c.P.x(), c.P.y())
 	allocBoxParam(s, t, &c.tvar, &c.w0, &c.w1)
 }
 
@@ -462,7 +463,7 @@ func (c *tangentToSpline) allocVars(s *Sketch) {
 		return // idempotent
 	}
 	t := c.seedParam()
-	spx, spy := geom.EvalCubicBSplineDeriv(c.Sp.controlCoords(), clamp01(t))
+	spx, spy, _ := geom.EvalCubicBSplineDeriv(c.Sp.controlCoords(), clamp01(t))
 	speed := norm(spx, spy)
 	c.tvar = s.newVar(t)
 	c.w0 = s.newVar(slackFor(t))
@@ -487,7 +488,7 @@ func (c *tangentToSpline) residual(out []float64) []float64 {
 	tv := c.s.vars[c.tvar]
 	t := clamp01(tv)
 	sx, sy := c.Sp.Eval(t)
-	spx, spy := geom.EvalCubicBSplineDeriv(c.Sp.controlCoords(), t)
+	spx, spy, _ := geom.EvalCubicBSplineDeriv(c.Sp.controlCoords(), t)
 	ax, ay := c.L.Start.x(), c.L.Start.y()
 	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
 	dlen := norm(dx, dy)
@@ -529,7 +530,7 @@ func (c *pointOnClosedSpline) allocVars(s *Sketch) {
 	if c.tvar >= 0 {
 		return // idempotent: re-adding the handle must not leak a fresh aux var
 	}
-	t := geom.NearestParamPeriodicCubicBSpline(c.Sp.controlCoords(), c.P.x(), c.P.y())
+	t, _ := geom.NearestParamPeriodicCubicBSpline(c.Sp.controlCoords(), c.P.x(), c.P.y())
 	c.tvar = s.newVar(t)
 }
 
@@ -578,7 +579,7 @@ func (c *pointOnFitSpline) allocVars(s *Sketch) {
 	if c.tvar >= 0 {
 		return // idempotent
 	}
-	t := geom.NearestParamFitSpline(c.Sp.fitCoords(), c.P.x(), c.P.y())
+	t, _ := geom.NearestParamFitSpline(c.Sp.fitCoords(), c.P.x(), c.P.y())
 	allocBoxParam(s, t, &c.tvar, &c.w0, &c.w1)
 }
 
@@ -731,7 +732,8 @@ func (c *tangentToClosedSpline) allocVars(s *Sketch) {
 		return // idempotent
 	}
 	t := c.seedParam()
-	spx, spy := geom.EvalPeriodicCubicBSplineDeriv(c.Sp.controlCoords(), t)
+	// control-point count is guaranteed >=3 by the ClosedSpline constructor.
+	spx, spy, _ := geom.EvalPeriodicCubicBSplineDeriv(c.Sp.controlCoords(), t)
 	speed := norm(spx, spy)
 	c.tvar = s.newVar(t)
 	c.ws = s.newVar(slackFor(speed/bboxDiagonal(c.Sp.controlCoords()) - splineEpsTan))
@@ -749,8 +751,14 @@ func (c *tangentToClosedSpline) seedParam() float64 {
 	ctrl := c.Sp.controlCoords()
 	ax, ay := c.L.Start.x(), c.L.Start.y()
 	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
-	eval := func(t float64) (float64, float64) { return geom.EvalPeriodicCubicBSpline(ctrl, t) }
-	deriv := func(t float64) (float64, float64) { return geom.EvalPeriodicCubicBSplineDeriv(ctrl, t) }
+	eval := func(t float64) (float64, float64) {
+		x, y, _ := geom.EvalPeriodicCubicBSpline(ctrl, t)
+		return x, y
+	}
+	deriv := func(t float64) (float64, float64) {
+		dx, dy, _ := geom.EvalPeriodicCubicBSplineDeriv(ctrl, t)
+		return dx, dy
+	}
 	return seedTangentParam(eval, deriv, 16*len(ctrl), true, bboxDiagonal(ctrl), ax, ay, dx, dy, norm(dx, dy))
 }
 
@@ -760,8 +768,8 @@ func (c *tangentToClosedSpline) residual(out []float64) []float64 {
 	}
 	ctrl := c.Sp.controlCoords()
 	t := c.s.vars[c.tvar]
-	sx, sy := geom.EvalPeriodicCubicBSpline(ctrl, t)
-	spx, spy := geom.EvalPeriodicCubicBSplineDeriv(ctrl, t)
+	sx, sy, _ := geom.EvalPeriodicCubicBSpline(ctrl, t)
+	spx, spy, _ := geom.EvalPeriodicCubicBSplineDeriv(ctrl, t)
 	ax, ay := c.L.Start.x(), c.L.Start.y()
 	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
 	dlen := norm(dx, dy)
@@ -796,7 +804,8 @@ func (c *tangentToFitSpline) allocVars(s *Sketch) {
 		return // idempotent
 	}
 	t := c.seedParam()
-	spx, spy := geom.EvalFitSplineDeriv(c.Sp.fitCoords(), clamp01(t))
+	// fit-point count is guaranteed >=2 by the FitSpline constructor.
+	spx, spy, _ := geom.EvalFitSplineDeriv(c.Sp.fitCoords(), clamp01(t))
 	speed := norm(spx, spy)
 	c.tvar = s.newVar(t)
 	c.w0 = s.newVar(slackFor(t))
@@ -818,8 +827,14 @@ func (c *tangentToFitSpline) seedParam() float64 {
 	fit := c.Sp.fitCoords()
 	ax, ay := c.L.Start.x(), c.L.Start.y()
 	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
-	eval := func(t float64) (float64, float64) { return geom.EvalFitSpline(fit, t) }
-	deriv := func(t float64) (float64, float64) { return geom.EvalFitSplineDeriv(fit, t) }
+	eval := func(t float64) (float64, float64) {
+		x, y, _ := geom.EvalFitSpline(fit, t)
+		return x, y
+	}
+	deriv := func(t float64) (float64, float64) {
+		dx, dy, _ := geom.EvalFitSplineDeriv(fit, t)
+		return dx, dy
+	}
 	return seedTangentParam(eval, deriv, 16*len(fit), false, bboxDiagonal(fit), ax, ay, dx, dy, norm(dx, dy))
 }
 
@@ -830,8 +845,8 @@ func (c *tangentToFitSpline) residual(out []float64) []float64 {
 	fit := c.Sp.fitCoords()
 	tv := c.s.vars[c.tvar]
 	t := clamp01(tv)
-	sx, sy := geom.EvalFitSpline(fit, t)
-	spx, spy := geom.EvalFitSplineDeriv(fit, t)
+	sx, sy, _ := geom.EvalFitSpline(fit, t)
+	spx, spy, _ := geom.EvalFitSplineDeriv(fit, t)
 	ax, ay := c.L.Start.x(), c.L.Start.y()
 	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
 	dlen := norm(dx, dy)
@@ -849,8 +864,14 @@ func (c *tangentToSpline) seedParam() float64 {
 	ctrl := c.Sp.controlCoords()
 	ax, ay := c.L.Start.x(), c.L.Start.y()
 	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
-	eval := func(t float64) (float64, float64) { return geom.EvalCubicBSpline(ctrl, t) }
-	deriv := func(t float64) (float64, float64) { return geom.EvalCubicBSplineDeriv(ctrl, t) }
+	eval := func(t float64) (float64, float64) {
+		x, y, _ := geom.EvalCubicBSpline(ctrl, t)
+		return x, y
+	}
+	deriv := func(t float64) (float64, float64) {
+		dx, dy, _ := geom.EvalCubicBSplineDeriv(ctrl, t)
+		return dx, dy
+	}
 	return seedTangentParam(eval, deriv, 16*(len(ctrl)-3), false, bboxDiagonal(c.Sp.controlCoords()), ax, ay, dx, dy, norm(dx, dy))
 }
 

@@ -8,6 +8,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// evalSpline / derivSpline / nearestSpline wrap the cubic B-spline kernels,
+// failing the test on the (unreachable, given valid control points) error.
+func evalSpline(t *testing.T, ctrl [][2]float64, tp float64) (float64, float64) {
+	x, y, err := geom.EvalCubicBSpline(ctrl, tp)
+	require.NoError(t, err)
+	return x, y
+}
+
+func derivSpline(t *testing.T, ctrl [][2]float64, tp float64) (float64, float64) {
+	dx, dy, err := geom.EvalCubicBSplineDeriv(ctrl, tp)
+	require.NoError(t, err)
+	return dx, dy
+}
+
+func nearestSpline(t *testing.T, ctrl [][2]float64, px, py float64) float64 {
+	tp, err := geom.NearestParamCubicBSpline(ctrl, px, py)
+	require.NoError(t, err)
+	return tp
+}
+
 func TestSplineEndpoints(t *testing.T) {
 	sp, err := geom.NewSpline(
 		geom.NewPoint(0, 0), geom.NewPoint(2, 5), geom.NewPoint(8, 5),
@@ -73,16 +93,16 @@ func TestNearestParamCubicBSpline(t *testing.T) {
 	ctrl := [][2]float64{{0, 0}, {2, 4}, {8, 4}, {10, 0}}
 	// A point exactly on the curve recovers its own parameter.
 	for _, want := range []float64{0, 0.25, 0.5, 0.75, 1} {
-		x, y := geom.EvalCubicBSpline(ctrl, want)
-		require.InDelta(t, want, geom.NearestParamCubicBSpline(ctrl, x, y), 1e-3,
+		x, y := evalSpline(t, ctrl, want)
+		require.InDelta(t, want, nearestSpline(t, ctrl, x, y), 1e-3,
 			"recover the parameter of an on-curve point at t=%v", want)
 	}
 	// A point off the curve projects to (at least) the nearest sampled point.
-	tp := geom.NearestParamCubicBSpline(ctrl, 5, 10)
-	px, py := geom.EvalCubicBSpline(ctrl, tp)
+	tp := nearestSpline(t, ctrl, 5, 10)
+	px, py := evalSpline(t, ctrl, tp)
 	best := math.Inf(1)
 	for i := 0; i <= 200; i++ {
-		qx, qy := geom.EvalCubicBSpline(ctrl, float64(i)/200)
+		qx, qy := evalSpline(t, ctrl, float64(i)/200)
 		if d := math.Hypot(5-qx, 10-qy); d < best {
 			best = d
 		}
@@ -95,20 +115,20 @@ func TestEvalCubicBSplineDeriv(t *testing.T) {
 	// Interior: analytic derivative matches a central finite difference of Eval.
 	for _, tp := range []float64{0.15, 0.37, 0.5, 0.62, 0.84} {
 		const h = 1e-6
-		ax, ay := geom.EvalCubicBSpline(ctrl, tp-h)
-		bx, by := geom.EvalCubicBSpline(ctrl, tp+h)
+		ax, ay := evalSpline(t, ctrl, tp-h)
+		bx, by := evalSpline(t, ctrl, tp+h)
 		wantX, wantY := (bx-ax)/(2*h), (by-ay)/(2*h)
-		gotX, gotY := geom.EvalCubicBSplineDeriv(ctrl, tp)
+		gotX, gotY := derivSpline(t, ctrl, tp)
 		require.InDelta(t, wantX, gotX, 1e-3, "dx at t=%v", tp)
 		require.InDelta(t, wantY, gotY, 1e-3, "dy at t=%v", tp)
 	}
 	// Endpoints: one-sided tangent along the first/last control legs.
-	d0x, d0y := geom.EvalCubicBSplineDeriv(ctrl, 0)
+	d0x, d0y := derivSpline(t, ctrl, 0)
 	require.InDelta(t, 0, d0x*(ctrl[1][1]-ctrl[0][1])-d0y*(ctrl[1][0]-ctrl[0][0]), 1e-9,
 		"start tangent parallel to first leg")
 	require.Greater(t, d0x, 0.0, "start tangent points into the curve")
 	n := len(ctrl)
-	d1x, d1y := geom.EvalCubicBSplineDeriv(ctrl, 1)
+	d1x, d1y := derivSpline(t, ctrl, 1)
 	require.InDelta(t, 0, d1x*(ctrl[n-1][1]-ctrl[n-2][1])-d1y*(ctrl[n-1][0]-ctrl[n-2][0]), 1e-9,
 		"end tangent parallel to last leg (t=1 shortcut, not (0,0))")
 	require.Greater(t, math.Hypot(d1x, d1y), 0.0, "end tangent is nonzero")

@@ -49,35 +49,43 @@ func (sp *FitSpline) Eval(t float64) (float64, float64) {
 
 // Polyline samples the curve at segments+1 evenly spaced (in chord-length) points.
 func (sp *FitSpline) Polyline(segments int) [][2]float64 {
-	return SampleFitSpline(controlCoords(sp.Fit), segments)
+	// fit-point count is guaranteed >=2 by the FitSpline constructor.
+	pts, _ := SampleFitSpline(controlCoords(sp.Fit), segments)
+	return pts
 }
 
 // EvalFitSpline evaluates the natural cubic interpolating spline through the given
 // fit coordinates at t ∈ [0, 1] (normalized chord length). A one-off evaluation —
-// for many samples use [SampleFitSpline], which reuses one evaluator. It panics
-// with fewer than 2 fit points.
-func EvalFitSpline(fit [][2]float64, t float64) (float64, float64) {
-	requireMinPoints(len(fit), 2, "fit-point spline", "fit points")
+// for many samples use [SampleFitSpline], which reuses one evaluator. It returns
+// [ErrTooFewFitPoints] with fewer than 2 fit points.
+func EvalFitSpline(fit [][2]float64, t float64) (float64, float64, error) {
+	if err := tooFewPoints(len(fit), 2, ErrTooFewFitPoints); err != nil {
+		return 0, 0, err
+	}
 	p := newFitEvaluator(fit).at(t)
-	return p[0], p[1]
+	return p[0], p[1], nil
 }
 
 // EvalFitSplineDeriv returns the first derivative dS/dt of the natural-cubic
 // interpolating spline through fit at t ∈ [0, 1] (normalized chord length;
 // clamped). A one-off evaluation — for many samples build a fitEvaluator once. It
-// panics with fewer than 2 fit points.
-func EvalFitSplineDeriv(fit [][2]float64, t float64) (float64, float64) {
-	requireMinPoints(len(fit), 2, "fit-point spline", "fit points")
+// returns [ErrTooFewFitPoints] with fewer than 2 fit points.
+func EvalFitSplineDeriv(fit [][2]float64, t float64) (float64, float64, error) {
+	if err := tooFewPoints(len(fit), 2, ErrTooFewFitPoints); err != nil {
+		return 0, 0, err
+	}
 	d := newFitEvaluator(fit).derivAt(t)
-	return d[0], d[1]
+	return d[0], d[1], nil
 }
 
 // SampleFitSpline samples the interpolating spline at segments+1 evenly spaced
 // parameters (minimum 2 segments), reusing a single natural-cubic evaluator (the
-// tridiagonal solve runs once, not per sample). It panics with fewer than 2 fit
-// points.
-func SampleFitSpline(fit [][2]float64, segments int) [][2]float64 {
-	requireMinPoints(len(fit), 2, "fit-point spline", "fit points")
+// tridiagonal solve runs once, not per sample). It returns [ErrTooFewFitPoints]
+// with fewer than 2 fit points.
+func SampleFitSpline(fit [][2]float64, segments int) ([][2]float64, error) {
+	if err := tooFewPoints(len(fit), 2, ErrTooFewFitPoints); err != nil {
+		return nil, err
+	}
 	if segments < 2 {
 		segments = 2
 	}
@@ -86,7 +94,7 @@ func SampleFitSpline(fit [][2]float64, segments int) [][2]float64 {
 	for i := 0; i <= segments; i++ {
 		pts[i] = e.at(float64(i) / float64(segments))
 	}
-	return pts
+	return pts, nil
 }
 
 // fitEvaluator holds a built natural-cubic interpolant: the active (deduplicated)
