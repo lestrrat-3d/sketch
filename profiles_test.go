@@ -10,7 +10,7 @@ import (
 
 func TestProfilesRectangle(t *testing.T) {
 	s := newSketch(t)
-	s.AddRectangle(0, 0, 20, 12)
+	s.CreateRectangle(0, 0, 20, 12)
 	profiles := s.Profiles()
 	require.Len(t, profiles, 1, "one profile")
 	require.Len(t, profiles[0].Entities, 4, "four sides")
@@ -18,7 +18,7 @@ func TestProfilesRectangle(t *testing.T) {
 
 func TestProfilesPolygonExcludesConstruction(t *testing.T) {
 	s := newSketch(t)
-	p, err := s.AddPolygon(0, 0, 6, 5) // 6 sides + 6 construction spokes
+	p, err := s.CreatePolygon(0, 0, 6, 5) // 6 sides + 6 construction spokes
 	require.NoError(t, err)
 	profiles := s.Profiles()
 	require.Len(t, profiles, 1, "spokes are construction, only the hull closes")
@@ -28,10 +28,10 @@ func TestProfilesPolygonExcludesConstruction(t *testing.T) {
 
 func TestProfilesSlotAndCircle(t *testing.T) {
 	s := newSketch(t)
-	_, err := s.AddSlot(0, 0, 10, 0, 3) // 2 arcs + 2 flanks + 4 construction spokes
+	_, err := s.CreateSlot(0, 0, 10, 0, 3) // 2 arcs + 2 flanks + 4 construction spokes
 	require.NoError(t, err)
-	o := s.AddPoint(30, 0)
-	s.AddCircle(o, 2)
+	o := s.CreatePoint(30, 0)
+	s.CreateCircle(o, 2)
 
 	profiles := s.Profiles()
 	require.Len(t, profiles, 2, "slot loop + circle")
@@ -59,14 +59,14 @@ func TestProfilesSlotAndCircle(t *testing.T) {
 // rely on for parametric behavior.
 func TestProfilesReflectSolvedGeometry(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(18, 2)
-	c := s.AddPoint(17, 11)
-	d := s.AddPoint(1, 13)
-	ab := s.AddLine(a, b)
-	bc := s.AddLine(b, c)
-	dc := s.AddLine(d, c)
-	ad := s.AddLine(a, d)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(18, 2)
+	c := s.CreatePoint(17, 11)
+	d := s.CreatePoint(1, 13)
+	ab := s.CreateLine(a, b)
+	bc := s.CreateLine(b, c)
+	dc := s.CreateLine(d, c)
+	ad := s.CreateLine(a, d)
 	a.MoveTo(0, 0)
 	s.Fix(a)
 	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
@@ -101,8 +101,8 @@ func TestProfilesReflectSolvedGeometry(t *testing.T) {
 
 func TestProfilesPlateWithHole(t *testing.T) {
 	s := newSketch(t)
-	s.AddRectangle(0, 0, 10, 10)
-	s.AddCircle(s.AddPoint(5, 5), 2) // fully inside
+	s.CreateRectangle(0, 0, 10, 10)
+	s.CreateCircle(s.CreatePoint(5, 5), 2) // fully inside
 
 	profiles := s.Profiles()
 	require.Len(t, profiles, 2, "the plate (with a hole) and the inner disk")
@@ -130,7 +130,7 @@ func TestProfilesPlateWithHole(t *testing.T) {
 
 func TestProfilesLoneCircleWhole(t *testing.T) {
 	s := newSketch(t)
-	s.AddCircle(s.AddPoint(0, 0), 3)
+	s.CreateCircle(s.CreatePoint(0, 0), 3)
 	profiles := s.Profiles()
 	require.Len(t, profiles, 1, "one disk region")
 	require.Len(t, profiles[0].Entities, 1, "the circle")
@@ -143,8 +143,8 @@ func TestProfilesLoneCircleWhole(t *testing.T) {
 
 func TestProfilesBareCrossingSubdivision(t *testing.T) {
 	s := newSketch(t)
-	s.AddRectangle(0, 0, 6, 4)
-	s.AddRectangle(3, 2, 9, 6) // overlaps in [3,6]x[2,4]
+	s.CreateRectangle(0, 0, 6, 4)
+	s.CreateRectangle(3, 2, 9, 6) // overlaps in [3,6]x[2,4]
 
 	profiles := s.Profiles()
 	require.Len(t, profiles, 3, "two L-shapes and the overlap")
@@ -165,14 +165,14 @@ func TestProfilesBareCrossingSubdivision(t *testing.T) {
 
 func TestProfilesSelfIntersectingInvalid(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(4, 4)
-	c := s.AddPoint(4, 0)
-	d := s.AddPoint(0, 4)
-	s.AddLine(a, b)
-	s.AddLine(b, c)
-	s.AddLine(c, d)
-	s.AddLine(d, a) // bowtie: a-b crosses c-d
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(4, 4)
+	c := s.CreatePoint(4, 0)
+	d := s.CreatePoint(0, 4)
+	s.CreateLine(a, b)
+	s.CreateLine(b, c)
+	s.CreateLine(c, d)
+	s.CreateLine(d, a) // bowtie: a-b crosses c-d
 
 	profiles := s.Profiles()
 	require.NotEmpty(t, profiles)
@@ -184,13 +184,13 @@ func TestProfilesSelfIntersectingInvalid(t *testing.T) {
 
 func TestProfilesOpenChainAndConstructionCircle(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
-	c := s.AddPoint(10, 10)
-	s.AddLine(a, b)
-	s.AddLine(b, c) // open chain
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
+	c := s.CreatePoint(10, 10)
+	s.CreateLine(a, b)
+	s.CreateLine(b, c) // open chain
 
-	s.AddCircle(s.AddPoint(30, 0), 2).SetConstruction(true)
+	s.CreateCircle(s.CreatePoint(30, 0), 2).SetConstruction(true)
 
 	require.Empty(t, s.Profiles(), "no closed non-construction boundary")
 }

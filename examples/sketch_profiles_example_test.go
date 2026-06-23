@@ -13,8 +13,8 @@ import (
 func Example_sketch_profiles() {
 	w := sketch.NewWorld()
 	s, _ := w.CreateSketch(w.XY())
-	s.AddRectangle(0, 0, 40, 30)       // a plate
-	s.AddCircle(s.AddPoint(20, 15), 5) // a bolt hole inside it
+	s.CreateRectangle(0, 0, 40, 30)          // a plate
+	s.CreateCircle(s.CreatePoint(20, 15), 5) // a bolt hole inside it
 
 	profiles := s.Profiles()
 	// The plate is the region carrying the circular hole; the hole interior is

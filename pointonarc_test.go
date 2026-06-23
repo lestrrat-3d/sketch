@@ -11,19 +11,19 @@ import (
 // quarterArc builds a fixed arc sweeping the first quadrant (angle 0 → π/2,
 // radius 5) and returns it.
 func quarterArc(s *sketch.Sketch) *sketch.Arc {
-	c := s.AddPoint(0, 0)
-	start := s.AddPoint(5, 0)
-	end := s.AddPoint(0, 5)
+	c := s.CreatePoint(0, 0)
+	start := s.CreatePoint(5, 0)
+	end := s.CreatePoint(0, 5)
 	s.Fix(c)
 	s.Fix(start)
 	s.Fix(end)
-	return s.AddArc(c, start, end)
+	return s.CreateArc(c, start, end)
 }
 
 func TestPointOnArc(t *testing.T) {
 	s := newSketch(t)
 	arc := quarterArc(s)
-	p := s.AddPoint(3, 3) // near the arc, inside the sweep
+	p := s.CreatePoint(3, 3) // near the arc, inside the sweep
 	s.AddConstraint(sketch.NewPointOnArc(p, arc))
 
 	_, err := s.Solve()
@@ -39,7 +39,7 @@ func TestPointOnArcConfinedToSweep(t *testing.T) {
 	// full circle off the arc.
 	s := newSketch(t)
 	arc := quarterArc(s)
-	p := s.AddPoint(3, -3) // angle −π/4, outside the [0, π/2] sweep
+	p := s.CreatePoint(3, -3) // angle −π/4, outside the [0, π/2] sweep
 	s.AddConstraint(sketch.NewPointOnArc(p, arc))
 
 	_, err := s.Solve()
@@ -53,7 +53,7 @@ func TestPointOnArcConfinedToSweep(t *testing.T) {
 func TestPointOnArcDOFAndRemoval(t *testing.T) {
 	s := newSketch(t)
 	arc := quarterArc(s)
-	p := s.AddPoint(3, 3)
+	p := s.CreatePoint(3, 3)
 	require.Equal(t, 2, s.DOF(), "the free point has two DOF")
 
 	con := sketch.NewPointOnArc(p, arc)

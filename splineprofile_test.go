@@ -12,13 +12,13 @@ import (
 
 func TestSplineBoundsProfile(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	c1 := s.AddPoint(1, 2)
-	c2 := s.AddPoint(3, 2)
-	b := s.AddPoint(4, 0)
-	sp, err := s.AddSpline(a, c1, c2, b) // open spline A → B (a hump above y=0)
+	a := s.CreatePoint(0, 0)
+	c1 := s.CreatePoint(1, 2)
+	c2 := s.CreatePoint(3, 2)
+	b := s.CreatePoint(4, 0)
+	sp, err := s.CreateSpline(a, c1, c2, b) // open spline A → B (a hump above y=0)
 	require.NoError(t, err)
-	s.AddLine(b, a) // chord B → A closes the loop (shared endpoints a, b)
+	s.CreateLine(b, a) // chord B → A closes the loop (shared endpoints a, b)
 
 	profiles := s.Profiles()
 	require.Len(t, profiles, 1, "the spline + chord bound exactly one region")
@@ -33,13 +33,13 @@ func TestSplineProfileSampledAreaApprox(t *testing.T) {
 	// finite and close to the true hump area (sampling, not exact). Controls
 	// (0,0),(0,h),(w,h),(w,0) make a flat-topped cap; assert area is in a sane band.
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	c1 := s.AddPoint(0, 3)
-	c2 := s.AddPoint(6, 3)
-	b := s.AddPoint(6, 0)
-	_, err := s.AddSpline(a, c1, c2, b)
+	a := s.CreatePoint(0, 0)
+	c1 := s.CreatePoint(0, 3)
+	c2 := s.CreatePoint(6, 3)
+	b := s.CreatePoint(6, 0)
+	_, err := s.CreateSpline(a, c1, c2, b)
 	require.NoError(t, err)
-	s.AddLine(b, a)
+	s.CreateLine(b, a)
 
 	profiles := s.Profiles()
 	require.Len(t, profiles, 1)
@@ -54,13 +54,13 @@ func TestSelfIntersectingSplineLoopInvalid(t *testing.T) {
 	// loops, so the curve crosses itself; closing it with a chord makes a
 	// self-intersecting boundary the oracle must NOT bless.
 	s := newSketch(t)
-	p0 := s.AddPoint(0, 0)
-	p1 := s.AddPoint(-4.0/3.0, -5.0/12.0)
-	p2 := s.AddPoint(-4.0/3.0, -3.0/2.0)
-	p3 := s.AddPoint(0, 3.0/4.0)
-	_, err := s.AddSpline(p0, p1, p2, p3)
+	p0 := s.CreatePoint(0, 0)
+	p1 := s.CreatePoint(-4.0/3.0, -5.0/12.0)
+	p2 := s.CreatePoint(-4.0/3.0, -3.0/2.0)
+	p3 := s.CreatePoint(0, 3.0/4.0)
+	_, err := s.CreateSpline(p0, p1, p2, p3)
 	require.NoError(t, err)
-	s.AddLine(p3, p0) // close the loop
+	s.CreateLine(p3, p0) // close the loop
 
 	rep := s.Verify()
 	require.False(t, rep.ProfilesValid, "a self-intersecting spline loop is not valid")
@@ -77,11 +77,11 @@ func TestSelfIntersectingSplineLoopInvalid(t *testing.T) {
 func TestOpenSplineBoundsNoProfile(t *testing.T) {
 	// An open spline with no closing edge bounds no region.
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	c1 := s.AddPoint(1, 2)
-	c2 := s.AddPoint(3, 2)
-	b := s.AddPoint(4, 0)
-	_, err := s.AddSpline(a, c1, c2, b)
+	a := s.CreatePoint(0, 0)
+	c1 := s.CreatePoint(1, 2)
+	c2 := s.CreatePoint(3, 2)
+	b := s.CreatePoint(4, 0)
+	_, err := s.CreateSpline(a, c1, c2, b)
 	require.NoError(t, err)
 
 	require.Empty(t, s.Profiles(), "a lone open spline closes nothing")
@@ -91,14 +91,14 @@ func TestConstructionSplineExcludedFromProfiles(t *testing.T) {
 	// A construction spline is excluded from profiles, so the chord alone (one open
 	// line) bounds no region.
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	c1 := s.AddPoint(1, 2)
-	c2 := s.AddPoint(3, 2)
-	b := s.AddPoint(4, 0)
-	sp, err := s.AddSpline(a, c1, c2, b)
+	a := s.CreatePoint(0, 0)
+	c1 := s.CreatePoint(1, 2)
+	c2 := s.CreatePoint(3, 2)
+	b := s.CreatePoint(4, 0)
+	sp, err := s.CreateSpline(a, c1, c2, b)
 	require.NoError(t, err)
 	sp.SetConstruction(true)
-	s.AddLine(b, a)
+	s.CreateLine(b, a)
 
 	require.Empty(t, s.Profiles(), "a construction spline does not close a profile")
 }
@@ -109,25 +109,25 @@ func TestSplineProfileCoordinateMergeMatchesLines(t *testing.T) {
 	// at the spline's endpoint coordinates still closes the profile — exactly as it
 	// would for lines. A spline must behave consistently with the other curves here.
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	c1 := s.AddPoint(1, 2)
-	c2 := s.AddPoint(3, 2)
-	b := s.AddPoint(4, 0)
-	_, err := s.AddSpline(a, c1, c2, b)
+	a := s.CreatePoint(0, 0)
+	c1 := s.CreatePoint(1, 2)
+	c2 := s.CreatePoint(3, 2)
+	b := s.CreatePoint(4, 0)
+	_, err := s.CreateSpline(a, c1, c2, b)
 	require.NoError(t, err)
-	a2 := s.AddPoint(0, 0) // same coords as a, distinct identity
-	b2 := s.AddPoint(4, 0) // same coords as b, distinct identity
-	s.AddLine(b2, a2)
+	a2 := s.CreatePoint(0, 0) // same coords as a, distinct identity
+	b2 := s.CreatePoint(4, 0) // same coords as b, distinct identity
+	s.CreateLine(b2, a2)
 
 	require.Len(t, s.Profiles(), 1, "coordinate-coincident chord closes the spline, like lines")
 }
 
-func TestAddSplineRejectsNilControl(t *testing.T) {
+func TestCreateSplineRejectsNilControl(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(1, 0)
-	c := s.AddPoint(2, 1)
-	_, err := s.AddSpline(a, b, nil, c)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(1, 0)
+	c := s.CreatePoint(2, 1)
+	_, err := s.CreateSpline(a, b, nil, c)
 	require.ErrorIs(t, err, sketch.ErrInvalidShape, "a nil control point is rejected, not a panic later")
 }
 
@@ -136,10 +136,10 @@ func TestEndpointClosedSplineNotSelfIntersecting(t *testing.T) {
 	// closed loop (a teardrop). Its first/last sampled segments meet at the shared
 	// endpoint — the natural closure seam, NOT a self-crossing.
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	c1 := s.AddPoint(1, 2)
-	c2 := s.AddPoint(-1, 2)
-	sp, err := s.AddSpline(a, c1, c2, a) // first == last == a: a closed teardrop
+	a := s.CreatePoint(0, 0)
+	c1 := s.CreatePoint(1, 2)
+	c2 := s.CreatePoint(-1, 2)
+	sp, err := s.CreateSpline(a, c1, c2, a) // first == last == a: a closed teardrop
 	require.NoError(t, err)
 
 	profiles := s.Profiles()

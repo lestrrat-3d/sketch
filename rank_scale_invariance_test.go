@@ -33,8 +33,8 @@ func TestRankScaleInvariantRedundant(t *testing.T) {
 	// redundant at every scale.
 	build := func(k float64) *sketch.VerificationReport {
 		s := newSketch(t)
-		a := s.AddPoint(0, 0)
-		b := s.AddPoint(10*k, 0)
+		a := s.CreatePoint(0, 0)
+		b := s.CreatePoint(10*k, 0)
 		s.Fix(a)
 		s.AddConstraint(sketch.NewHorizontalPoints(a, b))
 		s.AddConstraint(sketch.NewDistance(a, b, 10*k))
@@ -55,8 +55,8 @@ func TestRankScaleInvariantConflicting(t *testing.T) {
 	// at every scale, attributed the same way.
 	build := func(k float64) *sketch.VerificationReport {
 		s := newSketch(t)
-		a := s.AddPoint(0, 0)
-		b := s.AddPoint(10*k, 0)
+		a := s.CreatePoint(0, 0)
+		b := s.CreatePoint(10*k, 0)
 		s.Fix(a)
 		s.AddConstraint(sketch.NewHorizontalPoints(a, b))
 		s.AddConstraint(sketch.NewDistance(a, b, 10*k))
@@ -76,9 +76,9 @@ func TestRankScaleInvariantUnderconstrained(t *testing.T) {
 	// circle); the same point is reported free at every scale.
 	build := func(k float64) (*sketch.VerificationReport, int) {
 		s := newSketch(t)
-		o := s.AddPoint(0, 0)
+		o := s.CreatePoint(0, 0)
 		s.Fix(o)
-		p := s.AddPoint(3*k, 4*k)
+		p := s.CreatePoint(3*k, 4*k)
 		s.AddConstraint(sketch.NewDistance(o, p, 5*k))
 		s.Solve()
 		return s.Verify(), p.ID()
@@ -98,16 +98,16 @@ func TestRankScaleInvariantAuxHeavy(t *testing.T) {
 	// every scale — that is the scale-invariance property.
 	build := func(k float64) *sketch.VerificationReport {
 		s := newSketch(t)
-		o, a, b := s.AddPoint(0, 0), s.AddPoint(5*k, 0), s.AddPoint(0, 5*k)
+		o, a, b := s.CreatePoint(0, 0), s.CreatePoint(5*k, 0), s.CreatePoint(0, 5*k)
 		s.Fix(o)
 		s.Fix(a)
 		s.Fix(b)
-		arc := s.AddArc(o, a, b)
-		p := s.AddPoint(4*k, 3*k)
-		diag := s.AddPoint(5*k, 5*k)
+		arc := s.CreateArc(o, a, b)
+		p := s.CreatePoint(4*k, 3*k)
+		diag := s.CreatePoint(5*k, 5*k)
 		s.Fix(diag)
 		s.AddConstraint(sketch.NewPointOnArc(p, arc))
-		s.AddConstraint(sketch.NewPointOnLine(p, s.AddLine(o, diag)))
+		s.AddConstraint(sketch.NewPointOnLine(p, s.CreateLine(o, diag)))
 		s.Solve()
 		return s.Verify()
 	}
@@ -129,15 +129,15 @@ func TestCheckConstraintScaleInvariant(t *testing.T) {
 	// scale.
 	for _, k := range rankScales {
 		s := newSketch(t)
-		o := s.AddPoint(0, 0)
+		o := s.CreatePoint(0, 0)
 		s.Fix(o)
-		p := s.AddPoint(3*k, 4*k)
+		p := s.CreatePoint(3*k, 4*k)
 		first := sketch.NewDistance(o, p, 5*k)
 		require.NoErrorf(t, s.CheckConstraint(first), "first distance accepted at k=%v", k)
 		s.AddConstraint(first)
 		s.Solve()
 		// A second, independent distance from a different fixed point is fine.
-		q := s.AddPoint(10*k, 0)
+		q := s.CreatePoint(10*k, 0)
 		s.Fix(q)
 		require.NoErrorf(t, s.CheckConstraint(sketch.NewDistance(q, p, 5*k)), "independent distance accepted at k=%v", k)
 		// An exact duplicate of the first is over-constraining.
@@ -154,10 +154,10 @@ func TestCheckConstraintConicTranslationInvariant(t *testing.T) {
 	// oracle must catch).
 	build := func(off float64) error {
 		s := newSketch(t)
-		ec := s.AddPoint(off, off)
-		e := s.AddEllipse(ec, 6, 3, 0)
-		cc := s.AddPoint(off+9, off)
-		ci := s.AddCircle(cc, 2)
+		ec := s.CreatePoint(off, off)
+		e := s.CreateEllipse(ec, 6, 3, 0)
+		cc := s.CreatePoint(off+9, off)
+		ci := s.CreateCircle(cc, 2)
 		s.Fix(ec)
 		s.Fix(cc)
 		s.AddConstraint(

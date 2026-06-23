@@ -21,10 +21,10 @@ func TestDistancePointCircle(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newSketch(t)
-			cc := s.AddPoint(0, 0)
-			circle := s.AddCircle(cc, 5)
+			cc := s.CreatePoint(0, 0)
+			circle := s.CreateCircle(cc, 5)
 			s.FixEntity(circle)
-			p := s.AddPoint(10, 0)
+			p := s.CreatePoint(10, 0)
 			s.AddConstraint(sketch.NewHorizontalPoints(p, cc)) // p.y = 0
 			s.AddConstraint(sketch.NewDistancePointCircle(p, circle, tc.d))
 
@@ -49,11 +49,11 @@ func TestDistanceLineCircle(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newSketch(t)
-			circle := s.AddCircle(s.AddPoint(0, 0), 5)
+			circle := s.CreateCircle(s.CreatePoint(0, 0), 5)
 			s.FixEntity(circle)
-			p1 := s.AddPoint(-10, 10)
-			p2 := s.AddPoint(10, 10)
-			line := s.AddLine(p1, p2)
+			p1 := s.CreatePoint(-10, 10)
+			p2 := s.CreatePoint(10, 10)
+			line := s.CreateLine(p1, p2)
 			s.AddConstraint(sketch.NewHorizontal(line))
 			s.AddConstraint(sketch.NewDistanceLineCircle(line, circle, tc.d))
 
@@ -67,10 +67,10 @@ func TestDistanceLineCircle(t *testing.T) {
 
 func TestDistanceCircleDOFAndRemoval(t *testing.T) {
 	s := newSketch(t)
-	cc := s.AddPoint(0, 0)
-	circle := s.AddCircle(cc, 5)
+	cc := s.CreatePoint(0, 0)
+	circle := s.CreateCircle(cc, 5)
 	s.FixEntity(circle)
-	p := s.AddPoint(10, 0)
+	p := s.CreatePoint(10, 0)
 	s.AddConstraint(sketch.NewHorizontalPoints(p, cc))
 	require.Equal(t, 1, s.DOF(), "the point slides along the x-axis")
 
@@ -86,9 +86,9 @@ func TestDistancePointCircleDriven(t *testing.T) {
 	// A driven (reference) distance-point-circle measures the radial gap of fixed
 	// geometry: P at (8,0), r=5 circle at origin → gap 3.
 	s := newSketch(t)
-	circle := s.AddCircle(s.AddPoint(0, 0), 5)
+	circle := s.CreateCircle(s.CreatePoint(0, 0), 5)
 	s.FixEntity(circle)
-	p := s.AddPoint(8, 0)
+	p := s.CreatePoint(8, 0)
 	s.Fix(p)
 	dim := sketch.NewDistancePointCircle(p, circle, 0)
 	dim.SetDriven(true)
@@ -102,15 +102,15 @@ func TestDistancePointCircleDriven(t *testing.T) {
 
 func TestDistanceCircleRoundTrip(t *testing.T) {
 	s := newSketch(t)
-	cc := s.AddPoint(0, 0)
-	circle := s.AddCircle(cc, 5)
+	cc := s.CreatePoint(0, 0)
+	circle := s.CreateCircle(cc, 5)
 	s.FixEntity(circle)
-	p := s.AddPoint(10, 0)
+	p := s.CreatePoint(10, 0)
 	s.AddConstraint(sketch.NewHorizontalPoints(p, cc))
 	s.AddConstraint(sketch.NewDistancePointCircle(p, circle, 3))
-	p1 := s.AddPoint(-10, 10)
-	p2 := s.AddPoint(10, 10)
-	line := s.AddLine(p1, p2)
+	p1 := s.CreatePoint(-10, 10)
+	p2 := s.CreatePoint(10, 10)
+	line := s.CreateLine(p1, p2)
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewDistanceLineCircle(line, circle, 2))
 	_, err := s.Solve()

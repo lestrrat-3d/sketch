@@ -20,8 +20,8 @@ func TestWorldSharedParameterTable(t *testing.T) {
 	require.Same(t, s1.Params(), s2.Params(), "all world sketches share one table")
 
 	// Binding a world sketch against a DIFFERENT table is the existing mismatch.
-	a := s1.AddPoint(0, 0)
-	b := s1.AddPoint(10, 0)
+	a := s1.CreatePoint(0, 0)
+	b := s1.CreatePoint(10, 0)
 	d := sketch.NewDistance(a, b, 10)
 	s1.AddConstraint(d)
 	require.ErrorIs(t, s1.Bind(d, param.New(), "x"), sketch.ErrTableMismatch)
@@ -32,8 +32,8 @@ func TestWorldGlobalParameterDrivesTwoSketches(t *testing.T) {
 	require.NoError(t, w.Params().SetValue("thickness", units.Millimeters(5)))
 
 	bind := func(s *sketch.Sketch) *sketch.HorizontalDistance {
-		a := s.AddPoint(0, 0)
-		b := s.AddPoint(3, 1)
+		a := s.CreatePoint(0, 0)
+		b := s.CreatePoint(3, 1)
 		s.Fix(a)
 		s.AddConstraint(sketch.NewVerticalDistance(a, b, 0)) // b.y = 0 → fully constrained
 		d := sketch.NewHorizontalDistance(a, b, 0)
@@ -121,8 +121,8 @@ func TestWorldParamsRoundTrip(t *testing.T) {
 	op, _ := w.CreateOffsetPlane(w.XY(), 0)
 	require.NoError(t, w.BindOffsetPlane(op, "thickness"))
 	s1, _ := w.CreateSketch(w.XY())
-	a := s1.AddPoint(0, 0)
-	b := s1.AddPoint(3, 1)
+	a := s1.CreatePoint(0, 0)
+	b := s1.CreatePoint(3, 1)
 	s1.Fix(a)
 	s1.AddConstraint(sketch.NewVerticalDistance(a, b, 0))
 	d := sketch.NewHorizontalDistance(a, b, 0)

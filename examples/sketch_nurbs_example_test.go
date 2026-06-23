@@ -16,11 +16,11 @@ import (
 func Example_sketch_nurbs() {
 	w := sketch.NewWorld()
 	s, _ := w.CreateSketch(w.XY())
-	p0 := s.AddPoint(1, 0)
-	p1 := s.AddPoint(1, 1)
-	p2 := s.AddPoint(0, 1)
+	p0 := s.CreatePoint(1, 0)
+	p1 := s.CreatePoint(1, 1)
+	p2 := s.CreatePoint(0, 1)
 
-	c, err := s.AddNURBS(2,
+	c, err := s.CreateNURBS(2,
 		[]*sketch.Point{p0, p1, p2},
 		[]float64{1, 1 / math.Sqrt2, 1}, // rational weights → an exact circle arc
 		[]float64{0, 0, 0, 1, 1, 1},     // clamped quadratic knot vector
@@ -30,9 +30,9 @@ func Example_sketch_nurbs() {
 		return
 	}
 
-	o := s.AddPoint(0, 0)
-	s.AddLine(p2, o) // (0,1) → origin
-	s.AddLine(o, p0) // origin → (1,0)
+	o := s.CreatePoint(0, 0)
+	s.CreateLine(p2, o) // (0,1) → origin
+	s.CreateLine(o, p0) // origin → (1,0)
 
 	if _, err := s.Solve(); err != nil {
 		fmt.Println(err)

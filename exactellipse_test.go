@@ -11,8 +11,8 @@ func TestProfileEllipseAreaExact(t *testing.T) {
 	// A sketch ellipse's profile area is exact (pi*rx*ry), not a sampled approx —
 	// so the oracle's reported area and validity rest on an exact number.
 	s := newSketch(t)
-	c := s.AddPoint(1, 2)
-	e := s.AddEllipse(c, 7, 3, 0.5)
+	c := s.CreatePoint(1, 2)
+	e := s.CreateEllipse(c, 7, 3, 0.5)
 	profiles := s.Profiles()
 	require.Len(t, profiles, 1)
 	require.True(t, profiles[0].Valid)

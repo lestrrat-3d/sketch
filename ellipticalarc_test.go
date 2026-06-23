@@ -13,10 +13,10 @@ import (
 // topHalfEllipse adds a top-half elliptical arc (rx=4, ry=2, from (4,0) to
 // (-4,0)) on a fixed center, with both endpoints fixed on the ellipse.
 func topHalfEllipse(s *sketch.Sketch) *sketch.EllipticalArc {
-	c := s.AddPoint(0, 0)
-	start := s.AddPoint(4, 0)
-	end := s.AddPoint(-4, 0)
-	return s.AddEllipticalArc(c, start, end, 4, 2, 0)
+	c := s.CreatePoint(0, 0)
+	start := s.CreatePoint(4, 0)
+	end := s.CreatePoint(-4, 0)
+	return s.CreateEllipticalArc(c, start, end, 4, 2, 0)
 }
 
 func TestEllipticalArcGeometry(t *testing.T) {
@@ -38,12 +38,12 @@ func TestEllipticalArcGeometry(t *testing.T) {
 
 func TestEllipticalArcInternalConstraintsAndDOF(t *testing.T) {
 	s := newSketch(t)
-	c := s.AddPoint(0, 0)
+	c := s.CreatePoint(0, 0)
 	// Endpoints start slightly OFF the ellipse; the auto-added internal
 	// constraints pull them on after a solve.
-	start := s.AddPoint(4.3, 0.1)
-	end := s.AddPoint(-3.8, 0.2)
-	ea := s.AddEllipticalArc(c, start, end, 4, 2, 0)
+	start := s.CreatePoint(4.3, 0.1)
+	end := s.CreatePoint(-3.8, 0.2)
+	ea := s.CreateEllipticalArc(c, start, end, 4, 2, 0)
 
 	require.Equal(t, 7, s.DOF(), "free elliptical arc: 9 vars − 2 internal on-ellipse")
 
@@ -65,7 +65,7 @@ func TestEllipticalArcInternalConstraintsAndDOF(t *testing.T) {
 func TestEllipticalArcProfile(t *testing.T) {
 	s := newSketch(t)
 	ea := topHalfEllipse(s)
-	s.AddLine(ea.End, ea.Start) // chord closing the half-ellipse
+	s.CreateLine(ea.End, ea.Start) // chord closing the half-ellipse
 
 	profiles := s.Profiles()
 	require.Len(t, profiles, 1, "the arc plus its chord close one region")
@@ -75,13 +75,13 @@ func TestEllipticalArcProfile(t *testing.T) {
 
 func TestEllipticalArcRoundTrip(t *testing.T) {
 	s := newSketch(t)
-	c := s.AddPoint(0, 0)
+	c := s.CreatePoint(0, 0)
 	s.Fix(c)
-	start := s.AddPoint(4, 0)
-	end := s.AddPoint(0, 2)
+	start := s.CreatePoint(4, 0)
+	end := s.CreatePoint(0, 2)
 	s.Fix(start)
 	s.Fix(end)
-	s.AddEllipticalArc(c, start, end, 4, 2, 0)
+	s.CreateEllipticalArc(c, start, end, 4, 2, 0)
 	_, err := s.Solve()
 	require.NoError(t, err)
 

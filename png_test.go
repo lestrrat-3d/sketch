@@ -18,14 +18,14 @@ import (
 func pngSquare(t *testing.T) *sketch.Sketch {
 	t.Helper()
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
-	c := s.AddPoint(10, 10)
-	d := s.AddPoint(0, 10)
-	s.AddLine(a, b)
-	s.AddLine(b, c)
-	top := s.AddLine(c, d)
-	s.AddLine(d, a)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
+	c := s.CreatePoint(10, 10)
+	d := s.CreatePoint(0, 10)
+	s.CreateLine(a, b)
+	s.CreateLine(b, c)
+	top := s.CreateLine(c, d)
+	s.CreateLine(d, a)
 	top.SetConstruction(true)
 	return s
 }
@@ -92,9 +92,9 @@ func TestPNG(t *testing.T) {
 
 	t.Run("point markers reflect fixed status", func(t *testing.T) {
 		s := newSketch(t)
-		free := s.AddPoint(0, 0)
-		fixed := s.AddPoint(10, 0)
-		s.AddLine(free, fixed)
+		free := s.CreatePoint(0, 0)
+		fixed := s.CreatePoint(10, 0)
+		s.CreateLine(free, fixed)
 		s.Fix(fixed)
 		data, err := s.PNG(sketch.WithScale(10))
 		require.NoError(t, err, "render must succeed")

@@ -44,7 +44,7 @@ unit-normalization invariant (the thing that keeps the normal equations
 well-conditioned) is preserved because nothing about them changes. 3D is a
 *placement transform* layered on top, not a generalization of the point model.
 
-Everything a user authors operates in **plane-local 2D**: `AddPoint`, the curve
+Everything a user authors operates in **plane-local 2D**: `CreatePoint`, the curve
 builders, every constraint and dimension, the modification tools, and
 `Solve(WithGoal(p, x, y))`. World coordinates are read-only. A world-space drag
 (projecting a world target onto the plane → a future `WithWorldGoal`) and

@@ -19,7 +19,7 @@ func TestAuditWorldUntrustworthySketchPropagates(t *testing.T) {
 	w := sketch.NewWorld()
 	s, err := w.CreateSketch(w.XY())
 	require.NoError(t, err)
-	a, b := s.AddPoint(0, 0), s.AddPoint(10, 0)
+	a, b := s.CreatePoint(0, 0), s.CreatePoint(10, 0)
 	s.AddConstraint(sketch.NewDistance(a, b, 10))
 	s.AddConstraint(sketch.NewDistance(a, b, 20)) // conflict
 	s.Solve()
@@ -35,8 +35,8 @@ func TestAuditWorldSelfIntersectingProfilePropagates(t *testing.T) {
 	w := sketch.NewWorld()
 	s, err := w.CreateSketch(w.XY())
 	require.NoError(t, err)
-	_, err = s.AddClosedSpline(
-		s.AddPoint(-3, -2), s.AddPoint(3, 2), s.AddPoint(-3, 2), s.AddPoint(3, -2))
+	_, err = s.CreateClosedSpline(
+		s.CreatePoint(-3, -2), s.CreatePoint(3, 2), s.CreatePoint(-3, 2), s.CreatePoint(3, -2))
 	require.NoError(t, err)
 	s.Solve()
 	require.False(t, w.Verify().Trustworthy(), "a world with a self-intersecting profile is untrustworthy")

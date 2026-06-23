@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAddRectangle(t *testing.T) {
+func TestCreateRectangle(t *testing.T) {
 	s := newSketch(t)
-	r := s.AddRectangle(0, 0, 18, 2) // rough initial size
+	r := s.CreateRectangle(0, 0, 18, 2) // rough initial size
 	s.Fix(r.A)
 	s.AddConstraint(sketch.NewDistance(r.A, r.B, 20))
 	s.AddConstraint(sketch.NewDistance(r.A, r.D, 12))
@@ -25,9 +25,9 @@ func TestAddRectangle(t *testing.T) {
 	require.InDelta(t, 12, r.D.Y(), 1e-6, "d.Y")
 }
 
-func TestAddPolygon(t *testing.T) {
+func TestCreatePolygon(t *testing.T) {
 	s := newSketch(t)
-	p, err := s.AddPolygon(0, 0, 6, 5)
+	p, err := s.CreatePolygon(0, 0, 6, 5)
 	require.NoError(t, err)
 	s.Fix(p.Center)
 	s.Fix(p.Vertices[0]) // at (5, 0): pins rotation and size
@@ -46,15 +46,15 @@ func TestAddPolygon(t *testing.T) {
 	}
 }
 
-func TestAddPolygonInvalid(t *testing.T) {
+func TestCreatePolygonInvalid(t *testing.T) {
 	s := newSketch(t)
-	_, err := s.AddPolygon(0, 0, 2, 5)
+	_, err := s.CreatePolygon(0, 0, 2, 5)
 	require.ErrorIs(t, err, sketch.ErrInvalidShape, "n < 3")
 }
 
-func TestAddSlot(t *testing.T) {
+func TestCreateSlot(t *testing.T) {
 	s := newSketch(t)
-	sl, err := s.AddSlot(0, 0, 10, 0, 2) // built at radius 2, driven to 3 below
+	sl, err := s.CreateSlot(0, 0, 10, 0, 2) // built at radius 2, driven to 3 below
 	require.NoError(t, err)
 	s.Fix(sl.C1)
 	s.Fix(sl.C2)
@@ -74,7 +74,7 @@ func TestAddSlot(t *testing.T) {
 
 func TestJSONRoundTripSlot(t *testing.T) {
 	s := newSketch(t)
-	sl, err := s.AddSlot(0, 0, 10, 0, 3)
+	sl, err := s.CreateSlot(0, 0, 10, 0, 3)
 	require.NoError(t, err)
 	s.Fix(sl.C1)
 	s.Fix(sl.C2)

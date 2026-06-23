@@ -11,12 +11,12 @@ import (
 
 func TestArcLengthQuarter(t *testing.T) {
 	s := newSketch(t)
-	c := s.AddPoint(0, 0)
-	start := s.AddPoint(4, 0)
+	c := s.CreatePoint(0, 0)
+	start := s.CreatePoint(4, 0)
 	s.Fix(c)
 	s.Fix(start) // pins R=4 and the start ray (angle 0)
-	end := s.AddPoint(0, 4)
-	arc := s.AddArc(c, start, end)
+	end := s.CreatePoint(0, 4)
+	arc := s.CreateArc(c, start, end)
 	s.AddConstraint(sketch.NewArcLength(arc, 3*math.Pi)) // 3π / R(4) = 3π/4 sweep
 
 	_, err := s.Solve()
@@ -31,12 +31,12 @@ func TestArcLengthQuarter(t *testing.T) {
 func TestArcLengthBranchBeyondPi(t *testing.T) {
 	// Target sweep 3π/2 > π — the case a sin(Δ−theta) coupling would risk.
 	s := newSketch(t)
-	c := s.AddPoint(0, 0)
-	start := s.AddPoint(2, 0)
+	c := s.CreatePoint(0, 0)
+	start := s.CreatePoint(2, 0)
 	s.Fix(c)
-	s.Fix(start)            // R=2
-	end := s.AddPoint(0, 2) // sweep π/2 initially
-	arc := s.AddArc(c, start, end)
+	s.Fix(start)               // R=2
+	end := s.CreatePoint(0, 2) // sweep π/2 initially
+	arc := s.CreateArc(c, start, end)
 	s.AddConstraint(sketch.NewArcLength(arc, 3*math.Pi)) // 3π / 2 = 3π/2 sweep
 
 	_, err := s.Solve()
@@ -52,13 +52,13 @@ func TestArcLengthRejectsWrongBranch(t *testing.T) {
 	// geometry frozen the dimension cannot be met; a coupling that vanished on the
 	// wrong branch would falsely report this solvable.
 	s := newSketch(t)
-	c := s.AddPoint(0, 0)
-	start := s.AddPoint(2, 0)
-	end := s.AddPoint(0, 2) // sweep π/2
+	c := s.CreatePoint(0, 0)
+	start := s.CreatePoint(2, 0)
+	end := s.CreatePoint(0, 2) // sweep π/2
 	s.Fix(c)
 	s.Fix(start)
 	s.Fix(end)
-	arc := s.AddArc(c, start, end)
+	arc := s.CreateArc(c, start, end)
 	s.AddConstraint(sketch.NewArcLength(arc, 3*math.Pi)) // wants sweep 3π/2
 
 	s.Solve()
@@ -69,12 +69,12 @@ func TestArcLengthSemicircle(t *testing.T) {
 	// Target sweep exactly π — Δ sits on the atan2 ±π cut, which the mod-2π wrap
 	// absorbs, so the dimension still solves cleanly.
 	s := newSketch(t)
-	c := s.AddPoint(0, 0)
-	start := s.AddPoint(3, 0)
+	c := s.CreatePoint(0, 0)
+	start := s.CreatePoint(3, 0)
 	s.Fix(c)
-	s.Fix(start)            // R=3
-	end := s.AddPoint(0, 3) // sweep π/2 initially
-	arc := s.AddArc(c, start, end)
+	s.Fix(start)               // R=3
+	end := s.CreatePoint(0, 3) // sweep π/2 initially
+	arc := s.CreateArc(c, start, end)
 	s.AddConstraint(sketch.NewArcLength(arc, 3*math.Pi)) // 3π / 3 = π sweep
 
 	_, err := s.Solve()
@@ -86,12 +86,12 @@ func TestArcLengthSemicircle(t *testing.T) {
 
 func TestArcLengthDOFNeutral(t *testing.T) {
 	s := newSketch(t)
-	c := s.AddPoint(0, 0)
-	start := s.AddPoint(4, 0)
+	c := s.CreatePoint(0, 0)
+	start := s.CreatePoint(4, 0)
 	s.Fix(c)
 	s.Fix(start)
-	end := s.AddPoint(0, 4)
-	arc := s.AddArc(c, start, end)
+	end := s.CreatePoint(0, 4)
+	arc := s.CreateArc(c, start, end)
 	require.Equal(t, 1, s.DOF(), "the free end has one angular DOF")
 
 	dim := sketch.NewArcLength(arc, 3*math.Pi)
@@ -106,13 +106,13 @@ func TestArcLengthDriven(t *testing.T) {
 	// A driven (reference) arc-length measures the swept length R·Sweep() of a
 	// fully determined quarter arc: R=4, sweep π/2, so length = 2π.
 	s := newSketch(t)
-	c := s.AddPoint(0, 0)
-	start := s.AddPoint(4, 0)
-	end := s.AddPoint(0, 4)
+	c := s.CreatePoint(0, 0)
+	start := s.CreatePoint(4, 0)
+	end := s.CreatePoint(0, 4)
 	s.Fix(c)
 	s.Fix(start)
 	s.Fix(end)
-	arc := s.AddArc(c, start, end)
+	arc := s.CreateArc(c, start, end)
 	dim := sketch.NewArcLength(arc, 0) // initial target irrelevant for a driven dim
 	dim.SetDriven(true)
 	s.AddConstraint(dim)
@@ -125,12 +125,12 @@ func TestArcLengthDriven(t *testing.T) {
 
 func TestArcLengthDrivenDOFNeutralAndToggle(t *testing.T) {
 	s := newSketch(t)
-	c := s.AddPoint(0, 0)
-	start := s.AddPoint(4, 0)
+	c := s.CreatePoint(0, 0)
+	start := s.CreatePoint(4, 0)
 	s.Fix(c)
 	s.Fix(start)
-	end := s.AddPoint(0, 4)
-	arc := s.AddArc(c, start, end)
+	end := s.CreatePoint(0, 4)
+	arc := s.CreateArc(c, start, end)
 	require.Equal(t, 1, s.DOF(), "the free end has one angular DOF")
 
 	dim := sketch.NewArcLength(arc, 3*math.Pi)
@@ -150,11 +150,11 @@ func TestArcLengthSetDrivenBeforeCommitNoOrphan(t *testing.T) {
 	// uncommitted dimension must NOT mutate the sketch's variables — membership,
 	// not c.s != nil, is the committed test — or it leaks an orphan free DOF.
 	s := newSketch(t)
-	c := s.AddPoint(0, 0)
-	start := s.AddPoint(4, 0)
+	c := s.CreatePoint(0, 0)
+	start := s.CreatePoint(4, 0)
 	s.Fix(c)
 	s.Fix(start)
-	arc := s.AddArc(c, start, s.AddPoint(0, 4))
+	arc := s.CreateArc(c, start, s.CreatePoint(0, 4))
 	require.Equal(t, 1, s.DOF())
 
 	dim := sketch.NewArcLength(arc, 3*math.Pi)
@@ -166,13 +166,13 @@ func TestArcLengthSetDrivenBeforeCommitNoOrphan(t *testing.T) {
 
 func TestArcLengthDrivenRoundTrip(t *testing.T) {
 	s := newSketch(t)
-	c := s.AddPoint(0, 0)
-	start := s.AddPoint(4, 0)
-	end := s.AddPoint(0, 4)
+	c := s.CreatePoint(0, 0)
+	start := s.CreatePoint(4, 0)
+	end := s.CreatePoint(0, 4)
 	s.Fix(c)
 	s.Fix(start)
 	s.Fix(end)
-	arc := s.AddArc(c, start, end)
+	arc := s.CreateArc(c, start, end)
 	dim := sketch.NewArcLength(arc, 0)
 	dim.SetDriven(true)
 	s.AddConstraint(dim)
@@ -193,11 +193,11 @@ func TestArcLengthDrivenRoundTrip(t *testing.T) {
 
 func TestArcLengthRoundTrip(t *testing.T) {
 	s := newSketch(t)
-	c := s.AddPoint(0, 0)
-	start := s.AddPoint(4, 0)
+	c := s.CreatePoint(0, 0)
+	start := s.CreatePoint(4, 0)
 	s.Fix(c)
 	s.Fix(start)
-	arc := s.AddArc(c, start, s.AddPoint(0, 4))
+	arc := s.CreateArc(c, start, s.CreatePoint(0, 4))
 	s.AddConstraint(sketch.NewArcLength(arc, 3*math.Pi))
 	_, err := s.Solve()
 	require.NoError(t, err)

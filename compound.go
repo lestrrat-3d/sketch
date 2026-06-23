@@ -6,9 +6,9 @@ import (
 	"math"
 )
 
-// ErrInvalidShape is returned by the compound shape builders ([Sketch.AddPolygon],
-// [Sketch.AddSlot]) and the pattern tools ([Sketch.AddPatternRect],
-// [Sketch.AddPatternCircular]) when given counts or coordinates that cannot form
+// ErrInvalidShape is returned by the compound shape builders ([Sketch.CreatePolygon],
+// [Sketch.CreateSlot]) and the pattern tools ([Sketch.CreatePatternRect],
+// [Sketch.CreatePatternCircular]) when given counts or coordinates that cannot form
 // the requested shape.
 var ErrInvalidShape = errors.New("sketch: invalid shape parameters")
 
@@ -19,7 +19,7 @@ var ErrInvalidShape = errors.New("sketch: invalid shape parameters")
 // not persisted — reloading a sketch yields the same geometry and constraints,
 // without the handle.
 
-// Rectangle groups the geometry created by [Sketch.AddRectangle]. Corners run
+// Rectangle groups the geometry created by [Sketch.CreateRectangle]. Corners run
 // counter-clockwise: A=(x1,y1), B=(x2,y1), C=(x2,y2), D=(x1,y2), with sides
 // AB, BC, CD, DA connecting them in order.
 type Rectangle struct {
@@ -27,26 +27,26 @@ type Rectangle struct {
 	AB, BC, CD, DA *Line
 }
 
-// AddRectangle builds a rectangle aligned to the sketch's plane-local axes,
+// CreateRectangle builds a rectangle aligned to the sketch's plane-local axes,
 // between two opposite corners:
 // four lines sharing corner points, held rectangular by horizontal constraints
 // on AB/CD and vertical constraints on BC/DA. Position, width and height stay
 // free to ground and dimension.
-func (s *Sketch) AddRectangle(x1, y1, x2, y2 float64) *Rectangle {
-	a, b := s.AddPoint(x1, y1), s.AddPoint(x2, y1)
-	c, d := s.AddPoint(x2, y2), s.AddPoint(x1, y2)
+func (s *Sketch) CreateRectangle(x1, y1, x2, y2 float64) *Rectangle {
+	a, b := s.CreatePoint(x1, y1), s.CreatePoint(x2, y1)
+	c, d := s.CreatePoint(x2, y2), s.CreatePoint(x1, y2)
 	r := &Rectangle{
 		A: a, B: b, C: c, D: d,
-		AB: s.AddLine(a, b),
-		BC: s.AddLine(b, c),
-		CD: s.AddLine(c, d),
-		DA: s.AddLine(d, a),
+		AB: s.CreateLine(a, b),
+		BC: s.CreateLine(b, c),
+		CD: s.CreateLine(c, d),
+		DA: s.CreateLine(d, a),
 	}
 	s.AddConstraint(NewHorizontal(r.AB), NewHorizontal(r.CD), NewVertical(r.BC), NewVertical(r.DA))
 	return r
 }
 
-// Polygon groups the geometry created by [Sketch.AddPolygon].
+// Polygon groups the geometry created by [Sketch.CreatePolygon].
 type Polygon struct {
 	Center   *Point
 	Vertices []*Point
@@ -54,24 +54,24 @@ type Polygon struct {
 	Spokes   []*Line // construction lines center→vertex that hold regularity
 }
 
-// AddPolygon builds a regular n-sided polygon centered at (cx, cy) with
+// CreatePolygon builds a regular n-sided polygon centered at (cx, cy) with
 // circumradius r and its first vertex at angle 0. Regularity is held by
 // construction "spoke" lines from the center to every vertex constrained equal,
 // plus all sides constrained equal — the standard sketcher formulation. The
 // polygon keeps 4 degrees of freedom (position, rotation, size) to ground and
 // dimension. It returns [ErrInvalidShape] when n < 3.
-func (s *Sketch) AddPolygon(cx, cy float64, n int, r float64) (*Polygon, error) {
+func (s *Sketch) CreatePolygon(cx, cy float64, n int, r float64) (*Polygon, error) {
 	if n < 3 {
-		return nil, fmt.Errorf("%w: AddPolygon requires n >= 3, got %d", ErrInvalidShape, n)
+		return nil, fmt.Errorf("%w: CreatePolygon requires n >= 3, got %d", ErrInvalidShape, n)
 	}
-	p := &Polygon{Center: s.AddPoint(cx, cy)}
+	p := &Polygon{Center: s.CreatePoint(cx, cy)}
 	for i := 0; i < n; i++ {
 		a := 2 * math.Pi * float64(i) / float64(n)
-		p.Vertices = append(p.Vertices, s.AddPoint(cx+r*math.Cos(a), cy+r*math.Sin(a)))
+		p.Vertices = append(p.Vertices, s.CreatePoint(cx+r*math.Cos(a), cy+r*math.Sin(a)))
 	}
 	for i := 0; i < n; i++ {
-		p.Sides = append(p.Sides, s.AddLine(p.Vertices[i], p.Vertices[(i+1)%n]))
-		spoke := s.AddLine(p.Center, p.Vertices[i])
+		p.Sides = append(p.Sides, s.CreateLine(p.Vertices[i], p.Vertices[(i+1)%n]))
+		spoke := s.CreateLine(p.Center, p.Vertices[i])
 		spoke.SetConstruction(true)
 		p.Spokes = append(p.Spokes, spoke)
 	}
@@ -81,7 +81,7 @@ func (s *Sketch) AddPolygon(cx, cy float64, n int, r float64) (*Polygon, error) 
 	return p, nil
 }
 
-// Slot groups the geometry created by [Sketch.AddSlot].
+// Slot groups the geometry created by [Sketch.CreateSlot].
 type Slot struct {
 	C1, C2 *Point  // cap centers
 	A1, A2 *Arc    // semicircular end caps
@@ -89,7 +89,7 @@ type Slot struct {
 	Spokes []*Line // construction center→contact-point lines holding tangency
 }
 
-// AddSlot builds a straight slot: two semicircular end caps of radius r around
+// CreateSlot builds a straight slot: two semicircular end caps of radius r around
 // (x1, y1) and (x2, y2), joined by two straight flanks that share the cap
 // endpoints. The shape is held by an equal-radius constraint between the caps
 // plus a construction "spoke" from each cap center to each of its contact
@@ -100,28 +100,28 @@ type Slot struct {
 // of freedom (both centers and the radius) to ground and dimension; pin the
 // width by dimensioning a cap contact point to its center. It returns
 // [ErrInvalidShape] if the two centers coincide.
-func (s *Sketch) AddSlot(x1, y1, x2, y2, r float64) (*Slot, error) {
+func (s *Sketch) CreateSlot(x1, y1, x2, y2, r float64) (*Slot, error) {
 	dx, dy := x2-x1, y2-y1
 	n := math.Hypot(dx, dy)
 	if n == 0 {
-		return nil, fmt.Errorf("%w: AddSlot requires distinct cap centers", ErrInvalidShape)
+		return nil, fmt.Errorf("%w: CreateSlot requires distinct cap centers", ErrInvalidShape)
 	}
 	nx, ny := -dy/n, dx/n // left normal of the c1→c2 axis
-	c1, c2 := s.AddPoint(x1, y1), s.AddPoint(x2, y2)
-	p1l := s.AddPoint(x1+r*nx, y1+r*ny)
-	p1r := s.AddPoint(x1-r*nx, y1-r*ny)
-	p2l := s.AddPoint(x2+r*nx, y2+r*ny)
-	p2r := s.AddPoint(x2-r*nx, y2-r*ny)
+	c1, c2 := s.CreatePoint(x1, y1), s.CreatePoint(x2, y2)
+	p1l := s.CreatePoint(x1+r*nx, y1+r*ny)
+	p1r := s.CreatePoint(x1-r*nx, y1-r*ny)
+	p2l := s.CreatePoint(x2+r*nx, y2+r*ny)
+	p2r := s.CreatePoint(x2-r*nx, y2-r*ny)
 	st := &Slot{
 		C1: c1, C2: c2,
 		// Both caps sweep counter-clockwise across the far side of the slot.
-		A1: s.AddArc(c1, p1l, p1r),
-		A2: s.AddArc(c2, p2r, p2l),
-		L1: s.AddLine(p1r, p2r),
-		L2: s.AddLine(p2l, p1l),
+		A1: s.CreateArc(c1, p1l, p1r),
+		A2: s.CreateArc(c2, p2r, p2l),
+		L1: s.CreateLine(p1r, p2r),
+		L2: s.CreateLine(p2l, p1l),
 	}
 	spoke := func(center, contact *Point, flank *Line) {
-		sp := s.AddLine(center, contact)
+		sp := s.CreateLine(center, contact)
 		sp.SetConstruction(true)
 		st.Spokes = append(st.Spokes, sp)
 		s.AddConstraint(NewPerpendicular(sp, flank))

@@ -21,13 +21,13 @@ func Example_sketch_hexagon() {
 	pts := make([]*sketch.Point, n)
 	for i := range pts {
 		a := float64(i)/float64(n)*2*math.Pi + 0.15
-		pts[i] = s.AddPoint(40*math.Cos(a)+5, 40*math.Sin(a)-3)
+		pts[i] = s.CreatePoint(40*math.Cos(a)+5, 40*math.Sin(a)-3)
 	}
 
 	// Edges between consecutive vertices, sharing the vertex points.
 	lines := make([]*sketch.Line, n)
 	for i := range lines {
-		lines[i] = s.AddLine(pts[i], pts[(i+1)%n])
+		lines[i] = s.CreateLine(pts[i], pts[(i+1)%n])
 	}
 
 	// Ground one vertex, make the first edge horizontal, and dimension it.

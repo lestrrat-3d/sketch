@@ -10,11 +10,11 @@ import (
 
 // xAxis returns a fixed line along the global x axis for use as a mirror axis.
 func xAxis(s *sketch.Sketch) *sketch.Line {
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(1, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(1, 0)
 	s.Fix(a)
 	s.Fix(b)
-	return s.AddLine(a, b)
+	return s.CreateLine(a, b)
 }
 
 func TestSymmetricArcsSolvedMirror(t *testing.T) {
@@ -23,15 +23,15 @@ func TestSymmetricArcsSolvedMirror(t *testing.T) {
 	// mirror(a1.End), a2.End = mirror(a1.Start), centers mirrored.
 	s := newSketch(t)
 	axis := xAxis(s)
-	c1 := s.AddPoint(2, 3)
-	st1 := s.AddPoint(3, 3) // angle 0 from the center
-	en1 := s.AddPoint(2, 4) // angle 90° from the center
+	c1 := s.CreatePoint(2, 3)
+	st1 := s.CreatePoint(3, 3) // angle 0 from the center
+	en1 := s.CreatePoint(2, 4) // angle 90° from the center
 	s.Fix(c1)
 	s.Fix(st1)
 	s.Fix(en1)
-	a1 := s.AddArc(c1, st1, en1)
+	a1 := s.CreateArc(c1, st1, en1)
 
-	a2 := s.AddArc(s.AddPoint(2, -2.8), s.AddPoint(2.1, -3.9), s.AddPoint(2.9, -3.1))
+	a2 := s.CreateArc(s.CreatePoint(2, -2.8), s.CreatePoint(2.1, -3.9), s.CreatePoint(2.9, -3.1))
 	s.AddConstraint(sketch.NewSymmetricArcs(a1, a2, axis))
 
 	_, err := s.Solve()
@@ -58,8 +58,8 @@ func TestSymmetricArcsDOFNoRedundancy(t *testing.T) {
 	// instead of a second full point-mirror.
 	s := newSketch(t)
 	axis := xAxis(s)
-	a1 := s.AddArc(s.AddPoint(2, 3), s.AddPoint(3, 3), s.AddPoint(2, 4))
-	a2 := s.AddArc(s.AddPoint(2, -3), s.AddPoint(2, -4), s.AddPoint(3, -3))
+	a1 := s.CreateArc(s.CreatePoint(2, 3), s.CreatePoint(3, 3), s.CreatePoint(2, 4))
+	a2 := s.CreateArc(s.CreatePoint(2, -3), s.CreatePoint(2, -4), s.CreatePoint(3, -3))
 	s.AddConstraint(sketch.NewSymmetricArcs(a1, a2, axis))
 
 	_, err := s.Solve()
@@ -74,18 +74,18 @@ func TestSymmetricArcsWrongBranchRejected(t *testing.T) {
 	// OPPOSITE ray. The branch row must reject it as unsolvable.
 	s := newSketch(t)
 	axis := xAxis(s)
-	a1 := s.AddArc(s.AddPoint(2, 3), s.AddPoint(3, 3), s.AddPoint(2, 4))
+	a1 := s.CreateArc(s.CreatePoint(2, 3), s.CreatePoint(3, 3), s.CreatePoint(2, 4))
 	s.Fix(a1.Center)
 	s.Fix(a1.Start)
 	s.Fix(a1.End)
 
-	c2 := s.AddPoint(2, -3)
-	st2 := s.AddPoint(2, -4) // mirror(a1.End): correct
-	en2 := s.AddPoint(1, -3) // antipode of mirror(a1.Start)=(3,-3) about the center
+	c2 := s.CreatePoint(2, -3)
+	st2 := s.CreatePoint(2, -4) // mirror(a1.End): correct
+	en2 := s.CreatePoint(1, -3) // antipode of mirror(a1.Start)=(3,-3) about the center
 	s.Fix(c2)
 	s.Fix(st2)
 	s.Fix(en2)
-	a2 := s.AddArc(c2, st2, en2)
+	a2 := s.CreateArc(c2, st2, en2)
 	s.AddConstraint(sketch.NewSymmetricArcs(a1, a2, axis))
 
 	_, err := s.Solve()
@@ -96,14 +96,14 @@ func TestSymmetricArcsWrongBranchRejected(t *testing.T) {
 func TestSymmetricArcsRoundTrip(t *testing.T) {
 	s := newSketch(t)
 	axis := xAxis(s)
-	c1 := s.AddPoint(2, 3)
-	st1 := s.AddPoint(3, 3)
-	en1 := s.AddPoint(2, 4)
+	c1 := s.CreatePoint(2, 3)
+	st1 := s.CreatePoint(3, 3)
+	en1 := s.CreatePoint(2, 4)
 	s.Fix(c1)
 	s.Fix(st1)
 	s.Fix(en1)
-	a1 := s.AddArc(c1, st1, en1)
-	a2 := s.AddArc(s.AddPoint(2, -2.8), s.AddPoint(2.1, -3.9), s.AddPoint(2.9, -3.1))
+	a1 := s.CreateArc(c1, st1, en1)
+	a2 := s.CreateArc(s.CreatePoint(2, -2.8), s.CreatePoint(2.1, -3.9), s.CreatePoint(2.9, -3.1))
 	s.AddConstraint(sketch.NewSymmetricArcs(a1, a2, axis))
 	_, err := s.Solve()
 	require.NoError(t, err)

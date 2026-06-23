@@ -66,8 +66,8 @@ no longer match its 3D source. So:
 
 - `Unfix` and `MoveTo` are **no-ops** on reference points (the lock cannot be
   lifted through the grounding API).
-- The mutating **modification tools** (`Trim`/`Extend`/`Break`/`AddFillet`/
-  `AddChamfer`/`AddMirror`/`AddPattern…`/`AddOffset`) **reject** a reference
+- The mutating **modification tools** (`Trim`/`Extend`/`Break`/`CreateFillet`/
+  `CreateChamfer`/`CreateMirror`/`CreatePattern…`/`CreateOffset`) **reject** a reference
   entity input (`ErrReferenceGeometry`) — they would otherwise drop provenance or
   splice in solver-driven replacements.
 - `Configuration.Apply` (the ambiguity-probe restore) copies only **non-fixed**
@@ -107,18 +107,18 @@ exactly the oracle's mandate (never emit a false valid):
 
 Reference points (locked, with provenance):
 
-    AddReferencePoint(x, y float64, source string) *Point
+    CreateReferencePoint(x, y float64, source string) *Point
 
 Reference curves from **existing reference points** (so projected loops close
 topologically by sharing `*Point`, and the entity can never be built on free
 points):
 
-    AddReferenceLine(p1, p2 *Point, source string) (*Line, error)
-    AddReferenceArc(center, start, end *Point, source string) (*Arc, error)
-    AddReferenceCircle(center *Point, r float64, source string) (*Circle, error)
+    CreateReferenceLine(p1, p2 *Point, source string) (*Line, error)
+    CreateReferenceArc(center, start, end *Point, source string) (*Arc, error)
+    CreateReferenceCircle(center *Point, r float64, source string) (*Circle, error)
 
 Each errors (`ErrNotReference`) if a supplied point is not a reference point;
-`AddReferenceCircle` fixes the radius var. Reads: `IsReference()/Source()/
+`CreateReferenceCircle` fixes the radius var. Reads: `IsReference()/Source()/
 IsStale()` on `Point` and `Entity`.
 
 Refresh (the 3D layer's re-feed; the only coordinate writer):

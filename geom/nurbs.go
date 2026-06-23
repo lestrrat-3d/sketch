@@ -22,7 +22,7 @@ type NURBS struct {
 
 // NewNURBS returns a NURBS with the given degree, control points, knot vector and
 // weights. It is a bare constructor for math/snapshots — the sketch entity's
-// AddNURBS validates the inputs; this assumes well-formed data, matching the
+// CreateNURBS validates the inputs; this assumes well-formed data, matching the
 // other geom constructors.
 func NewNURBS(degree int, control []*Point, knots, weights []float64) *NURBS {
 	return &NURBS{Degree: degree, Control: control, Knots: knots, Weights: weights}

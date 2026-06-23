@@ -16,28 +16,28 @@ func Example_sketch_parity() {
 
 	// Two post tops forced level without a line joining them, plus a keystone
 	// pinned exactly between them.
-	left := s.AddPoint(0, 4)
-	right := s.AddPoint(10, -1) // starts uneven
+	left := s.CreatePoint(0, 4)
+	right := s.CreatePoint(10, -1) // starts uneven
 	s.Fix(left)
 	s.AddConstraint(sketch.NewHorizontalPoints(left, right))
 	s.AddConstraint(sketch.NewHorizontalDistance(left, right, 10)) // span the gap
-	key := s.AddPoint(3, 9)
+	key := s.CreatePoint(3, 9)
 	s.AddConstraint(sketch.NewMidpointOf(key, left, right))
 
 	// An arch arc whose radius is driven directly: NewRadius reaches the arc
 	// through the Circular interface. The center is fixed; horizontal/vertical
 	// relations lay the endpoints on the axes, and the radius dimension sizes it.
-	c := s.AddPoint(0, 0)
+	c := s.CreatePoint(0, 0)
 	s.Fix(c)
-	start := s.AddPoint(3, 0)
-	end := s.AddPoint(0, 3)
-	arc := s.AddArc(c, start, end)
+	start := s.CreatePoint(3, 0)
+	end := s.CreatePoint(0, 3)
+	arc := s.CreateArc(c, start, end)
 	s.AddConstraint(sketch.NewHorizontalPoints(c, start)) // start on the x axis
 	s.AddConstraint(sketch.NewVerticalPoints(c, end))     // end on the y axis
 	s.AddConstraint(sketch.NewRadius(arc, 5))
 
 	// A bolt hole concentric with the arch, sized by its own radius dimension.
-	hole := s.AddCircle(s.AddPoint(2, 1), 1)
+	hole := s.CreateCircle(s.CreatePoint(2, 1), 1)
 	s.AddConstraint(sketch.NewConcentric(hole, arc))
 	s.AddConstraint(sketch.NewRadius(hole, 2))
 

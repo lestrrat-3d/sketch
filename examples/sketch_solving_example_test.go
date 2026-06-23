@@ -12,11 +12,11 @@ import (
 func Example_sketch_solving() {
 	w := sketch.NewWorld()
 	s, _ := w.CreateSketch(w.XY())
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(30, 4)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(30, 4)
 	a.MoveTo(0, 0)
 	s.Fix(a)
-	l := s.AddLine(a, b)
+	l := s.CreateLine(a, b)
 	s.AddConstraint(sketch.NewHorizontal(l))
 	s.AddConstraint(sketch.NewDistance(a, b, 30))
 

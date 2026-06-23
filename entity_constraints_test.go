@@ -9,13 +9,13 @@ import (
 
 func TestFixEntityCircle(t *testing.T) {
 	s := newSketch(t)
-	o := s.AddPoint(3, 4)
-	c := s.AddCircle(o, 5)
+	o := s.CreatePoint(3, 4)
+	c := s.CreateCircle(o, 5)
 	s.FixEntity(c)
 	require.True(t, s.EntityFixed(c), "center and radius are grounded")
 
 	// A point made coincident with the center must move TO it, not drag it.
-	p := s.AddPoint(0, 0)
+	p := s.CreatePoint(0, 0)
 	s.AddConstraint(sketch.NewCoincident(p, o))
 	_, err := s.Solve()
 	require.NoError(t, err)
@@ -28,8 +28,8 @@ func TestFixEntityCircle(t *testing.T) {
 
 func TestUnfixEntity(t *testing.T) {
 	s := newSketch(t)
-	o := s.AddPoint(0, 0)
-	c := s.AddCircle(o, 2)
+	o := s.CreatePoint(0, 0)
+	c := s.CreateCircle(o, 2)
 	s.FixEntity(c)
 	require.True(t, s.EntityFixed(c))
 	s.UnfixEntity(c)
@@ -44,10 +44,10 @@ func TestUnfixEntity(t *testing.T) {
 
 func TestUnfixEntityPreservesReferenceLock(t *testing.T) {
 	s := newSketch(t)
-	rp := s.AddReferencePoint(5, 5, "edge1") // externally locked
+	rp := s.CreateReferencePoint(5, 5, "edge1") // externally locked
 	require.True(t, rp.IsFixed())
-	free := s.AddPoint(0, 0)
-	l := s.AddLine(rp, free) // an ordinary line sharing the reference point
+	free := s.CreatePoint(0, 0)
+	l := s.CreateLine(rp, free) // an ordinary line sharing the reference point
 	s.FixEntity(l)
 	s.UnfixEntity(l)
 	require.True(t, rp.IsFixed(), "the shared reference point keeps its lock")
@@ -57,21 +57,21 @@ func TestUnfixEntityPreservesReferenceLock(t *testing.T) {
 func TestSymmetricLines(t *testing.T) {
 	s := newSketch(t)
 	// Axis = the y-axis (the line x=0); reflection negates x.
-	ax := s.AddPoint(0, 0)
-	ay := s.AddPoint(0, 10)
+	ax := s.CreatePoint(0, 0)
+	ay := s.CreatePoint(0, 10)
 	s.Fix(ax)
 	s.Fix(ay)
-	axis := s.AddLine(ax, ay)
+	axis := s.CreateLine(ax, ay)
 
-	a := s.AddPoint(2, 1)
-	b := s.AddPoint(5, 3)
+	a := s.CreatePoint(2, 1)
+	b := s.CreatePoint(5, 3)
 	s.Fix(a)
 	s.Fix(b)
-	l1 := s.AddLine(a, b)
+	l1 := s.CreateLine(a, b)
 
-	c := s.AddPoint(-1, 1) // free, becomes the mirror of a
-	d := s.AddPoint(-4, 2) // free, becomes the mirror of b
-	l2 := s.AddLine(c, d)
+	c := s.CreatePoint(-1, 1) // free, becomes the mirror of a
+	d := s.CreatePoint(-4, 2) // free, becomes the mirror of b
+	l2 := s.CreateLine(c, d)
 	s.AddConstraint(sketch.NewSymmetricLines(l1, l2, axis))
 
 	_, err := s.Solve()
@@ -84,18 +84,18 @@ func TestSymmetricLines(t *testing.T) {
 
 func TestSymmetricCircles(t *testing.T) {
 	s := newSketch(t)
-	ax := s.AddPoint(0, 0)
-	ay := s.AddPoint(0, 10)
+	ax := s.CreatePoint(0, 0)
+	ay := s.CreatePoint(0, 10)
 	s.Fix(ax)
 	s.Fix(ay)
-	axis := s.AddLine(ax, ay)
+	axis := s.CreateLine(ax, ay)
 
-	o1 := s.AddPoint(3, 2)
-	c1 := s.AddCircle(o1, 4)
+	o1 := s.CreatePoint(3, 2)
+	c1 := s.CreateCircle(o1, 4)
 	s.FixEntity(c1)
 
-	o2 := s.AddPoint(-1, 0)
-	c2 := s.AddCircle(o2, 1)
+	o2 := s.CreatePoint(-1, 0)
+	c2 := s.CreateCircle(o2, 1)
 	s.AddConstraint(sketch.NewSymmetricCircles(c1, c2, axis))
 
 	_, err := s.Solve()

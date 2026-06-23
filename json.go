@@ -434,7 +434,7 @@ func (s *Sketch) buildFromBody(body jsonSketchBody) error {
 	}
 
 	for _, jp := range body.Points {
-		p := s.AddPoint(jp.X, jp.Y)
+		p := s.CreatePoint(jp.X, jp.Y)
 		p.SetName(jp.Name)
 		if jp.Reference {
 			if jp.Construction {
@@ -509,7 +509,7 @@ func (s *Sketch) buildFromBody(body jsonSketchBody) error {
 				if je.Stale {
 					return fmt.Errorf("sketch: reference line staleness is derived, not stored")
 				}
-				if _, err := s.AddReferenceLine(ps[0], ps[1], je.Source); err != nil {
+				if _, err := s.CreateReferenceLine(ps[0], ps[1], je.Source); err != nil {
 					return err
 				}
 			case "arc":
@@ -519,14 +519,14 @@ func (s *Sketch) buildFromBody(body jsonSketchBody) error {
 				if je.Stale {
 					return fmt.Errorf("sketch: reference arc staleness is derived, not stored")
 				}
-				if _, err := s.AddReferenceArc(ps[0], ps[1], ps[2], je.Source); err != nil {
+				if _, err := s.CreateReferenceArc(ps[0], ps[1], ps[2], je.Source); err != nil {
 					return err
 				}
 			case "circle":
 				if len(ps) != 1 {
 					return fmt.Errorf("sketch: circle needs 1 point, got %d", len(ps))
 				}
-				c, err := s.AddReferenceCircle(ps[0], je.Radius, je.Source)
+				c, err := s.CreateReferenceCircle(ps[0], je.Radius, je.Source)
 				if err != nil {
 					return err
 				}
@@ -541,32 +541,32 @@ func (s *Sketch) buildFromBody(body jsonSketchBody) error {
 			if len(ps) != 2 {
 				return fmt.Errorf("sketch: line needs 2 points, got %d", len(ps))
 			}
-			s.AddLine(ps[0], ps[1]).SetConstruction(je.Construction)
+			s.CreateLine(ps[0], ps[1]).SetConstruction(je.Construction)
 		case "circle":
 			if len(ps) != 1 {
 				return fmt.Errorf("sketch: circle needs 1 point, got %d", len(ps))
 			}
-			s.AddCircle(ps[0], je.Radius).SetConstruction(je.Construction)
+			s.CreateCircle(ps[0], je.Radius).SetConstruction(je.Construction)
 		case "arc":
 			if len(ps) != 3 {
 				return fmt.Errorf("sketch: arc needs 3 points, got %d", len(ps))
 			}
-			s.AddArc(ps[0], ps[1], ps[2]).SetConstruction(je.Construction)
+			s.CreateArc(ps[0], ps[1], ps[2]).SetConstruction(je.Construction)
 		case "ellipse":
 			if len(ps) != 1 {
 				return fmt.Errorf("sketch: ellipse needs 1 point, got %d", len(ps))
 			}
-			s.AddEllipse(ps[0], je.Rx, je.Ry, je.Rotation).SetConstruction(je.Construction)
+			s.CreateEllipse(ps[0], je.Rx, je.Ry, je.Rotation).SetConstruction(je.Construction)
 		case "elliptical_arc":
 			if len(ps) != 3 {
 				return fmt.Errorf("sketch: elliptical arc needs 3 points, got %d", len(ps))
 			}
-			s.AddEllipticalArc(ps[0], ps[1], ps[2], je.Rx, je.Ry, je.Rotation).SetConstruction(je.Construction)
+			s.CreateEllipticalArc(ps[0], ps[1], ps[2], je.Rx, je.Ry, je.Rotation).SetConstruction(je.Construction)
 		case "spline":
 			if je.Degree != 0 && je.Degree != 3 {
 				return fmt.Errorf("sketch: unsupported spline degree %d", je.Degree)
 			}
-			sp, err := s.AddSpline(ps...) // AddSpline validates the >= 4 count
+			sp, err := s.CreateSpline(ps...) // CreateSpline validates the >= 4 count
 			if err != nil {
 				return err
 			}
@@ -575,7 +575,7 @@ func (s *Sketch) buildFromBody(body jsonSketchBody) error {
 			if je.Degree != 0 && je.Degree != 3 {
 				return fmt.Errorf("sketch: unsupported spline degree %d", je.Degree)
 			}
-			sp, err := s.AddClosedSpline(ps...) // validates the >= 3 count
+			sp, err := s.CreateClosedSpline(ps...) // validates the >= 3 count
 			if err != nil {
 				return err
 			}
@@ -584,7 +584,7 @@ func (s *Sketch) buildFromBody(body jsonSketchBody) error {
 			if je.Degree != 0 && je.Degree != 3 {
 				return fmt.Errorf("sketch: unsupported spline degree %d", je.Degree)
 			}
-			sp, err := s.AddFitSpline(ps...) // validates the >= 2 count
+			sp, err := s.CreateFitSpline(ps...) // validates the >= 2 count
 			if err != nil {
 				return err
 			}
@@ -593,15 +593,15 @@ func (s *Sketch) buildFromBody(body jsonSketchBody) error {
 			if len(ps) != 3 {
 				return fmt.Errorf("sketch: conic needs 3 points, got %d", len(ps))
 			}
-			c, err := s.AddConic(ps[0], ps[1], ps[2], je.Rho) // validates rho ∈ (0, 1)
+			c, err := s.CreateConic(ps[0], ps[1], ps[2], je.Rho) // validates rho ∈ (0, 1)
 			if err != nil {
 				return err
 			}
 			c.SetConstruction(je.Construction)
 		case "nurbs":
-			// AddNURBS validates degree, control count, knot vector and weights;
+			// CreateNURBS validates degree, control count, knot vector and weights;
 			// a nil/empty weights slice means non-rational (all weights 1).
-			c, err := s.AddNURBS(je.Degree, ps, je.Weights, je.Knots)
+			c, err := s.CreateNURBS(je.Degree, ps, je.Weights, je.Knots)
 			if err != nil {
 				return err
 			}

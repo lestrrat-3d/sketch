@@ -13,9 +13,9 @@ import (
 
 func TestCoincident(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(2, 3)
+	a := s.CreatePoint(2, 3)
 	s.Fix(a)
-	p := s.AddPoint(10, -4)
+	p := s.CreatePoint(10, -4)
 	s.AddConstraint(sketch.NewCoincident(a, p))
 
 	_, err := s.Solve()
@@ -27,16 +27,16 @@ func TestCoincident(t *testing.T) {
 
 func TestParallel(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
 	s.Fix(a)
 	s.Fix(b)
-	l1 := s.AddLine(a, b)
+	l1 := s.CreateLine(a, b)
 
-	c := s.AddPoint(0, 5)
+	c := s.CreatePoint(0, 5)
 	s.Fix(c)
-	d := s.AddPoint(8, 7) // deliberately skewed
-	l2 := s.AddLine(c, d)
+	d := s.CreatePoint(8, 7) // deliberately skewed
+	l2 := s.CreateLine(c, d)
 	s.AddConstraint(sketch.NewParallel(l1, l2))
 	s.AddConstraint(sketch.NewDistance(c, d, 8))
 
@@ -53,15 +53,15 @@ func TestParallel(t *testing.T) {
 
 func TestCollinear(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
 	s.Fix(a)
 	s.Fix(b)
-	l1 := s.AddLine(a, b)
+	l1 := s.CreateLine(a, b)
 
-	c := s.AddPoint(2, 3)
-	d := s.AddPoint(7, 5)
-	l2 := s.AddLine(c, d)
+	c := s.CreatePoint(2, 3)
+	d := s.CreatePoint(7, 5)
+	l2 := s.CreateLine(c, d)
 	s.AddConstraint(sketch.NewCollinear(l1, l2))
 	s.AddConstraint(sketch.NewDistance(c, d, 5))
 
@@ -74,12 +74,12 @@ func TestCollinear(t *testing.T) {
 
 func TestPointOnCircle(t *testing.T) {
 	s := newSketch(t)
-	o := s.AddPoint(0, 0)
+	o := s.CreatePoint(0, 0)
 	s.Fix(o)
-	circ := s.AddCircle(o, 5)
+	circ := s.CreateCircle(o, 5)
 	s.AddConstraint(sketch.NewRadius(circ, 5))
 
-	p := s.AddPoint(7, 1)
+	p := s.CreatePoint(7, 1)
 	s.AddConstraint(sketch.NewPointOnCircle(p, circ))
 
 	res, err := s.Solve()
@@ -90,16 +90,16 @@ func TestPointOnCircle(t *testing.T) {
 
 func TestMidpoint(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(9, 1)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(9, 1)
 	a.MoveTo(0, 0)
 	s.Fix(a)
-	ab := s.AddLine(a, b)
+	ab := s.CreateLine(a, b)
 	s.AddConstraint(sketch.NewHorizontal(ab))
 	w := sketch.NewDistance(a, b, 10)
 	s.AddConstraint(w)
 
-	m := s.AddPoint(3, 3)
+	m := s.CreatePoint(3, 3)
 	s.AddConstraint(sketch.NewMidpoint(m, ab))
 
 	_, err := s.Solve()
@@ -116,16 +116,16 @@ func TestMidpoint(t *testing.T) {
 
 func TestEqualLines(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(8, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(8, 0)
 	s.Fix(a)
 	s.Fix(b)
-	l1 := s.AddLine(a, b)
+	l1 := s.CreateLine(a, b)
 
-	c := s.AddPoint(20, 0)
+	c := s.CreatePoint(20, 0)
 	s.Fix(c)
-	d := s.AddPoint(25, 3)
-	l2 := s.AddLine(c, d)
+	d := s.CreatePoint(25, 3)
+	l2 := s.CreateLine(c, d)
 	s.AddConstraint(sketch.NewEqual(l1, l2))
 
 	_, err := s.Solve()
@@ -135,9 +135,9 @@ func TestEqualLines(t *testing.T) {
 
 func TestDiameterDimension(t *testing.T) {
 	s := newSketch(t)
-	o := s.AddPoint(0, 0)
+	o := s.CreatePoint(0, 0)
 	s.Fix(o)
-	circ := s.AddCircle(o, 3)
+	circ := s.CreateCircle(o, 3)
 	dia := sketch.NewDiameter(circ, 14)
 	s.AddConstraint(dia)
 
@@ -153,9 +153,9 @@ func TestDiameterDimension(t *testing.T) {
 
 func TestUnfix(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
+	a := s.CreatePoint(0, 0)
 	s.Fix(a)
-	p := s.AddPoint(1, 2)
+	p := s.CreatePoint(1, 2)
 	s.AddConstraint(sketch.NewDistance(a, p, 5))
 
 	// While p is also grounded the dimension cannot be satisfied: both points
@@ -174,17 +174,17 @@ func TestUnfix(t *testing.T) {
 
 func TestHorizontalVerticalDistance(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
+	a := s.CreatePoint(0, 0)
 	s.Fix(a)
 
 	// Aligned 5 with Δx pinned at 4 leaves Δy = 3 (3-4-5 triangle; the sign
 	// comes from the starting side).
-	b := s.AddPoint(4, 1)
+	b := s.CreatePoint(4, 1)
 	s.AddConstraint(sketch.NewHorizontalDistance(a, b, 4))
 	s.AddConstraint(sketch.NewDistance(a, b, 5))
 
 	// And the mirror case: Δy pinned at 3 leaves Δx = 4.
-	c := s.AddPoint(1, 6)
+	c := s.CreatePoint(1, 6)
 	s.AddConstraint(sketch.NewVerticalDistance(a, c, 3))
 	s.AddConstraint(sketch.NewDistance(a, c, 5))
 

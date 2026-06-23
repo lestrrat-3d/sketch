@@ -70,9 +70,9 @@ func requireVecInDelta(t *testing.T, want, got space.Vec3, msg string) {
 // A LINE on a tilted plane carries true WCS endpoints — exactly Point.World().
 func TestDXFWorldSpaceLine(t *testing.T) {
 	s := tiltedSketch(t)
-	a := s.AddPoint(3, 4)
-	b := s.AddPoint(-2, 9)
-	s.AddLine(a, b)
+	a := s.CreatePoint(3, 4)
+	b := s.CreatePoint(-2, 9)
+	s.CreateLine(a, b)
 
 	dxf, err := s.DXF(sketch.WithWorldSpace(true))
 	require.NoError(t, err)
@@ -86,8 +86,8 @@ func TestDXFWorldSpaceLine(t *testing.T) {
 // Point.World(), the extrusion must equal the plane normal, and radius is rigid.
 func TestDXFWorldSpaceCircleOCS(t *testing.T) {
 	s := tiltedSketch(t)
-	c := s.AddPoint(6, -1)
-	s.AddCircle(c, 3.5)
+	c := s.CreatePoint(6, -1)
+	s.CreateCircle(c, 3.5)
 
 	dxf, err := s.DXF(sketch.WithWorldSpace(true))
 	require.NoError(t, err)
@@ -113,10 +113,10 @@ func TestDXFWorldSpaceCircleOCS(t *testing.T) {
 // OCS center AND the recomputed OCS angles together.
 func TestDXFWorldSpaceArcAngles(t *testing.T) {
 	s := tiltedSketch(t)
-	ctr := s.AddPoint(0, 0)
-	st := s.AddPoint(4, 0)
-	en := s.AddPoint(0, 4)
-	s.AddArc(ctr, st, en)
+	ctr := s.CreatePoint(0, 0)
+	st := s.CreatePoint(4, 0)
+	en := s.CreatePoint(0, 4)
+	s.CreateArc(ctr, st, en)
 
 	dxf, err := s.DXF(sketch.WithWorldSpace(true))
 	require.NoError(t, err)
@@ -145,8 +145,8 @@ func TestDXFWorldSpaceArcAngles(t *testing.T) {
 // is the plane normal so the reader derives the minor axis in-plane.
 func TestDXFWorldSpaceEllipse(t *testing.T) {
 	s := tiltedSketch(t)
-	c := s.AddPoint(2, 3)
-	s.AddEllipse(c, 5, 2, 0.3) // rx > ry → major = rx, no swap
+	c := s.CreatePoint(2, 3)
+	s.CreateEllipse(c, 5, 2, 0.3) // rx > ry → major = rx, no swap
 
 	dxf, err := s.DXF(sketch.WithWorldSpace(true))
 	require.NoError(t, err)
@@ -173,10 +173,10 @@ func TestDXFWorldSpaceEllipse(t *testing.T) {
 // params and the DXF-derived minor axis survive the world rotation.
 func TestDXFWorldSpaceEllipticalArc(t *testing.T) {
 	s := tiltedSketch(t)
-	c := s.AddPoint(0, 0)
-	start := s.AddPoint(4, 0) // eccentric param 0
-	end := s.AddPoint(0, 2)   // eccentric param π/2
-	s.AddEllipticalArc(c, start, end, 4, 2, 0)
+	c := s.CreatePoint(0, 0)
+	start := s.CreatePoint(4, 0) // eccentric param 0
+	end := s.CreatePoint(0, 2)   // eccentric param π/2
+	s.CreateEllipticalArc(c, start, end, 4, 2, 0)
 
 	dxf, err := s.DXF(sketch.WithWorldSpace(true))
 	require.NoError(t, err)
@@ -206,8 +206,8 @@ func TestDXFWorldSpaceEllipticalArc(t *testing.T) {
 // matches local geometry plus an explicit extrusion — no surprise displacement.
 func TestDXFWorldSpaceXYReducesToLocal(t *testing.T) {
 	s := newSketch(t) // world-XY
-	c := s.AddPoint(5, 7)
-	s.AddCircle(c, 2)
+	c := s.CreatePoint(5, 7)
+	s.CreateCircle(c, 2)
 
 	dxf, err := s.DXF(sketch.WithWorldSpace(true))
 	require.NoError(t, err)
@@ -226,8 +226,8 @@ func TestDXFWorldSpaceXYReducesToLocal(t *testing.T) {
 // 2D coordinates with z = 0 and no extrusion — backward compatible.
 func TestDXFDefaultStaysLocal(t *testing.T) {
 	s := tiltedSketch(t)
-	c := s.AddPoint(6, -1)
-	s.AddCircle(c, 3.5)
+	c := s.CreatePoint(6, -1)
+	s.CreateCircle(c, 3.5)
 
 	dxf, err := s.DXF()
 	require.NoError(t, err)

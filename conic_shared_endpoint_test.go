@@ -17,15 +17,15 @@ import (
 
 func TestTangentConicsSharedEndpoint(t *testing.T) {
 	s := newSketch(t)
-	ec := s.AddPoint(0, 0)
-	shared := s.AddPoint(6, 0) // the shared corner (ellipse right vertex)
-	eaEnd := s.AddPoint(0, 3)
-	ea := s.AddEllipticalArc(ec, shared, eaEnd, 6, 3, 0)
+	ec := s.CreatePoint(0, 0)
+	shared := s.CreatePoint(6, 0) // the shared corner (ellipse right vertex)
+	eaEnd := s.CreatePoint(0, 3)
+	ea := s.CreateEllipticalArc(ec, shared, eaEnd, 6, 3, 0)
 	s.FixEntity(ea)
 
-	cc := s.AddPoint(8, 0)
-	caEnd := s.AddPoint(8, 2) // on the radius-2 circle around (8,0)
-	ca := s.AddArc(cc, shared, caEnd)
+	cc := s.CreatePoint(8, 0)
+	caEnd := s.CreatePoint(8, 2) // on the radius-2 circle around (8,0)
+	ca := s.CreateArc(cc, shared, caEnd)
 	s.FixEntity(ca)
 
 	s.AddConstraint(sketch.NewTangentEllipseCircular(ea, ca, false)) // external
@@ -40,15 +40,15 @@ func TestTangentConicsSharedEndpointNotTangentRejected(t *testing.T) {
 	// are not tangent there. With everything rigid the shared-endpoint tangency is
 	// infeasible and the oracle must report unsolvable.
 	s := newSketch(t)
-	ec := s.AddPoint(0, 0)
-	shared := s.AddPoint(6, 0)
-	eaEnd := s.AddPoint(0, 3)
-	ea := s.AddEllipticalArc(ec, shared, eaEnd, 6, 3, 0)
+	ec := s.CreatePoint(0, 0)
+	shared := s.CreatePoint(6, 0)
+	eaEnd := s.CreatePoint(0, 3)
+	ea := s.CreateEllipticalArc(ec, shared, eaEnd, 6, 3, 0)
 	s.FixEntity(ea)
 
-	cc := s.AddPoint(8, 1)                 // off the x-axis: normal at S not ±x
-	caEnd := s.AddPoint(8, 1+math.Sqrt(5)) // on the radius-√5 circle around (8,1)
-	ca := s.AddArc(cc, shared, caEnd)
+	cc := s.CreatePoint(8, 1)                 // off the x-axis: normal at S not ±x
+	caEnd := s.CreatePoint(8, 1+math.Sqrt(5)) // on the radius-√5 circle around (8,1)
+	ca := s.CreateArc(cc, shared, caEnd)
 	s.FixEntity(ca)
 
 	s.AddConstraint(sketch.NewTangentEllipseCircular(ea, ca, false))
@@ -63,15 +63,15 @@ func TestTangentConicsSharedEndpointDOFAndRemoval(t *testing.T) {
 	// shared-endpoint tangency removes exactly one (it pins the circle's normal at S
 	// parallel to the ellipse's).
 	s := newSketch(t)
-	ec := s.AddPoint(0, 0)
-	shared := s.AddPoint(6, 0)
-	eaEnd := s.AddPoint(0, 3)
-	ea := s.AddEllipticalArc(ec, shared, eaEnd, 6, 3, 0)
+	ec := s.CreatePoint(0, 0)
+	shared := s.CreatePoint(6, 0)
+	eaEnd := s.CreatePoint(0, 3)
+	ea := s.CreateEllipticalArc(ec, shared, eaEnd, 6, 3, 0)
 	s.FixEntity(ea)
 
-	cc := s.AddPoint(8, 0)
-	caEnd := s.AddPoint(8, 2)
-	s.AddArc(cc, shared, caEnd) // cc, caEnd free; shared fixed by the elliptical arc
+	cc := s.CreatePoint(8, 0)
+	caEnd := s.CreatePoint(8, 2)
+	s.CreateArc(cc, shared, caEnd) // cc, caEnd free; shared fixed by the elliptical arc
 	require.Equal(t, 3, s.DOF(), "free center + far endpoint, minus the arc's radius constraint")
 
 	con := sketch.NewTangentEllipseCircular(ea, s.Entities()[1].(*sketch.Arc), false)
@@ -84,14 +84,14 @@ func TestTangentConicsSharedEndpointDOFAndRemoval(t *testing.T) {
 
 func TestTangentConicsSharedEndpointRoundTrip(t *testing.T) {
 	s := newSketch(t)
-	ec := s.AddPoint(0, 0)
-	shared := s.AddPoint(6, 0)
-	eaEnd := s.AddPoint(0, 3)
-	ea := s.AddEllipticalArc(ec, shared, eaEnd, 6, 3, 0)
+	ec := s.CreatePoint(0, 0)
+	shared := s.CreatePoint(6, 0)
+	eaEnd := s.CreatePoint(0, 3)
+	ea := s.CreateEllipticalArc(ec, shared, eaEnd, 6, 3, 0)
 	s.FixEntity(ea)
-	cc := s.AddPoint(8, 0)
-	caEnd := s.AddPoint(8, 2)
-	ca := s.AddArc(cc, shared, caEnd)
+	cc := s.CreatePoint(8, 0)
+	caEnd := s.CreatePoint(8, 2)
+	ca := s.CreateArc(cc, shared, caEnd)
 	s.FixEntity(ca)
 	s.AddConstraint(sketch.NewTangentEllipseCircular(ea, ca, false))
 	_, err := s.Solve()

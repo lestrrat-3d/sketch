@@ -10,12 +10,12 @@ import (
 
 func TestGoalProjection(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
 	s.Fix(a)
 	s.Fix(b)
-	line := s.AddLine(a, b)
-	p := s.AddPoint(3, 0)
+	line := s.CreateLine(a, b)
+	p := s.CreatePoint(3, 0)
 	s.AddConstraint(sketch.NewPointOnLine(p, line))
 
 	res, err := s.Solve(sketch.WithGoal(p, 4, 5))
@@ -27,14 +27,14 @@ func TestGoalProjection(t *testing.T) {
 
 func TestGoalConstraintsWin(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(18, 2)
-	c := s.AddPoint(17, 11)
-	d := s.AddPoint(1, 13)
-	ab := s.AddLine(a, b)
-	bc := s.AddLine(b, c)
-	dc := s.AddLine(d, c)
-	ad := s.AddLine(a, d)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(18, 2)
+	c := s.CreatePoint(17, 11)
+	d := s.CreatePoint(1, 13)
+	ab := s.CreateLine(a, b)
+	bc := s.CreateLine(b, c)
+	dc := s.CreateLine(d, c)
+	ad := s.CreateLine(a, d)
 	a.MoveTo(0, 0)
 	s.Fix(a)
 	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
@@ -54,7 +54,7 @@ func TestGoalTracking(t *testing.T) {
 	// A lone free point and no constraints: exercises the goal-only path
 	// (no hard residuals) and warm-started tracking across a target path.
 	s := newSketch(t)
-	p := s.AddPoint(0, 0)
+	p := s.CreatePoint(0, 0)
 	for _, tgt := range [][2]float64{{2, 1}, {5, 4}, {5, 9}, {-3, 2}} {
 		res, err := s.Solve(sketch.WithGoal(p, tgt[0], tgt[1]))
 		require.NoError(t, err, "tracking solve")
@@ -67,9 +67,9 @@ func TestGoalTracking(t *testing.T) {
 func TestGoalMultiple(t *testing.T) {
 	// Two goals translate a dimensioned line; length stays constrained.
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
-	s.AddLine(a, b)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
+	s.CreateLine(a, b)
 	s.AddConstraint(sketch.NewDistance(a, b, 10))
 
 	res, err := s.Solve(sketch.WithGoal(a, 5, 5), sketch.WithGoal(b, 15, 5))
@@ -84,7 +84,7 @@ func TestGoalMultiple(t *testing.T) {
 
 func TestGoalFixedPointInert(t *testing.T) {
 	s := newSketch(t)
-	p := s.AddPoint(2, 3)
+	p := s.CreatePoint(2, 3)
 	s.Fix(p)
 
 	res, err := s.Solve(sketch.WithGoal(p, 50, 50))
@@ -96,14 +96,14 @@ func TestGoalFixedPointInert(t *testing.T) {
 
 func TestGoalLeavesNoResidue(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(18, 2)
-	c := s.AddPoint(17, 11)
-	d := s.AddPoint(1, 13)
-	ab := s.AddLine(a, b)
-	bc := s.AddLine(b, c)
-	dc := s.AddLine(d, c)
-	ad := s.AddLine(a, d)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(18, 2)
+	c := s.CreatePoint(17, 11)
+	d := s.CreatePoint(1, 13)
+	ab := s.CreateLine(a, b)
+	bc := s.CreateLine(b, c)
+	dc := s.CreateLine(d, c)
+	ad := s.CreateLine(a, d)
 	a.MoveTo(0, 0)
 	s.Fix(a)
 	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))

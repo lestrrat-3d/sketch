@@ -10,14 +10,14 @@ import (
 
 func TestRemoveConstraint(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(18, 2)
-	c := s.AddPoint(17, 11)
-	d := s.AddPoint(1, 13)
-	ab := s.AddLine(a, b)
-	bc := s.AddLine(b, c)
-	dc := s.AddLine(d, c)
-	ad := s.AddLine(a, d)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(18, 2)
+	c := s.CreatePoint(17, 11)
+	d := s.CreatePoint(1, 13)
+	ab := s.CreateLine(a, b)
+	bc := s.CreateLine(b, c)
+	dc := s.CreateLine(d, c)
+	ad := s.CreateLine(a, d)
 	a.MoveTo(0, 0)
 	s.Fix(a)
 	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
@@ -38,17 +38,17 @@ func TestRemoveConstraint(t *testing.T) {
 
 func TestRemoveEntityCascades(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
 	s.Fix(a)
 	s.Fix(b)
-	line := s.AddLine(a, b)
+	line := s.CreateLine(a, b)
 
-	center := s.AddPoint(5, 5)
+	center := s.CreatePoint(5, 5)
 	s.Fix(center)
-	start := s.AddPoint(8, 5)
-	end := s.AddPoint(5, 8)
-	arc := s.AddArc(center, start, end) // auto-adds internal arcRadius
+	start := s.CreatePoint(8, 5)
+	end := s.CreatePoint(5, 8)
+	arc := s.CreateArc(center, start, end) // auto-adds internal arcRadius
 	s.AddConstraint(sketch.NewTangent(line, arc))
 
 	before := len(s.Constraints())
@@ -62,9 +62,9 @@ func TestRemoveEntityCascades(t *testing.T) {
 
 func TestRemoveEntityRetiresVars(t *testing.T) {
 	s := newSketch(t)
-	o := s.AddPoint(0, 0)
+	o := s.CreatePoint(0, 0)
 	s.Fix(o)
-	circ := s.AddCircle(o, 5)
+	circ := s.CreateCircle(o, 5)
 	require.Equal(t, 1, s.DOF(), "radius is the only free variable")
 
 	require.True(t, s.RemoveEntity(circ), "circle removed")
@@ -73,13 +73,13 @@ func TestRemoveEntityRetiresVars(t *testing.T) {
 
 func TestRemovePointGuards(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
-	s.AddLine(a, b)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
+	s.CreateLine(a, b)
 	require.False(t, s.RemovePoint(a), "endpoint of a live line is not removable")
 	require.Len(t, s.Points(), 2, "nothing changed")
 
-	orphan := s.AddPoint(3, 4)
+	orphan := s.CreatePoint(3, 4)
 	s.AddConstraint(sketch.NewCoincident(orphan, a))
 	consBefore := len(s.Constraints())
 	require.True(t, s.RemovePoint(orphan), "orphan point removable")
@@ -89,10 +89,10 @@ func TestRemovePointGuards(t *testing.T) {
 
 func TestRemoveKeepsUnrelatedConstraints(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(8, 1)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(8, 1)
 	s.Fix(a)
-	line := s.AddLine(a, b)
+	line := s.CreateLine(a, b)
 	d := sketch.NewDistance(a, b, 10) // references the points, not the line
 	s.AddConstraint(d)
 
@@ -106,26 +106,26 @@ func TestRemoveKeepsUnrelatedConstraints(t *testing.T) {
 
 func TestReAddAfterRemove(t *testing.T) {
 	s := newSketch(t)
-	center := s.AddPoint(0, 0)
-	c1 := s.AddCircle(center, 5)
+	center := s.CreatePoint(0, 0)
+	c1 := s.CreateCircle(center, 5)
 	require.True(t, s.RemoveEntity(c1), "removed")
 	// The center point survives entity removal and can carry a fresh circle.
-	c2 := s.AddCircle(center, 5)
+	c2 := s.CreateCircle(center, 5)
 	require.NotSame(t, c1, c2, "a new circle is a fresh instance")
 	require.Len(t, s.Entities(), 1, "one live entity")
 }
 
 func TestRemovalJSONRoundTrip(t *testing.T) {
 	s := newSketch(t)
-	o1 := s.AddPoint(0, 0)
-	o2 := s.AddPoint(20, 0)
-	o3 := s.AddPoint(40, 0)
+	o1 := s.CreatePoint(0, 0)
+	o2 := s.CreatePoint(20, 0)
+	o3 := s.CreatePoint(40, 0)
 	s.Fix(o1)
 	s.Fix(o2)
 	s.Fix(o3)
-	c1 := s.AddCircle(o1, 3)
-	c2 := s.AddCircle(o2, 4)
-	c3 := s.AddCircle(o3, 5)
+	c1 := s.CreateCircle(o1, 3)
+	c2 := s.CreateCircle(o2, 4)
+	c3 := s.CreateCircle(o3, 5)
 	s.AddConstraint(sketch.NewRadius(c3, 7)) // references the LAST entity
 
 	require.True(t, s.RemoveEntity(c2), "middle circle removed")
@@ -152,7 +152,7 @@ func TestRemovalJSONRoundTrip(t *testing.T) {
 
 func TestJSONVersionGuard(t *testing.T) {
 	s := newSketch(t)
-	s.AddPoint(1, 2)
+	s.CreatePoint(1, 2)
 	data, err := json.Marshal(s)
 	require.NoError(t, err, "marshal")
 
@@ -175,7 +175,7 @@ func TestJSONVersionGuard(t *testing.T) {
 
 func TestRemoveSplineGuardsControlPoints(t *testing.T) {
 	s := newSketch(t)
-	sp, err := s.AddSpline(s.AddPoint(0, 0), s.AddPoint(2, 4), s.AddPoint(8, 4), s.AddPoint(10, 0))
+	sp, err := s.CreateSpline(s.CreatePoint(0, 0), s.CreatePoint(2, 4), s.CreatePoint(8, 4), s.CreatePoint(10, 0))
 	require.NoError(t, err)
 	require.False(t, s.RemovePoint(sp.Control[2]), "control point of a live spline is not removable")
 	require.True(t, s.RemoveEntity(sp), "spline removable")

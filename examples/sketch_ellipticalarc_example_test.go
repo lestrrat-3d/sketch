@@ -13,12 +13,12 @@ import (
 func Example_sketch_ellipticalArc() {
 	w := sketch.NewWorld()
 	s, _ := w.CreateSketch(w.XY())
-	c := s.AddPoint(0, 0)
-	start := s.AddPoint(4, 0)
-	end := s.AddPoint(-4, 0)
+	c := s.CreatePoint(0, 0)
+	start := s.CreatePoint(4, 0)
+	end := s.CreatePoint(-4, 0)
 	// Top half of an ellipse with semi-axes 4 and 2.
-	ea := s.AddEllipticalArc(c, start, end, 4, 2, 0)
-	s.AddLine(ea.End, ea.Start) // chord along the major axis
+	ea := s.CreateEllipticalArc(c, start, end, 4, 2, 0)
+	s.CreateLine(ea.End, ea.Start) // chord along the major axis
 
 	if _, err := s.Solve(); err != nil {
 		fmt.Println(err)

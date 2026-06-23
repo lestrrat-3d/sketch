@@ -17,16 +17,16 @@ func Example_sketch_reference() {
 
 	// A projected edge of a 3D body, handed in as plane-local coordinates plus a
 	// source id. Reference geometry is locked — the solver never moves it.
-	a := s.AddReferencePoint(0, 0, "body1.edge7")
-	b := s.AddReferencePoint(10, 0, "body1.edge7")
-	if _, err := s.AddReferenceLine(a, b, "body1.edge7"); err != nil {
+	a := s.CreateReferencePoint(0, 0, "body1.edge7")
+	b := s.CreateReferencePoint(10, 0, "body1.edge7")
+	if _, err := s.CreateReferenceLine(a, b, "body1.edge7"); err != nil {
 		fmt.Println(err)
 		return
 	}
 
 	// A sketch point pierced to the projected vertex (coincident), fully pinning
 	// the sketch against the reference.
-	tip := s.AddPoint(4, 1)
+	tip := s.CreatePoint(4, 1)
 	s.AddConstraint(sketch.NewCoincident(tip, a))
 	if _, err := s.Solve(); err != nil {
 		fmt.Println(err)

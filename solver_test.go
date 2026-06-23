@@ -14,14 +14,14 @@ func TestSolveOptions(t *testing.T) {
 		// Levenberg–Marquardt iteration cannot reach the 1e-10 tolerance, so
 		// the budget must surface as ErrNotConverged.
 		s := newSketch(t)
-		a := s.AddPoint(0, 0)
-		b := s.AddPoint(18, 2)
-		c := s.AddPoint(17, 11)
-		d := s.AddPoint(1, 13)
-		ab := s.AddLine(a, b)
-		bc := s.AddLine(b, c)
-		dc := s.AddLine(d, c)
-		ad := s.AddLine(a, d)
+		a := s.CreatePoint(0, 0)
+		b := s.CreatePoint(18, 2)
+		c := s.CreatePoint(17, 11)
+		d := s.CreatePoint(1, 13)
+		ab := s.CreateLine(a, b)
+		bc := s.CreateLine(b, c)
+		dc := s.CreateLine(d, c)
+		ad := s.CreateLine(a, d)
 		a.MoveTo(0, 0)
 		s.Fix(a)
 		s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
@@ -40,14 +40,14 @@ func TestSolveOptions(t *testing.T) {
 		// A huge tolerance accepts the rough initial guess as-is: convergence
 		// is declared before the first iteration and nothing moves.
 		s := newSketch(t)
-		a := s.AddPoint(0, 0)
-		b := s.AddPoint(18, 2)
-		c := s.AddPoint(17, 11)
-		d := s.AddPoint(1, 13)
-		ab := s.AddLine(a, b)
-		bc := s.AddLine(b, c)
-		dc := s.AddLine(d, c)
-		ad := s.AddLine(a, d)
+		a := s.CreatePoint(0, 0)
+		b := s.CreatePoint(18, 2)
+		c := s.CreatePoint(17, 11)
+		d := s.CreatePoint(1, 13)
+		ab := s.CreateLine(a, b)
+		bc := s.CreateLine(b, c)
+		dc := s.CreateLine(d, c)
+		ad := s.CreateLine(a, d)
 		a.MoveTo(0, 0)
 		s.Fix(a)
 		s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
@@ -68,15 +68,15 @@ func TestSolveOptions(t *testing.T) {
 // interactive dragging unusable.
 func TestDragSmoothness(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
 	s.Fix(a)
 	s.Fix(b)
-	ab := s.AddLine(a, b)
+	ab := s.CreateLine(a, b)
 
-	d := s.AddPoint(2, 5)
-	c := s.AddPoint(12, 5)
-	dc := s.AddLine(d, c)
+	d := s.CreatePoint(2, 5)
+	c := s.CreatePoint(12, 5)
+	dc := s.CreateLine(d, c)
 	s.AddConstraint(sketch.NewParallel(ab, dc), sketch.NewEqual(ab, dc))
 	_, err := s.Solve()
 	require.NoError(t, err)
@@ -116,15 +116,15 @@ func TestDragSmoothness(t *testing.T) {
 func TestMinimalMotionOnEdit(t *testing.T) {
 	s := newSketch(t)
 	// An under-constrained bar from a grounded origin.
-	a := s.AddPoint(0, 0)
+	a := s.CreatePoint(0, 0)
 	s.Fix(a)
-	b := s.AddPoint(10, 0)
+	b := s.CreatePoint(10, 0)
 	w := sketch.NewDistance(a, b, 10)
 	s.AddConstraint(w)
 
 	// A satisfied, floating cluster far away; nothing ties it to the bar.
-	c := s.AddPoint(100, 100)
-	d := s.AddPoint(108, 100)
+	c := s.CreatePoint(100, 100)
+	d := s.CreatePoint(108, 100)
 	s.AddConstraint(sketch.NewDistance(c, d, 8))
 	_, err := s.Solve()
 	require.NoError(t, err)
@@ -148,14 +148,14 @@ func TestMinimalMotionOnEdit(t *testing.T) {
 // its grounded corner.
 func TestNoFlipOnLargeEdit(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(18, 2)
-	c := s.AddPoint(17, 11)
-	d := s.AddPoint(1, 13)
-	ab := s.AddLine(a, b)
-	bc := s.AddLine(b, c)
-	dc := s.AddLine(d, c)
-	ad := s.AddLine(a, d)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(18, 2)
+	c := s.CreatePoint(17, 11)
+	d := s.CreatePoint(1, 13)
+	ab := s.CreateLine(a, b)
+	bc := s.CreateLine(b, c)
+	dc := s.CreateLine(d, c)
+	ad := s.CreateLine(a, d)
 	a.MoveTo(0, 0)
 	s.Fix(a)
 	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
@@ -181,15 +181,15 @@ func TestNoFlipOnLargeEdit(t *testing.T) {
 func TestNearestSolutionPreserved(t *testing.T) {
 	s := newSketch(t)
 	// A vertical line along x = 0.
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(0, 10)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(0, 10)
 	s.Fix(a)
 	s.Fix(b)
-	line := s.AddLine(a, b)
+	line := s.CreateLine(a, b)
 
 	// A circle starting on the left side; tangency admits x = ±r.
-	o := s.AddPoint(-5, 3)
-	circ := s.AddCircle(o, 2)
+	o := s.CreatePoint(-5, 3)
+	circ := s.CreateCircle(o, 2)
 	r := sketch.NewRadius(circ, 3)
 	s.AddConstraint(r, sketch.NewTangent(line, circ))
 
@@ -211,9 +211,9 @@ func TestSolverNeverReturnsNaN(t *testing.T) {
 
 	t.Run("contradictory dimensions", func(t *testing.T) {
 		s := newSketch(t)
-		a := s.AddPoint(0, 0)
+		a := s.CreatePoint(0, 0)
 		s.Fix(a)
-		b := s.AddPoint(3, 1)
+		b := s.CreatePoint(3, 1)
 		s.AddConstraint(sketch.NewDistance(a, b, 5))
 		s.AddConstraint(sketch.NewDistance(a, b, 8)) // cannot both hold
 
@@ -228,16 +228,16 @@ func TestSolverNeverReturnsNaN(t *testing.T) {
 		// A zero-length line: both endpoints at the same spot. Residuals that
 		// divide by its length must stay finite (norm() floors away from zero)
 		// so the solver can pull the points apart.
-		a := s.AddPoint(0, 0)
+		a := s.CreatePoint(0, 0)
 		s.Fix(a)
-		b := s.AddPoint(0, 0)
-		l1 := s.AddLine(a, b)
+		b := s.CreatePoint(0, 0)
+		l1 := s.CreateLine(a, b)
 
-		c := s.AddPoint(5, 0)
-		d := s.AddPoint(5, 5)
+		c := s.CreatePoint(5, 0)
+		d := s.CreatePoint(5, 5)
 		s.Fix(c)
 		s.Fix(d)
-		l2 := s.AddLine(c, d)
+		l2 := s.CreateLine(c, d)
 
 		s.AddConstraint(sketch.NewPerpendicular(l1, l2))
 		s.AddConstraint(sketch.NewDistance(a, b, 5))
@@ -256,11 +256,11 @@ func TestSolverNeverReturnsNaN(t *testing.T) {
 // order — no map-order dependence may creep in.
 func TestSolveDeterministic(t *testing.T) {
 	s1 := newSketch(t)
-	a1 := s1.AddPoint(0, 0)
-	b1 := s1.AddPoint(18, 2)
-	c1 := s1.AddPoint(17, 11)
-	d1 := s1.AddPoint(1, 13)
-	s1.AddConstraint(sketch.NewHorizontal(s1.AddLine(a1, b1)), sketch.NewHorizontal(s1.AddLine(d1, c1)), sketch.NewVertical(s1.AddLine(a1, d1)), sketch.NewVertical(s1.AddLine(b1, c1)))
+	a1 := s1.CreatePoint(0, 0)
+	b1 := s1.CreatePoint(18, 2)
+	c1 := s1.CreatePoint(17, 11)
+	d1 := s1.CreatePoint(1, 13)
+	s1.AddConstraint(sketch.NewHorizontal(s1.CreateLine(a1, b1)), sketch.NewHorizontal(s1.CreateLine(d1, c1)), sketch.NewVertical(s1.CreateLine(a1, d1)), sketch.NewVertical(s1.CreateLine(b1, c1)))
 	a1.MoveTo(0, 0)
 	s1.Fix(a1)
 	s1.AddConstraint(sketch.NewDistance(a1, b1, 20))
@@ -269,11 +269,11 @@ func TestSolveDeterministic(t *testing.T) {
 	require.NoError(t, err)
 
 	s2 := newSketch(t)
-	a2 := s2.AddPoint(0, 0)
-	b2 := s2.AddPoint(18, 2)
-	c2 := s2.AddPoint(17, 11)
-	d2 := s2.AddPoint(1, 13)
-	s2.AddConstraint(sketch.NewHorizontal(s2.AddLine(a2, b2)), sketch.NewHorizontal(s2.AddLine(d2, c2)), sketch.NewVertical(s2.AddLine(a2, d2)), sketch.NewVertical(s2.AddLine(b2, c2)))
+	a2 := s2.CreatePoint(0, 0)
+	b2 := s2.CreatePoint(18, 2)
+	c2 := s2.CreatePoint(17, 11)
+	d2 := s2.CreatePoint(1, 13)
+	s2.AddConstraint(sketch.NewHorizontal(s2.CreateLine(a2, b2)), sketch.NewHorizontal(s2.CreateLine(d2, c2)), sketch.NewVertical(s2.CreateLine(a2, d2)), sketch.NewVertical(s2.CreateLine(b2, c2)))
 	a2.MoveTo(0, 0)
 	s2.Fix(a2)
 	s2.AddConstraint(sketch.NewDistance(a2, b2, 20))
@@ -294,14 +294,14 @@ func TestSolveDeterministic(t *testing.T) {
 func TestScaleInvariance(t *testing.T) {
 	build := func(scale float64) (*sketch.Sketch, *sketch.Point, *sketch.Point) {
 		s := newSketch(t)
-		a := s.AddPoint(0, 0)
-		b := s.AddPoint(18*scale, 2*scale) // rough guesses, like newRectangle
-		c := s.AddPoint(17*scale, 11*scale)
-		d := s.AddPoint(1*scale, 13*scale)
-		ab := s.AddLine(a, b)
-		bc := s.AddLine(b, c)
-		dc := s.AddLine(d, c)
-		ad := s.AddLine(a, d)
+		a := s.CreatePoint(0, 0)
+		b := s.CreatePoint(18*scale, 2*scale) // rough guesses, like newRectangle
+		c := s.CreatePoint(17*scale, 11*scale)
+		d := s.CreatePoint(1*scale, 13*scale)
+		ab := s.CreateLine(a, b)
+		bc := s.CreateLine(b, c)
+		dc := s.CreateLine(d, c)
+		ad := s.CreateLine(a, d)
 		s.Fix(a)
 		s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
 		s.AddConstraint(sketch.NewDistance(a, b, 20*scale))

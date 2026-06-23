@@ -16,15 +16,15 @@ func Example_sketch_quickstart() {
 
 	// Four corners as rough initial guesses; the solver finds the exact spots.
 	// Sharing a *Point between two lines is what makes a corner a corner.
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(18, 2)
-	c := s.AddPoint(17, 11)
-	d := s.AddPoint(1, 13)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(18, 2)
+	c := s.CreatePoint(17, 11)
+	d := s.CreatePoint(1, 13)
 
-	ab := s.AddLine(a, b)
-	bc := s.AddLine(b, c)
-	dc := s.AddLine(d, c)
-	ad := s.AddLine(a, d)
+	ab := s.CreateLine(a, b)
+	bc := s.CreateLine(b, c)
+	dc := s.CreateLine(d, c)
+	ad := s.CreateLine(a, d)
 
 	// Ground one corner at the origin so the sketch can't float away.
 	a.MoveTo(0, 0)

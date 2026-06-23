@@ -39,9 +39,9 @@ func TestTangentToClosedSpline(t *testing.T) {
 	// tangent is horizontal), settling at the loop's max height.
 	s := newSketch(t)
 	sp := loopSpline(s) // fixed convex-pentagon control loop
-	p1 := s.AddPoint(-4, 4.8)
-	p2 := s.AddPoint(8, 4.8)
-	line := s.AddLine(p1, p2)
+	p1 := s.CreatePoint(-4, 4.8)
+	p2 := s.CreatePoint(8, 4.8)
+	line := s.CreateLine(p1, p2)
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewTangentToClosedSpline(line, sp))
 
@@ -55,11 +55,11 @@ func TestTangentToClosedSpline(t *testing.T) {
 func TestTangentToClosedSplineDOFAndRemoval(t *testing.T) {
 	s := newSketch(t)
 	sp := loopSpline(s)
-	p1 := s.AddPoint(-4, 4.8)
-	p2 := s.AddPoint(8, 4.8)
+	p1 := s.CreatePoint(-4, 4.8)
+	p2 := s.CreatePoint(8, 4.8)
 	require.Equal(t, 4, s.DOF(), "a free line has four DOF")
 
-	con := sketch.NewTangentToClosedSpline(s.AddLine(p1, p2), sp)
+	con := sketch.NewTangentToClosedSpline(s.CreateLine(p1, p2), sp)
 	s.AddConstraint(con)
 	require.Equal(t, 3, s.DOF(), "tangency removes one DOF (the no-cusp slack nets out)")
 
@@ -70,15 +70,15 @@ func TestTangentToClosedSplineDOFAndRemoval(t *testing.T) {
 func TestTangentToClosedSplineCheckConstraint(t *testing.T) {
 	s := newSketch(t)
 	sp := loopSpline(s)
-	p1 := s.AddPoint(-4, 4.8)
-	p2 := s.AddPoint(8, 4.8)
-	require.NoError(t, s.CheckConstraint(sketch.NewTangentToClosedSpline(s.AddLine(p1, p2), sp)))
+	p1 := s.CreatePoint(-4, 4.8)
+	p2 := s.CreatePoint(8, 4.8)
+	require.NoError(t, s.CheckConstraint(sketch.NewTangentToClosedSpline(s.CreateLine(p1, p2), sp)))
 }
 
 func TestTangentToClosedSplineRoundTrip(t *testing.T) {
 	s := newSketch(t)
 	sp := loopSpline(s)
-	line := s.AddLine(s.AddPoint(-4, 4.8), s.AddPoint(8, 4.8))
+	line := s.CreateLine(s.CreatePoint(-4, 4.8), s.CreatePoint(8, 4.8))
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewTangentToClosedSpline(line, sp))
 	_, err := s.Solve()
@@ -97,9 +97,9 @@ func TestTangentToFitSpline(t *testing.T) {
 	// A horizontal line above the fit arch becomes tangent at its top.
 	s := newSketch(t)
 	sp := archFit(s) // fixed fit points (0,0),(2,3),(6,3),(8,0)
-	p1 := s.AddPoint(-2, 3.5)
-	p2 := s.AddPoint(10, 3.5)
-	line := s.AddLine(p1, p2)
+	p1 := s.CreatePoint(-2, 3.5)
+	p2 := s.CreatePoint(10, 3.5)
+	line := s.CreateLine(p1, p2)
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewTangentToFitSpline(line, sp))
 
@@ -113,11 +113,11 @@ func TestTangentToFitSpline(t *testing.T) {
 func TestTangentToFitSplineDOFAndRemoval(t *testing.T) {
 	s := newSketch(t)
 	sp := archFit(s)
-	p1 := s.AddPoint(-2, 3.5)
-	p2 := s.AddPoint(10, 3.5)
+	p1 := s.CreatePoint(-2, 3.5)
+	p2 := s.CreatePoint(10, 3.5)
 	require.Equal(t, 4, s.DOF(), "a free line has four DOF")
 
-	con := sketch.NewTangentToFitSpline(s.AddLine(p1, p2), sp)
+	con := sketch.NewTangentToFitSpline(s.CreateLine(p1, p2), sp)
 	s.AddConstraint(con)
 	require.Equal(t, 3, s.DOF(), "tangency removes one DOF (the slacks net out)")
 
@@ -128,15 +128,15 @@ func TestTangentToFitSplineDOFAndRemoval(t *testing.T) {
 func TestTangentToFitSplineCheckConstraint(t *testing.T) {
 	s := newSketch(t)
 	sp := archFit(s)
-	p1 := s.AddPoint(-2, 3.5)
-	p2 := s.AddPoint(10, 3.5)
-	require.NoError(t, s.CheckConstraint(sketch.NewTangentToFitSpline(s.AddLine(p1, p2), sp)))
+	p1 := s.CreatePoint(-2, 3.5)
+	p2 := s.CreatePoint(10, 3.5)
+	require.NoError(t, s.CheckConstraint(sketch.NewTangentToFitSpline(s.CreateLine(p1, p2), sp)))
 }
 
 func TestTangentToFitSplineRoundTrip(t *testing.T) {
 	s := newSketch(t)
 	sp := archFit(s)
-	line := s.AddLine(s.AddPoint(-2, 3.5), s.AddPoint(10, 3.5))
+	line := s.CreateLine(s.CreatePoint(-2, 3.5), s.CreatePoint(10, 3.5))
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewTangentToFitSpline(line, sp))
 	_, err := s.Solve()
@@ -157,11 +157,11 @@ func TestTangentToFitSplineTransverseRejected(t *testing.T) {
 	// oracle must report it unsolvable, not bless the transverse crossing.
 	s := newSketch(t)
 	sp := archFit(s)
-	a := s.AddPoint(4, -2)
-	b := s.AddPoint(4, 8)
+	a := s.CreatePoint(4, -2)
+	b := s.CreatePoint(4, 8)
 	s.Fix(a)
 	s.Fix(b) // a rigid vertical line x=4
-	s.AddConstraint(sketch.NewTangentToFitSpline(s.AddLine(a, b), sp))
+	s.AddConstraint(sketch.NewTangentToFitSpline(s.CreateLine(a, b), sp))
 
 	_, err := s.Solve()
 	require.ErrorIs(t, err, sketch.ErrNotConverged)
@@ -174,11 +174,11 @@ func TestTangentToClosedSplineNonTouchingRejected(t *testing.T) {
 	// direction, so the rejection case is a non-touching line, not a transverse one.)
 	s := newSketch(t)
 	sp := loopSpline(s)
-	a := s.AddPoint(100, -5)
-	b := s.AddPoint(100, 5)
+	a := s.CreatePoint(100, -5)
+	b := s.CreatePoint(100, 5)
 	s.Fix(a)
 	s.Fix(b) // rigid line x=100, far from the loop near the origin
-	s.AddConstraint(sketch.NewTangentToClosedSpline(s.AddLine(a, b), sp))
+	s.AddConstraint(sketch.NewTangentToClosedSpline(s.CreateLine(a, b), sp))
 
 	_, err := s.Solve()
 	require.ErrorIs(t, err, sketch.ErrNotConverged)
@@ -190,10 +190,10 @@ func TestTangentToClosedSplineDOF0Verify(t *testing.T) {
 	// flows through Verify with a real Conditioning and reads trustworthy.
 	s := newSketch(t)
 	sp := loopSpline(s)
-	e := s.AddPoint(10, 8)
+	e := s.CreatePoint(10, 8)
 	s.Fix(e)
-	f := s.AddPoint(3, 4) // free; tangency + distance determine the line
-	s.AddConstraint(sketch.NewTangentToClosedSpline(s.AddLine(e, f), sp))
+	f := s.CreatePoint(3, 4) // free; tangency + distance determine the line
+	s.AddConstraint(sketch.NewTangentToClosedSpline(s.CreateLine(e, f), sp))
 	s.AddConstraint(sketch.NewDistance(e, f, 9))
 
 	_, err := s.Solve()
@@ -209,11 +209,11 @@ func TestTangentToFitSplineDOF0Verify(t *testing.T) {
 	// endpoints' x to a datum, flows through Verify and reads trustworthy.
 	s := newSketch(t)
 	sp := archFit(s)
-	ref := s.AddPoint(0, 100)
+	ref := s.CreatePoint(0, 100)
 	s.Fix(ref)
-	p1 := s.AddPoint(-2, 3.5)
-	p2 := s.AddPoint(10, 3.5)
-	line := s.AddLine(p1, p2)
+	p1 := s.CreatePoint(-2, 3.5)
+	p2 := s.CreatePoint(10, 3.5)
+	line := s.CreateLine(p1, p2)
 	s.AddConstraint(sketch.NewHorizontalDistance(ref, p1, -2))
 	s.AddConstraint(sketch.NewHorizontalDistance(ref, p2, 10))
 	s.AddConstraint(sketch.NewHorizontal(line))

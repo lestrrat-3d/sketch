@@ -13,10 +13,10 @@ import (
 func Example_sketch_point_on_conic() {
 	w := sketch.NewWorld()
 	s, _ := w.CreateSketch(w.XY())
-	start := s.AddPoint(0, 0)
-	apex := s.AddPoint(4, 6)
-	end := s.AddPoint(8, 0)
-	c, err := s.AddConic(start, apex, end, 0.5) // 0.5 → parabola
+	start := s.CreatePoint(0, 0)
+	apex := s.CreatePoint(4, 6)
+	end := s.CreatePoint(8, 0)
+	c, err := s.CreateConic(start, apex, end, 0.5) // 0.5 → parabola
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -25,7 +25,7 @@ func Example_sketch_point_on_conic() {
 		s.Fix(p)
 	}
 
-	p := s.AddPoint(4, 1) // below the arch interior
+	p := s.CreatePoint(4, 1) // below the arch interior
 	s.AddConstraint(sketch.NewPointOnConic(p, c))
 
 	if _, err := s.Solve(); err != nil {
@@ -51,10 +51,10 @@ func Example_sketch_point_on_conic() {
 func Example_sketch_tangent_to_nurbs() {
 	w := sketch.NewWorld()
 	s, _ := w.CreateSketch(w.XY())
-	c0 := s.AddPoint(0, 0)
-	c1 := s.AddPoint(4, 8)
-	c2 := s.AddPoint(8, 0)
-	c, err := s.AddNURBS(2, []*sketch.Point{c0, c1, c2}, nil, sketch.ClampedUniformKnots(3, 2))
+	c0 := s.CreatePoint(0, 0)
+	c1 := s.CreatePoint(4, 8)
+	c2 := s.CreatePoint(8, 0)
+	c, err := s.CreateNURBS(2, []*sketch.Point{c0, c1, c2}, nil, sketch.ClampedUniformKnots(3, 2))
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -63,9 +63,9 @@ func Example_sketch_tangent_to_nurbs() {
 		s.Fix(p)
 	}
 
-	a := s.AddPoint(-2, 3.5)
-	b := s.AddPoint(10, 3.5)
-	line := s.AddLine(a, b)
+	a := s.CreatePoint(-2, 3.5)
+	b := s.CreatePoint(10, 3.5)
+	line := s.CreateLine(a, b)
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewTangentToNURBS(line, c))
 

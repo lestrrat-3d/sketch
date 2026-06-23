@@ -15,8 +15,8 @@ import (
 func orthogonalPinned(k, tx, ty float64) *sketch.VerificationReport {
 	w := sketch.NewWorld()
 	s, _ := w.CreateSketch(w.XY())
-	a := s.AddPoint(tx, ty)
-	b := s.AddPoint(tx+3*k, ty+1*k)
+	a := s.CreatePoint(tx, ty)
+	b := s.CreatePoint(tx+3*k, ty+1*k)
 	s.Fix(a)
 	s.AddConstraint(sketch.NewHorizontalDistance(a, b, 10*k))
 	s.AddConstraint(sketch.NewVerticalDistance(a, b, 5*k))
@@ -31,14 +31,14 @@ func orthogonalPinned(k, tx, ty float64) *sketch.VerificationReport {
 func mixedUnitFixture(k float64) *sketch.VerificationReport {
 	w := sketch.NewWorld()
 	s, _ := w.CreateSketch(w.XY())
-	o := s.AddPoint(0, 0)
-	e := s.AddPoint(10*k, 0)
+	o := s.CreatePoint(0, 0)
+	e := s.CreatePoint(10*k, 0)
 	s.Fix(o)
 	s.Fix(e)
-	l1 := s.AddLine(o, e) // fixed reference line (the x-axis)
-	p2 := s.AddPoint(0, 0)
-	p3 := s.AddPoint(4*k, 2*k)
-	l2 := s.AddLine(p2, p3)
+	l1 := s.CreateLine(o, e) // fixed reference line (the x-axis)
+	p2 := s.CreatePoint(0, 0)
+	p3 := s.CreatePoint(4*k, 2*k)
+	l2 := s.CreateLine(p2, p3)
 	s.AddConstraint(sketch.NewCoincident(p2, o))     // 2 length rows
 	s.AddConstraint(sketch.NewDistance(p2, p3, 5*k)) // 1 length row
 	s.AddConstraint(sketch.NewAngle(l1, l2, 30))     // 1 dimensionless row
@@ -94,16 +94,16 @@ func TestConditioningNearSingularScaleInvariant(t *testing.T) {
 	// independent of k; it crosses the 1e-6 gate at a scale-invariant δ.
 	mk := func(delta, k float64) *sketch.VerificationReport {
 		s := newSketch(t)
-		o1 := s.AddPoint(0, 0)
-		e1 := s.AddPoint(1*k, 0)
-		o2 := s.AddPoint(0, 0)
-		e2 := s.AddPoint(1*k, delta*k)
+		o1 := s.CreatePoint(0, 0)
+		e1 := s.CreatePoint(1*k, 0)
+		o2 := s.CreatePoint(0, 0)
+		e2 := s.CreatePoint(1*k, delta*k)
 		for _, p := range []*sketch.Point{o1, e1, o2, e2} {
 			s.Fix(p)
 		}
-		l1 := s.AddLine(o1, e1)
-		l2 := s.AddLine(o2, e2)
-		p := s.AddPoint(0, 0)
+		l1 := s.CreateLine(o1, e1)
+		l2 := s.CreateLine(o2, e2)
+		p := s.CreatePoint(0, 0)
 		s.AddConstraint(sketch.NewPointOnLine(p, l1))
 		s.AddConstraint(sketch.NewPointOnLine(p, l2))
 		s.Solve()
@@ -127,10 +127,10 @@ func TestConditioningHealthyFixtures(t *testing.T) {
 	for _, k := range []float64{1, 1000} {
 		// A hexagon-ish pin: a point fixed by distance + perpendicular offset lines.
 		s := newSketch(t)
-		a := s.AddPoint(0, 0)
+		a := s.CreatePoint(0, 0)
 		s.Fix(a)
-		b := s.AddPoint(5*k, 0)
-		c := s.AddPoint(5*k, 5*k)
+		b := s.CreatePoint(5*k, 0)
+		c := s.CreatePoint(5*k, 5*k)
 		s.AddConstraint(sketch.NewDistance(a, b, 5*k))
 		s.AddConstraint(sketch.NewHorizontalPoints(a, b))
 		s.AddConstraint(sketch.NewDistance(b, c, 5*k))
@@ -147,8 +147,8 @@ func TestConditioningNotApplicableUnderconstrained(t *testing.T) {
 	// An under-constrained sketch is genuinely singular by its free DOF; the
 	// conditioning measure is left +Inf (not applicable) rather than a misleading 0.
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(3, 4)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(3, 4)
 	s.Fix(a)
 	s.AddConstraint(sketch.NewDistance(a, b, 5)) // b still free on a circle
 	s.Solve()
@@ -171,35 +171,35 @@ func TestConditioningClassifiesAuxConstraints(t *testing.T) {
 		build func(s *sketch.Sketch)
 	}{
 		{"pointOnArc", func(s *sketch.Sketch) {
-			o, a, b := s.AddPoint(0, 0), s.AddPoint(5, 0), s.AddPoint(0, 5)
+			o, a, b := s.CreatePoint(0, 0), s.CreatePoint(5, 0), s.CreatePoint(0, 5)
 			s.Fix(o)
 			s.Fix(a)
 			s.Fix(b)
-			arc := s.AddArc(o, a, b)
-			p := s.AddPoint(4, 3)
-			line := s.AddLine(o, s.AddPoint(5, 5)) // y=x through center
+			arc := s.CreateArc(o, a, b)
+			p := s.CreatePoint(4, 3)
+			line := s.CreateLine(o, s.CreatePoint(5, 5)) // y=x through center
 			s.Fix(line.End)
 			s.AddConstraint(sketch.NewPointOnArc(p, arc))
 			s.AddConstraint(sketch.NewPointOnLine(p, line))
 		}},
 		{"distancePointArc", func(s *sketch.Sketch) {
-			o, a, b := s.AddPoint(0, 0), s.AddPoint(5, 0), s.AddPoint(0, 5)
+			o, a, b := s.CreatePoint(0, 0), s.CreatePoint(5, 0), s.CreatePoint(0, 5)
 			s.Fix(o)
 			s.Fix(a)
 			s.Fix(b)
-			arc := s.AddArc(o, a, b)
-			p := s.AddPoint(6, 6) // free; radial distance + a diagonal line pin it
-			diag := s.AddPoint(7, 7)
+			arc := s.CreateArc(o, a, b)
+			p := s.CreatePoint(6, 6) // free; radial distance + a diagonal line pin it
+			diag := s.CreatePoint(7, 7)
 			s.Fix(diag)
 			s.AddConstraint(sketch.NewDistancePointArc(p, arc, 2))
-			s.AddConstraint(sketch.NewPointOnLine(p, s.AddLine(o, diag)))
+			s.AddConstraint(sketch.NewPointOnLine(p, s.CreateLine(o, diag)))
 		}},
 		{"arcLength", func(s *sketch.Sketch) {
-			o, a := s.AddPoint(0, 0), s.AddPoint(4, 0)
+			o, a := s.CreatePoint(0, 0), s.CreatePoint(4, 0)
 			s.Fix(o)
 			s.Fix(a)
-			end := s.AddPoint(0, 4)
-			arc := s.AddArc(o, a, end)
+			end := s.CreatePoint(0, 4)
+			arc := s.CreateArc(o, a, end)
 			s.AddConstraint(sketch.NewArcLength(arc, 2*math.Pi))
 			s.AddConstraint(sketch.NewDistance(o, end, 4))
 			s.AddConstraint(sketch.NewVerticalPoints(o, end))
@@ -229,14 +229,14 @@ func TestConditioningClassifiesAuxConstraints(t *testing.T) {
 func TestConditioningGateToleranceDerived(t *testing.T) {
 	mk := func(tol float64) *sketch.VerificationReport {
 		s := newSketch(t)
-		o1, e1 := s.AddPoint(0, 0), s.AddPoint(1, 0)
-		o2, e2 := s.AddPoint(0, 0), s.AddPoint(1, 2e-4) // ≈2e-4 rad apart → Conditioning ≈ 1e-4
+		o1, e1 := s.CreatePoint(0, 0), s.CreatePoint(1, 0)
+		o2, e2 := s.CreatePoint(0, 0), s.CreatePoint(1, 2e-4) // ≈2e-4 rad apart → Conditioning ≈ 1e-4
 		for _, p := range []*sketch.Point{o1, e1, o2, e2} {
 			s.Fix(p)
 		}
-		p := s.AddPoint(0, 0)
-		s.AddConstraint(sketch.NewPointOnLine(p, s.AddLine(o1, e1)))
-		s.AddConstraint(sketch.NewPointOnLine(p, s.AddLine(o2, e2)))
+		p := s.CreatePoint(0, 0)
+		s.AddConstraint(sketch.NewPointOnLine(p, s.CreateLine(o1, e1)))
+		s.AddConstraint(sketch.NewPointOnLine(p, s.CreateLine(o2, e2)))
 		s.Solve(sketch.WithTolerance(tol))
 		return s.Verify(sketch.WithTolerance(tol))
 	}
@@ -262,16 +262,16 @@ func TestConditioningGateToleranceDerived(t *testing.T) {
 func TestConditioningSlackFlatSpotGated(t *testing.T) {
 	build := func() *sketch.Sketch {
 		s := newSketch(t)
-		o, a := s.AddPoint(0, 0), s.AddPoint(5, 0)
+		o, a := s.CreatePoint(0, 0), s.CreatePoint(5, 0)
 		s.Fix(o)
 		s.Fix(a)
-		b := s.AddPoint(0, 5) // free arc end: verticalPoints + arcRadius pin it to (0,5)
-		arc := s.AddArc(o, a, b)
+		b := s.CreatePoint(0, 5) // free arc end: verticalPoints + arcRadius pin it to (0,5)
+		arc := s.CreateArc(o, a, b)
 		s.AddConstraint(sketch.NewVerticalPoints(o, b))
-		xend := s.AddPoint(10, 0)
+		xend := s.CreatePoint(10, 0)
 		s.Fix(xend)
-		xaxis := s.AddLine(o, xend) // y=0 meets the arc at the (5,0) sweep boundary
-		p := s.AddPoint(4.9, 0.3)
+		xaxis := s.CreateLine(o, xend) // y=0 meets the arc at the (5,0) sweep boundary
+		p := s.CreatePoint(4.9, 0.3)
 		s.AddConstraint(sketch.NewPointOnArc(p, arc))
 		s.AddConstraint(sketch.NewPointOnLine(p, xaxis))
 		return s

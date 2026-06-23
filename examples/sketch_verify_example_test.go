@@ -19,7 +19,7 @@ func Example_sketch_verify() {
 
 	w := sketch.NewWorld()
 	s, _ := w.CreateSketch(w.XY())
-	r := s.AddRectangle(0, 0, 20, 12)
+	r := s.CreateRectangle(0, 0, 20, 12)
 	s.Fix(r.A)
 
 	// A rectangle held only by its shape constraints: closed, but its size is

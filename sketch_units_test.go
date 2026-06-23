@@ -12,11 +12,11 @@ import (
 // A distance set with a typed value keeps that unit but solves in base mm.
 func TestDimensionTypedValue(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(1, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(1, 0)
 	a.MoveTo(0, 0)
 	s.Fix(a)
-	s.AddConstraint(sketch.NewHorizontal(s.AddLine(a, b)))
+	s.AddConstraint(sketch.NewHorizontal(s.CreateLine(a, b)))
 	d := sketch.NewDistance(a, b, 0)
 	s.AddConstraint(d)
 	require.NoError(t, d.SetValue(units.Inches(4)))
@@ -29,8 +29,8 @@ func TestDimensionTypedValue(t *testing.T) {
 // SetValue must reject a value of the wrong kind.
 func TestDimensionWrongKind(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(1, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(1, 0)
 	d := sketch.NewDistance(a, b, 0)
 	require.Error(t, d.SetValue(units.Degrees(30)), "expected error setting a length dimension from an angle")
 }
@@ -38,13 +38,13 @@ func TestDimensionWrongKind(t *testing.T) {
 // The bare-float Angle constructor uses the sketch's default angle unit.
 func TestAngleDefaultUnitDegrees(t *testing.T) {
 	s := newSketch(t) // metric default: degrees
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
-	c := s.AddPoint(5, 5)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
+	c := s.CreatePoint(5, 5)
 	a.MoveTo(0, 0)
 	s.Fix(a)
-	l1 := s.AddLine(a, b)
-	l2 := s.AddLine(a, c)
+	l1 := s.CreateLine(a, b)
+	l2 := s.CreateLine(a, c)
 	s.AddConstraint(sketch.NewHorizontal(l1), sketch.NewAngle(l1, l2, 90)) // 90 degrees
 	s.AddConstraint(sketch.NewDistance(a, b, 10))
 	s.AddConstraint(sketch.NewDistance(a, c, 8))
@@ -60,11 +60,11 @@ func TestAngleDefaultUnitDegrees(t *testing.T) {
 func TestSetUnitsImperial(t *testing.T) {
 	s := newSketch(t)
 	s.SetUnits(units.Imperial()) // inches, degrees
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(1, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(1, 0)
 	a.MoveTo(0, 0)
 	s.Fix(a)
-	s.AddConstraint(sketch.NewHorizontal(s.AddLine(a, b)))
+	s.AddConstraint(sketch.NewHorizontal(s.CreateLine(a, b)))
 	s.AddConstraint(sketch.NewDistance(a, b, 2)) // 2 inches
 	_, err := s.Solve()
 	require.NoError(t, err)
@@ -74,11 +74,11 @@ func TestSetUnitsImperial(t *testing.T) {
 // A length dimension bound to a typed length parameter converts correctly.
 func TestBindTypedLengthParam(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(1, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(1, 0)
 	a.MoveTo(0, 0)
 	s.Fix(a)
-	s.AddConstraint(sketch.NewHorizontal(s.AddLine(a, b)))
+	s.AddConstraint(sketch.NewHorizontal(s.CreateLine(a, b)))
 
 	p := s.Params()
 	require.NoError(t, p.SetValue("len", units.Meters(1))) // 1 m == 1000 mm
@@ -93,11 +93,11 @@ func TestBindTypedLengthParam(t *testing.T) {
 // Binding a length dimension to an angle parameter is a kind error at solve.
 func TestBindKindMismatch(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(1, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(1, 0)
 	a.MoveTo(0, 0)
 	s.Fix(a)
-	s.AddConstraint(sketch.NewHorizontal(s.AddLine(a, b)))
+	s.AddConstraint(sketch.NewHorizontal(s.CreateLine(a, b)))
 
 	p := s.Params()
 	require.NoError(t, p.SetValue("turn", units.Degrees(45)))
@@ -111,13 +111,13 @@ func TestBindKindMismatch(t *testing.T) {
 // An angle dimension bound to a typed angle parameter (degrees) solves correctly.
 func TestBindAngleParam(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
-	c := s.AddPoint(5, 5)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
+	c := s.CreatePoint(5, 5)
 	a.MoveTo(0, 0)
 	s.Fix(a)
-	l1 := s.AddLine(a, b)
-	l2 := s.AddLine(a, c)
+	l1 := s.CreateLine(a, b)
+	l2 := s.CreateLine(a, c)
 	s.AddConstraint(sketch.NewHorizontal(l1))
 	s.AddConstraint(sketch.NewDistance(a, b, 10))
 	s.AddConstraint(sketch.NewDistance(a, c, 8))
@@ -139,11 +139,11 @@ func TestBindAngleParam(t *testing.T) {
 func TestJSONRoundTripUnits(t *testing.T) {
 	s := newSketch(t)
 	s.SetUnits(units.Imperial())
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(1, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(1, 0)
 	a.MoveTo(0, 0)
 	s.Fix(a)
-	s.AddConstraint(sketch.NewHorizontal(s.AddLine(a, b)))
+	s.AddConstraint(sketch.NewHorizontal(s.CreateLine(a, b)))
 	d := sketch.NewDistance(a, b, 0)
 	s.AddConstraint(d)
 	require.NoError(t, d.SetValue(units.Inches(3)))

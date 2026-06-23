@@ -70,11 +70,11 @@ func (s *Sketch) sealReference(e Entity, pts ...*Point) {
 	s.refSeals[e] = append([]*Point(nil), pts...)
 }
 
-// AddReferencePoint adds a reference point at plane-local (x, y) tagged with the
+// CreateReferencePoint adds a reference point at plane-local (x, y) tagged with the
 // given source id. Its coordinates are locked (the solver never moves it); only
 // [Sketch.RefreshReference] rewrites them. Build reference curves from the
 // returned point so projected loops can close by sharing it.
-func (s *Sketch) AddReferencePoint(x, y float64, source string) *Point {
+func (s *Sketch) CreateReferencePoint(x, y float64, source string) *Point {
 	p := &Point{s: s, xi: s.newVar(x), yi: s.newVar(y), id: len(s.points)}
 	p.reference = true
 	p.source = source
@@ -84,10 +84,10 @@ func (s *Sketch) AddReferencePoint(x, y float64, source string) *Point {
 	return p
 }
 
-// AddReferenceLine adds a reference line between two reference points of this
+// CreateReferenceLine adds a reference line between two reference points of this
 // sketch. It returns [ErrForeignPoint] for a foreign/dead point and
 // [ErrNotReference] for a non-reference point.
-func (s *Sketch) AddReferenceLine(p1, p2 *Point, source string) (*Line, error) {
+func (s *Sketch) CreateReferenceLine(p1, p2 *Point, source string) (*Line, error) {
 	if err := s.requireRefPoints(p1, p2); err != nil {
 		return nil, err
 	}
@@ -99,14 +99,14 @@ func (s *Sketch) AddReferenceLine(p1, p2 *Point, source string) (*Line, error) {
 	return l, nil
 }
 
-// AddReferenceArc adds a reference arc (counter-clockwise from start to end about
+// CreateReferenceArc adds a reference arc (counter-clockwise from start to end about
 // center) on reference points of this sketch. The snapshot must be a valid arc
 // (start and end equidistant from the center, [ErrInvalidShape] otherwise); the
 // locked points carry no radius-consistency solver constraint, and the invariant
 // is re-checked by [Sketch.Verify] (so an endpoint refreshed to a different
 // radius is reported broken). Same point requirements as
-// [Sketch.AddReferenceLine].
-func (s *Sketch) AddReferenceArc(center, start, end *Point, source string) (*Arc, error) {
+// [Sketch.CreateReferenceLine].
+func (s *Sketch) CreateReferenceArc(center, start, end *Point, source string) (*Arc, error) {
 	if err := s.requireRefPoints(center, start, end); err != nil {
 		return nil, err
 	}
@@ -128,11 +128,11 @@ func (s *Sketch) AddReferenceArc(center, start, end *Point, source string) (*Arc
 	return a, nil
 }
 
-// AddReferenceCircle adds a reference circle with the given reference center
+// CreateReferenceCircle adds a reference circle with the given reference center
 // point and radius. Both the center and the radius variable are locked; refresh
 // the radius with [Sketch.RefreshReferenceCircle]. Same point requirements as
-// [Sketch.AddReferenceLine].
-func (s *Sketch) AddReferenceCircle(center *Point, r float64, source string) (*Circle, error) {
+// [Sketch.CreateReferenceLine].
+func (s *Sketch) CreateReferenceCircle(center *Point, r float64, source string) (*Circle, error) {
 	if err := s.requireRefPoints(center); err != nil {
 		return nil, err
 	}

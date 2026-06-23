@@ -46,9 +46,9 @@ import "github.com/lestrrat-3d/sketch"
 
 ## Quick start
 
-You author geometry directly on the sketch from points: `s.AddPoint(x, y)`
+You author geometry directly on the sketch from points: `s.CreatePoint(x, y)`
 returns a solver-bound `*sketch.Point`, and the curve builders
-(`s.AddLine`/`AddCircle`/`AddArc`/`AddEllipse`/`AddSpline`) take those points.
+(`s.CreateLine`/`CreateCircle`/`CreateArc`/`CreateEllipse`/`CreateSpline`) take those points.
 Topology is expressed by sharing a point — the corner where two lines meet is
 literally one `*Point`. Constrain the geometry, solve, edit a dimension, and
 re-solve.
@@ -73,15 +73,15 @@ func Example_sketch_quickstart() {
 
   // Four corners as rough initial guesses; the solver finds the exact spots.
   // Sharing a *Point between two lines is what makes a corner a corner.
-  a := s.AddPoint(0, 0)
-  b := s.AddPoint(18, 2)
-  c := s.AddPoint(17, 11)
-  d := s.AddPoint(1, 13)
+  a := s.CreatePoint(0, 0)
+  b := s.CreatePoint(18, 2)
+  c := s.CreatePoint(17, 11)
+  d := s.CreatePoint(1, 13)
 
-  ab := s.AddLine(a, b)
-  bc := s.AddLine(b, c)
-  dc := s.AddLine(d, c)
-  ad := s.AddLine(a, d)
+  ab := s.CreateLine(a, b)
+  bc := s.CreateLine(b, c)
+  dc := s.CreateLine(d, c)
+  ad := s.CreateLine(a, d)
 
   // Ground one corner at the origin so the sketch can't float away.
   a.MoveTo(0, 0)
@@ -156,12 +156,12 @@ handle:
 
 | Builder | Bound handle |
 |---|---|
-| `s.AddPoint(x, y)` | `*sketch.Point` (coordinates are solved for) |
-| `s.AddLine(p1, p2)` | `*sketch.Line` |
-| `s.AddCircle(center, r)` | `*sketch.Circle` |
-| `s.AddArc(center, start, end)` | `*sketch.Arc` |
-| `s.AddEllipse(center, rx, ry, rot)` | `*sketch.Ellipse` (semi-axes and rotation are solved for) |
-| `s.AddSpline(p0, p1, p2, p3, …)` | `*sketch.Spline` (clamped cubic B-spline) |
+| `s.CreatePoint(x, y)` | `*sketch.Point` (coordinates are solved for) |
+| `s.CreateLine(p1, p2)` | `*sketch.Line` |
+| `s.CreateCircle(center, r)` | `*sketch.Circle` |
+| `s.CreateArc(center, start, end)` | `*sketch.Arc` |
+| `s.CreateEllipse(center, rx, ry, rot)` | `*sketch.Ellipse` (semi-axes and rotation are solved for) |
+| `s.CreateSpline(p0, p1, p2, p3, …)` | `*sketch.Spline` (clamped cubic B-spline) |
 
 The curve builders take points you have already added; sharing a `*Point`
 between entities is how topology is expressed (a shared corner is one point),
@@ -191,8 +191,8 @@ Any entity can be marked as construction geometry with `e.SetConstruction(true)`
 
 ### Compound shapes
 
-`s.AddRectangle(x1, y1, x2, y2)`, `s.AddPolygon(cx, cy, n, r)` and
-`s.AddSlot(x1, y1, x2, y2, r)` build a whole shape — primitives plus the
+`s.CreateRectangle(x1, y1, x2, y2)`, `s.CreatePolygon(cx, cy, n, r)` and
+`s.CreateSlot(x1, y1, x2, y2, r)` build a whole shape — primitives plus the
 constraints that hold it in shape (horizontal/vertical sides; equal sides and
 equal construction spokes; equal cap radii and perpendicular contact spokes) —
 and return a grouping handle with the bound parts. The pieces are ordinary
@@ -208,7 +208,7 @@ filtered by `Arc.Contains`) plus modification helpers — `SplitLineAt`,
 `Fillet` (replaces a shared corner with a tangent arc, shortening both legs)
 and `Chamfer` (straight cut). Commit the result with the usual `Add…` calls,
 adding constraints to keep the shape parametric (e.g. tangency spokes, as
-`AddSlot` does).
+`CreateSlot` does).
 
 ### Removing geometry and constraints
 
@@ -284,11 +284,11 @@ func Example_sketch_units() {
   // A dimension carries a unit; internally the solver stays in millimetres.
   world := sketch.NewWorld()
   s, _ := world.CreateSketch(world.XY())
-  a := s.AddPoint(0, 0)
-  b := s.AddPoint(50, 0)
+  a := s.CreatePoint(0, 0)
+  b := s.CreatePoint(50, 0)
   a.MoveTo(0, 0)
   s.Fix(a)
-  s.AddConstraint(sketch.NewHorizontal(s.AddLine(a, b)))
+  s.AddConstraint(sketch.NewHorizontal(s.CreateLine(a, b)))
 
   d := sketch.NewDistance(a, b, 0)
   s.AddConstraint(d)
@@ -345,17 +345,17 @@ func Example_sketch_parametric() {
   s, _ := w.CreateSketch(w.XY())
 
   // Four corners + a center point for the hole (rough initial guesses).
-  a := s.AddPoint(0, 0)
-  b := s.AddPoint(10, 1)
-  c := s.AddPoint(9, 6)
-  d := s.AddPoint(1, 5)
-  o := s.AddPoint(5, 3)
+  a := s.CreatePoint(0, 0)
+  b := s.CreatePoint(10, 1)
+  c := s.CreatePoint(9, 6)
+  d := s.CreatePoint(1, 5)
+  o := s.CreatePoint(5, 3)
 
-  ab := s.AddLine(a, b)
-  bc := s.AddLine(b, c)
-  dc := s.AddLine(d, c)
-  ad := s.AddLine(a, d)
-  hole := s.AddCircle(o, 1)
+  ab := s.CreateLine(a, b)
+  bc := s.CreateLine(b, c)
+  dc := s.CreateLine(d, c)
+  ad := s.CreateLine(a, d)
+  hole := s.CreateCircle(o, 1)
 
   // Geometric constraints: grounded origin, axis-aligned rectangle.
   a.MoveTo(0, 0)
@@ -470,11 +470,11 @@ Call `Solve` (optionally tuned) and read the result it returns:
 func Example_sketch_solving() {
   w := sketch.NewWorld()
   s, _ := w.CreateSketch(w.XY())
-  a := s.AddPoint(0, 0)
-  b := s.AddPoint(30, 4)
+  a := s.CreatePoint(0, 0)
+  b := s.CreatePoint(30, 4)
   a.MoveTo(0, 0)
   s.Fix(a)
-  l := s.AddLine(a, b)
+  l := s.CreateLine(a, b)
   s.AddConstraint(sketch.NewHorizontal(l))
   s.AddConstraint(sketch.NewDistance(a, b, 30))
 
@@ -525,11 +525,11 @@ partial result.
 func Example_sketch_goal() {
   w := sketch.NewWorld()
   s, _ := w.CreateSketch(w.XY())
-  a := s.AddPoint(0, 0)
-  b := s.AddPoint(2, 2)
+  a := s.CreatePoint(0, 0)
+  b := s.CreatePoint(2, 2)
   a.MoveTo(0, 0)
   s.Fix(a)
-  l := s.AddLine(a, b)
+  l := s.CreateLine(a, b)
   s.AddConstraint(sketch.NewHorizontal(l)) // b must stay on the x-axis (y = 0)
 
   // Drag b toward (7, 5). The horizontal constraint pins y to 0; the goal is

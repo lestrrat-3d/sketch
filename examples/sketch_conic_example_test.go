@@ -14,16 +14,16 @@ import (
 func Example_sketch_conic() {
 	w := sketch.NewWorld()
 	s, _ := w.CreateSketch(w.XY())
-	start := s.AddPoint(0, 0)
-	apex := s.AddPoint(3, 4)
-	end := s.AddPoint(6, 0)
+	start := s.CreatePoint(0, 0)
+	apex := s.CreatePoint(3, 4)
+	end := s.CreatePoint(6, 0)
 
-	c, err := s.AddConic(start, apex, end, 0.5) // 0.5 → parabola
+	c, err := s.CreateConic(start, apex, end, 0.5) // 0.5 → parabola
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	s.AddLine(c.End, c.Start) // chord closes the loop
+	s.CreateLine(c.End, c.Start) // chord closes the loop
 
 	if _, err := s.Solve(); err != nil {
 		fmt.Println(err)
