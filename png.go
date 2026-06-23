@@ -69,18 +69,7 @@ func (s *Sketch) PNG(options ...PNGOption) ([]byte, error) {
 		}
 	}
 
-	b, ok := s.bounds()
-	if !ok {
-		b = bbox{0, 0, 1, 1}
-	}
-	w := (b.maxX - b.minX) + 2*cfg.margin
-	h := (b.maxY - b.minY) + 2*cfg.margin
-	if w <= 0 {
-		w = 1
-	}
-	if h <= 0 {
-		h = 1
-	}
+	b, w, h := s.renderBounds(cfg.margin)
 	scale := cfg.scale
 	if scale <= 0 {
 		scale = pngFitLongSide / math.Max(w, h)
