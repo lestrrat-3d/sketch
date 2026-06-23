@@ -46,10 +46,21 @@ type Table struct {
 // New returns an empty parameter table preloaded with the standard constants
 // (pi, tau, e, phi) and math functions.
 func New() *Table {
-	return &Table{
-		entries: map[string]*entry{},
-		consts:  defaultConsts(),
-		funcs:   defaultFuncs(),
+	t := &Table{entries: map[string]*entry{}}
+	t.seedDefaults(true)
+	return t
+}
+
+// seedDefaults installs the standard constants and functions. When force is
+// true (a fresh [New]) it always replaces them; when false (an unmarshal) it
+// only fills in nil maps, so caller-installed SetConst/SetFunc registrations
+// survive a reload.
+func (t *Table) seedDefaults(force bool) {
+	if force || t.consts == nil {
+		t.consts = defaultConsts()
+	}
+	if force || t.funcs == nil {
+		t.funcs = defaultFuncs()
 	}
 }
 
@@ -105,7 +116,7 @@ func (t *Table) put(e *entry) {
 // radian for angle; the number itself for dimensionless parameters). Use
 // [Table.GetValue] for a unit-carrying result.
 func (t *Table) Get(name string) (float64, error) {
-	ctx := &evalContext{t: t, memo: map[string]float64{}, inProgress: map[string]struct{}{}}
+	ctx := newEvalContext(t)
 	return ctx.resolve(name)
 }
 
@@ -150,7 +161,7 @@ func (t *Table) Eval(expr string) (float64, error) {
 	if _, err := e.kindOf(t); err != nil {
 		return 0, err
 	}
-	ctx := &evalContext{t: t, memo: map[string]float64{}, inProgress: map[string]struct{}{}}
+	ctx := newEvalContext(t)
 	return e.eval(ctx)
 }
 
@@ -169,7 +180,7 @@ func (t *Table) EvalValue(expr string) (units.Value, error) {
 	if err != nil {
 		return units.Value{}, err
 	}
-	ctx := &evalContext{t: t, memo: map[string]float64{}, inProgress: map[string]struct{}{}}
+	ctx := newEvalContext(t)
 	base, err := e.eval(ctx)
 	if err != nil {
 		return units.Value{}, err
@@ -252,6 +263,10 @@ type evalContext struct {
 	inProgress map[string]struct{}
 }
 
+func newEvalContext(t *Table) *evalContext {
+	return &evalContext{t: t, memo: map[string]float64{}, inProgress: map[string]struct{}{}}
+}
+
 func (ctx *evalContext) resolve(name string) (float64, error) {
 	if v, ok := ctx.memo[name]; ok {
 		return v, nil
@@ -279,7 +294,7 @@ func (ctx *evalContext) resolve(name string) (float64, error) {
 	}
 	if kind != units.Dimensionless && kind != e.unit.Kind() {
 		return 0, fmt.Errorf("%w: parameter %q is declared %s but its expression is %s",
-			ErrIncompatibleKind, name, kindName(e.unit.Kind()), kindName(kind))
+			ErrIncompatibleKind, name, e.unit.Kind().String(), kind.String())
 	}
 	ctx.inProgress[name] = struct{}{}
 	v, err := e.expr.eval(ctx)

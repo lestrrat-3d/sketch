@@ -36,6 +36,10 @@ type parser struct {
 	pos   int
 }
 
+// opRune returns the operator's first byte as a rune, used to tag expression
+// nodes with their operator.
+func (t token) opRune() rune { return rune(t.text[0]) }
+
 func (p *parser) peek() token { return p.toks[p.pos] }
 func (p *parser) next() token { t := p.toks[p.pos]; p.pos++; return t }
 
@@ -56,7 +60,7 @@ func (p *parser) parseExpr() (Expr, error) {
 			if err != nil {
 				return nil, err
 			}
-			left = &binaryExpr{op: rune(op.text[0]), x: left, y: right}
+			left = &binaryExpr{op: op.opRune(), x: left, y: right}
 		default:
 			return left, nil
 		}
@@ -76,7 +80,7 @@ func (p *parser) parseTerm() (Expr, error) {
 			if err != nil {
 				return nil, err
 			}
-			left = &binaryExpr{op: rune(op.text[0]), x: left, y: right}
+			left = &binaryExpr{op: op.opRune(), x: left, y: right}
 		default:
 			return left, nil
 		}
@@ -90,7 +94,7 @@ func (p *parser) parseUnary() (Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &unaryExpr{op: rune(op.text[0]), x: x}, nil
+		return &unaryExpr{op: op.opRune(), x: x}, nil
 	}
 	return p.parsePower()
 }
