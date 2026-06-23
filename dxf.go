@@ -391,7 +391,7 @@ func (s *Sketch) DXF(opts ...DXFOption) (string, error) {
 }
 
 func deg(rad float64) float64 {
-	d := math.Mod(rad*180/math.Pi, 360)
+	d := math.Mod(radToDeg(rad), 360)
 	if d < 0 {
 		d += 360
 	}

@@ -146,6 +146,12 @@ func (b *bbox) add(x, y float64) {
 func (s *Sketch) bounds() (bbox, bool) {
 	b := bbox{math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)}
 	any := false
+	addAll := func(pts [][2]float64) {
+		for _, p := range pts {
+			b.add(p[0], p[1])
+		}
+		any = true
+	}
 	for _, p := range s.points {
 		b.add(p.x(), p.y())
 		any = true
@@ -157,15 +163,9 @@ func (s *Sketch) bounds() (bbox, bool) {
 			b.add(t.Center.x()+t.r(), t.Center.y()+t.r())
 			any = true
 		case *Arc:
-			for _, p := range arcPolyline(t, 32) {
-				b.add(p[0], p[1])
-			}
-			any = true
+			addAll(arcPolyline(t, 32))
 		case *EllipticalArc:
-			for _, p := range ellipticalArcPolyline(t, 32) {
-				b.add(p[0], p[1])
-			}
-			any = true
+			addAll(ellipticalArcPolyline(t, 32))
 		case *Ellipse:
 			// Axis-aligned extents of a rotated ellipse.
 			cosr, sinr := math.Cos(t.rot()), math.Sin(t.rot())
@@ -175,33 +175,37 @@ func (s *Sketch) bounds() (bbox, bool) {
 			b.add(t.Center.x()+ex, t.Center.y()+ey)
 			any = true
 		case *Spline:
-			for _, p := range t.Polyline(32) {
-				b.add(p[0], p[1])
-			}
-			any = true
+			addAll(t.Polyline(32))
 		case *ClosedSpline:
-			for _, p := range t.Polyline(32) {
-				b.add(p[0], p[1])
-			}
-			any = true
+			addAll(t.Polyline(32))
 		case *FitSpline:
-			for _, p := range t.Polyline(32) {
-				b.add(p[0], p[1])
-			}
-			any = true
+			addAll(t.Polyline(32))
 		case *Conic:
-			for _, p := range t.Polyline(32) {
-				b.add(p[0], p[1])
-			}
-			any = true
+			addAll(t.Polyline(32))
 		case *NURBS:
-			for _, p := range t.Polyline(32) {
-				b.add(p[0], p[1])
-			}
-			any = true
+			addAll(t.Polyline(32))
 		}
 	}
 	return b, any
+}
+
+// renderBounds resolves the drawing's bounding box and the margin-padded
+// width/height shared by the SVG and PNG exporters: an empty sketch falls back
+// to a unit box, and a non-positive span is clamped to 1.
+func (s *Sketch) renderBounds(margin float64) (bbox, float64, float64) {
+	b, ok := s.bounds()
+	if !ok {
+		b = bbox{0, 0, 1, 1}
+	}
+	w := (b.maxX - b.minX) + 2*margin
+	h := (b.maxY - b.minY) + 2*margin
+	if w <= 0 {
+		w = 1
+	}
+	if h <= 0 {
+		h = 1
+	}
+	return b, w, h
 }
 
 // arcPolyline samples the arc counter-clockwise from start to end.
@@ -226,18 +230,7 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 		applyRenderOption(&cfg, o)
 	}
 
-	b, ok := s.bounds()
-	if !ok {
-		b = bbox{0, 0, 1, 1}
-	}
-	w := (b.maxX - b.minX) + 2*cfg.margin
-	h := (b.maxY - b.minY) + 2*cfg.margin
-	if w <= 0 {
-		w = 1
-	}
-	if h <= 0 {
-		h = 1
-	}
+	b, w, h := s.renderBounds(cfg.margin)
 
 	// Map sketch coords to SVG coords (flip y).
 	tx := func(x float64) float64 { return x - b.minX + cfg.margin }
@@ -267,6 +260,22 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 		}
 		return ""
 	}
+	// writePath emits one M/L SVG <path> for a sampled curve (arc, elliptical
+	// arc, every spline family, conic, NURBS); only the pts source differs
+	// between the curve cases below.
+	writePath := func(pts [][2]float64, stroke string, sw float64, dasharray string) {
+		var d strings.Builder
+		for i, p := range pts {
+			cmd := "L"
+			if i == 0 {
+				cmd = "M"
+			}
+			fmt.Fprintf(&d, "%s%s %s ", cmd, f(tx(p[0])), f(ty(p[1])))
+		}
+		fmt.Fprintf(&sb,
+			`  <path d="%s" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
+			strings.TrimSpace(d.String()), stroke, f(sw), dasharray)
+	}
 
 	for _, e := range s.ents {
 		switch t := e.(type) {
@@ -281,31 +290,9 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 				f(tx(t.Center.x())), f(ty(t.Center.y())), f(t.r()),
 				color(t), f(cfg.strokeWidth), dash(t))
 		case *Arc:
-			pts := arcPolyline(t, cfg.arcSegments)
-			var d strings.Builder
-			for i, p := range pts {
-				cmd := "L"
-				if i == 0 {
-					cmd = "M"
-				}
-				fmt.Fprintf(&d, "%s%s %s ", cmd, f(tx(p[0])), f(ty(p[1])))
-			}
-			fmt.Fprintf(&sb,
-				`  <path d="%s" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
-				strings.TrimSpace(d.String()), color(t), f(cfg.strokeWidth), dash(t))
+			writePath(arcPolyline(t, cfg.arcSegments), color(t), cfg.strokeWidth, dash(t))
 		case *EllipticalArc:
-			pts := ellipticalArcPolyline(t, cfg.arcSegments)
-			var d strings.Builder
-			for i, p := range pts {
-				cmd := "L"
-				if i == 0 {
-					cmd = "M"
-				}
-				fmt.Fprintf(&d, "%s%s %s ", cmd, f(tx(p[0])), f(ty(p[1])))
-			}
-			fmt.Fprintf(&sb,
-				`  <path d="%s" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
-				strings.TrimSpace(d.String()), color(t), f(cfg.strokeWidth), dash(t))
+			writePath(ellipticalArcPolyline(t, cfg.arcSegments), color(t), cfg.strokeWidth, dash(t))
 		case *Ellipse:
 			// The y-flip mirrors the plane, so a CCW sketch rotation becomes
 			// CW in SVG coordinates: negate the angle.
@@ -313,79 +300,24 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 			fmt.Fprintf(&sb,
 				`  <ellipse cx="%s" cy="%s" rx="%s" ry="%s" transform="rotate(%s %s %s)" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
 				f(cx), f(cy), f(t.rx()), f(t.ry()),
-				f(-t.rot()*180/math.Pi), f(cx), f(cy),
+				f(-radToDeg(t.rot())), f(cx), f(cy),
 				color(t), f(cfg.strokeWidth), dash(t))
 		case *Spline:
 			// Sampled polyline, like arcs; cfg.arcSegments governs fidelity.
-			pts := t.Polyline(cfg.arcSegments)
-			var d strings.Builder
-			for i, p := range pts {
-				cmd := "L"
-				if i == 0 {
-					cmd = "M"
-				}
-				fmt.Fprintf(&d, "%s%s %s ", cmd, f(tx(p[0])), f(ty(p[1])))
-			}
-			fmt.Fprintf(&sb,
-				`  <path d="%s" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
-				strings.TrimSpace(d.String()), color(t), f(cfg.strokeWidth), dash(t))
+			writePath(t.Polyline(cfg.arcSegments), color(t), cfg.strokeWidth, dash(t))
 		case *ClosedSpline:
 			// The sampled ring already closes (last point == first), so the same
 			// M/L path draws a closed loop.
-			pts := t.Polyline(cfg.arcSegments)
-			var d strings.Builder
-			for i, p := range pts {
-				cmd := "L"
-				if i == 0 {
-					cmd = "M"
-				}
-				fmt.Fprintf(&d, "%s%s %s ", cmd, f(tx(p[0])), f(ty(p[1])))
-			}
-			fmt.Fprintf(&sb,
-				`  <path d="%s" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
-				strings.TrimSpace(d.String()), color(t), f(cfg.strokeWidth), dash(t))
+			writePath(t.Polyline(cfg.arcSegments), color(t), cfg.strokeWidth, dash(t))
 		case *FitSpline:
 			// Sampled interpolating polyline through the fit points.
-			pts := t.Polyline(cfg.arcSegments)
-			var d strings.Builder
-			for i, p := range pts {
-				cmd := "L"
-				if i == 0 {
-					cmd = "M"
-				}
-				fmt.Fprintf(&d, "%s%s %s ", cmd, f(tx(p[0])), f(ty(p[1])))
-			}
-			fmt.Fprintf(&sb,
-				`  <path d="%s" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
-				strings.TrimSpace(d.String()), color(t), f(cfg.strokeWidth), dash(t))
+			writePath(t.Polyline(cfg.arcSegments), color(t), cfg.strokeWidth, dash(t))
 		case *Conic:
 			// Sampled polyline, like arcs/splines; cfg.arcSegments governs fidelity.
-			pts := t.Polyline(cfg.arcSegments)
-			var d strings.Builder
-			for i, p := range pts {
-				cmd := "L"
-				if i == 0 {
-					cmd = "M"
-				}
-				fmt.Fprintf(&d, "%s%s %s ", cmd, f(tx(p[0])), f(ty(p[1])))
-			}
-			fmt.Fprintf(&sb,
-				`  <path d="%s" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
-				strings.TrimSpace(d.String()), color(t), f(cfg.strokeWidth), dash(t))
+			writePath(t.Polyline(cfg.arcSegments), color(t), cfg.strokeWidth, dash(t))
 		case *NURBS:
 			// Sampled polyline, like the spline/conic; cfg.arcSegments governs fidelity.
-			pts := t.Polyline(cfg.arcSegments)
-			var d strings.Builder
-			for i, p := range pts {
-				cmd := "L"
-				if i == 0 {
-					cmd = "M"
-				}
-				fmt.Fprintf(&d, "%s%s %s ", cmd, f(tx(p[0])), f(ty(p[1])))
-			}
-			fmt.Fprintf(&sb,
-				`  <path d="%s" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
-				strings.TrimSpace(d.String()), color(t), f(cfg.strokeWidth), dash(t))
+			writePath(t.Polyline(cfg.arcSegments), color(t), cfg.strokeWidth, dash(t))
 		}
 	}
 
@@ -404,6 +336,11 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 	sb.WriteString("</svg>\n")
 	return sb.String(), nil
 }
+
+// radToDeg converts radians to degrees. Kept as the literal r*180/math.Pi
+// expression so the exporters' angle output is bit-for-bit unchanged (routing
+// through units conversion would diverge at the last ULP).
+func radToDeg(r float64) float64 { return r * 180 / math.Pi }
 
 // f formats a float compactly without a trailing ".000000".
 func f(v float64) string { return trimFloat(v, 4) }
