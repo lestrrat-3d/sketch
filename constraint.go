@@ -174,11 +174,17 @@ type pointOnArc struct {
 // outside the sweep is reported unsolvable, not on the arc.
 func NewPointOnArc(p *Point, a *Arc) Constraint { return &pointOnArc{P: p, A: a, slack: -1} }
 
-func (c *pointOnArc) contactDir() (float64, float64) {
-	dx := c.P.x() - c.A.Center.x()
-	dy := c.P.y() - c.A.Center.y()
+// unitDir returns the unit direction from (cx,cy) toward (px,py), using the
+// floored norm() so a coincident pair yields a finite (near-zero) vector rather
+// than NaN.
+func unitDir(px, py, cx, cy float64) (float64, float64) {
+	dx, dy := px-cx, py-cy
 	n := norm(dx, dy)
 	return dx / n, dy / n
+}
+
+func (c *pointOnArc) contactDir() (float64, float64) {
+	return unitDir(c.P.x(), c.P.y(), c.A.Center.x(), c.A.Center.y())
 }
 
 func (c *pointOnArc) allocVars(s *Sketch) {
@@ -354,17 +360,44 @@ func (c *pointOnSpline) allocVars(s *Sketch) {
 		return // idempotent: re-adding the handle must not leak fresh aux vars
 	}
 	t := geom.NearestParamCubicBSpline(c.Sp.controlCoords(), c.P.x(), c.P.y())
-	c.tvar = s.newVar(t)
-	c.w0 = s.newVar(slackFor(t))     // t = w0²  → w0 = √t
-	c.w1 = s.newVar(slackFor(1 - t)) // 1−t = w1² → w1 = √(1−t)
+	allocBoxParam(s, t, &c.tvar, &c.w0, &c.w1)
 }
 
 func (c *pointOnSpline) retireVars(s *Sketch) {
-	if c.tvar >= 0 {
-		s.retireVar(c.tvar)
-		s.retireVar(c.w0)
-		s.retireVar(c.w1)
-		c.tvar, c.w0, c.w1 = -1, -1, -1
+	retireBoxParam(s, &c.tvar, &c.w0, &c.w1)
+}
+
+// pointOnCurveRows appends the four membership+box rows shared by every
+// bounded-parameter point-on-curve witness (open spline, fit spline, conic,
+// NURBS): the point P=(px,py) lies on the evaluated curve point (sx,sy) — two
+// length rows — and the foot parameter t is confined to [0,1] by the slack box
+// (t = w0², 1−t = w1²).
+func pointOnCurveRows(out []float64, px, py, sx, sy, t, w0, w1 float64) []float64 {
+	return append(out,
+		px-sx,       // on the curve (x), length units
+		py-sy,       // on the curve (y), length units
+		t-w0*w0,     // t ≥ 0  (t = w0²)
+		(1-t)-w1*w1, // t ≤ 1  (1−t = w1²)
+	)
+}
+
+// allocBoxParam allocates the bounded foot-parameter trio (the parameter seeded
+// to t, plus its two box slacks w0 = √t, w1 = √(1−t)) and stores their indices
+// in the supplied pointers. Shared by the bounded point-on-curve witnesses.
+func allocBoxParam(s *Sketch, t float64, tvar, w0, w1 *int) {
+	*tvar = s.newVar(t)
+	*w0 = s.newVar(slackFor(t))     // t = w0²  → w0 = √t
+	*w1 = s.newVar(slackFor(1 - t)) // 1−t = w1² → w1 = √(1−t)
+}
+
+// retireBoxParam retires the bounded foot-parameter trio and resets the index
+// pointers to -1. Shared by the bounded point-on-curve witnesses.
+func retireBoxParam(s *Sketch, tvar, w0, w1 *int) {
+	if *tvar >= 0 {
+		s.retireVar(*tvar)
+		s.retireVar(*w0)
+		s.retireVar(*w1)
+		*tvar, *w0, *w1 = -1, -1, -1
 	}
 }
 
@@ -374,13 +407,7 @@ func (c *pointOnSpline) residual(out []float64) []float64 {
 	}
 	t := c.s.vars[c.tvar]
 	sx, sy := c.Sp.Eval(clamp01(t)) // bound rows below, not the clamp, enforce [0,1]
-	w0, w1 := c.s.vars[c.w0], c.s.vars[c.w1]
-	return append(out,
-		c.P.x()-sx,  // on the curve (x), length units
-		c.P.y()-sy,  // on the curve (y), length units
-		t-w0*w0,     // t ≥ 0  (t = w0²)
-		(1-t)-w1*w1, // t ≤ 1  (1−t = w1²)
-	)
+	return pointOnCurveRows(out, c.P.x(), c.P.y(), sx, sy, t, c.s.vars[c.w0], c.s.vars[c.w1])
 }
 
 // clamp01 clamps t to the unit interval.
@@ -461,7 +488,6 @@ func (c *tangentToSpline) residual(out []float64) []float64 {
 	t := clamp01(tv)
 	sx, sy := c.Sp.Eval(t)
 	spx, spy := geom.EvalCubicBSplineDeriv(c.Sp.controlCoords(), t)
-	speed := norm(spx, spy)
 	ax, ay := c.L.Start.x(), c.L.Start.y()
 	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
 	dlen := norm(dx, dy)
@@ -469,24 +495,7 @@ func (c *tangentToSpline) residual(out []float64) []float64 {
 	// Scale is recomputed every evaluation, not snapshotted: a free or reshaped
 	// spline must use its current size so the scale-relative thresholds stay valid.
 	scale := splineScale(c.Sp)
-
-	// Contact: signed perpendicular distance from S(t) to the infinite carrier
-	// line (length units).
-	contact := (dx*(sy-ay) - dy*(sx-ax)) / dlen
-	// Parallel: sin of the angle between the line direction and the spline tangent
-	// (dimensionless), zero when parallel. A zero-length line has no direction —
-	// reject with a clearly-nonzero residual rather than reading 0/0 as tangent.
-	parallel := 1.0
-	if math.Hypot(dx, dy) >= splineEpsLine*scale {
-		parallel = (dx*spy - dy*spx) / (dlen * speed)
-	}
-	return append(out,
-		contact,                        // on the carrier line (length)
-		parallel,                       // line ∥ spline tangent (dimensionless)
-		tv-w0*w0,                       // t ≥ 0
-		(1-tv)-w1*w1,                   // t ≤ 1
-		speed/scale-splineEpsTan-ws*ws, // |S'(t)| ≥ epsTan·scale (no cusp)
-	)
+	return tangentCurveRows(out, sx, sy, spx, spy, ax, ay, dx, dy, dlen, scale, ws, true, tv, w0, w1)
 }
 
 // pointOnClosedSpline confines a point to a closed (periodic) cubic B-spline.
@@ -570,18 +579,11 @@ func (c *pointOnFitSpline) allocVars(s *Sketch) {
 		return // idempotent
 	}
 	t := geom.NearestParamFitSpline(c.Sp.fitCoords(), c.P.x(), c.P.y())
-	c.tvar = s.newVar(t)
-	c.w0 = s.newVar(slackFor(t))
-	c.w1 = s.newVar(slackFor(1 - t))
+	allocBoxParam(s, t, &c.tvar, &c.w0, &c.w1)
 }
 
 func (c *pointOnFitSpline) retireVars(s *Sketch) {
-	if c.tvar >= 0 {
-		s.retireVar(c.tvar)
-		s.retireVar(c.w0)
-		s.retireVar(c.w1)
-		c.tvar, c.w0, c.w1 = -1, -1, -1
-	}
+	retireBoxParam(s, &c.tvar, &c.w0, &c.w1)
 }
 
 func (c *pointOnFitSpline) residual(out []float64) []float64 {
@@ -590,13 +592,7 @@ func (c *pointOnFitSpline) residual(out []float64) []float64 {
 	}
 	t := c.s.vars[c.tvar]
 	sx, sy := c.Sp.Eval(clamp01(t)) // bound rows below, not the clamp, enforce [0,1]
-	w0, w1 := c.s.vars[c.w0], c.s.vars[c.w1]
-	return append(out,
-		c.P.x()-sx,  // on the curve (x), length units
-		c.P.y()-sy,  // on the curve (y), length units
-		t-w0*w0,     // t ≥ 0  (t = w0²)
-		(1-t)-w1*w1, // t ≤ 1  (1−t = w1²)
-	)
+	return pointOnCurveRows(out, c.P.x(), c.P.y(), sx, sy, t, c.s.vars[c.w0], c.s.vars[c.w1])
 }
 
 // splineScale returns a length scale for a spline: its control-box diagonal,
@@ -606,12 +602,19 @@ func splineScale(sp *Spline) float64 { return splineCoordScale(sp.controlCoords(
 // splineCoordScale returns the box diagonal of a coordinate set, floored to 1 —
 // the scale-relative reference for the spline-tangency no-cusp/zero-line
 // thresholds, shared by the open, closed, and fit witnesses.
-func splineCoordScale(coords [][2]float64) float64 {
+func splineCoordScale(coords [][2]float64) float64 { return bboxDiagonal(coords) }
+
+// bboxDiagonal returns the diagonal of the bounding box of every supplied
+// coordinate set, floored to 1. It is the shared characteristic-length helper
+// behind splineCoordScale and boundaryScale.
+func bboxDiagonal(sets ...[][2]float64) float64 {
 	minx, miny := math.Inf(1), math.Inf(1)
 	maxx, maxy := math.Inf(-1), math.Inf(-1)
-	for _, p := range coords {
-		minx, maxx = math.Min(minx, p[0]), math.Max(maxx, p[0])
-		miny, maxy = math.Min(miny, p[1]), math.Max(maxy, p[1])
+	for _, set := range sets {
+		for _, p := range set {
+			minx, maxx = math.Min(minx, p[0]), math.Max(maxx, p[0])
+			miny, maxy = math.Min(miny, p[1]), math.Max(maxy, p[1])
+		}
 	}
 	if d := math.Hypot(maxx-minx, maxy-miny); d > 1 {
 		return d
@@ -671,6 +674,40 @@ func seedTangentParam(eval, deriv func(float64) (float64, float64), segs int, pe
 		return t - math.Floor(t)
 	}
 	return clamp01(t)
+}
+
+// tangentCurveRows appends the rows shared by every line-tangent-to-parametric-
+// curve witness: the contact at the evaluated curve point (sx,sy) on the line's
+// infinite carrier (signed perpendicular distance, length); the line direction
+// (dx,dy) parallel to the curve tangent (spx,spy) (a dimensionless sin-of-angle,
+// forced clearly nonzero for a zero-length line); the optional [0,1] box rows on
+// the raw parameter tv (present for a bounded curve, absent for a periodic one);
+// and the no-cusp guard |C'|/scale ≥ epsTan (slack ws). (ax,ay) is the line
+// start, dlen the line length. The box rows, when present, are emitted between
+// parallel and the no-cusp guard, matching the original per-curve row order.
+func tangentCurveRows(out []float64, sx, sy, spx, spy, ax, ay, dx, dy, dlen, scale, ws float64, box bool, tv, w0, w1 float64) []float64 {
+	speed := norm(spx, spy)
+	// Contact: signed perpendicular distance from the curve point to the infinite
+	// carrier line (length units).
+	contact := (dx*(sy-ay) - dy*(sx-ax)) / dlen
+	// Parallel: sin of the angle between the line direction and the curve tangent
+	// (dimensionless), zero when parallel. A zero-length line has no direction —
+	// reject with a clearly-nonzero residual rather than reading 0/0 as tangent.
+	parallel := 1.0
+	if math.Hypot(dx, dy) >= splineEpsLine*scale {
+		parallel = (dx*spy - dy*spx) / (dlen * speed)
+	}
+	out = append(out,
+		contact,  // on the carrier line (length)
+		parallel, // line ∥ curve tangent (dimensionless)
+	)
+	if box {
+		out = append(out,
+			tv-w0*w0,     // t ≥ 0
+			(1-tv)-w1*w1, // t ≤ 1
+		)
+	}
+	return append(out, speed/scale-splineEpsTan-ws*ws) // |C'(t)| ≥ epsTan·scale (no cusp)
 }
 
 // tangentToClosedSpline forces a line tangent to a closed (periodic) cubic
@@ -733,22 +770,12 @@ func (c *tangentToClosedSpline) residual(out []float64) []float64 {
 	t := c.s.vars[c.tvar]
 	sx, sy := geom.EvalPeriodicCubicBSpline(ctrl, t)
 	spx, spy := geom.EvalPeriodicCubicBSplineDeriv(ctrl, t)
-	speed := norm(spx, spy)
 	ax, ay := c.L.Start.x(), c.L.Start.y()
 	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
 	dlen := norm(dx, dy)
 	ws := c.s.vars[c.ws]
 	scale := splineCoordScale(ctrl)
-	contact := (dx*(sy-ay) - dy*(sx-ax)) / dlen
-	parallel := 1.0
-	if math.Hypot(dx, dy) >= splineEpsLine*scale {
-		parallel = (dx*spy - dy*spx) / (dlen * speed)
-	}
-	return append(out,
-		contact,                        // on the carrier line (length)
-		parallel,                       // line ∥ spline tangent (dimensionless)
-		speed/scale-splineEpsTan-ws*ws, // |S'(t)| ≥ epsTan·scale (no cusp)
-	)
+	return tangentCurveRows(out, sx, sy, spx, spy, ax, ay, dx, dy, dlen, scale, ws, false, 0, 0, 0)
 }
 
 // tangentToFitSpline forces a line tangent to a fit-point (interpolating) spline.
@@ -813,24 +840,12 @@ func (c *tangentToFitSpline) residual(out []float64) []float64 {
 	t := clamp01(tv)
 	sx, sy := geom.EvalFitSpline(fit, t)
 	spx, spy := geom.EvalFitSplineDeriv(fit, t)
-	speed := norm(spx, spy)
 	ax, ay := c.L.Start.x(), c.L.Start.y()
 	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
 	dlen := norm(dx, dy)
 	w0, w1, ws := c.s.vars[c.w0], c.s.vars[c.w1], c.s.vars[c.ws]
 	scale := splineCoordScale(fit)
-	contact := (dx*(sy-ay) - dy*(sx-ax)) / dlen
-	parallel := 1.0
-	if math.Hypot(dx, dy) >= splineEpsLine*scale {
-		parallel = (dx*spy - dy*spx) / (dlen * speed)
-	}
-	return append(out,
-		contact,                        // on the carrier line (length)
-		parallel,                       // line ∥ spline tangent (dimensionless)
-		tv-w0*w0,                       // t ≥ 0
-		(1-tv)-w1*w1,                   // t ≤ 1
-		speed/scale-splineEpsTan-ws*ws, // |S'(t)| ≥ epsTan·scale (no cusp)
-	)
+	return tangentCurveRows(out, sx, sy, spx, spy, ax, ay, dx, dy, dlen, scale, ws, true, tv, w0, w1)
 }
 
 // seedParam picks a contact parameter for the tangency witness: a dense
@@ -908,18 +923,11 @@ func (c *pointOnConic) allocVars(s *Sketch) {
 	}
 	start, apex, end := conicCoords(c.C)
 	t := geom.NearestParamConic(start, apex, end, c.C.rho(), c.P.x(), c.P.y())
-	c.tvar = s.newVar(t)
-	c.w0 = s.newVar(slackFor(t))     // t = w0²  → w0 = √t
-	c.w1 = s.newVar(slackFor(1 - t)) // 1−t = w1² → w1 = √(1−t)
+	allocBoxParam(s, t, &c.tvar, &c.w0, &c.w1)
 }
 
 func (c *pointOnConic) retireVars(s *Sketch) {
-	if c.tvar >= 0 {
-		s.retireVar(c.tvar)
-		s.retireVar(c.w0)
-		s.retireVar(c.w1)
-		c.tvar, c.w0, c.w1 = -1, -1, -1
-	}
+	retireBoxParam(s, &c.tvar, &c.w0, &c.w1)
 }
 
 func (c *pointOnConic) residual(out []float64) []float64 {
@@ -929,13 +937,7 @@ func (c *pointOnConic) residual(out []float64) []float64 {
 	t := c.s.vars[c.tvar]
 	g := c.C.Geometry()
 	sx, sy := g.Eval(clamp01(t)) // bound rows below, not the clamp, enforce [0,1]
-	w0, w1 := c.s.vars[c.w0], c.s.vars[c.w1]
-	return append(out,
-		c.P.x()-sx,  // on the curve (x), length units
-		c.P.y()-sy,  // on the curve (y), length units
-		t-w0*w0,     // t ≥ 0  (t = w0²)
-		(1-t)-w1*w1, // t ≤ 1  (1−t = w1²)
-	)
+	return pointOnCurveRows(out, c.P.x(), c.P.y(), sx, sy, t, c.s.vars[c.w0], c.s.vars[c.w1])
 }
 
 // tangentToConic forces a line tangent to a conic arc. Tangency is existential
@@ -1006,7 +1008,6 @@ func (c *tangentToConic) residual(out []float64) []float64 {
 	g := c.C.Geometry()
 	sx, sy := g.Eval(t)
 	spx, spy := g.EvalDeriv(t)
-	speed := norm(spx, spy)
 	ax, ay := c.L.Start.x(), c.L.Start.y()
 	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
 	dlen := norm(dx, dy)
@@ -1014,24 +1015,7 @@ func (c *tangentToConic) residual(out []float64) []float64 {
 	// Scale is recomputed every evaluation, not snapshotted: a free or reshaped
 	// conic must use its current size so the scale-relative thresholds stay valid.
 	scale := conicScale(c.C)
-
-	// Contact: signed perpendicular distance from C(t) to the infinite carrier
-	// line (length units).
-	contact := (dx*(sy-ay) - dy*(sx-ax)) / dlen
-	// Parallel: sin of the angle between the line direction and the conic tangent
-	// (dimensionless), zero when parallel. A zero-length line has no direction —
-	// reject with a clearly-nonzero residual rather than reading 0/0 as tangent.
-	parallel := 1.0
-	if math.Hypot(dx, dy) >= splineEpsLine*scale {
-		parallel = (dx*spy - dy*spx) / (dlen * speed)
-	}
-	return append(out,
-		contact,                        // on the carrier line (length)
-		parallel,                       // line ∥ conic tangent (dimensionless)
-		tv-w0*w0,                       // t ≥ 0
-		(1-tv)-w1*w1,                   // t ≤ 1
-		speed/scale-splineEpsTan-ws*ws, // |C'(t)| ≥ epsTan·scale (no cusp)
-	)
+	return tangentCurveRows(out, sx, sy, spx, spy, ax, ay, dx, dy, dlen, scale, ws, true, tv, w0, w1)
 }
 
 // pointOnNURBS confines a point to a NURBS curve. Like [pointOnConic]/[pointOnSpline]
@@ -1064,18 +1048,11 @@ func (c *pointOnNURBS) allocVars(s *Sketch) {
 	}
 	g := c.C.Geometry()
 	t := geom.NearestParamNURBS(nurbsControlCoords(c.C), g.Degree, g.Knots, g.Weights, c.P.x(), c.P.y())
-	c.tvar = s.newVar(t)
-	c.w0 = s.newVar(slackFor(t))     // t = w0²  → w0 = √t
-	c.w1 = s.newVar(slackFor(1 - t)) // 1−t = w1² → w1 = √(1−t)
+	allocBoxParam(s, t, &c.tvar, &c.w0, &c.w1)
 }
 
 func (c *pointOnNURBS) retireVars(s *Sketch) {
-	if c.tvar >= 0 {
-		s.retireVar(c.tvar)
-		s.retireVar(c.w0)
-		s.retireVar(c.w1)
-		c.tvar, c.w0, c.w1 = -1, -1, -1
-	}
+	retireBoxParam(s, &c.tvar, &c.w0, &c.w1)
 }
 
 func (c *pointOnNURBS) residual(out []float64) []float64 {
@@ -1086,13 +1063,7 @@ func (c *pointOnNURBS) residual(out []float64) []float64 {
 	g := c.C.Geometry()
 	lo, hi := g.Domain()
 	sx, sy := g.Eval(lo + clamp01(t)*(hi-lo)) // bound rows below, not the clamp, enforce [0,1]
-	w0, w1 := c.s.vars[c.w0], c.s.vars[c.w1]
-	return append(out,
-		c.P.x()-sx,  // on the curve (x), length units
-		c.P.y()-sy,  // on the curve (y), length units
-		t-w0*w0,     // t ≥ 0  (t = w0²)
-		(1-t)-w1*w1, // t ≤ 1  (1−t = w1²)
-	)
+	return pointOnCurveRows(out, c.P.x(), c.P.y(), sx, sy, t, c.s.vars[c.w0], c.s.vars[c.w1])
 }
 
 // tangentToNURBS forces a line tangent to a NURBS curve. Tangency is existential
@@ -1167,8 +1138,8 @@ func (c *tangentToNURBS) residual(out []float64) []float64 {
 	lo, hi := g.Domain()
 	u := lo + t*(hi-lo)
 	sx, sy := g.Eval(u)
+	// The (hi−lo) chain factor in C'(u) cancels in the normalized parallel ratio.
 	spx, spy := g.EvalDeriv(u)
-	speed := norm(spx, spy)
 	ax, ay := c.L.Start.x(), c.L.Start.y()
 	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
 	dlen := norm(dx, dy)
@@ -1176,25 +1147,7 @@ func (c *tangentToNURBS) residual(out []float64) []float64 {
 	// Scale is recomputed every evaluation, not snapshotted: a free or reshaped
 	// curve must use its current size so the scale-relative thresholds stay valid.
 	scale := nurbsScale(c.C)
-
-	// Contact: signed perpendicular distance from C(u) to the infinite carrier
-	// line (length units).
-	contact := (dx*(sy-ay) - dy*(sx-ax)) / dlen
-	// Parallel: sin of the angle between the line direction and the NURBS tangent
-	// (dimensionless), zero when parallel. The (hi−lo) chain factor in C'(u) cancels
-	// in this normalized ratio. A zero-length line has no direction — reject with a
-	// clearly-nonzero residual rather than reading 0/0 as tangent.
-	parallel := 1.0
-	if math.Hypot(dx, dy) >= splineEpsLine*scale {
-		parallel = (dx*spy - dy*spx) / (dlen * speed)
-	}
-	return append(out,
-		contact,                        // on the carrier line (length)
-		parallel,                       // line ∥ NURBS tangent (dimensionless)
-		tv-w0*w0,                       // t ≥ 0
-		(1-tv)-w1*w1,                   // t ≤ 1
-		speed/scale-splineEpsTan-ws*ws, // |C'(u)| ≥ epsTan·scale (no cusp)
-	)
+	return tangentCurveRows(out, sx, sy, spx, spy, ax, ay, dx, dy, dlen, scale, ws, true, tv, w0, w1)
 }
 
 // --- conic-conic tangency ---------------------------------------------------
@@ -1258,11 +1211,41 @@ func (a circleConic) degenerate() bool                           { return math.A
 func (a circleConic) sweepExcess(px, py float64) (float64, bool) { return 0, false }
 func (a circleConic) endpoints() []*Point                        { return nil }
 func (a circleConic) boundary(n int) [][2]float64 {
-	cx, cy, r := a.c.Center.x(), a.c.Center.y(), a.c.r()
+	return circleBoundary(a.c.Center.x(), a.c.Center.y(), a.c.r(), 0, 2*math.Pi, n, true)
+}
+
+// circleBoundary samples n points along a circular path centered at (cx,cy) of
+// radius r, spanning [start, start+sweep]. A closed (whole-circle) sample steps
+// by sweep/n (the last point is one step short of wrapping onto the first); an
+// open (arc) sample steps by sweep/(n-1) so both endpoints are inclusive.
+func circleBoundary(cx, cy, r, start, sweep float64, n int, closed bool) [][2]float64 {
+	denom := float64(n - 1)
+	if closed {
+		denom = float64(n)
+	}
 	pts := make([][2]float64, n)
 	for i := range pts {
-		t := 2 * math.Pi * float64(i) / float64(n)
+		t := start + sweep*float64(i)/denom
 		pts[i] = [2]float64{cx + r*math.Cos(t), cy + r*math.Sin(t)}
+	}
+	return pts
+}
+
+// ellipseBoundary samples n points along an elliptical path centered at (cx,cy)
+// with semi-axes (rx,ry) rotated by rot, spanning eccentric angles
+// [start, start+sweep]. The closed/open denominator convention matches
+// circleBoundary.
+func ellipseBoundary(cx, cy, rx, ry, rot, start, sweep float64, n int, closed bool) [][2]float64 {
+	cosr, sinr := math.Cos(rot), math.Sin(rot)
+	denom := float64(n - 1)
+	if closed {
+		denom = float64(n)
+	}
+	pts := make([][2]float64, n)
+	for i := range pts {
+		t := start + sweep*float64(i)/denom
+		lx, ly := rx*math.Cos(t), ry*math.Sin(t)
+		pts[i] = [2]float64{cx + cosr*lx - sinr*ly, cy + sinr*lx + cosr*ly}
 	}
 	return pts
 }
@@ -1282,15 +1265,7 @@ func (a ellipseConic) degenerate() bool {
 func (a ellipseConic) sweepExcess(px, py float64) (float64, bool) { return 0, false }
 func (a ellipseConic) endpoints() []*Point                        { return nil }
 func (a ellipseConic) boundary(n int) [][2]float64 {
-	cx, cy, rx, ry := a.e.Center.x(), a.e.Center.y(), a.e.rx(), a.e.ry()
-	cosr, sinr := math.Cos(a.e.rot()), math.Sin(a.e.rot())
-	pts := make([][2]float64, n)
-	for i := range pts {
-		t := 2 * math.Pi * float64(i) / float64(n)
-		lx, ly := rx*math.Cos(t), ry*math.Sin(t)
-		pts[i] = [2]float64{cx + cosr*lx - sinr*ly, cy + sinr*lx + cosr*ly}
-	}
-	return pts
+	return ellipseBoundary(a.e.Center.x(), a.e.Center.y(), a.e.rx(), a.e.ry(), a.e.rot(), 0, 2*math.Pi, n, true)
 }
 
 // arcConic is a circular arc operand: it lies on its circle (same membership and
@@ -1306,21 +1281,15 @@ func (x arcConic) normalAt(px, py float64) (float64, float64) {
 }
 func (x arcConic) degenerate() bool { return math.Abs(x.a.R()) < conicEps }
 func (x arcConic) sweepExcess(px, py float64) (float64, bool) {
-	dx, dy := px-x.a.Center.x(), py-x.a.Center.y()
-	n := norm(dx, dy)
-	return arcInSweepExcess(x.a, dx/n, dy/n), true
+	ux, uy := unitDir(px, py, x.a.Center.x(), x.a.Center.y())
+	return arcInSweepExcess(x.a, ux, uy), true
 }
 func (x arcConic) endpoints() []*Point { return []*Point{x.a.Start, x.a.End} }
 func (x arcConic) boundary(n int) [][2]float64 {
-	cx, cy, r := x.a.Center.x(), x.a.Center.y(), x.a.R()
+	cx, cy := x.a.Center.x(), x.a.Center.y()
 	start := math.Atan2(x.a.Start.y()-cy, x.a.Start.x()-cx)
-	sweep := x.a.Sweep()
-	pts := make([][2]float64, n)
-	for i := range pts {
-		t := start + sweep*float64(i)/float64(n-1) // span the swept portion, endpoints included
-		pts[i] = [2]float64{cx + r*math.Cos(t), cy + r*math.Sin(t)}
-	}
-	return pts
+	// open: span the swept portion, endpoints included.
+	return circleBoundary(cx, cy, x.a.R(), start, x.a.Sweep(), n, false)
 }
 
 // ellipticalArcConic is an elliptical-arc operand: it lies on its ellipse (same
@@ -1344,17 +1313,7 @@ func (x ellipticalArcConic) sweepExcess(px, py float64) (float64, bool) {
 }
 func (x ellipticalArcConic) endpoints() []*Point { return []*Point{x.a.Start, x.a.End} }
 func (x ellipticalArcConic) boundary(n int) [][2]float64 {
-	cx, cy, rx, ry := x.a.Center.x(), x.a.Center.y(), x.a.rx(), x.a.ry()
-	cosr, sinr := math.Cos(x.a.rot()), math.Sin(x.a.rot())
-	start := x.a.StartParam()
-	sweep := x.a.Sweep()
-	pts := make([][2]float64, n)
-	for i := range pts {
-		t := start + sweep*float64(i)/float64(n-1)
-		lx, ly := rx*math.Cos(t), ry*math.Sin(t)
-		pts[i] = [2]float64{cx + cosr*lx - sinr*ly, cy + sinr*lx + cosr*ly}
-	}
-	return pts
+	return ellipseBoundary(x.a.Center.x(), x.a.Center.y(), x.a.rx(), x.a.ry(), x.a.rot(), x.a.StartParam(), x.a.Sweep(), n, false)
 }
 
 // conicOf wraps a sealed Circular (*Circle/*Arc) or Elliptical (*Ellipse/
@@ -1569,20 +1528,7 @@ func (c *tangentConics) seedContact() (float64, float64) {
 
 // boundaryScale returns a characteristic length for the two sample sets (the
 // diagonal of their combined bounding box, floored to 1) to normalize proximity.
-func boundaryScale(sa, sb [][2]float64) float64 {
-	minx, miny := math.Inf(1), math.Inf(1)
-	maxx, maxy := math.Inf(-1), math.Inf(-1)
-	for _, set := range [][][2]float64{sa, sb} {
-		for _, p := range set {
-			minx, maxx = math.Min(minx, p[0]), math.Max(maxx, p[0])
-			miny, maxy = math.Min(miny, p[1]), math.Max(maxy, p[1])
-		}
-	}
-	if d := math.Hypot(maxx-minx, maxy-miny); d > 1 {
-		return d
-	}
-	return 1
-}
+func boundaryScale(sa, sb [][2]float64) float64 { return bboxDiagonal(sa, sb) }
 
 // --- midpoint / symmetric ---------------------------------------------------
 
@@ -1911,6 +1857,15 @@ func (c *tangentLineCircle) retireVars(s *Sketch) {
 	}
 }
 
+// endpointPerpResidual is the shared tail of the endpoint-tangency branch: the
+// cos of the angle between the line direction (abx,aby), of length ablen, and
+// the outward normal (nx,ny) at the shared point — zero when the line is
+// perpendicular to the normal (i.e. tangent). The caller guards a zero-length
+// line first; the normal is normalized here.
+func endpointPerpResidual(abx, aby, ablen, nx, ny float64) float64 {
+	return (abx*nx + aby*ny) / (ablen * norm(nx, ny))
+}
+
 func (c *tangentLineCircle) residual(out []float64) []float64 {
 	ctr := c.C.centerPt()
 	ax, ay := c.L.Start.x(), c.L.Start.y()
@@ -1927,7 +1882,7 @@ func (c *tangentLineCircle) residual(out []float64) []float64 {
 			return append(out, 1)
 		}
 		dx, dy := c.shared.x()-ctr.x(), c.shared.y()-ctr.y()
-		return append(out, (abx*dx+aby*dy)/(ablen*norm(dx, dy)))
+		return append(out, endpointPerpResidual(abx, aby, ablen, dx, dy))
 	}
 
 	// signed perpendicular distance from the center to the line
@@ -2245,7 +2200,7 @@ func (c *tangentLineEllipse) residual(out []float64) []float64 {
 			return append(out, 1)
 		}
 		nx, ny := ellipseNormalAt(c.shared, c.E)
-		return append(out, (abx*nx+aby*ny)/(ablen*norm(nx, ny)))
+		return append(out, endpointPerpResidual(abx, aby, ablen, nx, ny))
 	}
 
 	// Interior tangency. A degenerate line (no direction) or degenerate ellipse
@@ -2339,12 +2294,20 @@ func (d *dimBase) Set(v float64) {
 // conversion takes place here — the units library converts on demand (e.g. via
 // [dimBase.base] for the solver).
 func (d *dimBase) SetValue(v units.Value) error {
-	if v.Kind() != d.kind {
-		return fmt.Errorf("sketch: cannot set %s dimension from a %s value", d.kind, v.Kind())
+	if err := d.checkKind(v); err != nil {
+		return err
 	}
 	d.target = v
 	d.deflt = false
 	d.expr = ""
+	return nil
+}
+
+// checkKind reports an error if v does not measure the dimension's kind.
+func (d *dimBase) checkKind(v units.Value) error {
+	if v.Kind() != d.kind {
+		return fmt.Errorf("sketch: cannot set %s dimension from a %s value", d.kind, v.Kind())
+	}
 	return nil
 }
 
@@ -2380,8 +2343,8 @@ func (d *dimBase) setResolved(v units.Value) error {
 		d.target = units.New(v.Mag(), d.target.Unit())
 		return nil
 	}
-	if v.Kind() != d.kind {
-		return fmt.Errorf("sketch: cannot set %s dimension from a %s value", d.kind, v.Kind())
+	if err := d.checkKind(v); err != nil {
+		return err
 	}
 	d.target = v
 	return nil
@@ -2581,6 +2544,29 @@ func (c *DistancePointArc) retireVars(s *Sketch) {
 	}
 }
 
+// setDrivenAux is the shared driving↔driven toggle scaffold for the aux-var
+// dimensions (DistancePointArc/DistanceLineArc/ArcLength). It flips *driven,
+// then — only for a committed dimension (membership in s.cons, not merely a
+// non-nil s, since a CheckConstraint probe sets s via a temporary allocVars
+// without registering and must not leak an orphan variable) — retires the aux
+// variable when switching to driven and re-allocates it (via realloc) when
+// switching back to driving and the aux index is currently unallocated. retire
+// and realloc carry each dimension's own aux field and realloc seed.
+func setDrivenAux(c Constraint, s *Sketch, driven *bool, v bool, auxIdx int, retire, realloc func()) {
+	if v == *driven {
+		return
+	}
+	*driven = v
+	if s == nil || !containsConstraint(s.cons, c) {
+		return
+	}
+	if v {
+		retire()
+	} else if auxIdx < 0 {
+		realloc()
+	}
+}
+
 // SetDriven toggles reference (driven) mode and keeps the sweep slack consistent:
 // a driven dimension contributes no residual rows, so its slack would be an
 // unconstrained free DOF — switching to driven retires it, switching back
@@ -2588,19 +2574,10 @@ func (c *DistancePointArc) retireVars(s *Sketch) {
 // against a CheckConstraint probe (which sets c.s via a temporary allocVars
 // without registering the dimension) leaking an orphan variable.
 func (c *DistancePointArc) SetDriven(v bool) {
-	if v == c.driven {
-		return
-	}
-	c.driven = v
-	if c.s == nil || !committedDim(c.s, c) {
-		return
-	}
-	if v {
-		c.retireVars(c.s)
-	} else if c.slack < 0 {
+	setDrivenAux(c, c.s, &c.driven, v, c.slack, func() { c.retireVars(c.s) }, func() {
 		ux, uy := arcRadialDir(c.P, c.A.Center)
 		c.slack = c.s.newVar(slackFor(arcInSweepExcess(c.A, ux, uy)))
-	}
+	})
 }
 
 func (c *DistancePointArc) residual(out []float64) []float64 {
@@ -2675,19 +2652,10 @@ func (c *DistanceLineArc) retireVars(s *Sketch) {
 
 // SetDriven mirrors [DistancePointArc.SetDriven].
 func (c *DistanceLineArc) SetDriven(v bool) {
-	if v == c.driven {
-		return
-	}
-	c.driven = v
-	if c.s == nil || !committedDim(c.s, c) {
-		return
-	}
-	if v {
-		c.retireVars(c.s)
-	} else if c.slack < 0 {
+	setDrivenAux(c, c.s, &c.driven, v, c.slack, func() { c.retireVars(c.s) }, func() {
 		ux, uy := lineFootDir(c.L, c.A.Center)
 		c.slack = c.s.newVar(slackFor(arcInSweepExcess(c.A, ux, uy)))
-	}
+	})
 }
 
 func (c *DistanceLineArc) residual(out []float64) []float64 {
@@ -2712,20 +2680,7 @@ func (c *DistanceLineArc) residual(out []float64) []float64 {
 // vector rather than NaN; such a degenerate configuration then fails the sweep
 // row rather than poisoning the residual.
 func arcRadialDir(p, center *Point) (float64, float64) {
-	dx, dy := p.x()-center.x(), p.y()-center.y()
-	d := norm(dx, dy)
-	return dx / d, dy / d
-}
-
-// committedDim reports whether dimension c is registered in sketch s (as opposed
-// to merely having had c.s set by a CheckConstraint probe's temporary allocVars).
-func committedDim(s *Sketch, c Constraint) bool {
-	for _, cc := range s.cons {
-		if cc == c {
-			return true
-		}
-	}
-	return false
+	return unitDir(p.x(), p.y(), center.x(), center.y())
 }
 
 // DistanceLines is an editable distance dimension between two lines. It
@@ -2878,33 +2833,9 @@ func (c *ArcLength) retireVars(s *Sketch) {
 // CheckConstraint sets c.s via a temporary allocVars without registering the
 // dimension; mutating s.vars there would leak an orphan variable.
 func (c *ArcLength) SetDriven(v bool) {
-	if v == c.driven {
-		return
-	}
-	c.driven = v
-	if !c.committed() {
-		return
-	}
-	if v {
-		c.retireVars(c.s)
-	} else if c.theta < 0 {
+	setDrivenAux(c, c.s, &c.driven, v, c.theta, func() { c.retireVars(c.s) }, func() {
 		c.theta = c.s.newVar(c.A.Sweep())
-	}
-}
-
-// committed reports whether this dimension is registered in its sketch (as
-// opposed to merely having had c.s set by a CheckConstraint probe's temporary
-// allocVars).
-func (c *ArcLength) committed() bool {
-	if c.s == nil {
-		return false
-	}
-	for _, cc := range c.s.cons {
-		if cc == c {
-			return true
-		}
-	}
-	return false
+	})
 }
 
 func (c *ArcLength) residual(out []float64) []float64 {
@@ -2935,12 +2866,7 @@ func (c *ArcLength) residual(out []float64) []float64 {
 	// dimension's wrapped-angle residual.
 	cross := sx0*ey - sy0*ex
 	dot := sx0*ex + sy0*ey
-	r1 := math.Mod(math.Atan2(cross, dot)-theta, 2*math.Pi)
-	if r1 > math.Pi {
-		r1 -= 2 * math.Pi
-	} else if r1 <= -math.Pi {
-		r1 += 2 * math.Pi
-	}
+	r1 := wrapPi(math.Atan2(cross, dot) - theta)
 	return append(out, r1)
 }
 
@@ -2981,13 +2907,9 @@ func (c *Angle) residual(out []float64) []float64 {
 	cross := d1x*d2y - d1y*d2x
 	dot := d1x*d2x + d1y*d2y
 	ang := math.Atan2(cross, dot)
-	// wrap the residual into (-π, π] so it stays continuous
-	r := math.Mod(ang-c.base(), 2*math.Pi) // target in base (radian) units
-	if r > math.Pi {
-		r -= 2 * math.Pi
-	} else if r <= -math.Pi {
-		r += 2 * math.Pi
-	}
+	// wrap the residual into (-π, π] so it stays continuous; target in base
+	// (radian) units.
+	r := wrapPi(ang - c.base())
 	return append(out, r)
 }
 
@@ -3048,12 +2970,7 @@ type EllipseRotation struct {
 
 func (c *EllipseRotation) residual(out []float64) []float64 {
 	// wrap into (-π, π] so the residual stays continuous, like Angle
-	r := math.Mod(c.E.Rotation()-c.base(), 2*math.Pi)
-	if r > math.Pi {
-		r -= 2 * math.Pi
-	} else if r <= -math.Pi {
-		r += 2 * math.Pi
-	}
+	r := wrapPi(c.E.Rotation() - c.base())
 	return append(out, r)
 }
 
