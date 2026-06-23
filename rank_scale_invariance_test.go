@@ -32,7 +32,7 @@ func TestRankScaleInvariantRedundant(t *testing.T) {
 	// A grounded segment with a duplicate length dimension: the later one is
 	// redundant at every scale.
 	build := func(k float64) *sketch.VerificationReport {
-		s := sketch.New()
+		s := newSketch(t)
 		a := s.AddPoint(0, 0)
 		b := s.AddPoint(10*k, 0)
 		s.Fix(a)
@@ -54,7 +54,7 @@ func TestRankScaleInvariantConflicting(t *testing.T) {
 	// Two contradictory length dimensions on the same grounded segment: a conflict
 	// at every scale, attributed the same way.
 	build := func(k float64) *sketch.VerificationReport {
-		s := sketch.New()
+		s := newSketch(t)
 		a := s.AddPoint(0, 0)
 		b := s.AddPoint(10*k, 0)
 		s.Fix(a)
@@ -75,7 +75,7 @@ func TestRankScaleInvariantUnderconstrained(t *testing.T) {
 	// A point pinned only by a distance to a fixed center keeps one DOF (free on a
 	// circle); the same point is reported free at every scale.
 	build := func(k float64) (*sketch.VerificationReport, int) {
-		s := sketch.New()
+		s := newSketch(t)
 		o := s.AddPoint(0, 0)
 		s.Fix(o)
 		p := s.AddPoint(3*k, 4*k)
@@ -97,7 +97,7 @@ func TestRankScaleInvariantAuxHeavy(t *testing.T) {
 	// is (this construction has a benign aux redundancy), it must be IDENTICAL at
 	// every scale — that is the scale-invariance property.
 	build := func(k float64) *sketch.VerificationReport {
-		s := sketch.New()
+		s := newSketch(t)
 		o, a, b := s.AddPoint(0, 0), s.AddPoint(5*k, 0), s.AddPoint(0, 5*k)
 		s.Fix(o)
 		s.Fix(a)
@@ -128,7 +128,7 @@ func TestCheckConstraintScaleInvariant(t *testing.T) {
 	// non-over-constraining addition is accepted, and a duplicate rejected, at every
 	// scale.
 	for _, k := range rankScales {
-		s := sketch.New()
+		s := newSketch(t)
 		o := s.AddPoint(0, 0)
 		s.Fix(o)
 		p := s.AddPoint(3*k, 4*k)
@@ -153,7 +153,7 @@ func TestCheckConstraintConicTranslationInvariant(t *testing.T) {
 	// and the duplicate slips through (a false acceptance, an over-constrain the
 	// oracle must catch).
 	build := func(off float64) error {
-		s := sketch.New()
+		s := newSketch(t)
 		ec := s.AddPoint(off, off)
 		e := s.AddEllipse(ec, 6, 3, 0)
 		cc := s.AddPoint(off+9, off)

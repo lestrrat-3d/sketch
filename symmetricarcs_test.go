@@ -21,7 +21,7 @@ func TestSymmetricArcsSolvedMirror(t *testing.T) {
 	// a1 is a fixed quarter arc above the x axis; a2 is free and seeded roughly
 	// below it. The constraint must land a2 on the swapped mirror: a2.Start =
 	// mirror(a1.End), a2.End = mirror(a1.Start), centers mirrored.
-	s := sketch.New()
+	s := newSketch(t)
 	axis := xAxis(s)
 	c1 := s.AddPoint(2, 3)
 	st1 := s.AddPoint(3, 3) // angle 0 from the center
@@ -56,7 +56,7 @@ func TestSymmetricArcsDOFNoRedundancy(t *testing.T) {
 	// determined by a1). The constraint must remove the right count AND introduce
 	// no spurious redundancy — the whole point of the radial-line+branch form
 	// instead of a second full point-mirror.
-	s := sketch.New()
+	s := newSketch(t)
 	axis := xAxis(s)
 	a1 := s.AddArc(s.AddPoint(2, 3), s.AddPoint(3, 3), s.AddPoint(2, 4))
 	a2 := s.AddArc(s.AddPoint(2, -3), s.AddPoint(2, -4), s.AddPoint(3, -3))
@@ -72,7 +72,7 @@ func TestSymmetricArcsWrongBranchRejected(t *testing.T) {
 	// a2 pinned to the antipodal endpoint: centers mirror, a2.Start mirrors a1.End,
 	// and a2.End is collinear with mirror(a1.Start) through the center — but on the
 	// OPPOSITE ray. The branch row must reject it as unsolvable.
-	s := sketch.New()
+	s := newSketch(t)
 	axis := xAxis(s)
 	a1 := s.AddArc(s.AddPoint(2, 3), s.AddPoint(3, 3), s.AddPoint(2, 4))
 	s.Fix(a1.Center)
@@ -94,7 +94,7 @@ func TestSymmetricArcsWrongBranchRejected(t *testing.T) {
 }
 
 func TestSymmetricArcsRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	axis := xAxis(s)
 	c1 := s.AddPoint(2, 3)
 	st1 := s.AddPoint(3, 3)

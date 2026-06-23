@@ -10,7 +10,7 @@ import (
 )
 
 func TestArcLengthQuarter(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := s.AddPoint(0, 0)
 	start := s.AddPoint(4, 0)
 	s.Fix(c)
@@ -30,7 +30,7 @@ func TestArcLengthQuarter(t *testing.T) {
 
 func TestArcLengthBranchBeyondPi(t *testing.T) {
 	// Target sweep 3π/2 > π — the case a sin(Δ−theta) coupling would risk.
-	s := sketch.New()
+	s := newSketch(t)
 	c := s.AddPoint(0, 0)
 	start := s.AddPoint(2, 0)
 	s.Fix(c)
@@ -51,7 +51,7 @@ func TestArcLengthRejectsWrongBranch(t *testing.T) {
 	// dimension demands length 3π (sweep 3π/2 — the antipodal branch). With the
 	// geometry frozen the dimension cannot be met; a coupling that vanished on the
 	// wrong branch would falsely report this solvable.
-	s := sketch.New()
+	s := newSketch(t)
 	c := s.AddPoint(0, 0)
 	start := s.AddPoint(2, 0)
 	end := s.AddPoint(0, 2) // sweep π/2
@@ -68,7 +68,7 @@ func TestArcLengthRejectsWrongBranch(t *testing.T) {
 func TestArcLengthSemicircle(t *testing.T) {
 	// Target sweep exactly π — Δ sits on the atan2 ±π cut, which the mod-2π wrap
 	// absorbs, so the dimension still solves cleanly.
-	s := sketch.New()
+	s := newSketch(t)
 	c := s.AddPoint(0, 0)
 	start := s.AddPoint(3, 0)
 	s.Fix(c)
@@ -85,7 +85,7 @@ func TestArcLengthSemicircle(t *testing.T) {
 }
 
 func TestArcLengthDOFNeutral(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := s.AddPoint(0, 0)
 	start := s.AddPoint(4, 0)
 	s.Fix(c)
@@ -105,7 +105,7 @@ func TestArcLengthDOFNeutral(t *testing.T) {
 func TestArcLengthDriven(t *testing.T) {
 	// A driven (reference) arc-length measures the swept length R·Sweep() of a
 	// fully determined quarter arc: R=4, sweep π/2, so length = 2π.
-	s := sketch.New()
+	s := newSketch(t)
 	c := s.AddPoint(0, 0)
 	start := s.AddPoint(4, 0)
 	end := s.AddPoint(0, 4)
@@ -124,7 +124,7 @@ func TestArcLengthDriven(t *testing.T) {
 }
 
 func TestArcLengthDrivenDOFNeutralAndToggle(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := s.AddPoint(0, 0)
 	start := s.AddPoint(4, 0)
 	s.Fix(c)
@@ -149,7 +149,7 @@ func TestArcLengthSetDrivenBeforeCommitNoOrphan(t *testing.T) {
 	// (setting c.s) and rolling back. A subsequent SetDriven on that still-
 	// uncommitted dimension must NOT mutate the sketch's variables — membership,
 	// not c.s != nil, is the committed test — or it leaks an orphan free DOF.
-	s := sketch.New()
+	s := newSketch(t)
 	c := s.AddPoint(0, 0)
 	start := s.AddPoint(4, 0)
 	s.Fix(c)
@@ -165,7 +165,7 @@ func TestArcLengthSetDrivenBeforeCommitNoOrphan(t *testing.T) {
 }
 
 func TestArcLengthDrivenRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := s.AddPoint(0, 0)
 	start := s.AddPoint(4, 0)
 	end := s.AddPoint(0, 4)
@@ -192,7 +192,7 @@ func TestArcLengthDrivenRoundTrip(t *testing.T) {
 }
 
 func TestArcLengthRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := s.AddPoint(0, 0)
 	start := s.AddPoint(4, 0)
 	s.Fix(c)

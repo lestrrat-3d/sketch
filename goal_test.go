@@ -9,7 +9,7 @@ import (
 )
 
 func TestGoalProjection(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.Fix(a)
@@ -26,7 +26,7 @@ func TestGoalProjection(t *testing.T) {
 }
 
 func TestGoalConstraintsWin(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(18, 2)
 	c := s.AddPoint(17, 11)
@@ -53,7 +53,7 @@ func TestGoalConstraintsWin(t *testing.T) {
 func TestGoalTracking(t *testing.T) {
 	// A lone free point and no constraints: exercises the goal-only path
 	// (no hard residuals) and warm-started tracking across a target path.
-	s := sketch.New()
+	s := newSketch(t)
 	p := s.AddPoint(0, 0)
 	for _, tgt := range [][2]float64{{2, 1}, {5, 4}, {5, 9}, {-3, 2}} {
 		res, err := s.Solve(sketch.WithGoal(p, tgt[0], tgt[1]))
@@ -66,7 +66,7 @@ func TestGoalTracking(t *testing.T) {
 
 func TestGoalMultiple(t *testing.T) {
 	// Two goals translate a dimensioned line; length stays constrained.
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.AddLine(a, b)
@@ -83,7 +83,7 @@ func TestGoalMultiple(t *testing.T) {
 }
 
 func TestGoalFixedPointInert(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	p := s.AddPoint(2, 3)
 	s.Fix(p)
 
@@ -95,7 +95,7 @@ func TestGoalFixedPointInert(t *testing.T) {
 }
 
 func TestGoalLeavesNoResidue(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(18, 2)
 	c := s.AddPoint(17, 11)

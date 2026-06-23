@@ -20,12 +20,9 @@ var (
 	// ErrStandardDatum is returned by [World.RemovePlane] for the seeded XY/XZ/YZ
 	// datum planes, which are foundational and cannot be removed.
 	ErrStandardDatum = errors.New("sketch: standard datum planes cannot be removed")
-	// ErrPlaneRemoved is returned by [Plane.Frame] and [NewOn] for a removed
-	// (tombstoned) plane handle.
+	// ErrPlaneRemoved is returned by [Plane.Frame] for a removed (tombstoned)
+	// plane handle.
 	ErrPlaneRemoved = errors.New("sketch: plane has been removed")
-	// ErrWorldOwnedPlane is returned by [NewOn] when given a world-owned plane:
-	// use [World.Sketch] for those.
-	ErrWorldOwnedPlane = errors.New("sketch: plane is owned by a world; use World.Sketch")
 	// ErrNotOffsetPlane is returned by [World.BindOffsetPlane] for a plane that is
 	// not a derived offset plane (only an offset plane has a distance to drive).
 	ErrNotOffsetPlane = errors.New("sketch: plane is not an offset plane")
@@ -57,46 +54,15 @@ type planeDef struct {
 // Plane is a construction (datum) plane: a 3D coordinate frame positioned in a
 // [World], on which a [Sketch] is drawn. Its frame is computed from a stored
 // definition (its provenance), so the plane can never disagree with how it was
-// built; create one through the package-level world-frame constructors
-// ([WorldXY], [PlaneFromFrame], [PlaneFromPoints]) for engine-only use, or
-// through a [World] (which additionally allows derived planes such as
-// [World.OffsetPlane]).
+// built. Obtain the standard datums with [World.XY]/[World.XZ]/[World.YZ], and
+// create derived planes through a [World] ([World.CreatePlaneFromFrame],
+// [World.CreatePlaneFromPoints], [World.CreateOffsetPlane]).
 type Plane struct {
 	def     planeDef
-	owner   *World // nil for a standalone (engine-only) plane
-	id      int    // slice position within owner.planes; -1 when standalone
+	owner   *World // owning world
+	id      int    // slice position within owner.planes; -1 when removed
 	removed bool   // tombstone set by World.RemovePlane; a dead handle
 	name    string
-}
-
-// WorldXY returns a standalone (owner-less) XY datum plane: origin at the world
-// origin, U=+X, V=+Y, N=+Z. It is the default placement for [New].
-func WorldXY() *Plane { return &Plane{def: planeDef{kind: planeXY}, id: -1, name: "XY"} }
-
-// WorldXZ returns a standalone XZ datum plane: U=+X, V=+Z, N=−Y.
-func WorldXZ() *Plane { return &Plane{def: planeDef{kind: planeXZ}, id: -1, name: "XZ"} }
-
-// WorldYZ returns a standalone YZ datum plane: U=+Y, V=+Z, N=+X.
-func WorldYZ() *Plane { return &Plane{def: planeDef{kind: planeYZ}, id: -1, name: "YZ"} }
-
-// PlaneFromFrame returns a standalone plane positioned by an explicit frame. It
-// returns [space.ErrDegenerateFrame] when f is not a valid orthonormal frame
-// (including the zero value).
-func PlaneFromFrame(f space.Frame) (*Plane, error) {
-	if !f.IsValid() {
-		return nil, space.ErrDegenerateFrame
-	}
-	return &Plane{def: planeDef{kind: planeFrame, frame: f}, id: -1}, nil
-}
-
-// PlaneFromPoints returns a standalone plane through three world points: origin
-// a, U along a→b, N along (a→b)×(a→c), V = N×U. It returns
-// [space.ErrDegenerateFrame] when the points are collinear.
-func PlaneFromPoints(a, b, c space.Vec3) (*Plane, error) {
-	if _, err := frameFromPoints(a, b, c); err != nil {
-		return nil, err
-	}
-	return &Plane{def: planeDef{kind: planePoints, a: a, b: b, c: c}, id: -1}, nil
 }
 
 // Name returns the plane's optional label.
@@ -106,7 +72,7 @@ func (p *Plane) Name() string { return p.name }
 func (p *Plane) SetName(name string) { p.name = name }
 
 // ID returns the plane's stable index within its [World], or -1 if it is a
-// standalone (owner-less) or removed plane.
+// removed plane.
 func (p *Plane) ID() int { return p.id }
 
 // Frame returns the plane's coordinate frame, recomputed from its definition

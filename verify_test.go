@@ -8,7 +8,7 @@ import (
 )
 
 func TestVerifyUnderconstrained(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.AddLine(a, b)
@@ -29,7 +29,7 @@ func TestVerifyUnderconstrained(t *testing.T) {
 }
 
 func TestVerifyFullyConstrained(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	r := s.AddRectangle(0, 0, 20, 12)
 	s.Fix(r.A)
 	s.AddConstraint(sketch.NewDistance(r.A, r.B, 20), sketch.NewDistance(r.A, r.D, 12))
@@ -54,7 +54,7 @@ func TestVerifyFullyConstrained(t *testing.T) {
 func TestVerifySelfIntersectingUntrustworthy(t *testing.T) {
 	// A fully-constrained, solvable bowtie: structurally clean, but its boundary
 	// self-intersects, so the oracle must refuse to bless it.
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(4, 4)
 	c := s.AddPoint(4, 0)
@@ -80,7 +80,7 @@ func TestVerifySelfIntersectingUntrustworthy(t *testing.T) {
 }
 
 func TestVerifyRedundant(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	r := s.AddRectangle(0, 0, 20, 12)
 	s.Fix(r.A)
 	width := sketch.NewDistance(r.A, r.B, 20)
@@ -101,7 +101,7 @@ func TestVerifyRedundant(t *testing.T) {
 }
 
 func TestVerifyConflictSet(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(18, 2)
 	c := s.AddPoint(17, 11)
@@ -135,7 +135,7 @@ func TestVerifyGroundedConflict(t *testing.T) {
 	// A distance between two grounded points is violated by the geometry alone:
 	// its equation touches no free variable, so it is reported with an empty
 	// conflict set — there is no other constraint to fight.
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.Fix(a)
@@ -157,7 +157,7 @@ func TestVerifyCoincidentConflictSet(t *testing.T) {
 	// A multi-row constraint (coincident contributes dx and dy) that conflicts:
 	// pinning one point to two different fixed anchors. The conflict set must
 	// aggregate across both rows and name the earlier coincident constraint.
-	s := sketch.New()
+	s := newSketch(t)
 	p := s.AddPoint(5, 5)
 	anchorA := s.AddPoint(0, 0)
 	anchorB := s.AddPoint(10, 10)
@@ -181,7 +181,7 @@ func TestVerifyProbeOptIn(t *testing.T) {
 	// below the base satisfies them just as well — a configuration ambiguity the
 	// DOF count cannot see.
 	build := func() (*sketch.Sketch, *sketch.Point) {
-		s := sketch.New()
+		s := newSketch(t)
 		a := s.AddPoint(0, 0)
 		b := s.AddPoint(10, 0)
 		s.Fix(a)
@@ -206,7 +206,7 @@ func TestVerifyProbeOptIn(t *testing.T) {
 }
 
 func TestVerifyDoesNotMutate(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.Fix(a)
@@ -229,7 +229,7 @@ func TestVerifyDoesNotMutate(t *testing.T) {
 // (here, fully constrained then perturbed without re-solving) must not report
 // FullyConstrained — that would read as "valid" for an unsolved sketch.
 func TestVerifyUnsolvedDOF0NotFullyConstrained(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	r := s.AddRectangle(0, 0, 20, 12)
 	s.Fix(r.A)
 	s.AddConstraint(sketch.NewDistance(r.A, r.B, 20), sketch.NewDistance(r.A, r.D, 12))
@@ -249,7 +249,7 @@ func TestVerifyUnsolvedDOF0NotFullyConstrained(t *testing.T) {
 // Fix 4: WithTolerance is honored by Verify (shared with Solve) — the same
 // residual is solvable under a loose tolerance and not under the default.
 func TestVerifyToleranceOption(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10.0000005, 0) // 5e-7 from the dimensioned distance
 	s.Fix(a)

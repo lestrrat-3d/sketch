@@ -9,7 +9,7 @@ import (
 )
 
 func TestClosedSplineBoundsProfile(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(4, 0)
 	c := s.AddPoint(4, 4)
@@ -27,7 +27,7 @@ func TestClosedSplineBoundsProfile(t *testing.T) {
 
 func TestClosedSplineFigureEightInvalid(t *testing.T) {
 	// A control polygon whose periodic loop crosses itself.
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(4, 3)
 	c := s.AddPoint(0, 3)
@@ -48,7 +48,7 @@ func TestClosedSplineFigureEightInvalid(t *testing.T) {
 }
 
 func TestClosedSplineValidation(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(1, 0)
 	_, err := s.AddClosedSpline(a, b)
@@ -59,7 +59,7 @@ func TestClosedSplineValidation(t *testing.T) {
 }
 
 func TestClosedSplineFixEntityDOF(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(4, 0)
 	c := s.AddPoint(4, 4)
@@ -72,7 +72,7 @@ func TestClosedSplineFixEntityDOF(t *testing.T) {
 }
 
 func TestClosedSplineConstructionExcluded(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(4, 0)
 	c := s.AddPoint(4, 4)
@@ -84,7 +84,7 @@ func TestClosedSplineConstructionExcluded(t *testing.T) {
 }
 
 func TestClosedSplineRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(4, 0)
 	c := s.AddPoint(4, 4)
@@ -105,7 +105,7 @@ func TestClosedSplineRoundTrip(t *testing.T) {
 }
 
 func TestClosedSplineExporters(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(4, 0)
 	c := s.AddPoint(4, 4)
@@ -129,12 +129,12 @@ func TestClosedSplineExporters(t *testing.T) {
 func TestClosedSplineForeignControlNotTrustworthy(t *testing.T) {
 	// A closed spline built with a control point owned by another sketch must be
 	// caught by the reference-integrity scan (it was previously invisible).
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(4, 0)
 	s.Fix(a)
 	s.Fix(b)
-	other := sketch.New()
+	other := newSketch(t)
 	foreign := other.AddPoint(2, 4)
 	_, err := s.AddClosedSpline(a, b, foreign)
 	require.NoError(t, err)
@@ -146,7 +146,7 @@ func TestClosedSplineForeignControlNotTrustworthy(t *testing.T) {
 
 func TestClosedSplineTypedNilEntity(t *testing.T) {
 	// A typed-nil *ClosedSpline must follow the foreign-entity path, not panic.
-	s := sketch.New()
+	s := newSketch(t)
 	_, err := s.WorldPolyline((*sketch.ClosedSpline)(nil))
 	require.ErrorIs(t, err, sketch.ErrForeignEntity)
 }

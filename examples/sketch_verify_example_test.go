@@ -17,7 +17,8 @@ func Example_sketch_verify() {
 			label, rep.Status, rep.Solvable, rep.DOF, len(rep.FreePoints), len(rep.Profiles), len(rep.Conflicts))
 	}
 
-	s := sketch.New()
+	w := sketch.NewWorld()
+	s, _ := w.CreateSketch(w.XY())
 	r := s.AddRectangle(0, 0, 20, 12)
 	s.Fix(r.A)
 

@@ -390,22 +390,33 @@ func (s *Sketch) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
+	// Every sketch belongs to a world: a single-sketch document loads as an
+	// implicit one-sketch world owning the inlined plane.
+	w := NewWorld()
 	var plane *Plane
 	switch pf.kind {
 	case kindSketch:
 		if doc.Plane == nil {
 			return ErrMissingPlane
 		}
-		plane, err = standalonePlaneFromJSON(*doc.Plane)
+		plane, err = datumPlaneFromJSON(w, *doc.Plane)
 		if err != nil {
 			return err
 		}
 	default: // legacy: a 2D sketch is a world-XY sketch
-		plane = WorldXY()
+		plane = w.XY()
 	}
 
-	*s = Sketch{sys: units.Metric(), pl: plane}
-	return s.buildFromBody(doc.jsonSketchBody)
+	*s = Sketch{world: w, params: w.params, sys: units.Metric(), pl: plane}
+	w.sketches = append(w.sketches, s)
+	if err := s.buildFromBody(doc.jsonSketchBody); err != nil {
+		return err
+	}
+	// buildFromBody adopts the body's own parameter table when the document
+	// carries one; keep the implicit world's shared table pointed at it so
+	// w.Params() and s.Params() never diverge.
+	w.params = s.params
+	return nil
 }
 
 // buildFromBody rebuilds the sketch's geometry, constraints, units and

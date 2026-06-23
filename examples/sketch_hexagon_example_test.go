@@ -11,7 +11,8 @@ import (
 // dimensional constraints — no vertex is positioned by hand beyond a rough
 // initial guess — then solves it and reports the vertices.
 func Example_sketch_hexagon() {
-	s := sketch.New()
+	w := sketch.NewWorld()
+	s, _ := w.CreateSketch(w.XY())
 
 	const side = 30.0
 	const n = 6

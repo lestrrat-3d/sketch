@@ -11,13 +11,13 @@ import (
 
 func TestWorldJSONRoundTrip(t *testing.T) {
 	w := sketch.NewWorld()
-	off, err := w.OffsetPlane(w.XY(), 5)
+	off, err := w.CreateOffsetPlane(w.XY(), 5)
 	require.NoError(t, err)
-	s, err := w.Sketch(off)
+	s, err := w.CreateSketch(off)
 	require.NoError(t, err)
 	s.AddPoint(3, 4)
 	// A second sketch on the XZ datum, to exercise plane id references.
-	s2, err := w.Sketch(w.XZ())
+	s2, err := w.CreateSketch(w.XZ())
 	require.NoError(t, err)
 	s2.AddPoint(1, 1)
 
@@ -36,9 +36,9 @@ func TestWorldJSONRoundTrip(t *testing.T) {
 
 func TestWorldJSONFixedPoint(t *testing.T) {
 	w := sketch.NewWorld()
-	off, err := w.OffsetPlane(w.XY(), 2.5)
+	off, err := w.CreateOffsetPlane(w.XY(), 2.5)
 	require.NoError(t, err)
-	s, err := w.Sketch(off)
+	s, err := w.CreateSketch(off)
 	require.NoError(t, err)
 	s.AddPoint(1, 2)
 
@@ -52,7 +52,8 @@ func TestWorldJSONFixedPoint(t *testing.T) {
 }
 
 func TestStandaloneSketchPlaneRoundTrip(t *testing.T) {
-	s, err := sketch.NewOn(sketch.WorldXZ())
+	w := sketch.NewWorld()
+	s, err := w.CreateSketch(w.XZ())
 	require.NoError(t, err)
 	s.AddPoint(1, 1)
 	data, err := json.Marshal(s)
@@ -67,7 +68,7 @@ func TestStandaloneSketchPlaneRoundTrip(t *testing.T) {
 
 func TestSketchUnmarshalRejectsWorldDocument(t *testing.T) {
 	w := sketch.NewWorld()
-	_, err := w.Sketch(w.XY())
+	_, err := w.CreateSketch(w.XY())
 	require.NoError(t, err)
 	data, err := json.Marshal(w)
 	require.NoError(t, err)
@@ -77,7 +78,7 @@ func TestSketchUnmarshalRejectsWorldDocument(t *testing.T) {
 }
 
 func TestWorldUnmarshalRejectsSketchDocument(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	s.AddPoint(0, 0)
 	data, err := json.Marshal(s)
 	require.NoError(t, err)
@@ -212,9 +213,9 @@ func TestMalformedReferencesRejected(t *testing.T) {
 
 func TestWorldForwardBaseIDRejected(t *testing.T) {
 	w := sketch.NewWorld()
-	off, err := w.OffsetPlane(w.XY(), 1)
+	off, err := w.CreateOffsetPlane(w.XY(), 1)
 	require.NoError(t, err)
-	_, err = w.Sketch(off)
+	_, err = w.CreateSketch(off)
 	require.NoError(t, err)
 	data, err := json.Marshal(w)
 	require.NoError(t, err)

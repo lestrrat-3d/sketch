@@ -11,7 +11,8 @@ import (
 // verification report flags whether every region is a valid (extrudable)
 // profile.
 func Example_sketch_profiles() {
-	s := sketch.New()
+	w := sketch.NewWorld()
+	s, _ := w.CreateSketch(w.XY())
 	s.AddRectangle(0, 0, 40, 30)       // a plate
 	s.AddCircle(s.AddPoint(20, 15), 5) // a bolt hole inside it
 

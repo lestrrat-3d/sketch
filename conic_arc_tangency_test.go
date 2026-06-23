@@ -34,7 +34,7 @@ func arcAwayFromContact(s *sketch.Sketch) *sketch.Arc {
 }
 
 func TestTangentEllipseArcInSweep(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	e := s.AddEllipse(s.AddPoint(0, 0), 4, 2, 0)
 	s.FixEntity(e)
 	arc := arcStraddlingContact(s)
@@ -48,7 +48,7 @@ func TestTangentEllipseArcInSweep(t *testing.T) {
 func TestTangentEllipseArcOffSweepRejected(t *testing.T) {
 	// Same tangent circle, but the arc spans the far side: the only tangent contact
 	// with the ellipse is outside the sweep, so the oracle must report unsolvable.
-	s := sketch.New()
+	s := newSketch(t)
 	e := s.AddEllipse(s.AddPoint(0, 0), 4, 2, 0)
 	s.FixEntity(e)
 	arc := arcAwayFromContact(s)
@@ -64,7 +64,7 @@ func TestTangentEllipticalArcCircle(t *testing.T) {
 	// circle that touches its right vertex (6,0): exercises the ellipticalArcConic
 	// operand (Sampson membership + eccentric-sweep confinement). The contact (6,0)
 	// is eccentric angle 0, within the [0,π/2] sweep.
-	s := sketch.New()
+	s := newSketch(t)
 	ec := s.AddPoint(0, 0)
 	estart := s.AddPoint(6, 0) // eccentric 0
 	eend := s.AddPoint(0, 3)   // eccentric π/2
@@ -82,7 +82,7 @@ func TestTangentEllipticalArcCircle(t *testing.T) {
 func TestTangentConicsArcDOFAndRemoval(t *testing.T) {
 	// A free ellipse tangent to a fixed arc: tangency removes one DOF; the arc's
 	// sweep slack adds a var and a row that net to zero.
-	s := sketch.New()
+	s := newSketch(t)
 	arc := arcStraddlingContact(s)
 	e := s.AddEllipse(s.AddPoint(0, 0), 4, 2, 0) // free: 5 DOF
 	require.Equal(t, 5, s.DOF())
@@ -96,7 +96,7 @@ func TestTangentConicsArcDOFAndRemoval(t *testing.T) {
 }
 
 func TestTangentConicsArcRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	e := s.AddEllipse(s.AddPoint(0, 0), 4, 2, 0)
 	s.FixEntity(e)
 	arc := arcStraddlingContact(s)

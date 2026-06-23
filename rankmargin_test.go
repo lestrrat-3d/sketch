@@ -10,7 +10,7 @@ import (
 func TestRankMarginHealthy(t *testing.T) {
 	// A point pinned by orthogonal horizontal + vertical distances: the rank
 	// decision rests on well-separated, O(1) pivots.
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(3, 1)
 	s.Fix(a)
@@ -33,7 +33,7 @@ func TestRankMarginNearSingularFlagged(t *testing.T) {
 	// near-threshold rank decision (a hint), and the scale-invariant Conditioning
 	// gate now refuses to bless it: Trustworthy is false because the constraint
 	// system is numerically near-singular, even though nothing structural is wrong.
-	s := sketch.New()
+	s := newSketch(t)
 	o1 := s.AddPoint(0, 0)
 	e1 := s.AddPoint(1, 0)
 	o2 := s.AddPoint(0, 0)
@@ -65,7 +65,7 @@ func TestRankMarginExactRedundancyNotRediscovered(t *testing.T) {
 	// (DOF 1, one redundant constraint), caught by the existing rank/redundancy
 	// machinery. The rank-margin signal is about MARGINAL pivots, not exact
 	// redundancy, so it should report well-separated (the accepted pivot is O(1)).
-	s := sketch.New()
+	s := newSketch(t)
 	o := s.AddPoint(0, 0)
 	e := s.AddPoint(10, 0)
 	s.Fix(o)

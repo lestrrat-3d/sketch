@@ -10,7 +10,7 @@ import (
 )
 
 func TestAddRectangle(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	r := s.AddRectangle(0, 0, 18, 2) // rough initial size
 	s.Fix(r.A)
 	s.AddConstraint(sketch.NewDistance(r.A, r.B, 20))
@@ -26,7 +26,7 @@ func TestAddRectangle(t *testing.T) {
 }
 
 func TestAddPolygon(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	p, err := s.AddPolygon(0, 0, 6, 5)
 	require.NoError(t, err)
 	s.Fix(p.Center)
@@ -47,13 +47,13 @@ func TestAddPolygon(t *testing.T) {
 }
 
 func TestAddPolygonInvalid(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	_, err := s.AddPolygon(0, 0, 2, 5)
 	require.ErrorIs(t, err, sketch.ErrInvalidShape, "n < 3")
 }
 
 func TestAddSlot(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sl, err := s.AddSlot(0, 0, 10, 0, 2) // built at radius 2, driven to 3 below
 	require.NoError(t, err)
 	s.Fix(sl.C1)
@@ -73,7 +73,7 @@ func TestAddSlot(t *testing.T) {
 }
 
 func TestJSONRoundTripSlot(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sl, err := s.AddSlot(0, 0, 10, 0, 3)
 	require.NoError(t, err)
 	s.Fix(sl.C1)

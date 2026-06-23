@@ -23,7 +23,7 @@ func quarterCircleNURBS(t *testing.T, s *sketch.Sketch) *sketch.NURBS {
 }
 
 func TestNURBSAddAndAccessors(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := quarterCircleNURBS(t, s)
 	require.Equal(t, 2, c.Degree())
 	require.Equal(t, []float64{0, 0, 0, 1, 1, 1}, c.Knots())
@@ -51,7 +51,7 @@ func TestNURBSAddAndAccessors(t *testing.T) {
 }
 
 func TestNURBSNonRationalDefaultWeights(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	p := []*sketch.Point{s.AddPoint(0, 0), s.AddPoint(1, 2), s.AddPoint(3, -1), s.AddPoint(5, 1)}
 	c, err := s.AddNURBS(3, p, nil, sketch.ClampedUniformKnots(4, 3))
 	require.NoError(t, err)
@@ -60,7 +60,7 @@ func TestNURBSNonRationalDefaultWeights(t *testing.T) {
 }
 
 func TestNURBSValidation(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	p := func(n int) []*sketch.Point {
 		out := make([]*sketch.Point, n)
 		for i := range out {
@@ -105,14 +105,14 @@ func TestNURBSValidation(t *testing.T) {
 func TestNURBSFreeDOF(t *testing.T) {
 	// A free NURBS has DOF 2·(n+1) — only its control points are unknowns; degree,
 	// knots and weights are stored structural data, not solver vars.
-	s := sketch.New()
+	s := newSketch(t)
 	p := []*sketch.Point{s.AddPoint(1, 0), s.AddPoint(1, 1), s.AddPoint(0, 1)}
 	_, err := s.AddNURBS(2, p, []float64{1, 1 / math.Sqrt2, 1}, []float64{0, 0, 0, 1, 1, 1})
 	require.NoError(t, err)
 	require.Equal(t, 6, s.DOF(), "3 control points × 2 = 2(n+1), no weight/knot vars")
 
 	// A degree-3 NURBS with 5 control points: 10 DOF.
-	s2 := sketch.New()
+	s2 := newSketch(t)
 	p2 := make([]*sketch.Point, 5)
 	for i := range p2 {
 		p2[i] = s2.AddPoint(float64(i), float64(i%2))
@@ -123,7 +123,7 @@ func TestNURBSFreeDOF(t *testing.T) {
 }
 
 func TestNURBSProfileParticipation(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := quarterCircleNURBS(t, s)
 	// Close the loop back to the origin with two lines.
 	o := s.AddPoint(0, 0)
@@ -140,7 +140,7 @@ func TestNURBSProfileParticipation(t *testing.T) {
 func TestNURBSSelfIntersectingFlagged(t *testing.T) {
 	// A cubic NURBS whose control polygon loops crosses itself; closed by a chord it
 	// is a self-intersecting boundary the oracle must NOT bless.
-	s := sketch.New()
+	s := newSketch(t)
 	p0 := s.AddPoint(0, 0)
 	p1 := s.AddPoint(-4.0/3.0, -5.0/12.0)
 	p2 := s.AddPoint(-4.0/3.0, -3.0/2.0)
@@ -162,7 +162,7 @@ func TestNURBSSelfIntersectingFlagged(t *testing.T) {
 }
 
 func TestNURBSConstructionExcluded(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := quarterCircleNURBS(t, s)
 	c.SetConstruction(true)
 	o := s.AddPoint(0, 0)
@@ -172,7 +172,7 @@ func TestNURBSConstructionExcluded(t *testing.T) {
 }
 
 func TestNURBSRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := quarterCircleNURBS(t, s)
 
 	data, err := json.Marshal(s)
@@ -195,7 +195,7 @@ func TestNURBSRoundTrip(t *testing.T) {
 }
 
 func TestNURBSExportersContainIt(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	quarterCircleNURBS(t, s)
 
 	svg, err := s.SVG()
@@ -212,7 +212,7 @@ func TestNURBSExportersContainIt(t *testing.T) {
 }
 
 func TestNURBSDXFRationalRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := quarterCircleNURBS(t, s)
 
 	dxf, err := s.DXF()
@@ -246,7 +246,7 @@ func TestNURBSDXFRationalRoundTrip(t *testing.T) {
 	xs := dxfGroupAll(dxf, "SPLINE", "10")
 	ys := dxfGroupAll(dxf, "SPLINE", "20")
 	require.Len(t, xs, 3)
-	s2 := sketch.New()
+	s2 := newSketch(t)
 	ctrl := make([]*sketch.Point, 3)
 	for i := range ctrl {
 		ctrl[i] = s2.AddPoint(mustFloat(t, xs[i]), mustFloat(t, ys[i]))
@@ -269,7 +269,7 @@ func TestNURBSDXFRationalRoundTrip(t *testing.T) {
 }
 
 func TestNURBSNonRationalDXFFlag(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	p := []*sketch.Point{s.AddPoint(0, 0), s.AddPoint(1, 2), s.AddPoint(3, -1), s.AddPoint(5, 1)}
 	_, err := s.AddNURBS(3, p, nil, sketch.ClampedUniformKnots(4, 3))
 	require.NoError(t, err)
@@ -300,7 +300,7 @@ func TestNURBSDXFWorldSpaceControlPoints(t *testing.T) {
 }
 
 func TestNURBSRemoveEntityKeepsPoints(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := quarterCircleNURBS(t, s)
 	require.Equal(t, 6, s.DOF())
 
@@ -312,13 +312,13 @@ func TestNURBSRemoveEntityKeepsPoints(t *testing.T) {
 }
 
 func TestNURBSTypedNilEntity(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	_, err := s.WorldPolyline((*sketch.NURBS)(nil))
 	require.ErrorIs(t, err, sketch.ErrForeignEntity)
 }
 
 func TestNURBSSVGPathDrawn(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	quarterCircleNURBS(t, s)
 	svg, err := s.SVG()
 	require.NoError(t, err)

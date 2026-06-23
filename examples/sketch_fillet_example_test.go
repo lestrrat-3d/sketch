@@ -11,7 +11,8 @@ import (
 // legs, so changing the radius slides the contacts and recentres the arc — a
 // parametric fillet, not a one-shot edit.
 func Example_sketch_fillet() {
-	s := sketch.New()
+	w := sketch.NewWorld()
+	s, _ := w.CreateSketch(w.XY())
 
 	// Vertical leg A(0,10)->corner; horizontal leg corner->B(10,0). The shared
 	// corner point is what makes the two legs meet.

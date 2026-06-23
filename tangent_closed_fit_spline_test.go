@@ -37,7 +37,7 @@ func lineGapToPolyline(p1, p2 *sketch.Point, poly [][2]float64) float64 {
 func TestTangentToClosedSpline(t *testing.T) {
 	// A horizontal line above the loop becomes tangent at its top (the point whose
 	// tangent is horizontal), settling at the loop's max height.
-	s := sketch.New()
+	s := newSketch(t)
 	sp := loopSpline(s) // fixed convex-pentagon control loop
 	p1 := s.AddPoint(-4, 4.8)
 	p2 := s.AddPoint(8, 4.8)
@@ -53,7 +53,7 @@ func TestTangentToClosedSpline(t *testing.T) {
 }
 
 func TestTangentToClosedSplineDOFAndRemoval(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sp := loopSpline(s)
 	p1 := s.AddPoint(-4, 4.8)
 	p2 := s.AddPoint(8, 4.8)
@@ -68,7 +68,7 @@ func TestTangentToClosedSplineDOFAndRemoval(t *testing.T) {
 }
 
 func TestTangentToClosedSplineCheckConstraint(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sp := loopSpline(s)
 	p1 := s.AddPoint(-4, 4.8)
 	p2 := s.AddPoint(8, 4.8)
@@ -76,7 +76,7 @@ func TestTangentToClosedSplineCheckConstraint(t *testing.T) {
 }
 
 func TestTangentToClosedSplineRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sp := loopSpline(s)
 	line := s.AddLine(s.AddPoint(-4, 4.8), s.AddPoint(8, 4.8))
 	s.AddConstraint(sketch.NewHorizontal(line))
@@ -95,7 +95,7 @@ func TestTangentToClosedSplineRoundTrip(t *testing.T) {
 
 func TestTangentToFitSpline(t *testing.T) {
 	// A horizontal line above the fit arch becomes tangent at its top.
-	s := sketch.New()
+	s := newSketch(t)
 	sp := archFit(s) // fixed fit points (0,0),(2,3),(6,3),(8,0)
 	p1 := s.AddPoint(-2, 3.5)
 	p2 := s.AddPoint(10, 3.5)
@@ -111,7 +111,7 @@ func TestTangentToFitSpline(t *testing.T) {
 }
 
 func TestTangentToFitSplineDOFAndRemoval(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sp := archFit(s)
 	p1 := s.AddPoint(-2, 3.5)
 	p2 := s.AddPoint(10, 3.5)
@@ -126,7 +126,7 @@ func TestTangentToFitSplineDOFAndRemoval(t *testing.T) {
 }
 
 func TestTangentToFitSplineCheckConstraint(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sp := archFit(s)
 	p1 := s.AddPoint(-2, 3.5)
 	p2 := s.AddPoint(10, 3.5)
@@ -134,7 +134,7 @@ func TestTangentToFitSplineCheckConstraint(t *testing.T) {
 }
 
 func TestTangentToFitSplineRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sp := archFit(s)
 	line := s.AddLine(s.AddPoint(-2, 3.5), s.AddPoint(10, 3.5))
 	s.AddConstraint(sketch.NewHorizontal(line))
@@ -155,7 +155,7 @@ func TestTangentToFitSplineTransverseRejected(t *testing.T) {
 	// A fixed vertical line crosses the arch transversally; the fit arch's x is
 	// monotonic so it never has a vertical tangent. Tangency is impossible and the
 	// oracle must report it unsolvable, not bless the transverse crossing.
-	s := sketch.New()
+	s := newSketch(t)
 	sp := archFit(s)
 	a := s.AddPoint(4, -2)
 	b := s.AddPoint(4, 8)
@@ -172,7 +172,7 @@ func TestTangentToClosedSplineNonTouchingRejected(t *testing.T) {
 	// A rigid line far from the loop cannot touch it, so it cannot be tangent — the
 	// contact residual can never reach zero. (A closed loop has tangents in every
 	// direction, so the rejection case is a non-touching line, not a transverse one.)
-	s := sketch.New()
+	s := newSketch(t)
 	sp := loopSpline(s)
 	a := s.AddPoint(100, -5)
 	b := s.AddPoint(100, 5)
@@ -188,7 +188,7 @@ func TestTangentToClosedSplineNonTouchingRejected(t *testing.T) {
 func TestTangentToClosedSplineDOF0Verify(t *testing.T) {
 	// A tangent line from a fixed external point, pinned to DOF 0 by a distance,
 	// flows through Verify with a real Conditioning and reads trustworthy.
-	s := sketch.New()
+	s := newSketch(t)
 	sp := loopSpline(s)
 	e := s.AddPoint(10, 8)
 	s.Fix(e)
@@ -207,7 +207,7 @@ func TestTangentToClosedSplineDOF0Verify(t *testing.T) {
 func TestTangentToFitSplineDOF0Verify(t *testing.T) {
 	// A horizontal tangent at the arch's peak, pinned to DOF 0 by fixing both
 	// endpoints' x to a datum, flows through Verify and reads trustworthy.
-	s := sketch.New()
+	s := newSketch(t)
 	sp := archFit(s)
 	ref := s.AddPoint(0, 100)
 	s.Fix(ref)

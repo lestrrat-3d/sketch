@@ -15,8 +15,10 @@
 //
 // # Example
 //
+//	// Every sketch belongs to a World; create one on a datum plane.
+//	w := sketch.NewWorld()
+//	s, _ := w.CreateSketch(w.XY())
 //	// Geometry is authored from points; sharing a point ties entities together.
-//	s := sketch.New()
 //	a := s.AddPoint(0, 0)
 //	b := s.AddPoint(7, 2)
 //	d := s.AddPoint(-1, 8)
@@ -24,9 +26,9 @@
 //	ad := s.AddLine(a, d)
 //
 //	s.Fix(a) // ground the shared origin corner
-//	w := sketch.NewDistance(a, b, 100) // driving dimension
+//	wd := sketch.NewDistance(a, b, 100) // driving dimension
 //	h := sketch.NewDistance(a, d, 60)
-//	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewVertical(ad), w, h)
+//	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewVertical(ad), wd, h)
 //
 //	res, err := s.Solve()
 //	if err != nil { /* ... */ }

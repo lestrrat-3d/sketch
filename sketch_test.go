@@ -10,7 +10,7 @@ import (
 )
 
 func TestRectangleSolves(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(18, 2) // deliberately rough guesses
 	c := s.AddPoint(17, 11)
@@ -40,7 +40,7 @@ func TestRectangleSolves(t *testing.T) {
 }
 
 func TestParametricUpdate(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(18, 2) // deliberately rough guesses
 	c := s.AddPoint(17, 11)
@@ -72,7 +72,7 @@ func TestParametricUpdate(t *testing.T) {
 func TestSharedPointTopology(t *testing.T) {
 	// Topology is expressed by sharing a *Point between entities: two lines
 	// that share an endpoint move together at that vertex.
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	corner := s.AddPoint(10, 0)
 	b := s.AddPoint(10, 10)
@@ -95,7 +95,7 @@ func TestSharedPointTopology(t *testing.T) {
 func TestGeometrySnapshot(t *testing.T) {
 	// Geometry() returns a fresh geom snapshot at the CURRENT solved coords,
 	// independent of the entity afterwards.
-	s := sketch.New()
+	s := newSketch(t)
 	l := s.AddLine(s.AddPoint(1, 2), s.AddPoint(4, 6))
 	g := l.Geometry()
 	require.InDelta(t, 1, g.Start.X, 1e-9)
@@ -104,7 +104,7 @@ func TestGeometrySnapshot(t *testing.T) {
 }
 
 func TestTangentLineCircle(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	a.MoveTo(0, 0)
@@ -124,7 +124,7 @@ func TestTangentLineCircle(t *testing.T) {
 }
 
 func TestPerpendicular(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 1)
 	c := s.AddPoint(1, 5)
@@ -143,7 +143,7 @@ func TestPerpendicular(t *testing.T) {
 }
 
 func TestAngleConstraint(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	c := s.AddPoint(5, 5)
@@ -162,7 +162,7 @@ func TestAngleConstraint(t *testing.T) {
 }
 
 func TestArcRadiusConsistency(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	center := s.AddPoint(0, 0)
 	start := s.AddPoint(5, 0)
 	end := s.AddPoint(1, 9) // off the radius-5 circle
@@ -178,7 +178,7 @@ func TestArcRadiusConsistency(t *testing.T) {
 }
 
 func TestConcentricEqualRadius(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	o1 := s.AddPoint(0, 0)
 	o2 := s.AddPoint(3, 2)
 	o1.MoveTo(0, 0)
@@ -196,7 +196,7 @@ func TestConcentricEqualRadius(t *testing.T) {
 }
 
 func TestTangentLineArc(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.Fix(a)
@@ -220,7 +220,7 @@ func TestTangentLineArc(t *testing.T) {
 
 func TestTangentCircleArc(t *testing.T) {
 	t.Run("external", func(t *testing.T) {
-		s := sketch.New()
+		s := newSketch(t)
 		o := s.AddPoint(0, 0)
 		s.Fix(o)
 		circ := s.AddCircle(o, 3)
@@ -238,7 +238,7 @@ func TestTangentCircleArc(t *testing.T) {
 		require.InDelta(t, 7, arc.R(), 1e-6, "external: d = r1 + r2")
 	})
 	t.Run("internal", func(t *testing.T) {
-		s := sketch.New()
+		s := newSketch(t)
 		o := s.AddPoint(0, 0)
 		s.Fix(o)
 		circ := s.AddCircle(o, 10)
@@ -258,7 +258,7 @@ func TestTangentCircleArc(t *testing.T) {
 }
 
 func TestTangentArcArc(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c1 := s.AddPoint(0, 0)
 	s.Fix(c1)
 	s1 := s.AddPoint(3, 0)
@@ -280,7 +280,7 @@ func TestTangentArcArc(t *testing.T) {
 }
 
 func TestEqualRadiusCircleArc(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	o := s.AddPoint(0, 0)
 	s.Fix(o)
 	circ := s.AddCircle(o, 7)
@@ -299,7 +299,7 @@ func TestEqualRadiusCircleArc(t *testing.T) {
 }
 
 func TestEqualRadiusArcArc(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c1 := s.AddPoint(0, 0)
 	s.Fix(c1)
 	s1 := s.AddPoint(5, 0)
@@ -320,7 +320,7 @@ func TestEqualRadiusArcArc(t *testing.T) {
 }
 
 func TestDistancePointLine(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.Fix(a)
@@ -336,7 +336,7 @@ func TestDistancePointLine(t *testing.T) {
 }
 
 func TestDistanceLines(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.Fix(a)
@@ -358,7 +358,7 @@ func TestDistanceLines(t *testing.T) {
 }
 
 func TestJSONRoundTripDistanceDims(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.Fix(a)
@@ -383,7 +383,7 @@ func TestJSONRoundTripDistanceDims(t *testing.T) {
 }
 
 func TestDrivenDimension(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(18, 2)
 	c := s.AddPoint(17, 11)
@@ -418,7 +418,7 @@ func TestDrivenDimension(t *testing.T) {
 }
 
 func TestJSONRoundTripDrivenDimension(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(18, 2)
 	c := s.AddPoint(17, 11)
@@ -455,7 +455,7 @@ func TestJSONRoundTripDrivenDimension(t *testing.T) {
 }
 
 func TestSymmetric(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	// vertical axis along x = 0
 	axA := s.AddPoint(0, 0)
 	axB := s.AddPoint(0, 10)
@@ -477,13 +477,13 @@ func TestSymmetric(t *testing.T) {
 }
 
 func TestUnderConstrainedDOF(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	s.AddPoint(0, 0) // single free point, nothing else
 	require.Equal(t, 2, s.DOF(), "DOF")
 }
 
 func TestRedundantConstraint(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(18, 2)
 	c := s.AddPoint(17, 11)
@@ -506,7 +506,7 @@ func TestRedundantConstraint(t *testing.T) {
 }
 
 func TestRedundantConstraints(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(18, 2)
 	c := s.AddPoint(17, 11)
@@ -540,7 +540,7 @@ func TestRedundantConstraints(t *testing.T) {
 }
 
 func TestJSONRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(18, 2)
 	c := s.AddPoint(17, 11)
@@ -574,7 +574,7 @@ func TestJSONRoundTrip(t *testing.T) {
 }
 
 func TestJSONRoundTripArcTangent(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.Fix(a)
@@ -617,7 +617,7 @@ func TestJSONRoundTripArcTangent(t *testing.T) {
 }
 
 func TestSVGOutput(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(18, 2)
 	c := s.AddPoint(17, 11)
@@ -645,7 +645,7 @@ func TestSVGOutput(t *testing.T) {
 }
 
 func TestDXFOutput(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.AddLine(a, b)

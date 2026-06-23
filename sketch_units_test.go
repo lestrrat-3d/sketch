@@ -5,14 +5,13 @@ import (
 	"testing"
 
 	"github.com/lestrrat-3d/sketch"
-	"github.com/lestrrat-3d/sketch/param"
 	"github.com/lestrrat-3d/sketch/units"
 	"github.com/stretchr/testify/require"
 )
 
 // A distance set with a typed value keeps that unit but solves in base mm.
 func TestDimensionTypedValue(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(1, 0)
 	a.MoveTo(0, 0)
@@ -29,7 +28,7 @@ func TestDimensionTypedValue(t *testing.T) {
 
 // SetValue must reject a value of the wrong kind.
 func TestDimensionWrongKind(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(1, 0)
 	d := sketch.NewDistance(a, b, 0)
@@ -38,7 +37,7 @@ func TestDimensionWrongKind(t *testing.T) {
 
 // The bare-float Angle constructor uses the sketch's default angle unit.
 func TestAngleDefaultUnitDegrees(t *testing.T) {
-	s := sketch.New() // metric default: degrees
+	s := newSketch(t) // metric default: degrees
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	c := s.AddPoint(5, 5)
@@ -59,7 +58,7 @@ func TestAngleDefaultUnitDegrees(t *testing.T) {
 
 // SetUnits changes how bare-float dimension values are interpreted.
 func TestSetUnitsImperial(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	s.SetUnits(units.Imperial()) // inches, degrees
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(1, 0)
@@ -74,14 +73,14 @@ func TestSetUnitsImperial(t *testing.T) {
 
 // A length dimension bound to a typed length parameter converts correctly.
 func TestBindTypedLengthParam(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(1, 0)
 	a.MoveTo(0, 0)
 	s.Fix(a)
 	s.AddConstraint(sketch.NewHorizontal(s.AddLine(a, b)))
 
-	p := param.New()
+	p := s.Params()
 	require.NoError(t, p.SetValue("len", units.Meters(1))) // 1 m == 1000 mm
 	lenDim := sketch.NewDistance(a, b, 0)
 	s.AddConstraint(lenDim)
@@ -93,14 +92,14 @@ func TestBindTypedLengthParam(t *testing.T) {
 
 // Binding a length dimension to an angle parameter is a kind error at solve.
 func TestBindKindMismatch(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(1, 0)
 	a.MoveTo(0, 0)
 	s.Fix(a)
 	s.AddConstraint(sketch.NewHorizontal(s.AddLine(a, b)))
 
-	p := param.New()
+	p := s.Params()
 	require.NoError(t, p.SetValue("turn", units.Degrees(45)))
 	turnDim := sketch.NewDistance(a, b, 0)
 	s.AddConstraint(turnDim)
@@ -111,7 +110,7 @@ func TestBindKindMismatch(t *testing.T) {
 
 // An angle dimension bound to a typed angle parameter (degrees) solves correctly.
 func TestBindAngleParam(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	c := s.AddPoint(5, 5)
@@ -123,7 +122,7 @@ func TestBindAngleParam(t *testing.T) {
 	s.AddConstraint(sketch.NewDistance(a, b, 10))
 	s.AddConstraint(sketch.NewDistance(a, c, 8))
 
-	p := param.New()
+	p := s.Params()
 	require.NoError(t, p.SetValue("theta", units.Degrees(30)))
 	theta := sketch.NewAngle(l1, l2, 0)
 	s.AddConstraint(theta)
@@ -138,7 +137,7 @@ func TestBindAngleParam(t *testing.T) {
 
 // The unit system and dimension units survive a JSON round-trip.
 func TestJSONRoundTripUnits(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	s.SetUnits(units.Imperial())
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(1, 0)

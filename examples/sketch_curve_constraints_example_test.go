@@ -11,7 +11,8 @@ import (
 // point starts below the arch and is pulled up onto the curve, keeping one
 // sliding degree of freedom along it.
 func Example_sketch_point_on_conic() {
-	s := sketch.New()
+	w := sketch.NewWorld()
+	s, _ := w.CreateSketch(w.XY())
 	start := s.AddPoint(0, 0)
 	apex := s.AddPoint(4, 6)
 	end := s.AddPoint(8, 0)
@@ -48,7 +49,8 @@ func Example_sketch_point_on_conic() {
 // NURBS arch. The line settles at the curve's peak — the one contact whose
 // tangent is horizontal.
 func Example_sketch_tangent_to_nurbs() {
-	s := sketch.New()
+	w := sketch.NewWorld()
+	s, _ := w.CreateSketch(w.XY())
 	c0 := s.AddPoint(0, 0)
 	c1 := s.AddPoint(4, 8)
 	c2 := s.AddPoint(8, 0)

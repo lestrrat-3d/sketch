@@ -11,7 +11,7 @@ import (
 )
 
 func TestEllipseDimensions(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := s.AddPoint(0, 0)
 	e := s.AddEllipse(c, 2, 1, 0) // rough initial shape
 	s.Fix(e.Center)
@@ -26,7 +26,7 @@ func TestEllipseDimensions(t *testing.T) {
 }
 
 func TestPointOnEllipse(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := s.AddPoint(0, 0)
 	e := s.AddEllipse(c, 5, 3, 0)
 	s.Fix(e.Center)
@@ -44,7 +44,7 @@ func TestPointOnEllipse(t *testing.T) {
 }
 
 func TestPointOnRotatedEllipse(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := s.AddPoint(0, 0)
 	e := s.AddEllipse(c, 5, 3, math.Pi/2)
 	s.Fix(e.Center)
@@ -65,7 +65,7 @@ func TestPointOnRotatedEllipse(t *testing.T) {
 }
 
 func TestEllipseDrivenMeasure(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := s.AddPoint(0, 0)
 	e := s.AddEllipse(c, 5, 3, 0)
 	s.Fix(e.Center)
@@ -82,7 +82,7 @@ func TestEllipseDrivenMeasure(t *testing.T) {
 }
 
 func TestEllipseJSONRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := s.AddPoint(1, 2)
 	e := s.AddEllipse(c, 5, 3, math.Pi/6)
 	s.Fix(e.Center)
@@ -110,7 +110,7 @@ func TestEllipseJSONRoundTrip(t *testing.T) {
 }
 
 func TestEllipseExports(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := s.AddPoint(0, 0)
 	s.AddEllipse(c, 5, 3, math.Pi/4)
 

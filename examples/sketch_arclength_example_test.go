@@ -10,7 +10,8 @@ import (
 // Example_sketch_arcLength drives an arc by its swept length. The dimension uses
 // a continuous-sweep formulation, so it works smoothly even past a half turn.
 func Example_sketch_arcLength() {
-	s := sketch.New()
+	w := sketch.NewWorld()
+	s, _ := w.CreateSketch(w.XY())
 	c := s.AddPoint(0, 0)
 	start := s.AddPoint(4, 0)
 	s.Fix(c)

@@ -12,7 +12,7 @@ import (
 // in docs/acceptance-tests.md.
 
 func TestCoincident(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(2, 3)
 	s.Fix(a)
 	p := s.AddPoint(10, -4)
@@ -26,7 +26,7 @@ func TestCoincident(t *testing.T) {
 }
 
 func TestParallel(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.Fix(a)
@@ -52,7 +52,7 @@ func TestParallel(t *testing.T) {
 }
 
 func TestCollinear(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.Fix(a)
@@ -73,7 +73,7 @@ func TestCollinear(t *testing.T) {
 }
 
 func TestPointOnCircle(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	o := s.AddPoint(0, 0)
 	s.Fix(o)
 	circ := s.AddCircle(o, 5)
@@ -89,7 +89,7 @@ func TestPointOnCircle(t *testing.T) {
 }
 
 func TestMidpoint(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(9, 1)
 	a.MoveTo(0, 0)
@@ -115,7 +115,7 @@ func TestMidpoint(t *testing.T) {
 }
 
 func TestEqualLines(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(8, 0)
 	s.Fix(a)
@@ -134,7 +134,7 @@ func TestEqualLines(t *testing.T) {
 }
 
 func TestDiameterDimension(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	o := s.AddPoint(0, 0)
 	s.Fix(o)
 	circ := s.AddCircle(o, 3)
@@ -152,7 +152,7 @@ func TestDiameterDimension(t *testing.T) {
 }
 
 func TestUnfix(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	s.Fix(a)
 	p := s.AddPoint(1, 2)
@@ -173,7 +173,7 @@ func TestUnfix(t *testing.T) {
 }
 
 func TestHorizontalVerticalDistance(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	s.Fix(a)
 

@@ -12,7 +12,7 @@ import (
 // A reference point is locked: the solver never moves it, and a free point made
 // coincident with it solves TO it (the pierce case).
 func TestReferencePointLockedAndPierce(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	ref := s.AddReferencePoint(3, 4, "vertex#1")
 	require.True(t, ref.IsReference())
 	require.Equal(t, "vertex#1", ref.Source())
@@ -34,7 +34,7 @@ func TestReferencePointLockedAndPierce(t *testing.T) {
 // Reference coordinates are read-only through the ordinary API; only Refresh*
 // rewrites them.
 func TestReferenceReadOnly(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	ref := s.AddReferencePoint(1, 1, "v")
 	ref.MoveTo(9, 9)
 	require.Equal(t, 1.0, ref.X(), "MoveTo is a no-op on reference geometry")
@@ -51,7 +51,7 @@ func TestReferenceReadOnly(t *testing.T) {
 
 // Reference curves require reference points of this sketch.
 func TestReferenceCurveRequiresRefPoints(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	r1 := s.AddReferencePoint(0, 0, "a")
 	r2 := s.AddReferencePoint(5, 0, "b")
 	free := s.AddPoint(1, 1)
@@ -59,7 +59,7 @@ func TestReferenceCurveRequiresRefPoints(t *testing.T) {
 	_, err := s.AddReferenceLine(r1, free, "edge")
 	require.ErrorIs(t, err, sketch.ErrNotReference, "a reference line needs reference points")
 
-	other := sketch.New()
+	other := newSketch(t)
 	foreign := other.AddReferencePoint(0, 0, "x")
 	_, err = s.AddReferenceLine(r1, foreign, "edge")
 	require.ErrorIs(t, err, sketch.ErrForeignPoint, "a reference line cannot use a foreign point")
@@ -72,7 +72,7 @@ func TestReferenceCurveRequiresRefPoints(t *testing.T) {
 
 // A reference circle's radius is locked too (not just its center point).
 func TestReferenceCircleRadiusLocked(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	center := s.AddReferencePoint(0, 0, "hole")
 	circ, err := s.AddReferenceCircle(center, 5, "hole")
 	require.NoError(t, err)
@@ -92,7 +92,7 @@ func TestReferenceCircleRadiusLocked(t *testing.T) {
 // The modification tools refuse reference geometry — both the mutating ones
 // (Trim/Break) and the copying ones (Mirror/Pattern/Offset).
 func TestReferenceToolsReject(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	p1 := s.AddReferencePoint(0, 0, "a")
 	p2 := s.AddReferencePoint(10, 0, "b")
 	l, err := s.AddReferenceLine(p1, p2, "edge")
@@ -114,7 +114,7 @@ func TestReferenceToolsReject(t *testing.T) {
 // A reference entity rewired to a nil defining point must be reported broken,
 // not panic the residual/profile analysis.
 func TestReferenceNilTopologyNoPanic(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	p1 := s.AddReferencePoint(0, 0, "a")
 	p2 := s.AddReferencePoint(10, 0, "b")
 	l, err := s.AddReferenceLine(p1, p2, "edge")
@@ -130,7 +130,7 @@ func TestReferenceNilTopologyNoPanic(t *testing.T) {
 // Rewiring a reference entity's exported field — to a free point OR to a
 // different reference point — is detected as a broken reference.
 func TestReferenceIntegrityRewire(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	p1 := s.AddReferencePoint(0, 0, "a")
 	p2 := s.AddReferencePoint(10, 0, "b")
 	l, err := s.AddReferenceLine(p1, p2, "edge")
@@ -151,9 +151,9 @@ func TestReferenceIntegrityRewire(t *testing.T) {
 // A constraint reaching a foreign reference point (from another sketch) is
 // surfaced rather than silently trusted.
 func TestReferenceForeignHandle(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	local := s.AddPoint(0, 0)
-	other := sketch.New()
+	other := newSketch(t)
 	foreign := other.AddReferencePoint(5, 5, "x")
 	s.AddConstraint(sketch.NewCoincident(local, foreign))
 
@@ -164,7 +164,7 @@ func TestReferenceForeignHandle(t *testing.T) {
 
 // Staleness is marked per source and clears only by refreshing every unit.
 func TestReferenceStaleness(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	p1 := s.AddReferencePoint(0, 0, "edge")
 	p2 := s.AddReferencePoint(10, 0, "edge")
 	l, err := s.AddReferenceLine(p1, p2, "edge")
@@ -191,7 +191,7 @@ func TestReferenceStaleness(t *testing.T) {
 // MarkStale on an entity's source reaches the entity's points even when they
 // carry different (vertex) sources.
 func TestReferenceStaleEntitySource(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	p1 := s.AddReferencePoint(0, 0, "v1")
 	p2 := s.AddReferencePoint(10, 0, "v2")
 	l, err := s.AddReferenceLine(p1, p2, "edge1")
@@ -206,7 +206,7 @@ func TestReferenceStaleEntitySource(t *testing.T) {
 // Reference edges participate in profiles: a loop closed by sketch lines plus a
 // projected (reference) edge is detected.
 func TestReferenceProfileMixedLoop(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddReferencePoint(0, 0, "e")
 	b := s.AddReferencePoint(10, 0, "e")
 	if _, err := s.AddReferenceLine(a, b, "e"); err != nil {
@@ -220,7 +220,7 @@ func TestReferenceProfileMixedLoop(t *testing.T) {
 
 // reference/source/stale/lock survive a JSON round-trip.
 func TestReferenceRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	s.AddReferencePoint(3, 4, "v")
 	center := s.AddReferencePoint(0, 0, "h")
 	circ, err := s.AddReferenceCircle(center, 5, "h")
@@ -258,7 +258,7 @@ func TestReferenceRoundTrip(t *testing.T) {
 func TestReferenceLoadRejectsCorrupt(t *testing.T) {
 	// Build a valid normal-line sketch, then forge reference:true onto the line
 	// without making its points reference.
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.AddLine(a, b)
@@ -272,7 +272,7 @@ func TestReferenceLoadRejectsCorrupt(t *testing.T) {
 
 // A reference entity and its points remove cleanly.
 func TestReferenceRemoval(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	p1 := s.AddReferencePoint(0, 0, "a")
 	p2 := s.AddReferencePoint(10, 0, "b")
 	l, err := s.AddReferenceLine(p1, p2, "edge")
@@ -287,7 +287,7 @@ func TestReferenceRemoval(t *testing.T) {
 // A valid reference arc is trustworthy: it must not be flagged with a redundant
 // internal constraint (its locked points need no radius-consistency solver row).
 func TestReferenceArcTrustworthy(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	center := s.AddReferencePoint(0, 0, "arc")
 	start := s.AddReferencePoint(5, 0, "arc")
 	end := s.AddReferencePoint(0, 5, "arc")
@@ -306,14 +306,14 @@ func TestReferenceArcTrustworthy(t *testing.T) {
 
 // A constraint with a typed-nil entity operand must not panic Verify.
 func TestReferenceVerifyTypedNilOperand(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	s.AddConstraint(sketch.NewHorizontal(nil)) // typed-nil *Line operand
 	var rep *sketch.VerificationReport
 	require.NotPanics(t, func() { rep = s.Verify() })
 	require.False(t, rep.Trustworthy())
 
 	// A non-nil but foreign entity with nil endpoints must not panic either.
-	s2 := sketch.New()
+	s2 := newSketch(t)
 	s2.AddConstraint(sketch.NewHorizontal(&sketch.Line{}))
 	require.NotPanics(t, func() { rep = s2.Verify() })
 	require.False(t, rep.Trustworthy())
@@ -322,7 +322,7 @@ func TestReferenceVerifyTypedNilOperand(t *testing.T) {
 // Refreshing a reference arc endpoint to a different radius breaks the arc
 // invariant; the integrity check (not a solver constraint) catches it.
 func TestReferenceArcRefreshBreaksInvariant(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	center := s.AddReferencePoint(0, 0, "arc")
 	start := s.AddReferencePoint(5, 0, "arc")
 	end := s.AddReferencePoint(0, 5, "arc")

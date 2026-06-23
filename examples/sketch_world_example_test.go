@@ -14,7 +14,7 @@ func Example_sketch_world() {
 	w := sketch.NewWorld()
 
 	// A construction plane parallel to XY, lifted 5 units along its normal (+Z).
-	top, err := w.OffsetPlane(w.XY(), 5)
+	top, err := w.CreateOffsetPlane(w.XY(), 5)
 	if err != nil {
 		fmt.Printf("failed to make plane: %s\n", err)
 		return
@@ -22,7 +22,7 @@ func Example_sketch_world() {
 
 	// A 4×3 rectangle on that plane, authored in plane-local (u, v) coordinates
 	// between two opposite corners.
-	s, err := w.Sketch(top)
+	s, err := w.CreateSketch(top)
 	if err != nil {
 		fmt.Printf("failed to make sketch: %s\n", err)
 		return

@@ -21,7 +21,8 @@ func Example_sketch_units() {
 	fmt.Printf("%s = %.1f mm\n", w, mm)
 
 	// A dimension carries a unit; internally the solver stays in millimetres.
-	s := sketch.New()
+	world := sketch.NewWorld()
+	s, _ := world.CreateSketch(world.XY())
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(50, 0)
 	a.MoveTo(0, 0)

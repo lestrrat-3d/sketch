@@ -62,7 +62,7 @@ func distToPolyline(px, py float64, poly [][2]float64) float64 {
 }
 
 func TestPointOnClosedSpline(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sp := loopSpline(s)
 	p := s.AddPoint(2, 2) // inside the loop; pulled outward onto the curve
 	s.AddConstraint(sketch.NewPointOnClosedSpline(p, sp))
@@ -76,7 +76,7 @@ func TestPointOnClosedSpline(t *testing.T) {
 func TestPointOnClosedSplineToIntersection(t *testing.T) {
 	// Pinning the point onto the loop AND a fixed line lands it at their crossing
 	// — a fully determined membership, witnessing the constraint does real work.
-	s := sketch.New()
+	s := newSketch(t)
 	sp := loopSpline(s)
 	a, b := s.AddPoint(2, -2), s.AddPoint(2, 6) // vertical line x=2
 	s.Fix(a)
@@ -100,7 +100,7 @@ func TestPointOnClosedSplineToIntersection(t *testing.T) {
 }
 
 func TestPointOnClosedSplineDOFAndRemoval(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sp := loopSpline(s)
 	p := s.AddPoint(2, 2)
 	require.Equal(t, 2, s.DOF(), "the free point has two DOF")
@@ -114,14 +114,14 @@ func TestPointOnClosedSplineDOFAndRemoval(t *testing.T) {
 }
 
 func TestPointOnClosedSplineCheckConstraint(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sp := loopSpline(s)
 	p := s.AddPoint(2, 2)
 	require.NoError(t, s.CheckConstraint(sketch.NewPointOnClosedSpline(p, sp)))
 }
 
 func TestPointOnClosedSplineRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sp := loopSpline(s)
 	p := s.AddPoint(2, 2)
 	s.AddConstraint(sketch.NewPointOnClosedSpline(p, sp))
@@ -138,7 +138,7 @@ func TestPointOnClosedSplineRoundTrip(t *testing.T) {
 }
 
 func TestPointOnFitSpline(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sp := archFit(s)
 	p := s.AddPoint(4, 1) // below the arch interior; pulled up onto it
 	s.AddConstraint(sketch.NewPointOnFitSpline(p, sp))
@@ -154,7 +154,7 @@ func TestPointOnFitSplineConfinedToRange(t *testing.T) {
 	// A point started past the curve's end must attach at the endpoint (the last
 	// fit point, which the curve passes through), not extrapolate — the slack box
 	// keeps the foot parameter within [0, 1].
-	s := sketch.New()
+	s := newSketch(t)
 	sp := archFit(s)
 	p := s.AddPoint(20, -5) // far past the (8,0) end fit point
 	s.AddConstraint(sketch.NewPointOnFitSpline(p, sp))
@@ -169,7 +169,7 @@ func TestPointOnFitSplineConfinedToRange(t *testing.T) {
 func TestPointOnFitSplineToIntersectionVerify(t *testing.T) {
 	// A DOF-0 point-on-fit-spline sketch (point pinned to the curve and a vertical
 	// line) flows through Verify with a real Conditioning and reads trustworthy.
-	s := sketch.New()
+	s := newSketch(t)
 	sp := archFit(s)
 	a, b := s.AddPoint(4, -2), s.AddPoint(4, 6) // vertical line x=4
 	s.Fix(a)
@@ -190,7 +190,7 @@ func TestPointOnFitSplineToIntersectionVerify(t *testing.T) {
 }
 
 func TestPointOnFitSplineDOFAndRemoval(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sp := archFit(s)
 	p := s.AddPoint(4, 1)
 	require.Equal(t, 2, s.DOF(), "the free point has two DOF")
@@ -204,14 +204,14 @@ func TestPointOnFitSplineDOFAndRemoval(t *testing.T) {
 }
 
 func TestPointOnFitSplineCheckConstraint(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sp := archFit(s)
 	p := s.AddPoint(4, 1)
 	require.NoError(t, s.CheckConstraint(sketch.NewPointOnFitSpline(p, sp)))
 }
 
 func TestPointOnFitSplineRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sp := archFit(s)
 	p := s.AddPoint(4, 1)
 	s.AddConstraint(sketch.NewPointOnFitSpline(p, sp))

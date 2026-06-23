@@ -24,7 +24,7 @@ func splineMaxY(sp *sketch.Spline) float64 {
 func TestTangentToSpline(t *testing.T) {
 	// A horizontal line above the arch becomes tangent at the peak (the one point
 	// whose tangent is horizontal), so it settles at the spline's max height.
-	s := sketch.New()
+	s := newSketch(t)
 	sp := archSpline(s) // fixed control points (0,0),(2,4),(6,4),(8,0)
 	p1 := s.AddPoint(-2, 3.5)
 	p2 := s.AddPoint(10, 3.5)
@@ -59,7 +59,7 @@ func TestTangentToSplineTransverseRejected(t *testing.T) {
 	// A fixed vertical line crosses the arch transversally; the spline's x is
 	// monotonic so it never has a vertical tangent. Tangency is impossible and the
 	// oracle must report it unsolvable, not bless the transverse crossing.
-	s := sketch.New()
+	s := newSketch(t)
 	sp := archSpline(s)
 	a := s.AddPoint(5, -2)
 	b := s.AddPoint(5, 8)
@@ -73,7 +73,7 @@ func TestTangentToSplineTransverseRejected(t *testing.T) {
 }
 
 func TestTangentToSplineDOFAndRemoval(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sp := archSpline(s) // control points fixed
 	p1 := s.AddPoint(-2, 3.5)
 	p2 := s.AddPoint(10, 3.5)
@@ -88,7 +88,7 @@ func TestTangentToSplineDOFAndRemoval(t *testing.T) {
 }
 
 func TestTangentToSplineCheckConstraint(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sp := archSpline(s)
 	p1 := s.AddPoint(-2, 3.5)
 	p2 := s.AddPoint(10, 3.5)
@@ -106,7 +106,7 @@ func TestTangentToSplineScaleIsCurrentNotSnapshot(t *testing.T) {
 	// scale makes the 1e-7 line degenerate (cutoff ≈ 1e-9·1000 ≫ 1e-7), so the
 	// oracle must report it unsolvable.
 	x := math.Sqrt(99) // c0–c1 distance is exactly 10 to start in a clean basin
-	s := sketch.New()
+	s := newSketch(t)
 	c0 := s.AddPoint(0, 0)
 	c1 := s.AddPoint(x, 1)
 	c2 := s.AddPoint(x+10, 1)
@@ -131,7 +131,7 @@ func TestTangentToSplineScaleIsCurrentNotSnapshot(t *testing.T) {
 }
 
 func TestTangentToSplineRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sp := archSpline(s)
 	p1 := s.AddPoint(-2, 3.5)
 	p2 := s.AddPoint(10, 3.5)

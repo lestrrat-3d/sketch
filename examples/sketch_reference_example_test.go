@@ -12,7 +12,8 @@ import (
 // makes the oracle refuse to bless a sketch built on an out-of-date snapshot
 // until the 3D layer re-feeds it.
 func Example_sketch_reference() {
-	s := sketch.New()
+	w := sketch.NewWorld()
+	s, _ := w.CreateSketch(w.XY())
 
 	// A projected edge of a 3D body, handed in as plane-local coordinates plus a
 	// source id. Reference geometry is locked — the solver never moves it.

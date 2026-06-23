@@ -12,9 +12,9 @@ import (
 
 func TestWorldSharedParameterTable(t *testing.T) {
 	w := sketch.NewWorld()
-	s1, err := w.Sketch(w.XY())
+	s1, err := w.CreateSketch(w.XY())
 	require.NoError(t, err)
-	s2, err := w.Sketch(w.XZ())
+	s2, err := w.CreateSketch(w.XZ())
 	require.NoError(t, err)
 	require.Same(t, w.Params(), s1.Params(), "a world sketch shares the world's table")
 	require.Same(t, s1.Params(), s2.Params(), "all world sketches share one table")
@@ -41,8 +41,8 @@ func TestWorldGlobalParameterDrivesTwoSketches(t *testing.T) {
 		require.NoError(t, s.Bind(d, s.Params(), "thickness")) // s.Params() == w.Params()
 		return d
 	}
-	s1, _ := w.Sketch(w.XY())
-	s2, _ := w.Sketch(w.XZ())
+	s1, _ := w.CreateSketch(w.XY())
+	s2, _ := w.CreateSketch(w.XZ())
 	d1, d2 := bind(s1), bind(s2)
 
 	_, err := s1.Solve()
@@ -61,15 +61,17 @@ func TestWorldGlobalParameterDrivesTwoSketches(t *testing.T) {
 	require.True(t, w.Verify().Trustworthy())
 }
 
-func TestStandaloneSketchParamsUnchanged(t *testing.T) {
-	s := sketch.New()
-	require.Nil(t, s.Params(), "a standalone sketch has no table until a binding attaches one")
+func TestWorldSketchSharesWorldParams(t *testing.T) {
+	w := sketch.NewWorld()
+	s, err := w.CreateSketch(w.XY())
+	require.NoError(t, err)
+	require.Same(t, w.Params(), s.Params(), "a world sketch shares the world's global table from creation")
 }
 
 func TestParameterDrivenOffsetPlane(t *testing.T) {
 	w := sketch.NewWorld()
 	require.NoError(t, w.Params().SetValue("gap", units.Millimeters(10)))
-	op, err := w.OffsetPlane(w.XY(), 0)
+	op, err := w.CreateOffsetPlane(w.XY(), 0)
 	require.NoError(t, err)
 	require.NoError(t, w.BindOffsetPlane(op, "gap"))
 
@@ -97,7 +99,7 @@ func TestParameterDrivenOffsetPlane(t *testing.T) {
 func TestOffsetPlaneWrongKindRejected(t *testing.T) {
 	w := sketch.NewWorld()
 	require.NoError(t, w.Params().SetValue("theta", units.Degrees(30)))
-	op, err := w.OffsetPlane(w.XY(), 0)
+	op, err := w.CreateOffsetPlane(w.XY(), 0)
 	require.NoError(t, err)
 	require.NoError(t, w.BindOffsetPlane(op, "theta")) // an angle, not a length
 
@@ -116,9 +118,9 @@ func TestOffsetPlaneWrongKindRejected(t *testing.T) {
 func TestWorldParamsRoundTrip(t *testing.T) {
 	w := sketch.NewWorld()
 	require.NoError(t, w.Params().SetValue("thickness", units.Millimeters(5)))
-	op, _ := w.OffsetPlane(w.XY(), 0)
+	op, _ := w.CreateOffsetPlane(w.XY(), 0)
 	require.NoError(t, w.BindOffsetPlane(op, "thickness"))
-	s1, _ := w.Sketch(w.XY())
+	s1, _ := w.CreateSketch(w.XY())
 	a := s1.AddPoint(0, 0)
 	b := s1.AddPoint(3, 1)
 	s1.Fix(a)

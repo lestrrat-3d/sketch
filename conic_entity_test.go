@@ -11,7 +11,7 @@ import (
 )
 
 func TestConicAddAndAccessors(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	start := s.AddPoint(0, 0)
 	apex := s.AddPoint(2, 5)
 	end := s.AddPoint(6, 0)
@@ -34,7 +34,7 @@ func TestConicAddAndAccessors(t *testing.T) {
 }
 
 func TestConicValidation(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(2, 5)
 	d := s.AddPoint(6, 0)
@@ -49,7 +49,7 @@ func TestConicValidation(t *testing.T) {
 func TestConicFreeDOF(t *testing.T) {
 	// A free conic is 3 points (6) + 1 rho (7) of free DOF, exactly like a free
 	// ellipse is under-constrained.
-	s := sketch.New()
+	s := newSketch(t)
 	start := s.AddPoint(0, 0)
 	apex := s.AddPoint(2, 5)
 	end := s.AddPoint(6, 0)
@@ -63,7 +63,7 @@ func TestConicFreeDOF(t *testing.T) {
 }
 
 func TestConicFixEntityGroundsRho(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	start := s.AddPoint(0, 0)
 	apex := s.AddPoint(2, 5)
 	end := s.AddPoint(6, 0)
@@ -79,7 +79,7 @@ func TestConicFixEntityGroundsRho(t *testing.T) {
 }
 
 func TestConicProfileParticipation(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	start := s.AddPoint(0, 0)
 	apex := s.AddPoint(3, 4)
 	end := s.AddPoint(6, 0)
@@ -98,7 +98,7 @@ func TestConicProfileAreaSamplingIndependent(t *testing.T) {
 	// A conic-bounded region's area is exact, so it is identical at every
 	// rendering fidelity for every family.
 	for _, rho := range []float64{0.3, 0.5, 0.8} {
-		s := sketch.New()
+		s := newSketch(t)
 		start := s.AddPoint(0, 0)
 		apex := s.AddPoint(2, 5)
 		end := s.AddPoint(6, 0)
@@ -112,7 +112,7 @@ func TestConicProfileAreaSamplingIndependent(t *testing.T) {
 }
 
 func TestConicConstructionExcluded(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	start := s.AddPoint(0, 0)
 	apex := s.AddPoint(3, 4)
 	end := s.AddPoint(6, 0)
@@ -124,7 +124,7 @@ func TestConicConstructionExcluded(t *testing.T) {
 }
 
 func TestConicRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	start := s.AddPoint(0, 0)
 	apex := s.AddPoint(2, 5)
 	end := s.AddPoint(6, 0)
@@ -151,7 +151,7 @@ func TestConicRoundTrip(t *testing.T) {
 }
 
 func TestConicExportersContainIt(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	start := s.AddPoint(0, 0)
 	apex := s.AddPoint(3, 4)
 	end := s.AddPoint(6, 0)
@@ -172,7 +172,7 @@ func TestConicExportersContainIt(t *testing.T) {
 }
 
 func TestConicDXFRationalWeights(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	start := s.AddPoint(0, 0)
 	apex := s.AddPoint(3, 4)
 	end := s.AddPoint(6, 0)
@@ -229,7 +229,7 @@ func TestConicDXFWorldSpaceControlPoints(t *testing.T) {
 }
 
 func TestConicRemoveEntityRetiresRho(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	start := s.AddPoint(0, 0)
 	apex := s.AddPoint(3, 4)
 	end := s.AddPoint(6, 0)
@@ -244,7 +244,7 @@ func TestConicRemoveEntityRetiresRho(t *testing.T) {
 }
 
 func TestConicTypedNilEntity(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	_, err := s.WorldPolyline((*sketch.Conic)(nil))
 	require.ErrorIs(t, err, sketch.ErrForeignEntity)
 }
@@ -252,12 +252,12 @@ func TestConicTypedNilEntity(t *testing.T) {
 func TestConicForeignPointNotTrustworthy(t *testing.T) {
 	// A conic built over a point from another sketch is a foreign handle — the
 	// reachability scan (which reads the conic's defining points) must see it.
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(6, 0)
 	s.Fix(a)
 	s.Fix(b)
-	other := sketch.New()
+	other := newSketch(t)
 	foreign := other.AddPoint(3, 4)
 	_, err := s.AddConic(a, foreign, b, 0.5)
 	require.NoError(t, err)

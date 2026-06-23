@@ -48,7 +48,7 @@ func distToConic(p *sketch.Point, c *sketch.Conic) float64 {
 }
 
 func TestPointOnConic(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := archConic(s)
 	p := s.AddPoint(4, 1) // below the arch interior; pulled up onto it
 	s.AddConstraint(sketch.NewPointOnConic(p, c))
@@ -62,7 +62,7 @@ func TestPointOnConic(t *testing.T) {
 func TestPointOnConicConfinedToRange(t *testing.T) {
 	// A point started well beyond the conic's end must attach at the endpoint, not
 	// extrapolate past it — the slack box keeps the foot parameter within [0,1].
-	s := sketch.New()
+	s := newSketch(t)
 	c := archConic(s)
 	p := s.AddPoint(20, -5) // far past the (8,0) end
 	s.AddConstraint(sketch.NewPointOnConic(p, c))
@@ -76,7 +76,7 @@ func TestPointOnConicConfinedToRange(t *testing.T) {
 }
 
 func TestPointOnConicDOFAndRemoval(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := archConic(s) // defining points fixed; the conic's rho is still a free var
 	p := s.AddPoint(4, 1)
 	// Two DOF from the free point plus one from the conic's free rho parameter.
@@ -93,14 +93,14 @@ func TestPointOnConicDOFAndRemoval(t *testing.T) {
 }
 
 func TestPointOnConicCheckConstraint(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := archConic(s)
 	p := s.AddPoint(4, 1)
 	require.NoError(t, s.CheckConstraint(sketch.NewPointOnConic(p, c)))
 }
 
 func TestPointOnConicRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := archConic(s)
 	p := s.AddPoint(4, 1)
 	s.AddConstraint(sketch.NewPointOnConic(p, c))
@@ -118,7 +118,7 @@ func TestPointOnConicRoundTrip(t *testing.T) {
 }
 
 func TestPointOnConicEntityRemovalCascades(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := archConic(s)
 	p := s.AddPoint(4, 1)
 	con := sketch.NewPointOnConic(p, c)
@@ -159,7 +159,7 @@ func conicTangentDirAtLineContact(c *sketch.Conic, p1, p2 *sketch.Point) (float6
 func TestTangentToConic(t *testing.T) {
 	// A horizontal line above the arch becomes tangent at the peak (the point with a
 	// horizontal tangent), so it settles at the conic's max height.
-	s := sketch.New()
+	s := newSketch(t)
 	c := archConic(s)
 	p1 := s.AddPoint(-2, 2.5)
 	p2 := s.AddPoint(10, 2.5)
@@ -200,7 +200,7 @@ func lineGapToConic(p1, p2 *sketch.Point, c *sketch.Conic) float64 {
 }
 
 func TestTangentToConicDOFAndRemoval(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := archConic(s) // defining points fixed
 	p1 := s.AddPoint(-2, 2.5)
 	p2 := s.AddPoint(10, 2.5)
@@ -216,7 +216,7 @@ func TestTangentToConicDOFAndRemoval(t *testing.T) {
 }
 
 func TestTangentToConicCheckConstraint(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := archConic(s)
 	p1 := s.AddPoint(-2, 2.5)
 	p2 := s.AddPoint(10, 2.5)
@@ -224,7 +224,7 @@ func TestTangentToConicCheckConstraint(t *testing.T) {
 }
 
 func TestTangentToConicRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := archConic(s)
 	p1 := s.AddPoint(-2, 2.5)
 	p2 := s.AddPoint(10, 2.5)

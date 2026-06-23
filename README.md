@@ -68,7 +68,8 @@ import (
 // is the smallest end-to-end taste of the engine: author geometry from points,
 // constrain it, solve, edit, re-solve, export.
 func Example_sketch_quickstart() {
-  s := sketch.New()
+  w := sketch.NewWorld()
+  s, _ := w.CreateSketch(w.XY())
 
   // Four corners as rough initial guesses; the solver finds the exact spots.
   // Sharing a *Point between two lines is what makes a corner a corner.
@@ -281,7 +282,8 @@ func Example_sketch_units() {
   fmt.Printf("%s = %.1f mm\n", w, mm)
 
   // A dimension carries a unit; internally the solver stays in millimetres.
-  s := sketch.New()
+  world := sketch.NewWorld()
+  s, _ := world.CreateSketch(world.XY())
   a := s.AddPoint(0, 0)
   b := s.AddPoint(50, 0)
   a.MoveTo(0, 0)
@@ -332,7 +334,6 @@ import (
   "fmt"
 
   "github.com/lestrrat-3d/sketch"
-  "github.com/lestrrat-3d/sketch/param"
   "github.com/lestrrat-3d/sketch/units"
 )
 
@@ -340,7 +341,8 @@ import (
 // rectangular plate with a centered hole whose dimensions are all defined by
 // expressions. Changing a single parameter and re-solving updates everything.
 func Example_sketch_parametric() {
-  s := sketch.New()
+  w := sketch.NewWorld()
+  s, _ := w.CreateSketch(w.XY())
 
   // Four corners + a center point for the hole (rough initial guesses).
   a := s.AddPoint(0, 0)
@@ -366,9 +368,10 @@ func Example_sketch_parametric() {
   )
 
   // Parameters: a single driving width as a typed length; everything else is
-  // derived from it. Geometry solves in base millimetres regardless of the
-  // units the parameters are expressed in.
-  p := param.New()
+  // derived from it. The world's shared parameter table drives the sketch.
+  // Geometry solves in base millimetres regardless of the units the parameters
+  // are expressed in.
+  p := w.Params()
   if err := errors.Join(
     p.SetValue("width", units.Millimeters(120)),
     p.SetExpr("height", "width * 0.6", units.Millimeter),
@@ -465,7 +468,8 @@ Call `Solve` (optionally tuned) and read the result it returns:
 // options and reports the fields the solver returns. DOF can also be queried
 // directly, without moving any geometry.
 func Example_sketch_solving() {
-  s := sketch.New()
+  w := sketch.NewWorld()
+  s, _ := w.CreateSketch(w.XY())
   a := s.AddPoint(0, 0)
   b := s.AddPoint(30, 4)
   a.MoveTo(0, 0)
@@ -519,7 +523,8 @@ partial result.
 // interactions): hard constraints always win, and the goal only pulls whatever
 // freedom is left over.
 func Example_sketch_goal() {
-  s := sketch.New()
+  w := sketch.NewWorld()
+  s, _ := w.CreateSketch(w.XY())
   a := s.AddPoint(0, 0)
   b := s.AddPoint(2, 2)
   a.MoveTo(0, 0)

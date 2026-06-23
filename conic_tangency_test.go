@@ -14,7 +14,7 @@ func TestTangentEllipseCircleExternal(t *testing.T) {
 	// slides along the x-axis is forced externally tangent. The contact is the
 	// ellipse's right vertex (4,0): the circle's left point (cx−3,0) meets it, so
 	// cx → 7.
-	s := sketch.New()
+	s := newSketch(t)
 	ec := s.AddPoint(0, 0)
 	e := s.AddEllipse(ec, 4, 2, 0)
 	s.FixEntity(e)
@@ -37,7 +37,7 @@ func TestTangentEllipseCircleInternal(t *testing.T) {
 	// meets it, so cx → 7 (outward normals aligned). The radius (1) is below the
 	// ellipse's minimum curvature radius (ry²/rx = 2), so the vertex contact is the
 	// genuine single-point internal tangency.
-	s := sketch.New()
+	s := newSketch(t)
 	ec := s.AddPoint(0, 0)
 	e := s.AddEllipse(ec, 8, 4, 0)
 	s.FixEntity(e)
@@ -56,7 +56,7 @@ func TestTangentEllipseCircleInternal(t *testing.T) {
 func TestTangentEllipses(t *testing.T) {
 	// Two axis-aligned ellipses, the second sliding along x, forced externally
 	// tangent: e1 right vertex (4,0) meets e2 left vertex (cx−3,0), so cx → 7.
-	s := sketch.New()
+	s := newSketch(t)
 	c1 := s.AddPoint(0, 0)
 	e1 := s.AddEllipse(c1, 4, 2, 0)
 	s.FixEntity(e1)
@@ -75,7 +75,7 @@ func TestTangentEllipses(t *testing.T) {
 func TestTangentEllipseCircleSeparateRejected(t *testing.T) {
 	// Two rigid conics that are far apart cannot be made tangent (nothing is free
 	// to move them together); the oracle must report it unsolvable.
-	s := sketch.New()
+	s := newSketch(t)
 	e := s.AddEllipse(s.AddPoint(0, 0), 4, 2, 0)
 	s.FixEntity(e)
 	c := s.AddCircle(s.AddPoint(100, 0), 3)
@@ -93,7 +93,7 @@ func TestTangentConicsDegenerateRejected(t *testing.T) {
 	// axis-squares are floored). The degeneracy threshold (1e-6) matches that floor,
 	// so a sub-floor axis cannot be "solved" against a floored surrogate.
 	for _, rx := range []float64{0, 1e-7} { // exact zero, and inside the [1e-9,1e-6) band
-		s := sketch.New()
+		s := newSketch(t)
 		e := s.AddEllipse(s.AddPoint(0, 0), rx, 2, 0)
 		s.FixEntity(e)
 		c := s.AddCircle(s.AddPoint(1+1e-6, 0), 1) // placed where the floored surrogate would falsely "touch"
@@ -109,7 +109,7 @@ func TestTangentConicsDegenerateRejected(t *testing.T) {
 }
 
 func TestTangentConicsDOFAndRemoval(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	e := s.AddEllipse(s.AddPoint(0, 0), 4, 2, 0)
 	s.FixEntity(e)
 	cc := s.AddPoint(10, 0)
@@ -127,7 +127,7 @@ func TestTangentConicsDOFAndRemoval(t *testing.T) {
 }
 
 func TestTangentConicsCheckConstraint(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	e := s.AddEllipse(s.AddPoint(0, 0), 4, 2, 0)
 	s.FixEntity(e)
 	cc := s.AddPoint(10, 0)
@@ -138,7 +138,7 @@ func TestTangentConicsCheckConstraint(t *testing.T) {
 }
 
 func TestTangentConicsRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	ec := s.AddPoint(0, 0)
 	e := s.AddEllipse(ec, 4, 2, 0)
 	s.FixEntity(e)
@@ -167,7 +167,7 @@ func TestTangentConicsInternalExternalDistinct(t *testing.T) {
 	// right, with its center fixed where only an external tangent exists, cannot
 	// satisfy an INTERNAL tangency request.
 	build := func(internal bool) *sketch.Sketch {
-		s := sketch.New()
+		s := newSketch(t)
 		e := s.AddEllipse(s.AddPoint(0, 0), 4, 2, 0)
 		s.FixEntity(e)
 		c := s.AddCircle(s.AddPoint(7, 0), 3) // left point exactly at the (4,0) vertex

@@ -8,7 +8,7 @@ import (
 )
 
 func TestDiagnoseClean(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(18, 2)
 	c := s.AddPoint(17, 11)
@@ -32,7 +32,7 @@ func TestDiagnoseClean(t *testing.T) {
 }
 
 func TestDiagnoseRedundant(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(18, 2)
 	c := s.AddPoint(17, 11)
@@ -59,7 +59,7 @@ func TestDiagnoseRedundant(t *testing.T) {
 }
 
 func TestDiagnoseConflicting(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(18, 2)
 	c := s.AddPoint(17, 11)
@@ -88,7 +88,7 @@ func TestDiagnoseConflicting(t *testing.T) {
 
 func TestCheckConstraint(t *testing.T) {
 	t.Run("rejects a duplicate", func(t *testing.T) {
-		s := sketch.New()
+		s := newSketch(t)
 		a := s.AddPoint(0, 0)
 		b := s.AddPoint(18, 2)
 		c := s.AddPoint(17, 11)
@@ -111,7 +111,7 @@ func TestCheckConstraint(t *testing.T) {
 		require.Len(t, s.Constraints(), nCons, "check commits nothing")
 	})
 	t.Run("rejects a contradiction", func(t *testing.T) {
-		s := sketch.New()
+		s := newSketch(t)
 		a := s.AddPoint(0, 0)
 		b := s.AddPoint(18, 2)
 		c := s.AddPoint(17, 11)
@@ -136,7 +136,7 @@ func TestCheckConstraint(t *testing.T) {
 		require.InDelta(t, 20, b.X(), 1e-6, "geometry unaffected by the check")
 	})
 	t.Run("rejects a constraint between grounded points", func(t *testing.T) {
-		s := sketch.New()
+		s := newSketch(t)
 		a := s.AddPoint(0, 0)
 		b := s.AddPoint(3, 0)
 		s.Fix(a)
@@ -145,14 +145,14 @@ func TestCheckConstraint(t *testing.T) {
 		require.ErrorIs(t, err, sketch.ErrOverconstrained, "no free variable to constrain")
 	})
 	t.Run("accepts an independent constraint", func(t *testing.T) {
-		s := sketch.New()
+		s := newSketch(t)
 		a := s.AddPoint(0, 0)
 		s.Fix(a)
 		b := s.AddPoint(4, 1)
 		require.NoError(t, s.CheckConstraint(sketch.NewDistance(a, b, 5)), "first dimension is independent")
 	})
 	t.Run("accepts a driven dimension anywhere", func(t *testing.T) {
-		s := sketch.New()
+		s := newSketch(t)
 		a := s.AddPoint(0, 0)
 		b := s.AddPoint(18, 2)
 		c := s.AddPoint(17, 11)
@@ -175,7 +175,7 @@ func TestCheckConstraint(t *testing.T) {
 }
 
 func TestFreePoints(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(18, 2)
 	c := s.AddPoint(17, 11)

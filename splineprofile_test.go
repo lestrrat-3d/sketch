@@ -11,7 +11,7 @@ import (
 // that closes back to its endpoints bounds a profile the oracle can report.
 
 func TestSplineBoundsProfile(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	c1 := s.AddPoint(1, 2)
 	c2 := s.AddPoint(3, 2)
@@ -32,7 +32,7 @@ func TestSplineProfileSampledAreaApprox(t *testing.T) {
 	// Closing a half-disc-like spline cap with its chord: the sampled area is
 	// finite and close to the true hump area (sampling, not exact). Controls
 	// (0,0),(0,h),(w,h),(w,0) make a flat-topped cap; assert area is in a sane band.
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	c1 := s.AddPoint(0, 3)
 	c2 := s.AddPoint(6, 3)
@@ -53,7 +53,7 @@ func TestSelfIntersectingSplineLoopInvalid(t *testing.T) {
 	// A single cubic Bézier (4 control points, clamped knots) whose control polygon
 	// loops, so the curve crosses itself; closing it with a chord makes a
 	// self-intersecting boundary the oracle must NOT bless.
-	s := sketch.New()
+	s := newSketch(t)
 	p0 := s.AddPoint(0, 0)
 	p1 := s.AddPoint(-4.0/3.0, -5.0/12.0)
 	p2 := s.AddPoint(-4.0/3.0, -3.0/2.0)
@@ -76,7 +76,7 @@ func TestSelfIntersectingSplineLoopInvalid(t *testing.T) {
 
 func TestOpenSplineBoundsNoProfile(t *testing.T) {
 	// An open spline with no closing edge bounds no region.
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	c1 := s.AddPoint(1, 2)
 	c2 := s.AddPoint(3, 2)
@@ -90,7 +90,7 @@ func TestOpenSplineBoundsNoProfile(t *testing.T) {
 func TestConstructionSplineExcludedFromProfiles(t *testing.T) {
 	// A construction spline is excluded from profiles, so the chord alone (one open
 	// line) bounds no region.
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	c1 := s.AddPoint(1, 2)
 	c2 := s.AddPoint(3, 2)
@@ -108,7 +108,7 @@ func TestSplineProfileCoordinateMergeMatchesLines(t *testing.T) {
 	// identity-based geom.Loops), so a chord whose endpoints are distinct *Points
 	// at the spline's endpoint coordinates still closes the profile — exactly as it
 	// would for lines. A spline must behave consistently with the other curves here.
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	c1 := s.AddPoint(1, 2)
 	c2 := s.AddPoint(3, 2)
@@ -123,7 +123,7 @@ func TestSplineProfileCoordinateMergeMatchesLines(t *testing.T) {
 }
 
 func TestAddSplineRejectsNilControl(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(1, 0)
 	c := s.AddPoint(2, 1)
@@ -135,7 +135,7 @@ func TestEndpointClosedSplineNotSelfIntersecting(t *testing.T) {
 	// A spline whose first and last control points are the SAME point forms a
 	// closed loop (a teardrop). Its first/last sampled segments meet at the shared
 	// endpoint — the natural closure seam, NOT a self-crossing.
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	c1 := s.AddPoint(1, 2)
 	c2 := s.AddPoint(-1, 2)

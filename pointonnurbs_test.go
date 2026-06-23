@@ -48,7 +48,7 @@ func distToNURBS(p *sketch.Point, c *sketch.NURBS) float64 {
 }
 
 func TestPointOnNURBS(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := archNURBS(s)
 	p := s.AddPoint(4, 1) // below the arch interior; pulled up onto it
 	s.AddConstraint(sketch.NewPointOnNURBS(p, c))
@@ -62,7 +62,7 @@ func TestPointOnNURBS(t *testing.T) {
 func TestPointOnNURBSConfinedToRange(t *testing.T) {
 	// A point started beyond the curve's end must attach at the endpoint, not
 	// extrapolate past it — the slack box keeps the foot parameter within [0,1].
-	s := sketch.New()
+	s := newSketch(t)
 	c := archNURBS(s)
 	p := s.AddPoint(12, -2) // past the (8,0) end
 	s.AddConstraint(sketch.NewPointOnNURBS(p, c))
@@ -76,7 +76,7 @@ func TestPointOnNURBSConfinedToRange(t *testing.T) {
 }
 
 func TestPointOnNURBSDOFAndRemoval(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := archNURBS(s) // control points fixed
 	p := s.AddPoint(4, 1)
 	require.Equal(t, 2, s.DOF(), "the free point has two DOF")
@@ -90,14 +90,14 @@ func TestPointOnNURBSDOFAndRemoval(t *testing.T) {
 }
 
 func TestPointOnNURBSCheckConstraint(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := archNURBS(s)
 	p := s.AddPoint(4, 1)
 	require.NoError(t, s.CheckConstraint(sketch.NewPointOnNURBS(p, c)))
 }
 
 func TestPointOnNURBSRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := archNURBS(s)
 	p := s.AddPoint(4, 1)
 	s.AddConstraint(sketch.NewPointOnNURBS(p, c))
@@ -115,7 +115,7 @@ func TestPointOnNURBSRoundTrip(t *testing.T) {
 }
 
 func TestPointOnNURBSEntityRemovalCascades(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := archNURBS(s)
 	p := s.AddPoint(4, 1)
 	con := sketch.NewPointOnNURBS(p, c)
@@ -129,7 +129,7 @@ func TestPointOnNURBSEntityRemovalCascades(t *testing.T) {
 func TestTangentToNURBS(t *testing.T) {
 	// A horizontal line above the arch becomes tangent at the peak (the point with a
 	// horizontal tangent), so it settles at the curve's max height.
-	s := sketch.New()
+	s := newSketch(t)
 	c := archNURBS(s)
 	p1 := s.AddPoint(-2, 3.5)
 	p2 := s.AddPoint(10, 3.5)
@@ -166,7 +166,7 @@ func lineGapToNURBS(p1, p2 *sketch.Point, c *sketch.NURBS) float64 {
 }
 
 func TestTangentToNURBSDOFAndRemoval(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := archNURBS(s) // control points fixed
 	p1 := s.AddPoint(-2, 3.5)
 	p2 := s.AddPoint(10, 3.5)
@@ -181,7 +181,7 @@ func TestTangentToNURBSDOFAndRemoval(t *testing.T) {
 }
 
 func TestTangentToNURBSCheckConstraint(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := archNURBS(s)
 	p1 := s.AddPoint(-2, 3.5)
 	p2 := s.AddPoint(10, 3.5)
@@ -189,7 +189,7 @@ func TestTangentToNURBSCheckConstraint(t *testing.T) {
 }
 
 func TestTangentToNURBSRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := archNURBS(s)
 	p1 := s.AddPoint(-2, 3.5)
 	p2 := s.AddPoint(10, 3.5)

@@ -9,7 +9,7 @@ import (
 )
 
 func TestSplineSolveReshapesCurve(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sp, err := s.AddSpline(s.AddPoint(0, 0), s.AddPoint(2, 4), s.AddPoint(8, 4), s.AddPoint(9, 1))
 	require.NoError(t, err)
 	s.Fix(sp.Control[0])
@@ -32,7 +32,7 @@ func TestSplineSolveReshapesCurve(t *testing.T) {
 }
 
 func TestSplineControlPointGoal(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sp, err := s.AddSpline(s.AddPoint(0, 0), s.AddPoint(2, 4), s.AddPoint(8, 4), s.AddPoint(10, 0))
 	require.NoError(t, err)
 
@@ -44,7 +44,7 @@ func TestSplineControlPointGoal(t *testing.T) {
 }
 
 func TestSplineJSONRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sp, err := s.AddSpline(s.AddPoint(0, 0), s.AddPoint(2, 4), s.AddPoint(8, 4), s.AddPoint(10, 0), s.AddPoint(12, -2))
 	require.NoError(t, err)
 	s.Fix(sp.Control[0])
@@ -67,7 +67,7 @@ func TestSplineJSONRoundTrip(t *testing.T) {
 }
 
 func TestSplineExports(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	_, err := s.AddSpline(s.AddPoint(0, 0), s.AddPoint(2, 4), s.AddPoint(8, 4), s.AddPoint(10, 0))
 	require.NoError(t, err)
 

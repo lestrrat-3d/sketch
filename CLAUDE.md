@@ -62,7 +62,7 @@ from a solid — the seam is first-class reference geometry), live in
 | `verify.go` | `Sketch.Verify(...VerifyOption) *VerificationReport`: the headless-oracle aggregation layer — one non-mutating call gathering solvability, DOF, `Status`, redundant constraints, conflict sets, free points, profiles + their validity (`ProfilesValid`/`InvalidProfiles` — self-intersecting/degenerate regions gate `Trustworthy()`), stale/broken/foreign reference signals, parameter unit-kind validity (`ParametersValid`), the **advisory** `RankMargin` (how far the STRUCTURAL rank/DOF decision sits from the rank-zero cutoff — a fragility hint; now scale-invariant, computed on the nondimensional Jacobian, but still does NOT gate `Trustworthy()` — it measures a coarser, different question than conditioning), the **scale-invariant** `Conditioning` (`conditioning.go`: the reciprocal condition number of the nondimensionalized Jacobian — this one DOES gate `Trustworthy()`, below a tolerance-derived `max(1e-6, 4·√tol)` threshold), `Trustworthy()`, and (opt-in via `WithProbe`) discrete ambiguity. A pure consumer of the diagnostic building blocks. |
 | `reference.go` | Reference geometry — the sketch/3D separation keystone: read-only, externally-locked 2D snapshots of 3D-derived geometry (`AddReferencePoint`/`AddReferenceLine`/`AddReferenceArc`/`AddReferenceCircle`) carrying a `source` id + staleness; locked via `fixed[]`, a topology seal (`refSeals`), `RefreshReference`/`RefreshReferenceCircle`/`MarkStale`, and the Verify integrity/staleness/reachability scan. Design in `docs/reference-geometry-design.md`. |
 | `probe.go` | `Sketch.ProbeConfigurations`: multi-solution ambiguity probe — deterministic multi-start search (structured mirrors + splitmix64 restarts) for the discrete configurations a DOF-0 sketch admits. A falsifier: ≥2 found proves ambiguity, 1 never proves uniqueness. Design in `docs/ambiguity-probe-design.md`. |
-| `plane.go` / `world.go` | 3D world & construction planes. `Plane` (datum = `space.Frame` derived from a stored definition), package-level world-frame datum constructors, `World` (owns planes + sketches, plane builders incl. derived `OffsetPlane`, `RemovePlane`). Design in `docs/3d-planes-design.md`. |
+| `plane.go` / `world.go` | 3D world & construction planes. `Plane` (datum = `space.Frame` derived from a stored definition), `World` (the mandatory document root: owns planes + sketches, datum accessors `XY`/`XZ`/`YZ`, plane builders `CreatePlaneFromFrame`/`CreatePlaneFromPoints`/`CreateOffsetPlane`, `CreateSketch`, `RemovePlane`). Design in `docs/3d-planes-design.md`. |
 | `svg.go` / `png.go` / `dxf.go` / `json.go` / `json_world.go` | Exporters / serialization. `png.go` is a stdlib-only rasterizer (`image/png`) so agents/tools that read raster images can sanity-check sketches; visually equivalent to the SVG output. `dxf.go` emits length fields in the sketch's **display length unit** (via the `units` library — angles/ratios/knots stay raw) with a matching `$INSUNITS`/`$MEASUREMENT` + `$EXTMIN`/`$EXTMAX` header, so a CAD importer reads the drawing at the right scale (metric output is unchanged). Coordinates are plane-**local** by default; `DXF(WithWorldSpace(true))` places geometry in 3D world coordinates via the plane frame — LINE/SPLINE/ELLIPSE in WCS, CIRCLE/ARC/LWPOLYLINE in the entity OCS (arbitrary-axis algorithm from the plane normal) + extrusion, arc angles recomputed in the OCS. `json_world.go` is the v2 `World`/`Plane` serialization + the `kind`-discriminator preflight. |
 | `geom/` | **Self-contained** context-agnostic 2D geometry (own package). |
 | `space/` | **Self-contained** 3D coordinate math (own package): `Vec3` + orthonormal `Frame` with the local↔world transform. |
@@ -184,38 +184,45 @@ stdlib (not even `geom`); the arrow is `sketch -> space`, never the reverse.
 The 2D solver is **untouched**: a `Sketch` still solves in plane-local 2D. A
 `Plane` carries a `space.Frame` *computed from a stored definition* (its
 provenance — the single source of truth; `Frame()` recomputes, no memoization).
-A `World` owns planes (datums at ids 0/1/2) + sketches + **one shared
-`param.Table`** (`World.Params()`) and is the multi-sketch serialization root; the
-engine stays usable standalone (`sketch.NewOn(plane)` on an owner-less world-frame
-datum). Load-bearing rules:
+A `World` is the **mandatory document root**: it owns planes (datums at ids
+0/1/2) + sketches + **one shared `param.Table`** (`World.Params()`) and is the
+serialization root. **Every sketch belongs to a world** — there is no standalone
+sketch/plane constructor anymore. Obtain a sketch with `World.CreateSketch(plane)`
+on a plane from `World.XY()`/`XZ()`/`YZ()` or a created plane
+(`World.CreatePlaneFromFrame`/`CreatePlaneFromPoints`/`CreateOffsetPlane`). The
+**verb convention** is settled: `New*` = package-level standalone constructor (only
+`NewWorld` remains at the sketch layer); `Create*` = a World method that
+manufactures a new owned object; `Add*` = a method that attaches an existing
+object (the sketch's geometry builders). Load-bearing rules:
 
-- **Global parameters are world-shared.** `World.Sketch(plane)` seeds the new
-  sketch with `s.params = w.params`, so one global parameter drives dimensions
-  across sketches. The per-sketch `Bind`/`ErrTableMismatch` invariant is untouched
-  (a world sketch already points at the shared table; binding it to another fails
-  naturally). Standalone `sketch.New()` keeps its own lazy table. **Offset planes
-  are parameter-driven** (`World.BindOffsetPlane(p, expr)` → a length expression on
-  `planeDef.distExpr`, kind-checked, re-evaluated on every `Frame()` call with NO
-  cache so an edit reflows immediately; wrong-kind surfaces through `Frame()`).
-  `World.Verify()` → `WorldVerificationReport` aggregates the shared table, every
-  plane frame, and each sketch's report. World docs are **v3** (top-level
-  `parameters` + plane `dist_expr`); a legacy v2 world migrates by promoting
-  identical per-sketch tables, rejecting conflicting ones.
+- **Global parameters are world-shared.** `World.CreateSketch(plane)` seeds the
+  new sketch with `s.params = w.params`, so one global parameter drives dimensions
+  across sketches. Because every sketch shares the world's (non-nil) table from
+  creation, `Bind` a dimension to `s.Params()` (== `w.Params()`); binding to a
+  *different* table is `ErrTableMismatch`. **Offset planes are parameter-driven**
+  (`World.BindOffsetPlane(p, expr)` → a length expression on `planeDef.distExpr`,
+  kind-checked, re-evaluated on every `Frame()` call with NO cache so an edit
+  reflows immediately; wrong-kind surfaces through `Frame()`). `World.Verify()` →
+  `WorldVerificationReport` aggregates the shared table, every plane frame, and
+  each sketch's report. World docs are **v3** (top-level `parameters` + plane
+  `dist_expr`); a legacy v2 world migrates by promoting identical per-sketch
+  tables, rejecting conflicting ones.
 
 - **Placement is mandatory but nil-safe.** `Sketch.plane()` defaults a nil
-  placement to `WorldXY()` (zero-value/unmarshal safety net) — but a v2
-  `kind:"sketch"` document with no `plane` is **rejected** (`ErrMissingPlane`),
-  not defaulted.
-- **Standalone/owner-less planes are world-frame datums only** (XY/XZ/YZ,
-  `PlaneFromFrame`, `PlaneFromPoints`). Derived planes (`OffsetPlane`) exist
-  **only** through a `World` (a base reference needs an owner + id). `NewOn`
-  returns an error (`ErrWorldOwnedPlane`/`ErrPlaneRemoved`) for a world-owned or
-  removed plane.
+  placement to the owning world's `XY()` datum (zero-value/unmarshal safety net) —
+  but a v2 `kind:"sketch"` document with no `plane` is **rejected**
+  (`ErrMissingPlane`), not defaulted. A single-sketch document loads as an
+  **implicit one-sketch world** owning the inlined plane (`datumPlaneFromJSON`
+  maps the inlined datum onto the world's XY/XZ/YZ or a created frame/points
+  plane; an offset plane is rejected, as only a world document carries the base it
+  would reference).
+- **All planes are world-owned** (XY/XZ/YZ datums, `CreatePlaneFromFrame`,
+  `CreatePlaneFromPoints`, and derived `CreateOffsetPlane`). Derived planes need an
+  owner + id, so they (like all planes now) exist only through a `World`.
 - **`RemovePlane` mirrors `RemovePoint`**: refuses standard datums and in-use
   planes (a sketch on it, or another plane's base), else splices + renumbers ids
   densely and **tombstones** the handle (`removed=true`, `owner=nil`, `id=-1`).
-  A tombstone is distinct from a live standalone plane and is rejected
-  everywhere (`owns` checks `w.planes[p.id]==p`).
+  A tombstone is rejected everywhere (`owns` checks `w.planes[p.id]==p`).
 - World coordinates are a read-only derived surface (`Point.World`,
   `Sketch.WorldPolyline`), raw base-unit mm like the rest of the read surface.
   `WorldPolyline` samples via the centralized curve samplers in `geom/sample.go`
@@ -414,9 +421,10 @@ when `allocVars` re-runs on load. This is the deliberate, narrow exception to
   interface.
 - **Public constructors validate input by returning errors, never panicking.**
   The shape/pattern builders (`AddPolygon`/`AddSlot`/`AddSpline`/
-  `AddPatternRect`/`AddPatternCircular` → `ErrInvalidShape`), `NewOn`
-  (`ErrWorldOwnedPlane`/`ErrPlaneRemoved`), and the plane/frame constructors
-  (`space.ErrDegenerateFrame`, `geom.ErrTooFewControlPoints`) all return
+  `AddPatternRect`/`AddPatternCircular` → `ErrInvalidShape`),
+  `World.CreateSketch`/`CreateOffsetPlane` (`ErrForeignPlane`), and the plane/frame
+  constructors (`World.CreatePlaneFromFrame`/`CreatePlaneFromPoints`,
+  `space.ErrDegenerateFrame`, `geom.ErrTooFewControlPoints`) all return
   `(…, error)`. **Production code contains no explicit panics.** Even the pure
   spline-family math kernels (`geom.EvalCubicBSpline`/`SampleCubicBSpline`/
   `EvalCubicBSplineDeriv`/`NearestParamCubicBSpline` and the periodic/fit-point

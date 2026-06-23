@@ -12,7 +12,8 @@ import (
 // the conic is a parabola, whose bulge over the chord is exactly one third of the
 // control-triangle's signed area.
 func Example_sketch_conic() {
-	s := sketch.New()
+	w := sketch.NewWorld()
+	s, _ := w.CreateSketch(w.XY())
 	start := s.AddPoint(0, 0)
 	apex := s.AddPoint(3, 4)
 	end := s.AddPoint(6, 0)

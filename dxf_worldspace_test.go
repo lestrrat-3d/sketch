@@ -35,9 +35,10 @@ func tiltedSketch(t *testing.T) *sketch.Sketch {
 		space.NewVec3(0, 1, 3),   // v
 	)
 	require.NoError(t, err)
-	pl, err := sketch.PlaneFromFrame(fr)
+	w := sketch.NewWorld()
+	pl, err := w.CreatePlaneFromFrame(fr)
 	require.NoError(t, err)
-	s, err := sketch.NewOn(pl)
+	s, err := w.CreateSketch(pl)
 	require.NoError(t, err)
 	return s
 }
@@ -204,7 +205,7 @@ func TestDXFWorldSpaceEllipticalArc(t *testing.T) {
 // local coordinates and the extrusion is the implied +Z. So world-space output
 // matches local geometry plus an explicit extrusion — no surprise displacement.
 func TestDXFWorldSpaceXYReducesToLocal(t *testing.T) {
-	s := sketch.New() // world-XY
+	s := newSketch(t) // world-XY
 	c := s.AddPoint(5, 7)
 	s.AddCircle(c, 2)
 

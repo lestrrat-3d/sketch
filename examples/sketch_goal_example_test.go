@@ -10,7 +10,8 @@ import (
 // interactions): hard constraints always win, and the goal only pulls whatever
 // freedom is left over.
 func Example_sketch_goal() {
-	s := sketch.New()
+	w := sketch.NewWorld()
+	s, _ := w.CreateSketch(w.XY())
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(2, 2)
 	a.MoveTo(0, 0)
