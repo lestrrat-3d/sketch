@@ -410,11 +410,20 @@ func condRowKinds(c Constraint, out []rowKind) []rowKind {
 // step. Returns nil if the row-kind table does not align with the residual rows
 // (a defensive guard; the alignment is asserted by test).
 func (s *Sketch) conditioningMatrix(free []int, m int, L float64) [][]float64 {
-	kinds := s.residualRowKinds()
-	if len(kinds) != m {
+	if len(s.residualRowKinds()) != m {
 		return nil
 	}
-	return s.scaledJacobian(free, s.residuals, kinds, s.condVarScales(L), L)
+	return s.committedScaledJacobian(free)
+}
+
+// committedScaledJacobian builds the nondimensional A = Drow·J·Dcol over the
+// committed residual rows (residuals(), driven dims skipped) and the free
+// variables, at the call-time configuration. It is the shared builder prelude
+// behind the rank/DOF, conflict, free-point and conditioning analyses — they all
+// nondimensionalize with the same length scale, row kinds and column scales.
+func (s *Sketch) committedScaledJacobian(free []int) [][]float64 {
+	L := s.lengthScale()
+	return s.scaledJacobian(free, s.residuals, s.residualRowKinds(), s.condVarScales(L), L)
 }
 
 // scaledJacobian builds the physically nondimensional Jacobian A = Drow·J·Dcol of
