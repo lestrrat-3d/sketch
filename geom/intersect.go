@@ -6,40 +6,47 @@ import "math"
 // intersection helpers. It is applied relative to the magnitudes involved.
 const epsIntersect = 1e-9
 
-// LineLineIntersection returns the intersection of the two infinite lines
-// through l1 and l2, or false when they are parallel (or a line is
-// degenerate).
-func LineLineIntersection(l1, l2 *Line) (*Point, bool) {
+// lineLineParams solves the two infinite lines through l1 and l2 for the
+// parameters t (along l1) and u (along l2) of their crossing, returning ok=false
+// when they are parallel (or a line is degenerate). The crossing point is
+// l1.Start + t·(l1.End−l1.Start).
+func lineLineParams(l1, l2 *Line) (t, u float64, ok bool) {
 	x1, y1 := l1.Start.X, l1.Start.Y
 	d1x, d1y := l1.End.X-x1, l1.End.Y-y1
 	x2, y2 := l2.Start.X, l2.Start.Y
 	d2x, d2y := l2.End.X-x2, l2.End.Y-y2
 	den := d1x*d2y - d1y*d2x
 	if math.Abs(den) <= epsIntersect*math.Hypot(d1x, d1y)*math.Hypot(d2x, d2y) {
+		return 0, 0, false
+	}
+	t = ((x2-x1)*d2y - (y2-y1)*d2x) / den
+	u = ((x2-x1)*d1y - (y2-y1)*d1x) / den
+	return t, u, true
+}
+
+// LineLineIntersection returns the intersection of the two infinite lines
+// through l1 and l2, or false when they are parallel (or a line is
+// degenerate).
+func LineLineIntersection(l1, l2 *Line) (*Point, bool) {
+	t, _, ok := lineLineParams(l1, l2)
+	if !ok {
 		return nil, false
 	}
-	t := ((x2-x1)*d2y - (y2-y1)*d2x) / den
-	return NewPoint(x1+t*d1x, y1+t*d1y), true
+	return NewPoint(l1.Start.X+t*(l1.End.X-l1.Start.X), l1.Start.Y+t*(l1.End.Y-l1.Start.Y)), true
 }
 
 // SegmentIntersection returns the intersection of the two segments, or false
 // when they are parallel or the infinite-line intersection falls outside
 // either segment. Endpoints count as intersecting.
 func SegmentIntersection(l1, l2 *Line) (*Point, bool) {
-	x1, y1 := l1.Start.X, l1.Start.Y
-	d1x, d1y := l1.End.X-x1, l1.End.Y-y1
-	x2, y2 := l2.Start.X, l2.Start.Y
-	d2x, d2y := l2.End.X-x2, l2.End.Y-y2
-	den := d1x*d2y - d1y*d2x
-	if math.Abs(den) <= epsIntersect*math.Hypot(d1x, d1y)*math.Hypot(d2x, d2y) {
+	t, u, ok := lineLineParams(l1, l2)
+	if !ok {
 		return nil, false
 	}
-	t := ((x2-x1)*d2y - (y2-y1)*d2x) / den
-	u := ((x2-x1)*d1y - (y2-y1)*d1x) / den
 	if t < 0 || t > 1 || u < 0 || u > 1 {
 		return nil, false
 	}
-	return NewPoint(x1+t*d1x, y1+t*d1y), true
+	return NewPoint(l1.Start.X+t*(l1.End.X-l1.Start.X), l1.Start.Y+t*(l1.End.Y-l1.Start.Y)), true
 }
 
 // ClosestPointOnLine returns the foot of the perpendicular from p to the
