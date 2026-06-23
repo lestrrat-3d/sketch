@@ -103,7 +103,7 @@ func (s *Sketch) RemovePoint(p *Point) bool {
 		return false
 	}
 	for _, e := range s.ents {
-		if entityUsesPoint(e, p) {
+		if s.entityUsesPoint(e, p) {
 			return false
 		}
 	}
@@ -189,45 +189,12 @@ func renumberEntity(e Entity, id int) {
 }
 
 // entityUsesPoint reports whether the entity references p as an endpoint,
-// center or control point. The spline check scans Control — the same point
-// may legally appear more than once.
-func entityUsesPoint(e Entity, p *Point) bool {
-	switch t := e.(type) {
-	case *Line:
-		return t.Start == p || t.End == p
-	case *Circle:
-		return t.Center == p
-	case *Arc:
-		return t.Center == p || t.Start == p || t.End == p
-	case *Ellipse:
-		return t.Center == p
-	case *EllipticalArc:
-		return t.Center == p || t.Start == p || t.End == p
-	case *Spline:
-		for _, c := range t.Control {
-			if c == p {
-				return true
-			}
-		}
-	case *ClosedSpline:
-		for _, c := range t.Control {
-			if c == p {
-				return true
-			}
-		}
-	case *FitSpline:
-		for _, c := range t.Fit {
-			if c == p {
-				return true
-			}
-		}
-	case *Conic:
-		return t.Start == p || t.Apex == p || t.End == p
-	case *NURBS:
-		for _, c := range t.Control {
-			if c == p {
-				return true
-			}
+// center or control point. It is a membership check over the entity's defining
+// points — the single source of truth is [Sketch.entityPoints].
+func (s *Sketch) entityUsesPoint(e Entity, p *Point) bool {
+	for _, q := range s.entityPoints(e) {
+		if q == p {
+			return true
 		}
 	}
 	return false
