@@ -467,7 +467,7 @@ func (c *tangentToSpline) allocVars(s *Sketch) {
 	c.tvar = s.newVar(t)
 	c.w0 = s.newVar(slackFor(t))
 	c.w1 = s.newVar(slackFor(1 - t))
-	c.ws = s.newVar(slackFor(speed/splineScale(c.Sp) - splineEpsTan))
+	c.ws = s.newVar(slackFor(speed/bboxDiagonal(c.Sp.controlCoords()) - splineEpsTan))
 }
 
 func (c *tangentToSpline) retireVars(s *Sketch) {
@@ -494,7 +494,7 @@ func (c *tangentToSpline) residual(out []float64) []float64 {
 	w0, w1, ws := c.s.vars[c.w0], c.s.vars[c.w1], c.s.vars[c.ws]
 	// Scale is recomputed every evaluation, not snapshotted: a free or reshaped
 	// spline must use its current size so the scale-relative thresholds stay valid.
-	scale := splineScale(c.Sp)
+	scale := bboxDiagonal(c.Sp.controlCoords())
 	return tangentCurveRows(out, sx, sy, spx, spy, ax, ay, dx, dy, dlen, scale, ws, true, tv, w0, w1)
 }
 
@@ -595,18 +595,10 @@ func (c *pointOnFitSpline) residual(out []float64) []float64 {
 	return pointOnCurveRows(out, c.P.x(), c.P.y(), sx, sy, t, c.s.vars[c.w0], c.s.vars[c.w1])
 }
 
-// splineScale returns a length scale for a spline: its control-box diagonal,
-// floored to 1, used to make the no-cusp and zero-line thresholds scale-relative.
-func splineScale(sp *Spline) float64 { return splineCoordScale(sp.controlCoords()) }
-
-// splineCoordScale returns the box diagonal of a coordinate set, floored to 1 —
-// the scale-relative reference for the spline-tangency no-cusp/zero-line
-// thresholds, shared by the open, closed, and fit witnesses.
-func splineCoordScale(coords [][2]float64) float64 { return bboxDiagonal(coords) }
-
 // bboxDiagonal returns the diagonal of the bounding box of every supplied
-// coordinate set, floored to 1. It is the shared characteristic-length helper
-// behind splineCoordScale and boundaryScale.
+// coordinate set, floored to 1. It is the scale-relative reference for the
+// spline/NURBS-tangency no-cusp and zero-line thresholds and for proximity
+// normalization.
 func bboxDiagonal(sets ...[][2]float64) float64 {
 	minx, miny := math.Inf(1), math.Inf(1)
 	maxx, maxy := math.Inf(-1), math.Inf(-1)
@@ -742,7 +734,7 @@ func (c *tangentToClosedSpline) allocVars(s *Sketch) {
 	spx, spy := geom.EvalPeriodicCubicBSplineDeriv(c.Sp.controlCoords(), t)
 	speed := norm(spx, spy)
 	c.tvar = s.newVar(t)
-	c.ws = s.newVar(slackFor(speed/splineCoordScale(c.Sp.controlCoords()) - splineEpsTan))
+	c.ws = s.newVar(slackFor(speed/bboxDiagonal(c.Sp.controlCoords()) - splineEpsTan))
 }
 
 func (c *tangentToClosedSpline) retireVars(s *Sketch) {
@@ -759,7 +751,7 @@ func (c *tangentToClosedSpline) seedParam() float64 {
 	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
 	eval := func(t float64) (float64, float64) { return geom.EvalPeriodicCubicBSpline(ctrl, t) }
 	deriv := func(t float64) (float64, float64) { return geom.EvalPeriodicCubicBSplineDeriv(ctrl, t) }
-	return seedTangentParam(eval, deriv, 16*len(ctrl), true, splineCoordScale(ctrl), ax, ay, dx, dy, norm(dx, dy))
+	return seedTangentParam(eval, deriv, 16*len(ctrl), true, bboxDiagonal(ctrl), ax, ay, dx, dy, norm(dx, dy))
 }
 
 func (c *tangentToClosedSpline) residual(out []float64) []float64 {
@@ -774,7 +766,7 @@ func (c *tangentToClosedSpline) residual(out []float64) []float64 {
 	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
 	dlen := norm(dx, dy)
 	ws := c.s.vars[c.ws]
-	scale := splineCoordScale(ctrl)
+	scale := bboxDiagonal(ctrl)
 	return tangentCurveRows(out, sx, sy, spx, spy, ax, ay, dx, dy, dlen, scale, ws, false, 0, 0, 0)
 }
 
@@ -809,7 +801,7 @@ func (c *tangentToFitSpline) allocVars(s *Sketch) {
 	c.tvar = s.newVar(t)
 	c.w0 = s.newVar(slackFor(t))
 	c.w1 = s.newVar(slackFor(1 - t))
-	c.ws = s.newVar(slackFor(speed/splineCoordScale(c.Sp.fitCoords()) - splineEpsTan))
+	c.ws = s.newVar(slackFor(speed/bboxDiagonal(c.Sp.fitCoords()) - splineEpsTan))
 }
 
 func (c *tangentToFitSpline) retireVars(s *Sketch) {
@@ -828,7 +820,7 @@ func (c *tangentToFitSpline) seedParam() float64 {
 	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
 	eval := func(t float64) (float64, float64) { return geom.EvalFitSpline(fit, t) }
 	deriv := func(t float64) (float64, float64) { return geom.EvalFitSplineDeriv(fit, t) }
-	return seedTangentParam(eval, deriv, 16*len(fit), false, splineCoordScale(fit), ax, ay, dx, dy, norm(dx, dy))
+	return seedTangentParam(eval, deriv, 16*len(fit), false, bboxDiagonal(fit), ax, ay, dx, dy, norm(dx, dy))
 }
 
 func (c *tangentToFitSpline) residual(out []float64) []float64 {
@@ -844,7 +836,7 @@ func (c *tangentToFitSpline) residual(out []float64) []float64 {
 	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
 	dlen := norm(dx, dy)
 	w0, w1, ws := c.s.vars[c.w0], c.s.vars[c.w1], c.s.vars[c.ws]
-	scale := splineCoordScale(fit)
+	scale := bboxDiagonal(fit)
 	return tangentCurveRows(out, sx, sy, spx, spy, ax, ay, dx, dy, dlen, scale, ws, true, tv, w0, w1)
 }
 
@@ -859,7 +851,7 @@ func (c *tangentToSpline) seedParam() float64 {
 	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
 	eval := func(t float64) (float64, float64) { return geom.EvalCubicBSpline(ctrl, t) }
 	deriv := func(t float64) (float64, float64) { return geom.EvalCubicBSplineDeriv(ctrl, t) }
-	return seedTangentParam(eval, deriv, 16*(len(ctrl)-3), false, splineScale(c.Sp), ax, ay, dx, dy, norm(dx, dy))
+	return seedTangentParam(eval, deriv, 16*(len(ctrl)-3), false, bboxDiagonal(c.Sp.controlCoords()), ax, ay, dx, dy, norm(dx, dy))
 }
 
 // conicCoords returns the conic's three defining-point coordinates (Start, Apex,
@@ -872,10 +864,11 @@ func conicCoords(c *Conic) (start, apex, end [2]float64) {
 
 // conicScale returns a length scale for a conic: the diagonal of the box bounding
 // its three control points (Start, Apex, End), floored to 1, used to make the
-// no-cusp and zero-line tangency thresholds scale-relative (mirroring splineScale).
+// no-cusp and zero-line tangency thresholds scale-relative. It packages the
+// three-point destructure that bboxDiagonal alone cannot express at the call site.
 func conicScale(c *Conic) float64 {
 	start, apex, end := conicCoords(c)
-	return splineCoordScale([][2]float64{start, apex, end})
+	return bboxDiagonal([][2]float64{start, apex, end})
 }
 
 // nurbsControlCoords returns the curve's control-point coordinates at the current
@@ -887,10 +880,6 @@ func nurbsControlCoords(c *NURBS) [][2]float64 {
 	}
 	return pts
 }
-
-// nurbsScale returns a length scale for a NURBS curve: the diagonal of the box
-// bounding its control points, floored to 1 (mirroring splineScale).
-func nurbsScale(c *NURBS) float64 { return splineCoordScale(nurbsControlCoords(c)) }
 
 // pointOnConic confines a point to a conic arc (a rational quadratic Bézier). A
 // conic has the parametric form C(t), t ∈ [0,1], with no implicit F(x,y)=0, so —
@@ -1105,7 +1094,7 @@ func (c *tangentToNURBS) allocVars(s *Sketch) {
 	c.tvar = s.newVar(t)
 	c.w0 = s.newVar(slackFor(t))
 	c.w1 = s.newVar(slackFor(1 - t))
-	c.ws = s.newVar(slackFor(speed/nurbsScale(c.C) - splineEpsTan))
+	c.ws = s.newVar(slackFor(speed/bboxDiagonal(nurbsControlCoords(c.C)) - splineEpsTan))
 }
 
 func (c *tangentToNURBS) retireVars(s *Sketch) {
@@ -1125,7 +1114,7 @@ func (c *tangentToNURBS) seedParam() float64 {
 	dx, dy := c.L.End.x()-ax, c.L.End.y()-ay
 	eval := func(t float64) (float64, float64) { return g.Eval(lo + t*(hi-lo)) }
 	deriv := func(t float64) (float64, float64) { return g.EvalDeriv(lo + t*(hi-lo)) }
-	return seedTangentParam(eval, deriv, 16*len(c.C.Control), false, nurbsScale(c.C), ax, ay, dx, dy, norm(dx, dy))
+	return seedTangentParam(eval, deriv, 16*len(c.C.Control), false, bboxDiagonal(nurbsControlCoords(c.C)), ax, ay, dx, dy, norm(dx, dy))
 }
 
 func (c *tangentToNURBS) residual(out []float64) []float64 {
@@ -1146,7 +1135,7 @@ func (c *tangentToNURBS) residual(out []float64) []float64 {
 	w0, w1, ws := c.s.vars[c.w0], c.s.vars[c.w1], c.s.vars[c.ws]
 	// Scale is recomputed every evaluation, not snapshotted: a free or reshaped
 	// curve must use its current size so the scale-relative thresholds stay valid.
-	scale := nurbsScale(c.C)
+	scale := bboxDiagonal(nurbsControlCoords(c.C))
 	return tangentCurveRows(out, sx, sy, spx, spy, ax, ay, dx, dy, dlen, scale, ws, true, tv, w0, w1)
 }
 
@@ -1503,7 +1492,7 @@ func (c *tangentConics) seedContact() (float64, float64) {
 	sigma := c.sigma()
 	sa := c.A.boundary(96)
 	sb := c.B.boundary(96)
-	scale := boundaryScale(sa, sb)
+	scale := bboxDiagonal(sa, sb)
 	bx, by, best := sa[0][0], sa[0][1], math.Inf(1)
 	for _, pa := range sa {
 		nax, nay := c.A.normalAt(pa[0], pa[1])
@@ -1525,10 +1514,6 @@ func (c *tangentConics) seedContact() (float64, float64) {
 	}
 	return bx, by
 }
-
-// boundaryScale returns a characteristic length for the two sample sets (the
-// diagonal of their combined bounding box, floored to 1) to normalize proximity.
-func boundaryScale(sa, sb [][2]float64) float64 { return bboxDiagonal(sa, sb) }
 
 // --- midpoint / symmetric ---------------------------------------------------
 
