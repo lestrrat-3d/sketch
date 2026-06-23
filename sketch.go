@@ -57,8 +57,9 @@ func (s *Sketch) Plane() *Plane { return s.plane() }
 func (s *Sketch) World() *World { return s.world }
 
 // plane returns the sketch's placement, defaulting a nil placement to the
-// owning world's XY datum. The nil default is a zero-value/unmarshal safety net
-// so world read-out never dereferences a nil plane; it is not a license for a v2
+// owning world's XY datum (or, for a worldless zero-value sketch, a throwaway
+// world's XY). The default is a zero-value/unmarshal safety net so world
+// read-out never dereferences a nil plane; it is not a license for a v2
 // document to omit placement (the loader rejects that).
 func (s *Sketch) plane() *Plane {
 	if s.pl != nil {
@@ -67,7 +68,7 @@ func (s *Sketch) plane() *Plane {
 	if s.world != nil {
 		return s.world.XY()
 	}
-	return nil
+	return NewWorld().XY() // zero-value safety net: a worldless sketch reads as world-XY
 }
 
 func (s *Sketch) newVar(v float64) int {
