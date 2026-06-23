@@ -57,9 +57,7 @@ func (sp *FitSpline) Polyline(segments int) [][2]float64 {
 // for many samples use [SampleFitSpline], which reuses one evaluator. It panics
 // with fewer than 2 fit points.
 func EvalFitSpline(fit [][2]float64, t float64) (float64, float64) {
-	if len(fit) < 2 {
-		panic(fmt.Sprintf("geom: fit-point spline needs at least 2 fit points, got %d", len(fit)))
-	}
+	requireMinPoints(len(fit), 2, "fit-point spline", "fit points")
 	p := newFitEvaluator(fit).at(t)
 	return p[0], p[1]
 }
@@ -69,9 +67,7 @@ func EvalFitSpline(fit [][2]float64, t float64) (float64, float64) {
 // clamped). A one-off evaluation — for many samples build a fitEvaluator once. It
 // panics with fewer than 2 fit points.
 func EvalFitSplineDeriv(fit [][2]float64, t float64) (float64, float64) {
-	if len(fit) < 2 {
-		panic(fmt.Sprintf("geom: fit-point spline needs at least 2 fit points, got %d", len(fit)))
-	}
+	requireMinPoints(len(fit), 2, "fit-point spline", "fit points")
 	d := newFitEvaluator(fit).derivAt(t)
 	return d[0], d[1]
 }
@@ -81,9 +77,7 @@ func EvalFitSplineDeriv(fit [][2]float64, t float64) (float64, float64) {
 // tridiagonal solve runs once, not per sample). It panics with fewer than 2 fit
 // points.
 func SampleFitSpline(fit [][2]float64, segments int) [][2]float64 {
-	if len(fit) < 2 {
-		panic(fmt.Sprintf("geom: fit-point spline needs at least 2 fit points, got %d", len(fit)))
-	}
+	requireMinPoints(len(fit), 2, "fit-point spline", "fit points")
 	if segments < 2 {
 		segments = 2
 	}
