@@ -88,6 +88,15 @@ type jsonSketchDoc struct {
 	Plane *jsonPlane `json:"plane,omitempty"`
 }
 
+// pointIDs collects the serialized ids of a point slice, preserving order.
+func pointIDs(ps []*Point) []int {
+	ids := make([]int, len(ps))
+	for k, p := range ps {
+		ids[k] = p.id
+	}
+	return ids
+}
+
 // dimJSON builds the serialized form of a dimensional constraint.
 func dimJSON(typ string, d Dimension, points, entities []int) jsonConstraint {
 	t := d.Target()
@@ -173,42 +182,36 @@ func (s *Sketch) marshalBody() (jsonSketchBody, error) {
 				Rx: t.rx(), Ry: t.ry(), Rotation: t.rot(), Construction: t.construction,
 			})
 		case *Spline:
-			je := jsonEntity{Type: "spline", Degree: 3, Construction: t.construction}
-			for _, c := range t.Control {
-				je.Points = append(je.Points, c.id)
-			}
-			body.Entities = append(body.Entities, je)
+			body.Entities = append(body.Entities, jsonEntity{
+				Type: "spline", Degree: 3, Construction: t.construction,
+				Points: pointIDs(t.Control),
+			})
 		case *ClosedSpline:
 			// A distinct type (not a "closed" flag on "spline") so an older reader
 			// rejects it as unknown rather than silently loading it as an open spline.
-			je := jsonEntity{Type: "closed_spline", Degree: 3, Construction: t.construction}
-			for _, c := range t.Control {
-				je.Points = append(je.Points, c.id)
-			}
-			body.Entities = append(body.Entities, je)
+			body.Entities = append(body.Entities, jsonEntity{
+				Type: "closed_spline", Degree: 3, Construction: t.construction,
+				Points: pointIDs(t.Control),
+			})
 		case *FitSpline:
 			// Distinct type: the points are FIT points (interpolated), not control
 			// points; the interpolant is recomputed on load, never serialized.
-			je := jsonEntity{Type: "fit_spline", Degree: 3, Construction: t.construction}
-			for _, c := range t.Fit {
-				je.Points = append(je.Points, c.id)
-			}
-			body.Entities = append(body.Entities, je)
+			body.Entities = append(body.Entities, jsonEntity{
+				Type: "fit_spline", Degree: 3, Construction: t.construction,
+				Points: pointIDs(t.Fit),
+			})
 		case *Conic:
 			body.Entities = append(body.Entities, jsonEntity{
 				Type: "conic", Points: []int{t.Start.id, t.Apex.id, t.End.id},
 				Rho: t.rho(), Construction: t.construction,
 			})
 		case *NURBS:
-			je := jsonEntity{
+			body.Entities = append(body.Entities, jsonEntity{
 				Type: "nurbs", Degree: t.degree, Construction: t.construction,
 				Knots:   append([]float64(nil), t.knots...),
 				Weights: append([]float64(nil), t.weights...),
-			}
-			for _, c := range t.Control {
-				je.Points = append(je.Points, c.id)
-			}
-			body.Entities = append(body.Entities, je)
+				Points:  pointIDs(t.Control),
+			})
 		}
 	}
 
@@ -616,6 +619,21 @@ func (s *Sketch) entByID(i int) Entity {
 	return s.ents[i]
 }
 
+// arcByID resolves entity i as an *Arc for a constraint named name. It first
+// goes through the Circular check (preserving its "is not a circle or arc"
+// error), then downcasts to *Arc with the type-specific error.
+func (s *Sketch) arcByID(i int, name string) (*Arc, error) {
+	c, ok := s.entByID(i).(Circular)
+	if !ok {
+		return nil, fmt.Errorf("sketch: entity %d is not a circle or arc", i)
+	}
+	arc, ok := c.(*Arc)
+	if !ok {
+		return nil, fmt.Errorf("sketch: %s requires an arc, got %T", name, c)
+	}
+	return arc, nil
+}
+
 // pointRef returns the point with id i, or an error if i is out of range. The
 // v2 decoder validates every reference through this before indexing, so a
 // malformed document errors rather than panicking.
@@ -751,13 +769,9 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		}
 		s.AddConstraint(NewPointOnCircle(pt(0), c))
 	case "point_on_arc":
-		c, err := circular(jc.Entities[0])
+		arc, err := s.arcByID(jc.Entities[0], "point_on_arc")
 		if err != nil {
 			return err
-		}
-		arc, ok := c.(*Arc)
-		if !ok {
-			return fmt.Errorf("sketch: point_on_arc requires an arc, got %T", c)
 		}
 		s.AddConstraint(NewPointOnArc(pt(0), arc))
 	case "point_on_elliptical_arc":
@@ -926,21 +940,13 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		}
 		s.AddConstraint(NewSymmetricCircles(c1, c2, axis))
 	case "symmetric_arcs":
-		c1, err := circular(jc.Entities[0])
+		a1, err := s.arcByID(jc.Entities[0], "symmetric_arcs")
 		if err != nil {
 			return err
 		}
-		a1, ok := c1.(*Arc)
-		if !ok {
-			return fmt.Errorf("sketch: symmetric_arcs requires an arc, got %T", c1)
-		}
-		c2, err := circular(jc.Entities[1])
+		a2, err := s.arcByID(jc.Entities[1], "symmetric_arcs")
 		if err != nil {
 			return err
-		}
-		a2, ok := c2.(*Arc)
-		if !ok {
-			return fmt.Errorf("sketch: symmetric_arcs requires an arc, got %T", c2)
 		}
 		axis, err := line(jc.Entities[2])
 		if err != nil {
@@ -1022,13 +1028,9 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		}
 		dim(NewDistanceLineCircle(l, ci, jc.Value))
 	case "distance_point_arc":
-		c, err := circular(jc.Entities[0])
+		arc, err := s.arcByID(jc.Entities[0], "distance_point_arc")
 		if err != nil {
 			return err
-		}
-		arc, ok := c.(*Arc)
-		if !ok {
-			return fmt.Errorf("sketch: distance_point_arc requires an arc, got %T", c)
 		}
 		dim(NewDistancePointArc(pt(0), arc, jc.Value))
 	case "distance_line_arc":
@@ -1036,13 +1038,9 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		if err != nil {
 			return err
 		}
-		c, err := circular(jc.Entities[1])
+		arc, err := s.arcByID(jc.Entities[1], "distance_line_arc")
 		if err != nil {
 			return err
-		}
-		arc, ok := c.(*Arc)
-		if !ok {
-			return fmt.Errorf("sketch: distance_line_arc requires an arc, got %T", c)
 		}
 		dim(NewDistanceLineArc(l, arc, jc.Value))
 	case "distance_lines":
@@ -1082,13 +1080,9 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		}
 		dim(NewDiameter(c, jc.Value))
 	case "arc_length":
-		c, err := circular(jc.Entities[0])
+		arc, err := s.arcByID(jc.Entities[0], "arc_length")
 		if err != nil {
 			return err
-		}
-		arc, ok := c.(*Arc)
-		if !ok {
-			return fmt.Errorf("sketch: arc_length requires an arc, got %T", c)
 		}
 		dim(NewArcLength(arc, jc.Value))
 	case "equal_line_arc":
@@ -1096,13 +1090,9 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		if err != nil {
 			return err
 		}
-		c, err := circular(jc.Entities[1])
+		arc, err := s.arcByID(jc.Entities[1], "equal_line_arc")
 		if err != nil {
 			return err
-		}
-		arc, ok := c.(*Arc)
-		if !ok {
-			return fmt.Errorf("sketch: equal_line_arc requires an arc, got %T", c)
 		}
 		s.AddConstraint(NewEqualLineArc(l, arc))
 	default:
