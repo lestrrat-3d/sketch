@@ -12,7 +12,7 @@ import (
 // and concentric on arcs. Each asserts on solved geometry.
 
 func TestHorizontalPoints(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 4)
 	s.Fix(a)
 	b := s.AddPoint(10, -3) // skewed: shares no line with a
@@ -25,7 +25,7 @@ func TestHorizontalPoints(t *testing.T) {
 }
 
 func TestVerticalPoints(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(5, 0)
 	s.Fix(a)
 	b := s.AddPoint(-2, 9)
@@ -38,7 +38,7 @@ func TestVerticalPoints(t *testing.T) {
 }
 
 func TestMidpointOf(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 6)
 	s.Fix(a)
@@ -53,7 +53,7 @@ func TestMidpointOf(t *testing.T) {
 }
 
 func TestRadiusOnArc(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := s.AddPoint(0, 0)
 	s.Fix(c)
 	start := s.AddPoint(3, 0)
@@ -69,7 +69,7 @@ func TestRadiusOnArc(t *testing.T) {
 }
 
 func TestDiameterOnArc(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := s.AddPoint(0, 0)
 	s.Fix(c)
 	start := s.AddPoint(2, 0)
@@ -83,7 +83,7 @@ func TestDiameterOnArc(t *testing.T) {
 }
 
 func TestConcentricArcs(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c1 := s.AddPoint(0, 0)
 	s.Fix(c1)
 	s1 := s.AddPoint(2, 0)
@@ -104,7 +104,7 @@ func TestConcentricArcs(t *testing.T) {
 
 // Concentric must still accept a circle paired with an arc.
 func TestConcentricCircleArc(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	cc := s.AddPoint(0, 0)
 	s.Fix(cc)
 	circle := s.AddCircle(cc, 3)

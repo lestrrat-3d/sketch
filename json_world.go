@@ -184,17 +184,41 @@ func planeDefFromJSON(jp jsonPlane, base func(int) (*Plane, error)) (planeDef, e
 	return planeDef{}, fmt.Errorf("sketch: unknown plane kind %q", jp.Kind)
 }
 
-// standalonePlaneFromJSON builds the inline world-frame datum plane of a
-// standalone sketch document. A derived (offset) plane is rejected — standalone
-// sketches cannot reference a base plane.
-func standalonePlaneFromJSON(jp jsonPlane) (*Plane, error) {
+// datumPlaneFromJSON builds the inline plane of a single-sketch document as a
+// world-owned datum on w: the standard datums map to the world's seeded XY/XZ/YZ
+// planes, and a frame/points plane becomes a created world-owned plane. A derived
+// (offset) plane is rejected — a single-sketch document cannot reference a base
+// plane (only a world document carries the base it would point at).
+func datumPlaneFromJSON(w *World, jp jsonPlane) (*Plane, error) {
 	def, err := planeDefFromJSON(jp, func(int) (*Plane, error) {
 		return nil, fmt.Errorf("sketch: a standalone sketch cannot contain a derived plane")
 	})
 	if err != nil {
 		return nil, err
 	}
-	return &Plane{def: def, id: -1, name: jp.Name}, nil
+	switch def.kind {
+	case planeXY:
+		return w.XY(), nil
+	case planeXZ:
+		return w.XZ(), nil
+	case planeYZ:
+		return w.YZ(), nil
+	case planeFrame:
+		p, err := w.CreatePlaneFromFrame(def.frame)
+		if err != nil {
+			return nil, err
+		}
+		p.name = jp.Name
+		return p, nil
+	case planePoints:
+		p, err := w.CreatePlaneFromPoints(def.a, def.b, def.c)
+		if err != nil {
+			return nil, err
+		}
+		p.name = jp.Name
+		return p, nil
+	}
+	return nil, fmt.Errorf("sketch: a standalone sketch cannot contain a derived plane")
 }
 
 // jsonWorldSketch is a sketch inside a world document: the shared body plus a
@@ -305,6 +329,7 @@ func (w *World) UnmarshalJSON(data []byte) error {
 			return fmt.Errorf("sketch: sketch plane id %d out of range", pid)
 		}
 		s := newSketch(w.planes[pid])
+		s.world = w
 		if err := s.buildFromBody(jw.jsonSketchBody); err != nil {
 			return err
 		}

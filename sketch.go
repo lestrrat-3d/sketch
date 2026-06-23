@@ -34,37 +34,17 @@ type Sketch struct {
 	ents   []Entity
 	cons   []Constraint
 
-	params   *param.Table        // optional; drives bound dimensions
+	world    *World              // owning world (every sketch belongs to one)
+	params   *param.Table        // drives bound dimensions; shared with the world
 	sys      units.System        // default length/angle units
 	pl       *Plane              // placement; nil reads as the world XY datum
 	refSeals map[Entity][]*Point // reference entity -> its construction-time defining points (topology seal)
 }
 
-// New returns an empty sketch placed on the world XY datum plane, using metric
-// default units (millimetres and degrees); change the units with
-// [Sketch.SetUnits].
-func New() *Sketch { return newSketch(WorldXY()) }
-
-// NewOn returns an empty sketch placed on plane, for engine-only (world-less)
-// use. plane must be a live, owner-less plane (a world-frame datum from
-// [WorldXY]/[PlaneFromFrame]/[PlaneFromPoints]): it returns [ErrWorldOwnedPlane]
-// for a world-owned plane (use [World.Sketch] for those) and [ErrPlaneRemoved]
-// for a removed plane. A nil plane is normalized to the world XY datum (so
-// NewOn(nil) equals New()).
-func NewOn(plane *Plane) (*Sketch, error) {
-	if plane == nil {
-		plane = WorldXY()
-	}
-	if plane.removed {
-		return nil, ErrPlaneRemoved
-	}
-	if plane.owner != nil {
-		return nil, ErrWorldOwnedPlane
-	}
-	return newSketch(plane), nil
-}
-
-// newSketch is the shared constructor for [New]/[NewOn]/[World.Sketch].
+// newSketch is the shared constructor used by [World.CreateSketch] and the
+// document loaders. Every sketch belongs to a world; obtain one with
+// [World.CreateSketch] on a plane from [World.XY]/[World.XZ]/[World.YZ] (or a
+// created plane).
 func newSketch(plane *Plane) *Sketch {
 	return &Sketch{sys: units.Metric(), pl: plane}
 }
@@ -73,15 +53,21 @@ func newSketch(plane *Plane) *Sketch {
 // without an explicit placement reads as the world XY datum.
 func (s *Sketch) Plane() *Plane { return s.plane() }
 
-// plane returns the sketch's placement, defaulting a nil placement to the world
-// XY datum. The nil default is a zero-value/unmarshal safety net so world
-// read-out never dereferences a nil plane; it is not a license for a v2 document
-// to omit placement (the loader rejects that).
+// World returns the world that owns this sketch.
+func (s *Sketch) World() *World { return s.world }
+
+// plane returns the sketch's placement, defaulting a nil placement to the
+// owning world's XY datum. The nil default is a zero-value/unmarshal safety net
+// so world read-out never dereferences a nil plane; it is not a license for a v2
+// document to omit placement (the loader rejects that).
 func (s *Sketch) plane() *Plane {
-	if s.pl == nil {
-		return WorldXY()
+	if s.pl != nil {
+		return s.pl
 	}
-	return s.pl
+	if s.world != nil {
+		return s.world.XY()
+	}
+	return nil
 }
 
 func (s *Sketch) newVar(v float64) int {

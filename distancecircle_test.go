@@ -20,7 +20,7 @@ func TestDistancePointCircle(t *testing.T) {
 		{"inside", -2, 3},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s := sketch.New()
+			s := newSketch(t)
 			cc := s.AddPoint(0, 0)
 			circle := s.AddCircle(cc, 5)
 			s.FixEntity(circle)
@@ -48,7 +48,7 @@ func TestDistanceLineCircle(t *testing.T) {
 		{"gap", 2, 7},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s := sketch.New()
+			s := newSketch(t)
 			circle := s.AddCircle(s.AddPoint(0, 0), 5)
 			s.FixEntity(circle)
 			p1 := s.AddPoint(-10, 10)
@@ -66,7 +66,7 @@ func TestDistanceLineCircle(t *testing.T) {
 }
 
 func TestDistanceCircleDOFAndRemoval(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	cc := s.AddPoint(0, 0)
 	circle := s.AddCircle(cc, 5)
 	s.FixEntity(circle)
@@ -85,7 +85,7 @@ func TestDistanceCircleDOFAndRemoval(t *testing.T) {
 func TestDistancePointCircleDriven(t *testing.T) {
 	// A driven (reference) distance-point-circle measures the radial gap of fixed
 	// geometry: P at (8,0), r=5 circle at origin → gap 3.
-	s := sketch.New()
+	s := newSketch(t)
 	circle := s.AddCircle(s.AddPoint(0, 0), 5)
 	s.FixEntity(circle)
 	p := s.AddPoint(8, 0)
@@ -101,7 +101,7 @@ func TestDistancePointCircleDriven(t *testing.T) {
 }
 
 func TestDistanceCircleRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	cc := s.AddPoint(0, 0)
 	circle := s.AddCircle(cc, 5)
 	s.FixEntity(circle)

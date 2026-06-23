@@ -11,7 +11,8 @@ import (
 // over a bare point pair, and radius dimensions / concentric relations reaching
 // an arc through the same Circular interface a circle already uses.
 func Example_sketch_parity() {
-	s := sketch.New()
+	w := sketch.NewWorld()
+	s, _ := w.CreateSketch(w.XY())
 
 	// Two post tops forced level without a line joining them, plus a keystone
 	// pinned exactly between them.

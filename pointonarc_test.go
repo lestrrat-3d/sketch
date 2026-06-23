@@ -21,7 +21,7 @@ func quarterArc(s *sketch.Sketch) *sketch.Arc {
 }
 
 func TestPointOnArc(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	arc := quarterArc(s)
 	p := s.AddPoint(3, 3) // near the arc, inside the sweep
 	s.AddConstraint(sketch.NewPointOnArc(p, arc))
@@ -37,7 +37,7 @@ func TestPointOnArc(t *testing.T) {
 func TestPointOnArcConfinedToSweep(t *testing.T) {
 	// A point started OUTSIDE the sweep must be pulled into it, not left on the
 	// full circle off the arc.
-	s := sketch.New()
+	s := newSketch(t)
 	arc := quarterArc(s)
 	p := s.AddPoint(3, -3) // angle −π/4, outside the [0, π/2] sweep
 	s.AddConstraint(sketch.NewPointOnArc(p, arc))
@@ -51,7 +51,7 @@ func TestPointOnArcConfinedToSweep(t *testing.T) {
 }
 
 func TestPointOnArcDOFAndRemoval(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	arc := quarterArc(s)
 	p := s.AddPoint(3, 3)
 	require.Equal(t, 2, s.DOF(), "the free point has two DOF")

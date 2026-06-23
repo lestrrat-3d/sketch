@@ -13,7 +13,7 @@ import (
 // — the area now flows from the analytic ½∫(x·y′−y·x′) integral, matching a
 // dense-polyline reference rather than the old sampled bulge.
 func TestProfileClosedSplineAreaExact(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	pts := []*sketch.Point{
 		s.AddPoint(0, 0), s.AddPoint(4, 0), s.AddPoint(5, 3),
 		s.AddPoint(2, 5), s.AddPoint(-1, 3),

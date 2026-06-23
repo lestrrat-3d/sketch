@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/lestrrat-3d/sketch"
-	"github.com/lestrrat-3d/sketch/param"
 	"github.com/lestrrat-3d/sketch/units"
 )
 
@@ -13,7 +12,8 @@ import (
 // rectangular plate with a centered hole whose dimensions are all defined by
 // expressions. Changing a single parameter and re-solving updates everything.
 func Example_sketch_parametric() {
-	s := sketch.New()
+	w := sketch.NewWorld()
+	s, _ := w.CreateSketch(w.XY())
 
 	// Four corners + a center point for the hole (rough initial guesses).
 	a := s.AddPoint(0, 0)
@@ -39,9 +39,10 @@ func Example_sketch_parametric() {
 	)
 
 	// Parameters: a single driving width as a typed length; everything else is
-	// derived from it. Geometry solves in base millimetres regardless of the
-	// units the parameters are expressed in.
-	p := param.New()
+	// derived from it. The world's shared parameter table drives the sketch.
+	// Geometry solves in base millimetres regardless of the units the parameters
+	// are expressed in.
+	p := w.Params()
 	if err := errors.Join(
 		p.SetValue("width", units.Millimeters(120)),
 		p.SetExpr("height", "width * 0.6", units.Millimeter),

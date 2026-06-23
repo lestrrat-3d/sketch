@@ -49,7 +49,7 @@ func distToSpline(p *sketch.Point, sp *sketch.Spline) float64 {
 }
 
 func TestPointOnSpline(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sp := archSpline(s)
 	p := s.AddPoint(4, 1) // below the arch's interior; pulled up onto it
 	s.AddConstraint(sketch.NewPointOnSpline(p, sp))
@@ -64,7 +64,7 @@ func TestPointOnSplineConfinedToRange(t *testing.T) {
 	// A point started well beyond the spline's end must attach at the endpoint
 	// (the last control point a clamped spline passes through), not extrapolate
 	// past it — the slack box keeps the foot parameter within [0, 1].
-	s := sketch.New()
+	s := newSketch(t)
 	sp := archSpline(s)
 	p := s.AddPoint(20, -5) // far past the (8,0) end
 	s.AddConstraint(sketch.NewPointOnSpline(p, sp))
@@ -78,7 +78,7 @@ func TestPointOnSplineConfinedToRange(t *testing.T) {
 }
 
 func TestPointOnSplineDOFAndRemoval(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sp := archSpline(s) // control points fixed
 	p := s.AddPoint(4, 1)
 	require.Equal(t, 2, s.DOF(), "the free point has two DOF")
@@ -92,7 +92,7 @@ func TestPointOnSplineDOFAndRemoval(t *testing.T) {
 }
 
 func TestPointOnSplineCheckConstraint(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sp := archSpline(s)
 	p := s.AddPoint(4, 1)
 	// Adding point-on-spline to a free point removes one DOF — it is not
@@ -107,7 +107,7 @@ func TestPointOnSplineDuplicateIsHarmless(t *testing.T) {
 	// analysis (CheckConstraint, local to the call-time config) cannot see. So the
 	// duplicate is not flagged; it is harmless, though — the sketch stays solvable
 	// and keeps the one sliding DOF (both witnesses converge to the same foot).
-	s := sketch.New()
+	s := newSketch(t)
 	sp := archSpline(s)
 	p := s.AddPoint(4, 1)
 	s.AddConstraint(sketch.NewPointOnSpline(p, sp))
@@ -120,7 +120,7 @@ func TestPointOnSplineDuplicateIsHarmless(t *testing.T) {
 }
 
 func TestPointOnSplineRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sp := archSpline(s)
 	p := s.AddPoint(4, 1)
 	s.AddConstraint(sketch.NewPointOnSpline(p, sp))

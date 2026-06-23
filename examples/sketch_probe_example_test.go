@@ -13,7 +13,8 @@ import (
 // yet the mirror image below the base satisfies them just as well — exactly
 // the kind of sketch that silently flips when seeded differently.
 func Example_sketch_probeConfigurations() {
-	s := sketch.New()
+	w := sketch.NewWorld()
+	s, _ := w.CreateSketch(w.XY())
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.Fix(a)

@@ -16,7 +16,7 @@ import (
 
 // TestBaselineDimensions: several features dimensioned from one datum along x.
 func TestBaselineDimensions(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	o := s.AddPoint(0, 0)
 	s.Fix(o)
 	a := s.AddPoint(3, 1)
@@ -35,7 +35,7 @@ func TestBaselineDimensions(t *testing.T) {
 
 // TestOrdinateDimensions: x and y readout of one feature from a common origin.
 func TestOrdinateDimensions(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	o := s.AddPoint(0, 0)
 	s.Fix(o)
 	p := s.AddPoint(2, 2)
@@ -52,7 +52,7 @@ func TestOrdinateDimensions(t *testing.T) {
 
 // TestChainedDimensions: dimensions measured end-to-end accumulate.
 func TestChainedDimensions(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	o := s.AddPoint(0, 0)
 	s.Fix(o)
 	a := s.AddPoint(3, 0)
@@ -71,7 +71,7 @@ func TestChainedDimensions(t *testing.T) {
 // O→B, so adding a consistent baseline O→B = 25 over-constrains (redundant, not
 // conflicting). The oracle rejects it pre-commit and flags it post-commit.
 func TestChainPlusBaselineConsistentIsRedundant(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	o := s.AddPoint(0, 0)
 	s.Fix(o)
 	a := s.AddPoint(3, 0)
@@ -98,7 +98,7 @@ func TestChainPlusBaselineConsistentIsRedundant(t *testing.T) {
 // O→B = 25. The oracle refuses it pre-commit and, if committed, reports the
 // sketch unsolvable with the baseline blamed against the chain.
 func TestChainPlusBaselineConflicting(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	o := s.AddPoint(0, 0)
 	s.Fix(o)
 	a := s.AddPoint(3, 0)
@@ -131,7 +131,7 @@ func TestChainPlusBaselineConflicting(t *testing.T) {
 // geometry without constraining it — it must not change DOF, add redundancy, or
 // conflict with a driving dimension over the same span, and refreshes its target.
 func TestDrivenOrdinateReadout(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	o := s.AddPoint(0, 0)
 	s.Fix(o)
 	p := s.AddPoint(2, 2)

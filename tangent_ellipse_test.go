@@ -35,7 +35,7 @@ func ellipseTangentGap(p1, p2, center *sketch.Point, rx, ry, rot float64) float6
 func TestTangentLineEllipse(t *testing.T) {
 	// A horizontal line above an axis-aligned ellipse becomes tangent at the top:
 	// |y| = ry = 3.
-	s := sketch.New()
+	s := newSketch(t)
 	e := fixedEllipse(s, 0)
 	p1 := s.AddPoint(-5, 4)
 	p2 := s.AddPoint(5, 4)
@@ -55,7 +55,7 @@ func TestTangentLineEllipseRotated(t *testing.T) {
 	rot := math.Pi / 6
 	want := math.Hypot(math.Cos(rot)*6, math.Sin(rot)*3)
 
-	s := sketch.New()
+	s := newSketch(t)
 	e := fixedEllipse(s, rot)
 	p1 := s.AddPoint(7, -5)
 	p2 := s.AddPoint(7, 5)
@@ -84,7 +84,7 @@ func TestTangentLineEllipticalArcOutOfSweepRejected(t *testing.T) {
 	// The line y = −3 is a perfect tangent to the full ellipse, but its contact
 	// (eccentric −π/2, the bottom) lies outside a rigid first-quadrant arc. The
 	// oracle must not bless it.
-	s := sketch.New()
+	s := newSketch(t)
 	ea := quarterEllipticalArc(s) // eccentric [0, π/2]
 	a := s.AddPoint(-5, -3)
 	b := s.AddPoint(5, -3)
@@ -101,7 +101,7 @@ func TestTangentLineEllipticalArcOutOfSweepRejected(t *testing.T) {
 func TestTangentLineEllipticalArcInSweepSatisfied(t *testing.T) {
 	// The same line y = −3, but the arc spans the bottom so the contact (−π/2) is
 	// within the sweep: a genuine tangent that solves with the arc unchanged.
-	s := sketch.New()
+	s := newSketch(t)
 	ea := bottomEllipticalArc(s)
 	a := s.AddPoint(-5, -3)
 	b := s.AddPoint(5, -3)
@@ -118,7 +118,7 @@ func TestTangentLineEllipticalArcInSweepSatisfied(t *testing.T) {
 func TestTangentLineEllipticalArcEndpoint(t *testing.T) {
 	// A line sharing the arc's Start boundary point (6,0) is forced tangent there:
 	// the ellipse normal at (6,0) is horizontal, so the line turns vertical.
-	s := sketch.New()
+	s := newSketch(t)
 	ea := quarterEllipticalArc(s)
 	tip := ea.Start // shared boundary point, fixed by FixEntity
 	free := s.AddPoint(7, 5)
@@ -130,7 +130,7 @@ func TestTangentLineEllipticalArcEndpoint(t *testing.T) {
 }
 
 func TestTangentEllipseDOFAndRemoval(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	e := fixedEllipse(s, 0)
 	p1 := s.AddPoint(-5, 4)
 	p2 := s.AddPoint(5, 4)
@@ -147,7 +147,7 @@ func TestTangentEllipseDOFAndRemoval(t *testing.T) {
 func TestTangentEllipticalArcDOFAndRemoval(t *testing.T) {
 	// The elliptical-arc case allocates a sweep slack; its var and inequality row
 	// net to zero, so the DOF accounting matches the full-ellipse case.
-	s := sketch.New()
+	s := newSketch(t)
 	ea := bottomEllipticalArc(s)
 	a := s.AddPoint(-5, -3)
 	b := s.AddPoint(5, -3)
@@ -166,7 +166,7 @@ func TestTangentEllipseDegenerateRejected(t *testing.T) {
 	// oracle must never bless tangency to it — neither with a zero-length line nor
 	// with a real line through its center (the support value would be 0 − 0 = 0).
 	t.Run("zero-length line", func(t *testing.T) {
-		s := sketch.New()
+		s := newSketch(t)
 		e := s.AddEllipse(s.AddPoint(0, 0), 0, 0, 0)
 		s.FixEntity(e)
 		p1 := s.AddPoint(5, 5)
@@ -180,7 +180,7 @@ func TestTangentEllipseDegenerateRejected(t *testing.T) {
 		require.False(t, s.Verify().Solvable, "degenerate ellipse + zero-length line")
 	})
 	t.Run("real line through center", func(t *testing.T) {
-		s := sketch.New()
+		s := newSketch(t)
 		e := s.AddEllipse(s.AddPoint(0, 0), 0, 0, 0)
 		s.FixEntity(e)
 		a := s.AddPoint(-1, 0)
@@ -196,7 +196,7 @@ func TestTangentEllipseDegenerateRejected(t *testing.T) {
 }
 
 func TestTangentEllipseRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	ea := bottomEllipticalArc(s)
 	a := s.AddPoint(-5, -3)
 	b := s.AddPoint(5, -3)

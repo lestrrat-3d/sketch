@@ -8,7 +8,7 @@ import (
 )
 
 func TestProbeMirrorTriangle(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.Fix(a)
@@ -36,7 +36,7 @@ func TestProbeMirrorTriangle(t *testing.T) {
 }
 
 func TestProbeTangentSideFlip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.Fix(a)
@@ -62,7 +62,7 @@ func TestProbeTangentSideFlip(t *testing.T) {
 }
 
 func TestProbeUniquelyPinnedPoint(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	s.Fix(a)
 	p := s.AddPoint(1, 1)
@@ -82,7 +82,7 @@ func TestProbeSignedAngleUnique(t *testing.T) {
 	// The construction from the agent feedback report: a signed 30° angle
 	// admits exactly one configuration — (8.66, -5) is NOT a solution, so the
 	// probe must not report a mirror branch.
-	s := sketch.New()
+	s := newSketch(t)
 	o := s.AddPoint(0, 0)
 	ref := s.AddPoint(10, 0)
 	s.Fix(o)
@@ -104,7 +104,7 @@ func TestProbeSignedAngleUnique(t *testing.T) {
 func TestProbeDistanceRectangleIsAmbiguous(t *testing.T) {
 	// Rectangles held only by unsigned distances + perpendicularity are the
 	// classic trap: every corner has a mirror branch.
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	s.Fix(a)
 	b := s.AddPoint(4, 0.5)
@@ -132,7 +132,7 @@ func TestProbeDistanceRectangleIsAmbiguous(t *testing.T) {
 
 func TestProbeDeterministic(t *testing.T) {
 	build := func() (*sketch.Sketch, *sketch.Point) {
-		s := sketch.New()
+		s := newSketch(t)
 		a := s.AddPoint(0, 0)
 		b := s.AddPoint(10, 0)
 		s.Fix(a)
@@ -168,7 +168,7 @@ func TestProbeDeterministic(t *testing.T) {
 }
 
 func TestProbeDoesNotMutateSketch(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.Fix(a)
@@ -196,7 +196,7 @@ func TestProbeDoesNotMutateSketch(t *testing.T) {
 }
 
 func TestProbeApplySelectsBranch(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.Fix(a)
@@ -225,7 +225,7 @@ func TestProbeApplySelectsBranch(t *testing.T) {
 }
 
 func TestProbeRejectsUnderconstrained(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	s.Fix(a)
 	p := s.AddPoint(3, 0)

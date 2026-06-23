@@ -30,7 +30,7 @@ func TestNewWorldSeedsDatums(t *testing.T) {
 }
 
 func TestNewEqualsNewOnWorldXY(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	p := s.AddPoint(3, 4)
 	// A bare sketch is a world-XY sketch: world == (x, y, 0).
 	worldVecEqual(t, space.NewVec3(3, 4, 0), p.World())
@@ -39,7 +39,7 @@ func TestNewEqualsNewOnWorldXY(t *testing.T) {
 
 func TestSketchOnXZWorldCoords(t *testing.T) {
 	w := sketch.NewWorld()
-	s, err := w.Sketch(w.XZ())
+	s, err := w.CreateSketch(w.XZ())
 	require.NoError(t, err)
 	// A unit square on XZ: local (u, v) → world (u, 0, v).
 	corners := [][2]float64{{0, 0}, {1, 0}, {1, 1}, {0, 1}}
@@ -51,9 +51,9 @@ func TestSketchOnXZWorldCoords(t *testing.T) {
 
 func TestOffsetPlaneShiftsWorldZ(t *testing.T) {
 	w := sketch.NewWorld()
-	off, err := w.OffsetPlane(w.XY(), 5)
+	off, err := w.CreateOffsetPlane(w.XY(), 5)
 	require.NoError(t, err)
-	s, err := w.Sketch(off)
+	s, err := w.CreateSketch(off)
 	require.NoError(t, err)
 	p := s.AddPoint(3, 4)
 	worldVecEqual(t, space.NewVec3(3, 4, 5), p.World())
@@ -62,43 +62,29 @@ func TestOffsetPlaneShiftsWorldZ(t *testing.T) {
 func TestPlaneFromPoints(t *testing.T) {
 	w := sketch.NewWorld()
 	// Three points in the world z = 2 plane; normal should be +Z.
-	p, err := w.PlaneFromPoints(space.NewVec3(0, 0, 2), space.NewVec3(1, 0, 2), space.NewVec3(0, 1, 2))
+	p, err := w.CreatePlaneFromPoints(space.NewVec3(0, 0, 2), space.NewVec3(1, 0, 2), space.NewVec3(0, 1, 2))
 	require.NoError(t, err)
 	f, err := p.Frame()
 	require.NoError(t, err)
 	worldVecEqual(t, space.NewVec3(0, 0, 1), f.N())
 
-	_, err = w.PlaneFromPoints(space.NewVec3(0, 0, 0), space.NewVec3(1, 0, 0), space.NewVec3(2, 0, 0))
+	_, err = w.CreatePlaneFromPoints(space.NewVec3(0, 0, 0), space.NewVec3(1, 0, 0), space.NewVec3(2, 0, 0))
 	require.ErrorIs(t, err, space.ErrDegenerateFrame)
 }
 
 func TestPlaneFromFrameRejectsInvalid(t *testing.T) {
-	_, err := sketch.PlaneFromFrame(space.Frame{})
-	require.ErrorIs(t, err, space.ErrDegenerateFrame)
 	w := sketch.NewWorld()
-	_, err = w.PlaneFromFrame(space.Frame{})
+	_, err := w.CreatePlaneFromFrame(space.Frame{})
 	require.ErrorIs(t, err, space.ErrDegenerateFrame)
 }
 
 func TestForeignPlaneRejected(t *testing.T) {
 	w1 := sketch.NewWorld()
 	w2 := sketch.NewWorld()
-	_, err := w1.Sketch(w2.XY())
+	_, err := w1.CreateSketch(w2.XY())
 	require.ErrorIs(t, err, sketch.ErrForeignPlane)
-	_, err = w1.OffsetPlane(w2.XY(), 1)
+	_, err = w1.CreateOffsetPlane(w2.XY(), 1)
 	require.ErrorIs(t, err, sketch.ErrForeignPlane)
-	// A standalone plane is also foreign to a world.
-	_, err = w1.Sketch(sketch.WorldXY())
-	require.ErrorIs(t, err, sketch.ErrForeignPlane)
-}
-
-func TestNewOnRejectsWorldOwnedPlane(t *testing.T) {
-	w := sketch.NewWorld()
-	_, err := sketch.NewOn(w.XY())
-	require.ErrorIs(t, err, sketch.ErrWorldOwnedPlane)
-	// Owner-less planes are fine.
-	_, err = sketch.NewOn(sketch.WorldXY())
-	require.NoError(t, err)
 }
 
 func TestRemovePlane(t *testing.T) {
@@ -108,21 +94,21 @@ func TestRemovePlane(t *testing.T) {
 	require.ErrorIs(t, w.RemovePlane(w.XY()), sketch.ErrStandardDatum)
 
 	// A plane a sketch is placed on is in use.
-	used, err := w.OffsetPlane(w.XY(), 1)
+	used, err := w.CreateOffsetPlane(w.XY(), 1)
 	require.NoError(t, err)
-	_, err = w.Sketch(used)
+	_, err = w.CreateSketch(used)
 	require.NoError(t, err)
 	require.ErrorIs(t, w.RemovePlane(used), sketch.ErrPlaneInUse)
 
 	// A plane used as a base is in use.
-	base, err := w.OffsetPlane(w.XY(), 2)
+	base, err := w.CreateOffsetPlane(w.XY(), 2)
 	require.NoError(t, err)
-	_, err = w.OffsetPlane(base, 3)
+	_, err = w.CreateOffsetPlane(base, 3)
 	require.NoError(t, err)
 	require.ErrorIs(t, w.RemovePlane(base), sketch.ErrPlaneInUse)
 
 	// A free plane removes, renumbers densely, and tombstones.
-	free, err := w.OffsetPlane(w.XY(), 9)
+	free, err := w.CreateOffsetPlane(w.XY(), 9)
 	require.NoError(t, err)
 	freeID := free.ID()
 	require.NoError(t, w.RemovePlane(free))
@@ -131,14 +117,14 @@ func TestRemovePlane(t *testing.T) {
 		require.Equal(t, i, p.ID(), "ids stay dense and equal to position")
 	}
 	// The removed (tombstoned) handle fails the liveness check.
-	_, err = w.OffsetPlane(free, 1)
+	_, err = w.CreateOffsetPlane(free, 1)
 	require.ErrorIs(t, err, sketch.ErrForeignPlane)
 	require.NotEqual(t, freeID, -2) // freeID was a real id before removal
 }
 
 func TestWorldPolylineLiftsToWorld(t *testing.T) {
 	w := sketch.NewWorld()
-	s, err := w.Sketch(w.XZ())
+	s, err := w.CreateSketch(w.XZ())
 	require.NoError(t, err)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(2, 0)
@@ -152,9 +138,9 @@ func TestWorldPolylineLiftsToWorld(t *testing.T) {
 
 func TestWorldPolylineRejectsForeignEntity(t *testing.T) {
 	w := sketch.NewWorld()
-	s1, err := w.Sketch(w.XY())
+	s1, err := w.CreateSketch(w.XY())
 	require.NoError(t, err)
-	s2, err := w.Sketch(w.XZ())
+	s2, err := w.CreateSketch(w.XZ())
 	require.NoError(t, err)
 
 	foreign := s1.AddLine(s1.AddPoint(0, 0), s1.AddPoint(1, 0))
@@ -170,12 +156,14 @@ func TestWorldPolylineRejectsForeignEntity(t *testing.T) {
 	require.ErrorIs(t, err, sketch.ErrForeignEntity)
 }
 
-func TestNewOnNilEqualsNew(t *testing.T) {
-	s, err := sketch.NewOn(nil)
+func TestSketchOnXYPlacement(t *testing.T) {
+	w := sketch.NewWorld()
+	s, err := w.CreateSketch(w.XY())
 	require.NoError(t, err)
-	// A nil placement normalizes to a stable world-XY plane (not a fresh one
-	// each call), so Plane() identity is consistent.
+	// The placement is the world's stable XY datum (not a fresh one each call),
+	// so Plane() identity is consistent.
 	require.Same(t, s.Plane(), s.Plane())
+	require.Same(t, w.XY(), s.Plane())
 	p := s.AddPoint(3, 4)
 	worldVecEqual(t, space.NewVec3(3, 4, 0), p.World())
 }

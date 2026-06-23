@@ -16,7 +16,7 @@ import (
 // shared corner. The shared-endpoint branch enforces tangency *at S*.
 
 func TestTangentConicsSharedEndpoint(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	ec := s.AddPoint(0, 0)
 	shared := s.AddPoint(6, 0) // the shared corner (ellipse right vertex)
 	eaEnd := s.AddPoint(0, 3)
@@ -39,7 +39,7 @@ func TestTangentConicsSharedEndpointNotTangentRejected(t *testing.T) {
 	// normal at S is not parallel to the ellipse normal — the curves meet at S but
 	// are not tangent there. With everything rigid the shared-endpoint tangency is
 	// infeasible and the oracle must report unsolvable.
-	s := sketch.New()
+	s := newSketch(t)
 	ec := s.AddPoint(0, 0)
 	shared := s.AddPoint(6, 0)
 	eaEnd := s.AddPoint(0, 3)
@@ -62,7 +62,7 @@ func TestTangentConicsSharedEndpointDOFAndRemoval(t *testing.T) {
 	// and free far endpoint (3 DOF after its intrinsic radius constraint). The
 	// shared-endpoint tangency removes exactly one (it pins the circle's normal at S
 	// parallel to the ellipse's).
-	s := sketch.New()
+	s := newSketch(t)
 	ec := s.AddPoint(0, 0)
 	shared := s.AddPoint(6, 0)
 	eaEnd := s.AddPoint(0, 3)
@@ -83,7 +83,7 @@ func TestTangentConicsSharedEndpointDOFAndRemoval(t *testing.T) {
 }
 
 func TestTangentConicsSharedEndpointRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	ec := s.AddPoint(0, 0)
 	shared := s.AddPoint(6, 0)
 	eaEnd := s.AddPoint(0, 3)

@@ -20,7 +20,7 @@ func topHalfEllipse(s *sketch.Sketch) *sketch.EllipticalArc {
 }
 
 func TestEllipticalArcGeometry(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	ea := topHalfEllipse(s)
 	require.InDelta(t, math.Pi, ea.Sweep(), 1e-9, "a half turn in eccentric angle")
 	require.InDelta(t, 4, ea.Rx(), 1e-12)
@@ -37,7 +37,7 @@ func TestEllipticalArcGeometry(t *testing.T) {
 }
 
 func TestEllipticalArcInternalConstraintsAndDOF(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := s.AddPoint(0, 0)
 	// Endpoints start slightly OFF the ellipse; the auto-added internal
 	// constraints pull them on after a solve.
@@ -63,7 +63,7 @@ func TestEllipticalArcInternalConstraintsAndDOF(t *testing.T) {
 }
 
 func TestEllipticalArcProfile(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	ea := topHalfEllipse(s)
 	s.AddLine(ea.End, ea.Start) // chord closing the half-ellipse
 
@@ -74,7 +74,7 @@ func TestEllipticalArcProfile(t *testing.T) {
 }
 
 func TestEllipticalArcRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := s.AddPoint(0, 0)
 	s.Fix(c)
 	start := s.AddPoint(4, 0)
@@ -102,7 +102,7 @@ func TestEllipticalArcRoundTrip(t *testing.T) {
 }
 
 func TestEllipticalArcExportAndFix(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	ea := topHalfEllipse(s)
 
 	svg, err := s.SVG()

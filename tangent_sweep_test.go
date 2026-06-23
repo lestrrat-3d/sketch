@@ -13,7 +13,7 @@ import (
 // bring the contact into the sweep), the constraint is unsatisfiable even
 // though the line is a perfect tangent to the full circle.
 func TestTangentLineArcOutOfSweepRejected(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.Fix(a)
@@ -42,7 +42,7 @@ func TestTangentLineArcOutOfSweepRejected(t *testing.T) {
 // The same line and circle, but the arc spans the bottom so the downward
 // contact is within the sweep: now it is a genuine tangent and solves.
 func TestTangentLineArcInSweepSatisfied(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.Fix(a)
@@ -65,7 +65,7 @@ func TestTangentLineArcInSweepSatisfied(t *testing.T) {
 // outside the arc's sweep: even though the radii make the circles distance-
 // tangent (d = r1 + r2 = 10), the sweep blocks it, so it is unsatisfiable.
 func TestTangentCirclesArcOutOfSweepRejected(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	o := s.AddPoint(0, 0)
 	s.Fix(o)
 	circ := s.AddCircle(o, 8)
@@ -89,7 +89,7 @@ func TestTangentCirclesArcOutOfSweepRejected(t *testing.T) {
 // the configuration fillets produce). It must solve cleanly and add no spurious
 // degree of freedom or redundancy.
 func TestTangentLineArcAtEndpointBoundary(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	center := s.AddPoint(0, 0)
 	s.Fix(center)
 	start := s.AddPoint(5, 0) // 0°
@@ -116,7 +116,7 @@ func TestTangentLineArcAtEndpointBoundary(t *testing.T) {
 // Sweep enforcement is inherent to the constraint type, so it must survive a
 // JSON round-trip: an out-of-sweep tangent stays unsolvable after reload.
 func TestTangentArcSweepRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.Fix(a)
@@ -143,7 +143,7 @@ func TestTangentArcSweepRoundTrip(t *testing.T) {
 // not tangent — the oracle must reject it. (The earlier single-row clamp
 // accepted any line through the endpoint, a false positive Codex flagged.)
 func TestTangentLineThroughArcEndpointMustBeTangent(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	center := s.AddPoint(0, 0)
 	start := s.AddPoint(5, 0) // 0deg, radius 5
 	end := s.AddPoint(0, 5)   // 90deg
@@ -164,7 +164,7 @@ func TestTangentLineThroughArcEndpointMustBeTangent(t *testing.T) {
 // With the far endpoint free, the shared-endpoint tangency is satisfiable: the
 // solver pulls the line onto the perpendicular (the true tangent at the endpoint).
 func TestTangentLineAtArcEndpointSolves(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	center := s.AddPoint(0, 0)
 	start := s.AddPoint(5, 0)
 	end := s.AddPoint(0, 5)
@@ -184,7 +184,7 @@ func TestTangentLineAtArcEndpointSolves(t *testing.T) {
 // Concentric circles of different radii are never tangent: the constraint must
 // not read as satisfied (a degenerate false zero Codex flagged).
 func TestTangentConcentricCirclesRejected(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	o := s.AddPoint(0, 0)
 	s.Fix(o)
 	c1 := s.AddCircle(o, 3)
@@ -199,7 +199,7 @@ func TestTangentConcentricCirclesRejected(t *testing.T) {
 // The interior-tangency sweep slack is recomputed on load (never serialized);
 // the reloaded sketch still solves.
 func TestTangentArcInteriorRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.Fix(a)
@@ -227,7 +227,7 @@ func TestTangentArcInteriorRoundTrip(t *testing.T) {
 // Removing an interior arc tangency retires its sweep slack; the sketch still
 // solves cleanly afterwards (no dangling free variable).
 func TestTangentArcSlackRetiredOnRemoval(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.Fix(a)
@@ -252,7 +252,7 @@ func TestTangentArcSlackRetiredOnRemoval(t *testing.T) {
 // CheckConstraint probes a candidate before it is committed (allocVars has not
 // run), so an interior arc tangent must not dereference its unallocated slack.
 func TestTangentArcCheckConstraintNoPanic(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.Fix(a)
@@ -270,7 +270,7 @@ func TestTangentArcCheckConstraintNoPanic(t *testing.T) {
 // Coincident equal-radius circles are not internally tangent (they overlap, not
 // touch); the constraint must not read as satisfied.
 func TestTangentInternalEqualRadiusConcentricRejected(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	o := s.AddPoint(0, 0)
 	s.Fix(o)
 	c1 := s.AddCircle(o, 4)
@@ -284,7 +284,7 @@ func TestTangentInternalEqualRadiusConcentricRejected(t *testing.T) {
 // A zero-length line sharing the arc's endpoint has no direction and is not
 // tangent — it must be rejected, not read as a degenerate zero.
 func TestTangentZeroLengthLineSharedRejected(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	center := s.AddPoint(0, 0)
 	start := s.AddPoint(5, 0)
 	end := s.AddPoint(0, 5)
@@ -303,7 +303,7 @@ func TestTangentZeroLengthLineSharedRejected(t *testing.T) {
 // the finite-difference Jacobian: the residual arity is constant regardless of
 // where perturbations push the line length.
 func TestTangentArcNearDegenerateLineNoPanic(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	center := s.AddPoint(0, 0)
 	s.Fix(center)
 	start := s.AddPoint(-3, -4)
@@ -319,7 +319,7 @@ func TestTangentArcNearDegenerateLineNoPanic(t *testing.T) {
 // never double-counts the residual or leaks a second sweep slack: one commit,
 // one removal clears it.
 func TestTangentArcDoubleAddDeduped(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.Fix(a)
@@ -345,7 +345,7 @@ func TestTangentArcDoubleAddDeduped(t *testing.T) {
 // sweep slack (the retired one is frozen); the re-added constraint still
 // enforces in-sweep tangency after the geometry moves.
 func TestTangentArcRemoveReAdd(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.Fix(a)
@@ -375,7 +375,7 @@ func TestTangentArcRemoveReAdd(t *testing.T) {
 // externally tangent at their shared point satisfy external, not internal.
 func TestTangentSharedArcsRespectInternal(t *testing.T) {
 	build := func(internal bool) error {
-		s := sketch.New()
+		s := newSketch(t)
 		c1 := s.AddPoint(0, 0)
 		s1 := s.AddPoint(0, 5)
 		p := s.AddPoint(5, 0) // shared contact, between the centers -> external
@@ -399,7 +399,7 @@ func TestTangentSharedArcsRespectInternal(t *testing.T) {
 // nonzero slack seed — a zero seed leaves the sweep row's ∂/∂w = 0, a flat spot
 // that traps the solve.
 func TestTangentArcFeasibleSeededOutOfSweep(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.Fix(a)

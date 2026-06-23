@@ -9,7 +9,7 @@ import (
 )
 
 func TestRemoveConstraint(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(18, 2)
 	c := s.AddPoint(17, 11)
@@ -37,7 +37,7 @@ func TestRemoveConstraint(t *testing.T) {
 }
 
 func TestRemoveEntityCascades(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.Fix(a)
@@ -61,7 +61,7 @@ func TestRemoveEntityCascades(t *testing.T) {
 }
 
 func TestRemoveEntityRetiresVars(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	o := s.AddPoint(0, 0)
 	s.Fix(o)
 	circ := s.AddCircle(o, 5)
@@ -72,7 +72,7 @@ func TestRemoveEntityRetiresVars(t *testing.T) {
 }
 
 func TestRemovePointGuards(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.AddLine(a, b)
@@ -88,7 +88,7 @@ func TestRemovePointGuards(t *testing.T) {
 }
 
 func TestRemoveKeepsUnrelatedConstraints(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(8, 1)
 	s.Fix(a)
@@ -105,7 +105,7 @@ func TestRemoveKeepsUnrelatedConstraints(t *testing.T) {
 }
 
 func TestReAddAfterRemove(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	center := s.AddPoint(0, 0)
 	c1 := s.AddCircle(center, 5)
 	require.True(t, s.RemoveEntity(c1), "removed")
@@ -116,7 +116,7 @@ func TestReAddAfterRemove(t *testing.T) {
 }
 
 func TestRemovalJSONRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	o1 := s.AddPoint(0, 0)
 	o2 := s.AddPoint(20, 0)
 	o3 := s.AddPoint(40, 0)
@@ -151,7 +151,7 @@ func TestRemovalJSONRoundTrip(t *testing.T) {
 }
 
 func TestJSONVersionGuard(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	s.AddPoint(1, 2)
 	data, err := json.Marshal(s)
 	require.NoError(t, err, "marshal")
@@ -174,7 +174,7 @@ func TestJSONVersionGuard(t *testing.T) {
 }
 
 func TestRemoveSplineGuardsControlPoints(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	sp, err := s.AddSpline(s.AddPoint(0, 0), s.AddPoint(2, 4), s.AddPoint(8, 4), s.AddPoint(10, 0))
 	require.NoError(t, err)
 	require.False(t, s.RemovePoint(sp.Control[2]), "control point of a live spline is not removable")

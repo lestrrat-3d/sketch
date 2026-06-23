@@ -10,7 +10,8 @@ import (
 // options and reports the fields the solver returns. DOF can also be queried
 // directly, without moving any geometry.
 func Example_sketch_solving() {
-	s := sketch.New()
+	w := sketch.NewWorld()
+	s, _ := w.CreateSketch(w.XY())
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(30, 4)
 	a.MoveTo(0, 0)

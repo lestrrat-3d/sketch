@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lestrrat-3d/sketch"
 	"github.com/lestrrat-3d/sketch/units"
 	"github.com/stretchr/testify/require"
 )
@@ -37,7 +36,7 @@ func dxfGroup(t *testing.T, dxf, marker, code string) string {
 // A metric sketch emits the $INSUNITS/$MEASUREMENT/$EXT* header and leaves the
 // millimetre geometry untouched — coordinates are already in base units.
 func TestDXFMetricHeaderAndExtents(t *testing.T) {
-	s := sketch.New() // defaults to Metric (mm)
+	s := newSketch(t) // defaults to Metric (mm)
 	o := s.AddPoint(5, 5)
 	s.AddCircle(o, 3)
 
@@ -59,7 +58,7 @@ func TestDXFMetricHeaderAndExtents(t *testing.T) {
 // field converted from base millimetres into inches — angles and the unitless
 // fields are unaffected.
 func TestDXFImperialLengthsConverted(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	s.SetUnits(units.Imperial()) // inch / degree
 
 	// Author at base millimetres: center 5 in, radius 3 in.
@@ -81,7 +80,7 @@ func TestDXFImperialLengthsConverted(t *testing.T) {
 // An arc's center/radius convert with the display unit, but its sweep angles
 // (codes 50/51) are always degrees regardless of the length unit.
 func TestDXFArcAnglesStayDegrees(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	s.SetUnits(units.Imperial())
 	o := s.AddPoint(0, 0)
 	st := s.AddPoint(25.4, 0) // 1 in to the right → start angle 0°

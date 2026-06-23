@@ -11,7 +11,8 @@ import (
 // to a start→end sweep — closes it with a chord, and reads back the half-ellipse
 // region's area from the profile engine.
 func Example_sketch_ellipticalArc() {
-	s := sketch.New()
+	w := sketch.NewWorld()
+	s, _ := w.CreateSketch(w.XY())
 	c := s.AddPoint(0, 0)
 	start := s.AddPoint(4, 0)
 	end := s.AddPoint(-4, 0)

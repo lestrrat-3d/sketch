@@ -69,41 +69,43 @@ func (w *World) addPlane(def planeDef, name string) *Plane {
 	return p
 }
 
-// PlaneFromFrame adds a world-owned plane positioned by an explicit frame. It
-// returns [space.ErrDegenerateFrame] when f is invalid.
-func (w *World) PlaneFromFrame(f space.Frame) (*Plane, error) {
+// CreatePlaneFromFrame adds a world-owned plane positioned by an explicit frame.
+// It returns [space.ErrDegenerateFrame] when f is invalid.
+func (w *World) CreatePlaneFromFrame(f space.Frame) (*Plane, error) {
 	if !f.IsValid() {
 		return nil, space.ErrDegenerateFrame
 	}
 	return w.addPlane(planeDef{kind: planeFrame, frame: f}, ""), nil
 }
 
-// PlaneFromPoints adds a world-owned plane through three world points (see
-// [PlaneFromPoints]). It returns [space.ErrDegenerateFrame] for collinear points.
-func (w *World) PlaneFromPoints(a, b, c space.Vec3) (*Plane, error) {
+// CreatePlaneFromPoints adds a world-owned plane through three world points:
+// origin a, U along a→b, N along (a→b)×(a→c), V = N×U. It returns
+// [space.ErrDegenerateFrame] for collinear points.
+func (w *World) CreatePlaneFromPoints(a, b, c space.Vec3) (*Plane, error) {
 	if _, err := frameFromPoints(a, b, c); err != nil {
 		return nil, err
 	}
 	return w.addPlane(planeDef{kind: planePoints, a: a, b: b, c: c}, ""), nil
 }
 
-// OffsetPlane adds a world-owned plane parallel to base, its origin shifted by
-// dist along base's normal. base must be a live plane of this world, else
+// CreateOffsetPlane adds a world-owned plane parallel to base, its origin shifted
+// by dist along base's normal. base must be a live plane of this world, else
 // [ErrForeignPlane].
-func (w *World) OffsetPlane(base *Plane, dist float64) (*Plane, error) {
+func (w *World) CreateOffsetPlane(base *Plane, dist float64) (*Plane, error) {
 	if !w.owns(base) {
 		return nil, ErrForeignPlane
 	}
 	return w.addPlane(planeDef{kind: planeOffset, base: base, dist: dist}, ""), nil
 }
 
-// Sketch creates a new, empty sketch placed on plane and owned by this world.
-// plane must be a live plane of this world, else [ErrForeignPlane].
-func (w *World) Sketch(plane *Plane) (*Sketch, error) {
+// CreateSketch creates a new, empty sketch placed on plane and owned by this
+// world. plane must be a live plane of this world, else [ErrForeignPlane].
+func (w *World) CreateSketch(plane *Plane) (*Sketch, error) {
 	if !w.owns(plane) {
 		return nil, ErrForeignPlane
 	}
 	s := newSketch(plane)
+	s.world = w
 	s.params = w.params // share the world's global parameter table
 	w.sketches = append(w.sketches, s)
 	return s, nil

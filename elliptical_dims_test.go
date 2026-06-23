@@ -9,7 +9,7 @@ import (
 )
 
 func TestEllipticalArcShapeDimensions(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := s.AddPoint(0, 0)
 	s.Fix(c)
 	start := s.AddPoint(5, 0)
@@ -30,7 +30,7 @@ func TestEllipticalArcShapeDimensions(t *testing.T) {
 }
 
 func TestEllipticalArcShapeDimensionsRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	c := s.AddPoint(0, 0)
 	s.Fix(c)
 	start := s.AddPoint(6, 0)
@@ -51,7 +51,7 @@ func TestEllipticalArcShapeDimensionsRoundTrip(t *testing.T) {
 
 // The widening is non-breaking: a plain ellipse still works with the same dims.
 func TestEllipseShapeDimensionsStillWork(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	o := s.AddPoint(0, 0)
 	s.Fix(o)
 	e := s.AddEllipse(o, 3, 2, 0)

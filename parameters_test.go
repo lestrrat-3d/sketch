@@ -12,7 +12,7 @@ import (
 func TestBoundDimensionsSolve(t *testing.T) {
 	// A rectangle whose width and height are driven by parameters "w" and
 	// "h = w/2".
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(5, 1)
 	c := s.AddPoint(4, 6)
@@ -22,7 +22,7 @@ func TestBoundDimensionsSolve(t *testing.T) {
 		sketch.NewHorizontal(s.AddLine(a, b)), sketch.NewHorizontal(s.AddLine(d, c)),
 		sketch.NewVertical(s.AddLine(a, d)), sketch.NewVertical(s.AddLine(b, c)),
 	)
-	p := param.New()
+	p := s.Params()
 	require.NoError(t, p.Set("w", "20"))
 	require.NoError(t, p.Set("h", "w / 2"))
 	wDim := sketch.NewDistance(a, b, 0)
@@ -41,7 +41,7 @@ func TestBoundDimensionsSolve(t *testing.T) {
 }
 
 func TestParameterEditPropagates(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(5, 1)
 	c := s.AddPoint(4, 6)
@@ -51,7 +51,7 @@ func TestParameterEditPropagates(t *testing.T) {
 		sketch.NewHorizontal(s.AddLine(a, b)), sketch.NewHorizontal(s.AddLine(d, c)),
 		sketch.NewVertical(s.AddLine(a, d)), sketch.NewVertical(s.AddLine(b, c)),
 	)
-	p := param.New()
+	p := s.Params()
 	require.NoError(t, p.Set("w", "20"))
 	require.NoError(t, p.Set("h", "w / 2"))
 	wDim := sketch.NewDistance(a, b, 0)
@@ -72,7 +72,7 @@ func TestParameterEditPropagates(t *testing.T) {
 }
 
 func TestManualSetUnbinds(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(5, 1)
 	c := s.AddPoint(4, 6)
@@ -82,7 +82,7 @@ func TestManualSetUnbinds(t *testing.T) {
 		sketch.NewHorizontal(s.AddLine(a, b)), sketch.NewHorizontal(s.AddLine(d, c)),
 		sketch.NewVertical(s.AddLine(a, d)), sketch.NewVertical(s.AddLine(b, c)),
 	)
-	p := param.New()
+	p := s.Params()
 	require.NoError(t, p.Set("w", "20"))
 	require.NoError(t, p.Set("h", "w / 2"))
 	wDim := sketch.NewDistance(a, b, 0)
@@ -109,12 +109,12 @@ func TestManualSetUnbinds(t *testing.T) {
 }
 
 func TestBindExpressionInline(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(3, 0)
 	s.Fix(a)
 	s.AddConstraint(sketch.NewHorizontal(s.AddLine(a, b)))
-	p := param.New()
+	p := s.Params()
 	require.NoError(t, p.Set("gap", "8"))
 	dim := sketch.NewDistance(a, b, 0)
 	s.AddConstraint(dim)
@@ -126,15 +126,15 @@ func TestBindExpressionInline(t *testing.T) {
 }
 
 func TestBindSyntaxError(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(1, 0)
 	dim := sketch.NewDistance(a, b, 1)
-	require.Error(t, s.Bind(dim, param.New(), "1 +"), "expected syntax error from Bind")
+	require.Error(t, s.Bind(dim, s.Params(), "1 +"), "expected syntax error from Bind")
 }
 
 func TestBindNilTable(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(1, 0)
 	dim := sketch.NewDistance(a, b, 1)
@@ -142,11 +142,11 @@ func TestBindNilTable(t *testing.T) {
 }
 
 func TestBindTableMismatch(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(1, 0)
 	c := s.AddPoint(0, 1)
-	p1 := param.New()
+	p1 := s.Params() // the world's shared table
 	require.NoError(t, p1.Set("x", "1"))
 	p2 := param.New()
 	require.NoError(t, p2.Set("x", "1"))
@@ -156,20 +156,20 @@ func TestBindTableMismatch(t *testing.T) {
 }
 
 func TestUndefinedParameterFailsSolve(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(1, 0)
 	s.Fix(a)
 	s.AddConstraint(sketch.NewHorizontal(s.AddLine(a, b)))
 	dim := sketch.NewDistance(a, b, 1)
 	s.AddConstraint(dim)
-	require.NoError(t, s.Bind(dim, param.New(), "nope * 2"))
+	require.NoError(t, s.Bind(dim, s.Params(), "nope * 2"))
 	_, err := s.Solve()
 	require.Error(t, err, "expected solve to fail on undefined parameter")
 }
 
 func TestUnbind(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(5, 1)
 	c := s.AddPoint(4, 6)
@@ -179,7 +179,7 @@ func TestUnbind(t *testing.T) {
 		sketch.NewHorizontal(s.AddLine(a, b)), sketch.NewHorizontal(s.AddLine(d, c)),
 		sketch.NewVertical(s.AddLine(a, d)), sketch.NewVertical(s.AddLine(b, c)),
 	)
-	p := param.New()
+	p := s.Params()
 	require.NoError(t, p.Set("w", "20"))
 	require.NoError(t, p.Set("h", "w / 2"))
 	wDim := sketch.NewDistance(a, b, 0)
@@ -205,7 +205,7 @@ func TestUnbind(t *testing.T) {
 }
 
 func TestApplyParameters(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(5, 1)
 	c := s.AddPoint(4, 6)
@@ -215,7 +215,7 @@ func TestApplyParameters(t *testing.T) {
 		sketch.NewHorizontal(s.AddLine(a, b)), sketch.NewHorizontal(s.AddLine(d, c)),
 		sketch.NewVertical(s.AddLine(a, d)), sketch.NewVertical(s.AddLine(b, c)),
 	)
-	p := param.New()
+	p := s.Params()
 	require.NoError(t, p.Set("w", "20"))
 	require.NoError(t, p.Set("h", "w / 2"))
 	wDim := sketch.NewDistance(a, b, 0)
@@ -234,7 +234,7 @@ func TestApplyParameters(t *testing.T) {
 }
 
 func TestDeleteParameterInUse(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(5, 1)
 	c := s.AddPoint(4, 6)
@@ -244,7 +244,7 @@ func TestDeleteParameterInUse(t *testing.T) {
 		sketch.NewHorizontal(s.AddLine(a, b)), sketch.NewHorizontal(s.AddLine(d, c)),
 		sketch.NewVertical(s.AddLine(a, d)), sketch.NewVertical(s.AddLine(b, c)),
 	)
-	p := param.New()
+	p := s.Params()
 	require.NoError(t, p.Set("w", "20"))
 	require.NoError(t, p.Set("h", "w / 2"))
 	wDim := sketch.NewDistance(a, b, 0)
@@ -265,7 +265,7 @@ func TestDeleteParameterInUse(t *testing.T) {
 }
 
 func TestJSONRoundTripWithParameters(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(5, 1)
 	c := s.AddPoint(4, 6)
@@ -275,7 +275,7 @@ func TestJSONRoundTripWithParameters(t *testing.T) {
 		sketch.NewHorizontal(s.AddLine(a, b)), sketch.NewHorizontal(s.AddLine(d, c)),
 		sketch.NewVertical(s.AddLine(a, d)), sketch.NewVertical(s.AddLine(b, c)),
 	)
-	p := param.New()
+	p := s.Params()
 	require.NoError(t, p.Set("w", "20"))
 	require.NoError(t, p.Set("h", "w / 2"))
 	wDim := sketch.NewDistance(a, b, 0)

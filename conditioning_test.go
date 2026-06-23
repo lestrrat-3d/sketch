@@ -13,7 +13,8 @@ import (
 // constraint system is identical up to a similarity, so its scale-invariant
 // Conditioning must be identical while the raw RankMargin need not be.
 func orthogonalPinned(k, tx, ty float64) *sketch.VerificationReport {
-	s := sketch.New()
+	w := sketch.NewWorld()
+	s, _ := w.CreateSketch(w.XY())
 	a := s.AddPoint(tx, ty)
 	b := s.AddPoint(tx+3*k, ty+1*k)
 	s.Fix(a)
@@ -28,7 +29,8 @@ func orthogonalPinned(k, tx, ty float64) *sketch.VerificationReport {
 // Jacobian mixes row units, so RankMargin moves with scale; the nondimensional
 // Conditioning must not. Scaled by k (lengths scale, the 30° angle does not).
 func mixedUnitFixture(k float64) *sketch.VerificationReport {
-	s := sketch.New()
+	w := sketch.NewWorld()
+	s, _ := w.CreateSketch(w.XY())
 	o := s.AddPoint(0, 0)
 	e := s.AddPoint(10*k, 0)
 	s.Fix(o)
@@ -91,7 +93,7 @@ func TestConditioningNearSingularScaleInvariant(t *testing.T) {
 	// A point pinned by two lines δ radians apart, at scale k. Conditioning ≈ δ/2,
 	// independent of k; it crosses the 1e-6 gate at a scale-invariant δ.
 	mk := func(delta, k float64) *sketch.VerificationReport {
-		s := sketch.New()
+		s := newSketch(t)
 		o1 := s.AddPoint(0, 0)
 		e1 := s.AddPoint(1*k, 0)
 		o2 := s.AddPoint(0, 0)
@@ -124,7 +126,7 @@ func TestConditioningHealthyFixtures(t *testing.T) {
 	// Real well-posed sketches sit comfortably above the threshold at any scale.
 	for _, k := range []float64{1, 1000} {
 		// A hexagon-ish pin: a point fixed by distance + perpendicular offset lines.
-		s := sketch.New()
+		s := newSketch(t)
 		a := s.AddPoint(0, 0)
 		s.Fix(a)
 		b := s.AddPoint(5*k, 0)
@@ -144,7 +146,7 @@ func TestConditioningHealthyFixtures(t *testing.T) {
 func TestConditioningNotApplicableUnderconstrained(t *testing.T) {
 	// An under-constrained sketch is genuinely singular by its free DOF; the
 	// conditioning measure is left +Inf (not applicable) rather than a misleading 0.
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(3, 4)
 	s.Fix(a)
@@ -204,7 +206,7 @@ func TestConditioningClassifiesAuxConstraints(t *testing.T) {
 		}},
 	}
 	for _, c := range cases {
-		s := sketch.New()
+		s := newSketch(t)
 		c.build(s)
 		_, err := s.Solve()
 		require.NoErrorf(t, err, "%s solves", c.name)
@@ -226,7 +228,7 @@ func TestConditioningClassifiesAuxConstraints(t *testing.T) {
 // out at a loose one (high gate) — a constant gate could not do both.
 func TestConditioningGateToleranceDerived(t *testing.T) {
 	mk := func(tol float64) *sketch.VerificationReport {
-		s := sketch.New()
+		s := newSketch(t)
 		o1, e1 := s.AddPoint(0, 0), s.AddPoint(1, 0)
 		o2, e2 := s.AddPoint(0, 0), s.AddPoint(1, 2e-4) // ≈2e-4 rad apart → Conditioning ≈ 1e-4
 		for _, p := range []*sketch.Point{o1, e1, o2, e2} {
@@ -259,7 +261,7 @@ func TestConditioningGateToleranceDerived(t *testing.T) {
 // raises both the slack residue and the gate, so it stays gated.
 func TestConditioningSlackFlatSpotGated(t *testing.T) {
 	build := func() *sketch.Sketch {
-		s := sketch.New()
+		s := newSketch(t)
 		o, a := s.AddPoint(0, 0), s.AddPoint(5, 0)
 		s.Fix(o)
 		s.Fix(a)

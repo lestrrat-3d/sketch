@@ -17,7 +17,7 @@ func TestAuditWorldUntrustworthySketchPropagates(t *testing.T) {
 	// A world that contains a sketch with conflicting constraints must not be
 	// trustworthy — the per-sketch verdict propagates up.
 	w := sketch.NewWorld()
-	s, err := w.Sketch(w.XY())
+	s, err := w.CreateSketch(w.XY())
 	require.NoError(t, err)
 	a, b := s.AddPoint(0, 0), s.AddPoint(10, 0)
 	s.AddConstraint(sketch.NewDistance(a, b, 10))
@@ -33,7 +33,7 @@ func TestAuditWorldSelfIntersectingProfilePropagates(t *testing.T) {
 	// A self-intersecting profile (a figure-8 closed spline) in a world sketch makes the
 	// whole world untrustworthy.
 	w := sketch.NewWorld()
-	s, err := w.Sketch(w.XY())
+	s, err := w.CreateSketch(w.XY())
 	require.NoError(t, err)
 	_, err = s.AddClosedSpline(
 		s.AddPoint(-3, -2), s.AddPoint(3, 2), s.AddPoint(-3, 2), s.AddPoint(3, -2))
@@ -56,7 +56,7 @@ func TestAuditWorldUndefinedOffsetParameterRejected(t *testing.T) {
 	// An offset plane bound to an undefined parameter cannot compute its frame; the
 	// world must surface a plane error and be untrustworthy.
 	w := sketch.NewWorld()
-	op, err := w.OffsetPlane(w.XY(), 0)
+	op, err := w.CreateOffsetPlane(w.XY(), 0)
 	require.NoError(t, err)
 	require.NoError(t, w.BindOffsetPlane(op, "nonexistent_param"))
 	rep := w.Verify()

@@ -25,7 +25,7 @@ func onEllipse(p *sketch.Point, rx, ry float64) float64 {
 }
 
 func TestPointOnEllipticalArc(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	ea := quarterEllipticalArc(s)
 	p := s.AddPoint(4, 2) // near the arc, inside the sweep
 	s.AddConstraint(sketch.NewPointOnEllipticalArc(p, ea))
@@ -40,7 +40,7 @@ func TestPointOnEllipticalArc(t *testing.T) {
 func TestPointOnEllipticalArcConfinedToSweep(t *testing.T) {
 	// A point started OUTSIDE the sweep must be pulled into it, not left on the
 	// full ellipse off the arc.
-	s := sketch.New()
+	s := newSketch(t)
 	ea := quarterEllipticalArc(s)
 	p := s.AddPoint(4, -2) // below the x-axis: outside the [0, π/2] sweep
 	s.AddConstraint(sketch.NewPointOnEllipticalArc(p, ea))
@@ -52,7 +52,7 @@ func TestPointOnEllipticalArcConfinedToSweep(t *testing.T) {
 }
 
 func TestPointOnEllipticalArcDOFAndRemoval(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	ea := quarterEllipticalArc(s)
 	p := s.AddPoint(4, 2)
 	require.Equal(t, 2, s.DOF(), "the free point has two DOF")
@@ -66,7 +66,7 @@ func TestPointOnEllipticalArcDOFAndRemoval(t *testing.T) {
 }
 
 func TestPointOnEllipticalArcRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	ea := quarterEllipticalArc(s)
 	p := s.AddPoint(4, 2)
 	s.AddConstraint(sketch.NewPointOnEllipticalArc(p, ea))

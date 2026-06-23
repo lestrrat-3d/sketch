@@ -11,7 +11,8 @@ import (
 // is the smallest end-to-end taste of the engine: author geometry from points,
 // constrain it, solve, edit, re-solve, export.
 func Example_sketch_quickstart() {
-	s := sketch.New()
+	w := sketch.NewWorld()
+	s, _ := w.CreateSketch(w.XY())
 
 	// Four corners as rough initial guesses; the solver finds the exact spots.
 	// Sharing a *Point between two lines is what makes a corner a corner.

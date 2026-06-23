@@ -14,7 +14,8 @@ import (
 // exact sector area, π/4. The curve degree, knots and weights are stored
 // structural data, so a free NURBS has DOF 2·(n+1) — only its control points move.
 func Example_sketch_nurbs() {
-	s := sketch.New()
+	w := sketch.NewWorld()
+	s, _ := w.CreateSketch(w.XY())
 	p0 := s.AddPoint(1, 0)
 	p1 := s.AddPoint(1, 1)
 	p2 := s.AddPoint(0, 1)

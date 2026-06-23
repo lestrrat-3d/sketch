@@ -17,7 +17,7 @@ import (
 // current coordinates.
 func pngSquare(t *testing.T) *sketch.Sketch {
 	t.Helper()
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	c := s.AddPoint(10, 10)
@@ -91,7 +91,7 @@ func TestPNG(t *testing.T) {
 	})
 
 	t.Run("point markers reflect fixed status", func(t *testing.T) {
-		s := sketch.New()
+		s := newSketch(t)
 		free := s.AddPoint(0, 0)
 		fixed := s.AddPoint(10, 0)
 		s.AddLine(free, fixed)
@@ -133,7 +133,7 @@ func TestPNG(t *testing.T) {
 	})
 
 	t.Run("empty sketch still renders", func(t *testing.T) {
-		s := sketch.New()
+		s := newSketch(t)
 		data, err := s.PNG(sketch.WithScale(10))
 		require.NoError(t, err, "render must succeed")
 		img := decodePNG(t, data)

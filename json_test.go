@@ -317,7 +317,7 @@ func TestJSONRoundTripAllConstraintKinds(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			s := sketch.New()
+			s := newSketch(t)
 			tc.build(s)
 			_, err := s.Solve()
 			require.NoError(t, err)
@@ -343,7 +343,7 @@ func TestJSONRoundTripAllConstraintKinds(t *testing.T) {
 // reordered ids, re-derived values, double-serialized internal constraints —
 // shows up as a diff here.
 func TestJSONFixedPoint(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(18, 2)
 	c := s.AddPoint(17, 11)
@@ -373,7 +373,7 @@ func TestJSONFixedPoint(t *testing.T) {
 // coordinates, not just structure: the reloaded sketch is already on the
 // constraint manifold and a zero-iteration solve reports convergence.
 func TestRoundTripPreservesSolvedState(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(18, 2)
 	c := s.AddPoint(17, 11)

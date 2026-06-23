@@ -12,7 +12,7 @@ import (
 func TestEqualLineArc(t *testing.T) {
 	// A free horizontal line is forced to equal the swept length of a fixed
 	// quarter arc (R=4, sweep π/2 → length 2π), so the line grows to 2π.
-	s := sketch.New()
+	s := newSketch(t)
 	ac := s.AddPoint(0, 0)
 	astart := s.AddPoint(4, 0)
 	aend := s.AddPoint(0, 4)
@@ -38,7 +38,7 @@ func TestEqualLineArcDrivesArcBeyondPi(t *testing.T) {
 	// A fixed line of length 3π drives a free arc's sweep past π: with R=2 fixed,
 	// the swept length 2·sweep must reach 3π, so the sweep settles at 3π/2 — the
 	// branch the unwrapped-sweep variable exists to reach.
-	s := sketch.New()
+	s := newSketch(t)
 	p1 := s.AddPoint(0, 10)
 	p2 := s.AddPoint(3*math.Pi, 10)
 	s.Fix(p1)
@@ -64,7 +64,7 @@ func TestEqualLineArcOverLengthRejected(t *testing.T) {
 	// swept length — Sweep() maxes at 2π. The oracle must report this unsolvable,
 	// not bless it via a multi-turn parameterization. Here R=2 (max length 4π) and
 	// the line is 5π, with everything fixed.
-	s := sketch.New()
+	s := newSketch(t)
 	ac := s.AddPoint(0, 0)
 	astart := s.AddPoint(2, 0)
 	aend := s.AddPoint(0, 2) // quarter arc, length π
@@ -84,7 +84,7 @@ func TestEqualLineArcOverLengthRejected(t *testing.T) {
 }
 
 func TestEqualLineArcDOFAndRemoval(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	ac := s.AddPoint(0, 0)
 	astart := s.AddPoint(4, 0)
 	aend := s.AddPoint(0, 4)
@@ -109,7 +109,7 @@ func TestEqualLineArcDOFAndRemoval(t *testing.T) {
 }
 
 func TestEqualLineArcRoundTrip(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	ac := s.AddPoint(0, 0)
 	astart := s.AddPoint(4, 0)
 	aend := s.AddPoint(0, 4)

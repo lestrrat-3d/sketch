@@ -13,7 +13,7 @@ import (
 // that every With… option actually changes the output as documented.
 func TestSVGOptions(t *testing.T) {
 	newLineSketch := func() *sketch.Sketch {
-		s := sketch.New()
+		s := newSketch(t)
 		a := s.AddPoint(0, 0)
 		b := s.AddPoint(10, 0)
 		s.AddLine(a, b)
@@ -63,7 +63,7 @@ func TestSVGOptions(t *testing.T) {
 		require.Contains(t, svg, `width="10"`, "zero margin leaves the raw bounds")
 	})
 	t.Run("arc segments", func(t *testing.T) {
-		s := sketch.New()
+		s := newSketch(t)
 		o := s.AddPoint(0, 0)
 		st := s.AddPoint(5, 0)
 		en := s.AddPoint(0, 5)
@@ -73,7 +73,7 @@ func TestSVGOptions(t *testing.T) {
 		require.Equal(t, 4, strings.Count(svg, "L"), "4 segments render as 4 line commands")
 	})
 	t.Run("construction color", func(t *testing.T) {
-		s := sketch.New()
+		s := newSketch(t)
 		a := s.AddPoint(0, 0)
 		b := s.AddPoint(10, 0)
 		s.AddLine(a, b).SetConstruction(true)

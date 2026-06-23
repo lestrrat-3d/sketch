@@ -9,7 +9,7 @@ import (
 )
 
 func TestProfilesRectangle(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	s.AddRectangle(0, 0, 20, 12)
 	profiles := s.Profiles()
 	require.Len(t, profiles, 1, "one profile")
@@ -17,7 +17,7 @@ func TestProfilesRectangle(t *testing.T) {
 }
 
 func TestProfilesPolygonExcludesConstruction(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	p, err := s.AddPolygon(0, 0, 6, 5) // 6 sides + 6 construction spokes
 	require.NoError(t, err)
 	profiles := s.Profiles()
@@ -27,7 +27,7 @@ func TestProfilesPolygonExcludesConstruction(t *testing.T) {
 }
 
 func TestProfilesSlotAndCircle(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	_, err := s.AddSlot(0, 0, 10, 0, 3) // 2 arcs + 2 flanks + 4 construction spokes
 	require.NoError(t, err)
 	o := s.AddPoint(30, 0)
@@ -58,7 +58,7 @@ func TestProfilesSlotAndCircle(t *testing.T) {
 // a fresh detection pass, which is what downstream consumers (extrude, export)
 // rely on for parametric behavior.
 func TestProfilesReflectSolvedGeometry(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(18, 2)
 	c := s.AddPoint(17, 11)
@@ -100,7 +100,7 @@ func TestProfilesReflectSolvedGeometry(t *testing.T) {
 }
 
 func TestProfilesPlateWithHole(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	s.AddRectangle(0, 0, 10, 10)
 	s.AddCircle(s.AddPoint(5, 5), 2) // fully inside
 
@@ -129,7 +129,7 @@ func TestProfilesPlateWithHole(t *testing.T) {
 }
 
 func TestProfilesLoneCircleWhole(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	s.AddCircle(s.AddPoint(0, 0), 3)
 	profiles := s.Profiles()
 	require.Len(t, profiles, 1, "one disk region")
@@ -142,7 +142,7 @@ func TestProfilesLoneCircleWhole(t *testing.T) {
 }
 
 func TestProfilesBareCrossingSubdivision(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	s.AddRectangle(0, 0, 6, 4)
 	s.AddRectangle(3, 2, 9, 6) // overlaps in [3,6]x[2,4]
 
@@ -164,7 +164,7 @@ func TestProfilesBareCrossingSubdivision(t *testing.T) {
 }
 
 func TestProfilesSelfIntersectingInvalid(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(4, 4)
 	c := s.AddPoint(4, 0)
@@ -183,7 +183,7 @@ func TestProfilesSelfIntersectingInvalid(t *testing.T) {
 }
 
 func TestProfilesOpenChainAndConstructionCircle(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	c := s.AddPoint(10, 10)

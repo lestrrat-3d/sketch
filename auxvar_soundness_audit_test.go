@@ -31,7 +31,7 @@ func TestAuditTangentToSplineImpossibleRejected(t *testing.T) {
 	// A line pinned horizontally at y=5 — well above the hump's max (~1.5) — cannot be
 	// tangent to the finite spline. The bounded foot-parameter must NOT manufacture an
 	// off-domain "tangent": the constraint stays unsatisfied, so Solvable is false.
-	s := sketch.New()
+	s := newSketch(t)
 	sp := humpSpline(s)
 	a, b := s.AddPoint(-5, 5), s.AddPoint(5, 5)
 	s.Fix(a)
@@ -45,7 +45,7 @@ func TestAuditTangentToSplineImpossibleRejected(t *testing.T) {
 func TestAuditTangentToSplineFeasibleReallyTouches(t *testing.T) {
 	// A free line constrained tangent must converge to a REAL tangency — the solved
 	// line genuinely touches the finite spline (perpendicular distance ~0).
-	s := sketch.New()
+	s := newSketch(t)
 	sp := humpSpline(s)
 	a, b := s.AddPoint(-2, 0.5), s.AddPoint(5, 0.5)
 	l := s.AddLine(a, b)
@@ -73,7 +73,7 @@ func TestAuditPointOnSplinePulledOffDomainRejected(t *testing.T) {
 	// x∈[0,3] domain. The bounded foot-parameter cannot extrapolate the spline, so the
 	// point cannot both stay on it and reach the anchor: the system is not solvable, and
 	// the oracle must NOT bless a point that has left the curve.
-	s := sketch.New()
+	s := newSketch(t)
 	sp := humpSpline(s)
 	p := s.AddPoint(0, 0)
 	s.AddConstraint(sketch.NewPointOnSpline(p, sp))
@@ -101,7 +101,7 @@ func TestAuditConicTangencyImpossibleRejected(t *testing.T) {
 	// A small ellipse and a circle with both centres fixed far apart, asked for INTERNAL
 	// tangency. No internal tangency exists, so the contact-witness/branch-slack machinery
 	// must not fabricate one: Solvable is false.
-	s := sketch.New()
+	s := newSketch(t)
 	ec := s.AddPoint(0, 0)
 	s.Fix(ec)
 	e := s.AddEllipse(ec, 2.0, 1.0, 0.0)
@@ -117,7 +117,7 @@ func TestAuditGoalSolveDoesNotCorruptVerify(t *testing.T) {
 	// A hard distance constraint |ab|=10 plus a goal pulling b toward (1000,0). Goals are
 	// transient solver rows, never constraints: the hard constraint must win, and Verify's
 	// Solvable/Residual must reflect ONLY the hard constraints, never the unreachable goal.
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	s.Fix(a)
 	b := s.AddPoint(10, 0)

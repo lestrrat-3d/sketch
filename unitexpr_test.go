@@ -15,13 +15,13 @@ import (
 // (angle) parameters.
 func boundWidth(t *testing.T, expr string) (*sketch.Sketch, *sketch.Distance) {
 	t.Helper()
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(80, 0)
 	s.Fix(a)
 	d := sketch.NewDistance(a, b, 80)
 	s.AddConstraint(d)
-	tbl := param.New()
+	tbl := s.Params() // the world's shared table
 	require.NoError(t, tbl.SetValue("width", units.Millimeters(80)))
 	require.NoError(t, tbl.SetValue("pad", units.Millimeters(20)))
 	require.NoError(t, tbl.SetValue("theta", units.Degrees(30)))
@@ -77,13 +77,13 @@ func TestUnitExprSmuggledAngleRejected(t *testing.T) {
 	// A length dimension bound to a parameter that is DECLARED length but DEFINED
 	// by an angle expression must not pass: the angle would otherwise drive the
 	// length dimension undetected.
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(80, 0)
 	s.Fix(a)
 	d := sketch.NewDistance(a, b, 80)
 	s.AddConstraint(d)
-	tbl := param.New()
+	tbl := s.Params() // the world's shared table
 	require.NoError(t, tbl.SetValue("theta", units.Degrees(30)))
 	require.NoError(t, tbl.SetExpr("w", "theta", units.Millimeter)) // length-declared, angle-defined
 	require.NoError(t, s.Bind(d, tbl, "w"))

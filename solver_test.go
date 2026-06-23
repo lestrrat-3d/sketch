@@ -13,7 +13,7 @@ func TestSolveOptions(t *testing.T) {
 		// The rectangle fixture starts from deliberately rough guesses; one
 		// Levenberg–Marquardt iteration cannot reach the 1e-10 tolerance, so
 		// the budget must surface as ErrNotConverged.
-		s := sketch.New()
+		s := newSketch(t)
 		a := s.AddPoint(0, 0)
 		b := s.AddPoint(18, 2)
 		c := s.AddPoint(17, 11)
@@ -39,7 +39,7 @@ func TestSolveOptions(t *testing.T) {
 	t.Run("tolerance", func(t *testing.T) {
 		// A huge tolerance accepts the rough initial guess as-is: convergence
 		// is declared before the first iteration and nothing moves.
-		s := sketch.New()
+		s := newSketch(t)
 		a := s.AddPoint(0, 0)
 		b := s.AddPoint(18, 2)
 		c := s.AddPoint(17, 11)
@@ -67,7 +67,7 @@ func TestSolveOptions(t *testing.T) {
 // shape-holding constraints intact — a mid-drag divergence would make
 // interactive dragging unusable.
 func TestDragSmoothness(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(10, 0)
 	s.Fix(a)
@@ -114,7 +114,7 @@ func TestDragSmoothness(t *testing.T) {
 // minimum-norm step for under-constrained sketches, which is what makes this
 // hold; see the solver invariants in CLAUDE.md.
 func TestMinimalMotionOnEdit(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	// An under-constrained bar from a grounded origin.
 	a := s.AddPoint(0, 0)
 	s.Fix(a)
@@ -147,7 +147,7 @@ func TestMinimalMotionOnEdit(t *testing.T) {
 // keep the solution branch — the rectangle grows, it does not mirror through
 // its grounded corner.
 func TestNoFlipOnLargeEdit(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(18, 2)
 	c := s.AddPoint(17, 11)
@@ -179,7 +179,7 @@ func TestNoFlipOnLargeEdit(t *testing.T) {
 // keeps the branch the geometry starts on — across the initial solve and
 // across re-solves after edits.
 func TestNearestSolutionPreserved(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	// A vertical line along x = 0.
 	a := s.AddPoint(0, 0)
 	b := s.AddPoint(0, 10)
@@ -210,7 +210,7 @@ func TestSolverNeverReturnsNaN(t *testing.T) {
 	finite := func(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
 
 	t.Run("contradictory dimensions", func(t *testing.T) {
-		s := sketch.New()
+		s := newSketch(t)
 		a := s.AddPoint(0, 0)
 		s.Fix(a)
 		b := s.AddPoint(3, 1)
@@ -224,7 +224,7 @@ func TestSolverNeverReturnsNaN(t *testing.T) {
 		require.True(t, finite(b.Y()), "b.Y stays finite")
 	})
 	t.Run("degenerate zero-length line", func(t *testing.T) {
-		s := sketch.New()
+		s := newSketch(t)
 		// A zero-length line: both endpoints at the same spot. Residuals that
 		// divide by its length must stay finite (norm() floors away from zero)
 		// so the solver can pull the points apart.
@@ -255,7 +255,7 @@ func TestSolverNeverReturnsNaN(t *testing.T) {
 // bit-identical coordinates. Residual assembly iterates slices in creation
 // order — no map-order dependence may creep in.
 func TestSolveDeterministic(t *testing.T) {
-	s1 := sketch.New()
+	s1 := newSketch(t)
 	a1 := s1.AddPoint(0, 0)
 	b1 := s1.AddPoint(18, 2)
 	c1 := s1.AddPoint(17, 11)
@@ -268,7 +268,7 @@ func TestSolveDeterministic(t *testing.T) {
 	_, err := s1.Solve()
 	require.NoError(t, err)
 
-	s2 := sketch.New()
+	s2 := newSketch(t)
 	a2 := s2.AddPoint(0, 0)
 	b2 := s2.AddPoint(18, 2)
 	c2 := s2.AddPoint(17, 11)
@@ -293,7 +293,7 @@ func TestSolveDeterministic(t *testing.T) {
 // always base-unit millimetres).
 func TestScaleInvariance(t *testing.T) {
 	build := func(scale float64) (*sketch.Sketch, *sketch.Point, *sketch.Point) {
-		s := sketch.New()
+		s := newSketch(t)
 		a := s.AddPoint(0, 0)
 		b := s.AddPoint(18*scale, 2*scale) // rough guesses, like newRectangle
 		c := s.AddPoint(17*scale, 11*scale)

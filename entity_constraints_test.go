@@ -8,7 +8,7 @@ import (
 )
 
 func TestFixEntityCircle(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	o := s.AddPoint(3, 4)
 	c := s.AddCircle(o, 5)
 	s.FixEntity(c)
@@ -27,7 +27,7 @@ func TestFixEntityCircle(t *testing.T) {
 }
 
 func TestUnfixEntity(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	o := s.AddPoint(0, 0)
 	c := s.AddCircle(o, 2)
 	s.FixEntity(c)
@@ -43,7 +43,7 @@ func TestUnfixEntity(t *testing.T) {
 }
 
 func TestUnfixEntityPreservesReferenceLock(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	rp := s.AddReferencePoint(5, 5, "edge1") // externally locked
 	require.True(t, rp.IsFixed())
 	free := s.AddPoint(0, 0)
@@ -55,7 +55,7 @@ func TestUnfixEntityPreservesReferenceLock(t *testing.T) {
 }
 
 func TestSymmetricLines(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	// Axis = the y-axis (the line x=0); reflection negates x.
 	ax := s.AddPoint(0, 0)
 	ay := s.AddPoint(0, 10)
@@ -83,7 +83,7 @@ func TestSymmetricLines(t *testing.T) {
 }
 
 func TestSymmetricCircles(t *testing.T) {
-	s := sketch.New()
+	s := newSketch(t)
 	ax := s.AddPoint(0, 0)
 	ay := s.AddPoint(0, 10)
 	s.Fix(ax)
