@@ -5,6 +5,18 @@ import (
 	"fmt"
 )
 
+// requireMinPoints panics when n is below min, with the kernel guard message
+// "geom: <noun> needs at least <min> <kind>, got <n>". It is the shared guard
+// behind the spline-family math kernels (whose precondition the public
+// constructors already enforce by returning an error); noun and kind carry the
+// per-family wording ("cubic B-spline"/"control points", "fit-point
+// spline"/"fit points", …) so each site's message is reproduced verbatim.
+func requireMinPoints(n, min int, noun, kind string) {
+	if n < min {
+		panic(fmt.Sprintf("geom: %s needs at least %d %s, got %d", noun, min, kind, n))
+	}
+}
+
 // Spline is an open cubic B-spline defined by its control points, using a
 // clamped uniform knot vector. Clamping makes the curve start at the first
 // control point and end at the last, with end tangents along the first and
@@ -52,9 +64,7 @@ func controlCoords(control []*Point) [][2]float64 {
 // points.
 func EvalCubicBSpline(ctrl [][2]float64, t float64) (float64, float64) {
 	n := len(ctrl)
-	if n < 4 {
-		panic(fmt.Sprintf("geom: cubic B-spline needs at least 4 control points, got %d", n))
-	}
+	requireMinPoints(n, 4, "cubic B-spline", "control points")
 	if t <= 0 {
 		return ctrl[0][0], ctrl[0][1]
 	}
@@ -94,9 +104,7 @@ func SampleCubicBSpline(ctrl [][2]float64, segments int) [][2]float64 {
 // panics with fewer than 4 control points.
 func EvalCubicBSplineDeriv(ctrl [][2]float64, t float64) (float64, float64) {
 	n := len(ctrl)
-	if n < 4 {
-		panic(fmt.Sprintf("geom: cubic B-spline needs at least 4 control points, got %d", n))
-	}
+	requireMinPoints(n, 4, "cubic B-spline", "control points")
 	knots := ClampedKnots(n)
 	q := func(i int) (float64, float64) {
 		den := knots[i+4] - knots[i+1]
@@ -133,9 +141,7 @@ func EvalCubicBSplineDeriv(ctrl [][2]float64, t float64) (float64, float64) {
 // not missed. It panics with fewer than 4 control points.
 func NearestParamCubicBSpline(ctrl [][2]float64, px, py float64) float64 {
 	n := len(ctrl)
-	if n < 4 {
-		panic(fmt.Sprintf("geom: cubic B-spline needs at least 4 control points, got %d", n))
-	}
+	requireMinPoints(n, 4, "cubic B-spline", "control points")
 	eval := func(t float64) (float64, float64) { return EvalCubicBSpline(ctrl, t) }
 	return nearestParamSampled(eval, 16*(n-3), false, px, py)
 }

@@ -49,9 +49,7 @@ func (sp *ClosedSpline) Polyline(segments int) [][2]float64 {
 // standard uniform cubic basis. It panics with fewer than 3 control points.
 func EvalPeriodicCubicBSpline(ctrl [][2]float64, t float64) (float64, float64) {
 	n := len(ctrl)
-	if n < 3 {
-		panic(fmt.Sprintf("geom: closed cubic B-spline needs at least 3 control points, got %d", n))
-	}
+	requireMinPoints(n, 3, "closed cubic B-spline", "control points")
 	t -= math.Floor(t) // reduce to [0,1); handles t=1 -> 0 and negative t
 	u := t * float64(n)
 	i := int(math.Floor(u))
@@ -78,9 +76,7 @@ func EvalPeriodicCubicBSpline(ctrl [][2]float64, t float64) (float64, float64) {
 // points.
 func EvalPeriodicCubicBSplineDeriv(ctrl [][2]float64, t float64) (float64, float64) {
 	n := len(ctrl)
-	if n < 3 {
-		panic(fmt.Sprintf("geom: closed cubic B-spline needs at least 3 control points, got %d", n))
-	}
+	requireMinPoints(n, 3, "closed cubic B-spline", "control points")
 	t -= math.Floor(t)
 	u := t * float64(n)
 	i := int(math.Floor(u))

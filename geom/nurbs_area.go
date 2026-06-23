@@ -14,7 +14,15 @@ import "math"
 // true-curve integral — sampling-independent. The walk direction (and thus the
 // sign) is carried by the order of t0, t1.
 func nurbsBulgeSpan(c *NURBS, t0, t1, ax, ay, ex, ey float64) float64 {
-	return nurbsMoment(c, t0, t1) + 0.5*(ex*ay-ax*ey)
+	return nurbsMoment(c, t0, t1) + chordClosure(ax, ay, ex, ey)
+}
+
+// chordClosure is the chord-closure term ½·(ex·ay − ax·ey) shared by the
+// freeform bulge decompositions (splineBulge / nurbsBulgeSpan): the signed area
+// of the closing edge from the fragment's chord start (ax,ay) to end (ex,ey),
+// matching signedPolyArea's implied closing edge. It equals −½·P(t0)×P(t1).
+func chordClosure(ax, ay, ex, ey float64) float64 {
+	return 0.5 * (ex*ay - ax*ey)
 }
 
 // nurbsMoment returns the exact ½∫(x·y′ − y·x′) dt of a NURBS over the natural
@@ -28,18 +36,6 @@ func nurbsBulgeSpan(c *NURBS, t0, t1, ax, ay, ex, ey float64) float64 {
 //   - rational: a 10-point Gauss–Legendre rule with adaptive bisection to a
 //     relative tolerance, integrating the true rational curve.
 func nurbsMoment(c *NURBS, t0, t1 float64) float64 {
-	lo, hi, sign := t0, t1, 1.0
-	if lo > hi {
-		lo, hi, sign = hi, lo, -1.0
-	}
-	bounds := []float64{lo}
-	for _, b := range nurbsParamBreaks(c) {
-		if b > lo && b < hi {
-			bounds = append(bounds, b)
-		}
-	}
-	bounds = append(bounds, hi)
-
 	// A non-rational span of degree p has a polynomial moment integrand of
 	// degree 2p−1, integrated EXACTLY by the p-point Gauss rule — but the
 	// tabulated rules top out at 10 points (exact through degree 19, so p ≤ 10).
@@ -47,13 +43,38 @@ func nurbsMoment(c *NURBS, t0, t1 float64) float64 {
 	// rule integrates exactly), fall back to the adaptive panel so the area is
 	// never a silently-inexact blessed value.
 	exact := !c.Rational() && c.Degree <= 10
+	g := gaussNodes(c.Degree)
+	return momentOverBreaks(t0, t1, nurbsParamBreaks(c), func(a, b float64) float64 {
+		if exact {
+			return nurbsGaussMoment(c, a, b, g)
+		}
+		return nurbsAdaptiveMoment(c, a, b)
+	})
+}
+
+// momentOverBreaks integrates a freeform curve's moment over [t0, t1] by
+// splitting the interval at every breakpoint STRICTLY inside (lo, hi) so no
+// quadrature panel straddles a piecewise boundary, then summing the caller's
+// per-panel quadrature and applying the walk-direction sign. The (lo, hi, sign)
+// normalization, the strict-interior break filter, the bounds-build order
+// {lo}+breaks+{hi}, and the ×sign at the end are load-bearing: every spline /
+// NURBS area result is built on this exact sequence, so it must not be
+// reassociated. breaks must already be in ascending order.
+func momentOverBreaks(t0, t1 float64, breaks []float64, panel func(a, b float64) float64) float64 {
+	lo, hi, sign := t0, t1, 1.0
+	if lo > hi {
+		lo, hi, sign = hi, lo, -1.0
+	}
+	bounds := []float64{lo}
+	for _, b := range breaks {
+		if b > lo && b < hi {
+			bounds = append(bounds, b)
+		}
+	}
+	bounds = append(bounds, hi)
 	var moment float64
 	for i := 0; i+1 < len(bounds); i++ {
-		if exact {
-			moment += nurbsGaussMoment(c, bounds[i], bounds[i+1], gaussNodes(c.Degree))
-		} else {
-			moment += nurbsAdaptiveMoment(c, bounds[i], bounds[i+1])
-		}
+		moment += panel(bounds[i], bounds[i+1])
 	}
 	return sign * moment
 }
@@ -92,12 +113,22 @@ func nurbsMomentIntegrand(c *NURBS, t float64) float64 {
 // nurbsGaussMoment integrates the moment over panel [t0, t1] with a fixed
 // Gauss–Legendre rule (exact for the non-rational polynomial integrand).
 func nurbsGaussMoment(c *NURBS, t0, t1 float64, g gaussRule) float64 {
+	return gaussPanel(g, t0, t1, func(t float64) float64 {
+		return nurbsMomentIntegrand(c, t)
+	})
+}
+
+// gaussPanel integrates f over the panel [t0, t1] with the Gauss–Legendre rule
+// g (defined on [-1, 1]), mapping each node into the panel. The operation order
+// — mid + half·node for the abscissa, weight·f accumulation, then a single ·half
+// scale — is load-bearing for the exact, sampling-independent area results;
+// reassociating it would let the floating-point sums drift.
+func gaussPanel(g gaussRule, t0, t1 float64, f func(float64) float64) float64 {
 	half := 0.5 * (t1 - t0)
 	mid := 0.5 * (t0 + t1)
 	var sum float64
 	for k := range g.nodes {
-		t := mid + half*g.nodes[k]
-		sum += g.weights[k] * nurbsMomentIntegrand(c, t)
+		sum += g.weights[k] * f(mid+half*g.nodes[k])
 	}
 	return sum * half
 }
@@ -138,7 +169,7 @@ func gaussNodes(p int) gaussRule {
 	case p == 2:
 		return gauss2
 	case p == 3:
-		return gaussRule{nodes: gauss3.nodes[:], weights: gauss3.weights[:]}
+		return gauss3
 	case p == 4:
 		return gauss4
 	case p == 5:

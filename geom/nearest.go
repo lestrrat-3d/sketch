@@ -1,7 +1,6 @@
 package geom
 
 import (
-	"fmt"
 	"math"
 )
 
@@ -87,9 +86,7 @@ func nearestParamSampled(eval func(float64) (float64, float64), segs int, period
 // fewer than 3 control points.
 func NearestParamPeriodicCubicBSpline(ctrl [][2]float64, px, py float64) float64 {
 	n := len(ctrl)
-	if n < 3 {
-		panic(fmt.Sprintf("geom: closed cubic B-spline needs at least 3 control points, got %d", n))
-	}
+	requireMinPoints(n, 3, "closed cubic B-spline", "control points")
 	eval := func(t float64) (float64, float64) { return EvalPeriodicCubicBSpline(ctrl, t) }
 	return nearestParamSampled(eval, 16*n, true, px, py)
 }
@@ -99,9 +96,7 @@ func NearestParamPeriodicCubicBSpline(ctrl [][2]float64, px, py float64) float64
 // robust seed for a foot-point aux variable, not an exact projection. It panics
 // with fewer than 2 fit points.
 func NearestParamFitSpline(fit [][2]float64, px, py float64) float64 {
-	if len(fit) < 2 {
-		panic(fmt.Sprintf("geom: fit-point spline needs at least 2 fit points, got %d", len(fit)))
-	}
+	requireMinPoints(len(fit), 2, "fit-point spline", "fit points")
 	e := newFitEvaluator(fit) // build once, reuse across samples
 	eval := func(t float64) (float64, float64) {
 		p := e.at(t)

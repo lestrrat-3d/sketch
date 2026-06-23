@@ -1926,7 +1926,7 @@ func conicF(u, alpha, k float64) float64 {
 // replaced by the exact integral. The walk direction (and thus the sign) is
 // carried by the order of pStart,pEnd, exactly like the arc/ellipse cases.
 func (s *source) splineBulge(pStart, pEnd, ax, ay, ex, ey float64) float64 {
-	return s.curveMoment(pStart, pEnd) + 0.5*(ex*ay-ax*ey)
+	return s.curveMoment(pStart, pEnd) + chordClosure(ax, ay, ex, ey)
 }
 
 // curveMoment returns the exact ½∫(x·y′ − y·x′) dt of a spline source over the
@@ -1936,53 +1936,31 @@ func (s *source) splineBulge(pStart, pEnd, ax, ay, ex, ey float64) float64 {
 // every interior breakpoint so no panel straddles a span boundary (where the
 // piecewise polynomial changes and the quadrature would no longer be exact).
 func (s *source) curveMoment(pStart, pEnd float64) float64 {
-	lo, hi, sign := pStart, pEnd, 1.0
-	if lo > hi {
-		lo, hi, sign = hi, lo, -1.0
-	}
 	// Every interior knot strictly inside (lo,hi) must become a panel boundary, or
 	// a panel would straddle a span boundary (where the piecewise polynomial
-	// changes) and the per-span Gauss–Legendre would no longer be exact. Use a
-	// strict open-interval test: a breakpoint coinciding with lo/hi is the boundary
-	// already, and an extra split that produces a tiny panel is harmless (the
-	// integrand is still a single polynomial there), but dropping a real knot is
-	// not. splineBreaks returns the knots in ascending order.
-	bounds := []float64{lo}
-	for _, b := range s.splineBreaks() {
-		if b > lo && b < hi {
-			bounds = append(bounds, b)
-		}
-	}
-	bounds = append(bounds, hi)
-	var moment float64
-	for i := 0; i+1 < len(bounds); i++ {
-		moment += s.gaussMoment(bounds[i], bounds[i+1])
-	}
-	return sign * moment
+	// changes) and the per-span Gauss–Legendre would no longer be exact. A
+	// breakpoint coinciding with lo/hi is the boundary already, and an extra split
+	// that produces a tiny panel is harmless (the integrand is still a single
+	// polynomial there), but dropping a real knot is not. splineBreaks returns the
+	// knots in ascending order; momentOverBreaks splits strictly inside (lo,hi).
+	return momentOverBreaks(pStart, pEnd, s.splineBreaks(), s.gaussMoment)
 }
 
-// gauss3 holds the 3-point Gauss–Legendre nodes/weights on [-1,1]; exact for
-// polynomials up to degree 5 (the degree of a cubic spline's area integrand).
-var gauss3 = struct {
-	nodes, weights [3]float64
-}{
-	nodes:   [3]float64{-0.7745966692414834, 0, 0.7745966692414834}, // ±√(3/5), 0
-	weights: [3]float64{5.0 / 9, 8.0 / 9, 5.0 / 9},
+// gauss3 holds the 3-point Gauss–Legendre rule on [-1,1]; exact for polynomials
+// up to degree 5 (the degree of a cubic spline's area integrand).
+var gauss3 = gaussRule{
+	nodes:   []float64{-0.7745966692414834, 0, 0.7745966692414834}, // ±√(3/5), 0
+	weights: []float64{5.0 / 9, 8.0 / 9, 5.0 / 9},
 }
 
 // gaussMoment integrates ½(x·y′ − y·x′) over a single panel [t0,t1] that lies
 // within one polynomial span, by 3-point Gauss–Legendre (exact there).
 func (s *source) gaussMoment(t0, t1 float64) float64 {
-	half := 0.5 * (t1 - t0)
-	mid := 0.5 * (t0 + t1)
-	var sum float64
-	for k := 0; k < 3; k++ {
-		t := mid + half*gauss3.nodes[k]
+	return gaussPanel(gauss3, t0, t1, func(t float64) float64 {
 		p := s.at(t)
 		d := s.derivAt(t)
-		sum += gauss3.weights[k] * 0.5 * (p[0]*d[1] - p[1]*d[0])
-	}
-	return sum * half
+		return 0.5 * (p[0]*d[1] - p[1]*d[0])
+	})
 }
 
 // splineBreaks returns the source's interior knot parameters in (0,1) — the
