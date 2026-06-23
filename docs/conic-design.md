@@ -44,7 +44,7 @@ type Conic struct {
 }
 ```
 
-`AddConic(start, apex, end *Point, rho float64) (*Conic, error)` — validates
+`CreateConic(start, apex, end *Point, rho float64) (*Conic, error)` — validates
 `rho ∈ (0,1)` (`ErrInvalidShape` otherwise) and allocates the rho var via
 `newVar` (like `Ellipse`'s rx/ry/rot). DOF of a free conic: 6 (three points) + 1
 (rho) = 7. Accessors: `Rho()`, `Start/Apex/End`, `Geometry()`. rho is a solver
@@ -122,7 +122,7 @@ cannot self-cross, so (like an arc) it is not its own self-crossing source.
 
 ## The integration sites (each a new `case`, mechanical — mirrors elliptical arc)
 
-- **sketch.go**: struct + `AddConic` + accessors; `localPolyline`,
+- **sketch.go**: struct + `CreateConic` + accessors; `localPolyline`,
   `entityPoints` (Start/Apex/End), `entitySizeVars` (rho).
 - **geom**: `Conic` type (geom.go) + `Eval`/`EvalDeriv`/`Polyline` (sample.go) +
   `Endpoints` (loops.go); arrangement `srcConic` + `at` + kind-assignment +
@@ -168,7 +168,7 @@ increment that can share this rational-curve evaluator.
 - SVG/PNG/DXF export contains it; DXF carries the `SPLINE` with weights `1,w,1`;
   world-space DXF round-trips the control points.
 - `FixEntity` grounds rho; `RemoveEntity` retires it.
-- `AddConic` rejects ρ ∉ (0,1) (`ErrInvalidShape`).
+- `CreateConic` rejects ρ ∉ (0,1) (`ErrInvalidShape`).
 - An executable `examples/` example with `// Output:`.
 
 ## Verification

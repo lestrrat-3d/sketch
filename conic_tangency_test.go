@@ -15,11 +15,11 @@ func TestTangentEllipseCircleExternal(t *testing.T) {
 	// ellipse's right vertex (4,0): the circle's left point (cx−3,0) meets it, so
 	// cx → 7.
 	s := newSketch(t)
-	ec := s.AddPoint(0, 0)
-	e := s.AddEllipse(ec, 4, 2, 0)
+	ec := s.CreatePoint(0, 0)
+	e := s.CreateEllipse(ec, 4, 2, 0)
 	s.FixEntity(e)
-	cc := s.AddPoint(10, 0)
-	c := s.AddCircle(cc, 3)
+	cc := s.CreatePoint(10, 0)
+	c := s.CreateCircle(cc, 3)
 	s.FixEntity(c)                                      // radius fixed
 	s.Unfix(cc)                                         // but let the center move
 	s.AddConstraint(sketch.NewHorizontalPoints(cc, ec)) // keep it on the x-axis
@@ -38,11 +38,11 @@ func TestTangentEllipseCircleInternal(t *testing.T) {
 	// ellipse's minimum curvature radius (ry²/rx = 2), so the vertex contact is the
 	// genuine single-point internal tangency.
 	s := newSketch(t)
-	ec := s.AddPoint(0, 0)
-	e := s.AddEllipse(ec, 8, 4, 0)
+	ec := s.CreatePoint(0, 0)
+	e := s.CreateEllipse(ec, 8, 4, 0)
 	s.FixEntity(e)
-	cc := s.AddPoint(6, 0)
-	c := s.AddCircle(cc, 1)
+	cc := s.CreatePoint(6, 0)
+	c := s.CreateCircle(cc, 1)
 	s.FixEntity(c)
 	s.Unfix(cc)
 	s.AddConstraint(sketch.NewHorizontalPoints(cc, ec))
@@ -57,11 +57,11 @@ func TestTangentEllipses(t *testing.T) {
 	// Two axis-aligned ellipses, the second sliding along x, forced externally
 	// tangent: e1 right vertex (4,0) meets e2 left vertex (cx−3,0), so cx → 7.
 	s := newSketch(t)
-	c1 := s.AddPoint(0, 0)
-	e1 := s.AddEllipse(c1, 4, 2, 0)
+	c1 := s.CreatePoint(0, 0)
+	e1 := s.CreateEllipse(c1, 4, 2, 0)
 	s.FixEntity(e1)
-	c2 := s.AddPoint(10, 0)
-	e2 := s.AddEllipse(c2, 3, 1.5, 0)
+	c2 := s.CreatePoint(10, 0)
+	e2 := s.CreateEllipse(c2, 3, 1.5, 0)
 	s.FixEntity(e2)
 	s.Unfix(c2)
 	s.AddConstraint(sketch.NewHorizontalPoints(c2, c1))
@@ -76,9 +76,9 @@ func TestTangentEllipseCircleSeparateRejected(t *testing.T) {
 	// Two rigid conics that are far apart cannot be made tangent (nothing is free
 	// to move them together); the oracle must report it unsolvable.
 	s := newSketch(t)
-	e := s.AddEllipse(s.AddPoint(0, 0), 4, 2, 0)
+	e := s.CreateEllipse(s.CreatePoint(0, 0), 4, 2, 0)
 	s.FixEntity(e)
-	c := s.AddCircle(s.AddPoint(100, 0), 3)
+	c := s.CreateCircle(s.CreatePoint(100, 0), 3)
 	s.FixEntity(c)
 	s.AddConstraint(sketch.NewTangentEllipseCircular(e, c, false))
 
@@ -94,9 +94,9 @@ func TestTangentConicsDegenerateRejected(t *testing.T) {
 	// so a sub-floor axis cannot be "solved" against a floored surrogate.
 	for _, rx := range []float64{0, 1e-7} { // exact zero, and inside the [1e-9,1e-6) band
 		s := newSketch(t)
-		e := s.AddEllipse(s.AddPoint(0, 0), rx, 2, 0)
+		e := s.CreateEllipse(s.CreatePoint(0, 0), rx, 2, 0)
 		s.FixEntity(e)
-		c := s.AddCircle(s.AddPoint(1+1e-6, 0), 1) // placed where the floored surrogate would falsely "touch"
+		c := s.CreateCircle(s.CreatePoint(1+1e-6, 0), 1) // placed where the floored surrogate would falsely "touch"
 		s.FixEntity(c)
 		s.AddConstraint(sketch.NewTangentEllipseCircular(e, c, false))
 
@@ -110,10 +110,10 @@ func TestTangentConicsDegenerateRejected(t *testing.T) {
 
 func TestTangentConicsDOFAndRemoval(t *testing.T) {
 	s := newSketch(t)
-	e := s.AddEllipse(s.AddPoint(0, 0), 4, 2, 0)
+	e := s.CreateEllipse(s.CreatePoint(0, 0), 4, 2, 0)
 	s.FixEntity(e)
-	cc := s.AddPoint(10, 0)
-	c := s.AddCircle(cc, 3)
+	cc := s.CreatePoint(10, 0)
+	c := s.CreateCircle(cc, 3)
 	s.FixEntity(c)
 	s.Unfix(cc) // a free circle center: 2 DOF
 	require.Equal(t, 2, s.DOF())
@@ -128,10 +128,10 @@ func TestTangentConicsDOFAndRemoval(t *testing.T) {
 
 func TestTangentConicsCheckConstraint(t *testing.T) {
 	s := newSketch(t)
-	e := s.AddEllipse(s.AddPoint(0, 0), 4, 2, 0)
+	e := s.CreateEllipse(s.CreatePoint(0, 0), 4, 2, 0)
 	s.FixEntity(e)
-	cc := s.AddPoint(10, 0)
-	c := s.AddCircle(cc, 3)
+	cc := s.CreatePoint(10, 0)
+	c := s.CreateCircle(cc, 3)
 	s.FixEntity(c)
 	s.Unfix(cc)
 	require.NoError(t, s.CheckConstraint(sketch.NewTangentEllipseCircular(e, c, false)))
@@ -139,11 +139,11 @@ func TestTangentConicsCheckConstraint(t *testing.T) {
 
 func TestTangentConicsRoundTrip(t *testing.T) {
 	s := newSketch(t)
-	ec := s.AddPoint(0, 0)
-	e := s.AddEllipse(ec, 4, 2, 0)
+	ec := s.CreatePoint(0, 0)
+	e := s.CreateEllipse(ec, 4, 2, 0)
 	s.FixEntity(e)
-	cc := s.AddPoint(10, 0)
-	c := s.AddCircle(cc, 3)
+	cc := s.CreatePoint(10, 0)
+	c := s.CreateCircle(cc, 3)
 	s.FixEntity(c)
 	s.Unfix(cc)
 	s.AddConstraint(sketch.NewHorizontalPoints(cc, ec))
@@ -168,9 +168,9 @@ func TestTangentConicsInternalExternalDistinct(t *testing.T) {
 	// satisfy an INTERNAL tangency request.
 	build := func(internal bool) *sketch.Sketch {
 		s := newSketch(t)
-		e := s.AddEllipse(s.AddPoint(0, 0), 4, 2, 0)
+		e := s.CreateEllipse(s.CreatePoint(0, 0), 4, 2, 0)
 		s.FixEntity(e)
-		c := s.AddCircle(s.AddPoint(7, 0), 3) // left point exactly at the (4,0) vertex
+		c := s.CreateCircle(s.CreatePoint(7, 0), 3) // left point exactly at the (4,0) vertex
 		s.FixEntity(c)
 		s.AddConstraint(sketch.NewTangentEllipseCircular(e, c, internal))
 		return s

@@ -15,11 +15,11 @@ import (
 func Example_sketch_probeConfigurations() {
 	w := sketch.NewWorld()
 	s, _ := w.CreateSketch(w.XY())
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
 	s.Fix(a)
 	s.Fix(b)
-	apex := s.AddPoint(5, 3) // seeded above the base
+	apex := s.CreatePoint(5, 3) // seeded above the base
 	d1 := sketch.NewDistance(a, apex, 8)
 	d2 := sketch.NewDistance(b, apex, 8)
 	s.AddConstraint(d1, d2)

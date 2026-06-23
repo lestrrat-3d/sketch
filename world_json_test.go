@@ -15,11 +15,11 @@ func TestWorldJSONRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	s, err := w.CreateSketch(off)
 	require.NoError(t, err)
-	s.AddPoint(3, 4)
+	s.CreatePoint(3, 4)
 	// A second sketch on the XZ datum, to exercise plane id references.
 	s2, err := w.CreateSketch(w.XZ())
 	require.NoError(t, err)
-	s2.AddPoint(1, 1)
+	s2.CreatePoint(1, 1)
 
 	data, err := json.Marshal(w)
 	require.NoError(t, err)
@@ -40,7 +40,7 @@ func TestWorldJSONFixedPoint(t *testing.T) {
 	require.NoError(t, err)
 	s, err := w.CreateSketch(off)
 	require.NoError(t, err)
-	s.AddPoint(1, 2)
+	s.CreatePoint(1, 2)
 
 	data1, err := json.Marshal(w)
 	require.NoError(t, err)
@@ -55,7 +55,7 @@ func TestStandaloneSketchPlaneRoundTrip(t *testing.T) {
 	w := sketch.NewWorld()
 	s, err := w.CreateSketch(w.XZ())
 	require.NoError(t, err)
-	s.AddPoint(1, 1)
+	s.CreatePoint(1, 1)
 	data, err := json.Marshal(s)
 	require.NoError(t, err)
 	require.Contains(t, string(data), `"kind":"sketch"`)
@@ -79,7 +79,7 @@ func TestSketchUnmarshalRejectsWorldDocument(t *testing.T) {
 
 func TestWorldUnmarshalRejectsSketchDocument(t *testing.T) {
 	s := newSketch(t)
-	s.AddPoint(0, 0)
+	s.CreatePoint(0, 0)
 	data, err := json.Marshal(s)
 	require.NoError(t, err)
 

@@ -12,11 +12,11 @@ import (
 // archSpline builds a fixed 4-control-point cubic B-spline arch and returns it
 // with its control points already grounded (a rigid curve to attach points to).
 func archSpline(s *sketch.Sketch) *sketch.Spline {
-	c0 := s.AddPoint(0, 0)
-	c1 := s.AddPoint(2, 4)
-	c2 := s.AddPoint(6, 4)
-	c3 := s.AddPoint(8, 0)
-	sp, err := s.AddSpline(c0, c1, c2, c3)
+	c0 := s.CreatePoint(0, 0)
+	c1 := s.CreatePoint(2, 4)
+	c2 := s.CreatePoint(6, 4)
+	c3 := s.CreatePoint(8, 0)
+	sp, err := s.CreateSpline(c0, c1, c2, c3)
 	if err != nil {
 		panic(err)
 	}
@@ -51,7 +51,7 @@ func distToSpline(p *sketch.Point, sp *sketch.Spline) float64 {
 func TestPointOnSpline(t *testing.T) {
 	s := newSketch(t)
 	sp := archSpline(s)
-	p := s.AddPoint(4, 1) // below the arch's interior; pulled up onto it
+	p := s.CreatePoint(4, 1) // below the arch's interior; pulled up onto it
 	s.AddConstraint(sketch.NewPointOnSpline(p, sp))
 
 	_, err := s.Solve()
@@ -66,7 +66,7 @@ func TestPointOnSplineConfinedToRange(t *testing.T) {
 	// past it — the slack box keeps the foot parameter within [0, 1].
 	s := newSketch(t)
 	sp := archSpline(s)
-	p := s.AddPoint(20, -5) // far past the (8,0) end
+	p := s.CreatePoint(20, -5) // far past the (8,0) end
 	s.AddConstraint(sketch.NewPointOnSpline(p, sp))
 
 	_, err := s.Solve()
@@ -80,7 +80,7 @@ func TestPointOnSplineConfinedToRange(t *testing.T) {
 func TestPointOnSplineDOFAndRemoval(t *testing.T) {
 	s := newSketch(t)
 	sp := archSpline(s) // control points fixed
-	p := s.AddPoint(4, 1)
+	p := s.CreatePoint(4, 1)
 	require.Equal(t, 2, s.DOF(), "the free point has two DOF")
 
 	con := sketch.NewPointOnSpline(p, sp)
@@ -94,7 +94,7 @@ func TestPointOnSplineDOFAndRemoval(t *testing.T) {
 func TestPointOnSplineCheckConstraint(t *testing.T) {
 	s := newSketch(t)
 	sp := archSpline(s)
-	p := s.AddPoint(4, 1)
+	p := s.CreatePoint(4, 1)
 	// Adding point-on-spline to a free point removes one DOF — it is not
 	// over-constraining, so the pre-commit probe must accept it.
 	require.NoError(t, s.CheckConstraint(sketch.NewPointOnSpline(p, sp)))
@@ -109,7 +109,7 @@ func TestPointOnSplineDuplicateIsHarmless(t *testing.T) {
 	// and keeps the one sliding DOF (both witnesses converge to the same foot).
 	s := newSketch(t)
 	sp := archSpline(s)
-	p := s.AddPoint(4, 1)
+	p := s.CreatePoint(4, 1)
 	s.AddConstraint(sketch.NewPointOnSpline(p, sp))
 	s.AddConstraint(sketch.NewPointOnSpline(p, sp))
 
@@ -122,7 +122,7 @@ func TestPointOnSplineDuplicateIsHarmless(t *testing.T) {
 func TestPointOnSplineRoundTrip(t *testing.T) {
 	s := newSketch(t)
 	sp := archSpline(s)
-	p := s.AddPoint(4, 1)
+	p := s.CreatePoint(4, 1)
 	s.AddConstraint(sketch.NewPointOnSpline(p, sp))
 	_, err := s.Solve()
 	require.NoError(t, err)

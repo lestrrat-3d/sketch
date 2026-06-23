@@ -14,7 +14,7 @@ currency:
 
 - The control points are ordinary sketch points. Committing a spline commits
   its control points exactly like a line commits its endpoints — they land in
-  the flat `vars` vector via the existing `AddPoint` path, the solver moves
+  the flat `vars` vector via the existing `CreatePoint` path, the solver moves
   them, `Fix` grounds them, `WithGoal` drags them, and every existing
   point-based constraint (coincident, distance, symmetric, …) applies to them
   with **zero new solver machinery**.
@@ -34,7 +34,7 @@ build time) that can layer on later without touching the solver.
 
 - `geom.Spline`: `Control []*Point`, `Construction bool`. Degree is fixed at
   3; `NewSpline(control ...*Point)` panics with fewer than 4 control points
-  (mirrors `AddPolygon`'s contract for invalid construction).
+  (mirrors `CreatePolygon`'s contract for invalid construction).
 - Knots: clamped uniform — `[0,0,0,0, 1/(n−3), …, (n−4)/(n−3), 1,1,1,1]` for
   n control points. Not stored; derived from n. (Custom knots/weights — NURBS
   — are out of scope.)
@@ -49,7 +49,7 @@ build time) that can layer on later without touching the solver.
   must evaluate at *solved* coordinates while `geom.Spline.Eval` uses template
   coordinates. `Polyline(segments int)` samples for rendering/bounds, like
   `arcPolyline`.
-- `sketch.Spline` via `AddSpline(g *geom.Spline)`: commits the control points
+- `sketch.Spline` via `CreateSpline(g *geom.Spline)`: commits the control points
   (idempotent, shared like all points), holds `Control []*Point` bound
   handles, exposes `Eval`/`Polyline` over solved coordinates. No new vars on
   the spline itself; no internal constraints. `Sketch` gains a
@@ -166,7 +166,7 @@ crossing can land on a sample vertex), so a self-intersecting cubic is flagged
 
 ## Closed (periodic) splines
 
-`ClosedSpline` (`AddClosedSpline`, ≥3 control points) is a separate entity from the
+`ClosedSpline` (`CreateClosedSpline`, ≥3 control points) is a separate entity from the
 open `Spline`: a smooth closed loop, C2 across the seam, over an **exact cyclic
 uniform cubic basis** — `geom.EvalPeriodicCubicBSpline` blends the four cyclic
 controls `P[i..i+3]` (indices mod n) per unit span with the standard uniform cubic
@@ -191,7 +191,7 @@ follow-up (they need periodic-witness handling, not the clamped `t∈[0,1]` box)
 
 ## Fit-point (interpolating) splines
 
-`FitSpline` (`AddFitSpline`, ≥2 fit points) is a separate entity whose curve passes
+`FitSpline` (`CreateFitSpline`, ≥2 fit points) is a separate entity whose curve passes
 *through* its fit points, unlike the control-point `Spline` whose polygon only
 approximates. The load-bearing decision is that the **fit points are the durable
 solver handles** (ordinary sketch points), and the interpolating curve is recomputed
@@ -231,6 +231,6 @@ points — real solver work, not just an overload).
   4-point case matches the closed-form cubic Bézier (a clamped cubic B-spline
   with exactly 4 control points *is* the Bézier — strong oracle).
 - `sketch`: control points respond to constraints (fix + dimension, solve,
-  assert solved `Eval` values); `AddSpline` idempotent; JSON round-trip
+  assert solved `Eval` values); `CreateSpline` idempotent; JSON round-trip
   (entity + control-point references, degree checked); SVG `<path>` present;
   DXF `SPLINE` present with correct counts.

@@ -16,13 +16,13 @@ func Example_sketch_fillet() {
 
 	// Vertical leg A(0,10)->corner; horizontal leg corner->B(10,0). The shared
 	// corner point is what makes the two legs meet.
-	a := s.AddPoint(0, 10)
-	corner := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
-	l1 := s.AddLine(a, corner)
-	l2 := s.AddLine(corner, b)
+	a := s.CreatePoint(0, 10)
+	corner := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
+	l1 := s.CreateLine(a, corner)
+	l2 := s.CreateLine(corner, b)
 
-	f, err := s.AddFillet(l1, l2, 3)
+	f, err := s.CreateFillet(l1, l2, 3)
 	if err != nil {
 		fmt.Printf("failed to fillet: %s\n", err)
 		return

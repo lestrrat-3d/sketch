@@ -47,7 +47,7 @@ func (sp *Spline) Geometry() *geom.Spline {
 	for i, p := range sp.Control {
 		ctrl[i] = p.Geometry()
 	}
-	// The control points are already validated (AddSpline requires >= 4), so
+	// The control points are already validated (CreateSpline requires >= 4), so
 	// build the snapshot directly rather than re-validating through NewSpline.
 	return &geom.Spline{Control: ctrl}
 }
@@ -55,7 +55,7 @@ func (sp *Spline) Geometry() *geom.Spline {
 // Eval returns the curve point at parameter t ∈ [0, 1] (clamped), using the
 // solved control-point coordinates.
 func (sp *Spline) Eval(t float64) (float64, float64) {
-	// control-point count is guaranteed >=4 by the Spline constructor (AddSpline).
+	// control-point count is guaranteed >=4 by the Spline constructor (CreateSpline).
 	x, y, _ := geom.EvalCubicBSpline(sp.controlCoords(), t)
 	return x, y
 }
@@ -74,16 +74,16 @@ func (sp *Spline) controlCoords() [][2]float64 {
 	return pts
 }
 
-// AddSpline adds a cubic B-spline over the given control points and returns its
+// CreateSpline adds a cubic B-spline over the given control points and returns its
 // handle. Share control points with other geometry to relate them. It returns
 // [ErrInvalidShape] with fewer than 4 control points.
-func (s *Sketch) AddSpline(control ...*Point) (*Spline, error) {
+func (s *Sketch) CreateSpline(control ...*Point) (*Spline, error) {
 	if len(control) < 4 {
-		return nil, fmt.Errorf("%w: AddSpline requires at least 4 control points, got %d", ErrInvalidShape, len(control))
+		return nil, fmt.Errorf("%w: CreateSpline requires at least 4 control points, got %d", ErrInvalidShape, len(control))
 	}
 	for i, p := range control {
 		if p == nil {
-			return nil, fmt.Errorf("%w: AddSpline control point %d is nil", ErrInvalidShape, i)
+			return nil, fmt.Errorf("%w: CreateSpline control point %d is nil", ErrInvalidShape, i)
 		}
 	}
 	sp := &Spline{s: s, Control: append([]*Point(nil), control...), id: len(s.ents)}
@@ -156,17 +156,17 @@ func (sp *ClosedSpline) controlCoords() [][2]float64 {
 	return pts
 }
 
-// AddClosedSpline adds a closed (periodic) cubic B-spline over the given control
+// CreateClosedSpline adds a closed (periodic) cubic B-spline over the given control
 // points and returns its handle. Share control points with other geometry to
 // relate them. It returns [ErrInvalidShape] with fewer than 3 control points or a
 // nil control point.
-func (s *Sketch) AddClosedSpline(control ...*Point) (*ClosedSpline, error) {
+func (s *Sketch) CreateClosedSpline(control ...*Point) (*ClosedSpline, error) {
 	if len(control) < 3 {
-		return nil, fmt.Errorf("%w: AddClosedSpline requires at least 3 control points, got %d", ErrInvalidShape, len(control))
+		return nil, fmt.Errorf("%w: CreateClosedSpline requires at least 3 control points, got %d", ErrInvalidShape, len(control))
 	}
 	for i, p := range control {
 		if p == nil {
-			return nil, fmt.Errorf("%w: AddClosedSpline control point %d is nil", ErrInvalidShape, i)
+			return nil, fmt.Errorf("%w: CreateClosedSpline control point %d is nil", ErrInvalidShape, i)
 		}
 	}
 	sp := &ClosedSpline{s: s, Control: append([]*Point(nil), control...), id: len(s.ents)}
@@ -240,17 +240,17 @@ func (sp *FitSpline) fitCoords() [][2]float64 {
 	return pts
 }
 
-// AddFitSpline adds a fit-point (interpolating) cubic spline through the given fit
+// CreateFitSpline adds a fit-point (interpolating) cubic spline through the given fit
 // points and returns its handle. The curve passes through every fit point; share
 // fit points with other geometry to relate them. It returns [ErrInvalidShape] with
 // fewer than 2 fit points or a nil fit point.
-func (s *Sketch) AddFitSpline(fit ...*Point) (*FitSpline, error) {
+func (s *Sketch) CreateFitSpline(fit ...*Point) (*FitSpline, error) {
 	if len(fit) < 2 {
-		return nil, fmt.Errorf("%w: AddFitSpline requires at least 2 fit points, got %d", ErrInvalidShape, len(fit))
+		return nil, fmt.Errorf("%w: CreateFitSpline requires at least 2 fit points, got %d", ErrInvalidShape, len(fit))
 	}
 	for i, p := range fit {
 		if p == nil {
-			return nil, fmt.Errorf("%w: AddFitSpline fit point %d is nil", ErrInvalidShape, i)
+			return nil, fmt.Errorf("%w: CreateFitSpline fit point %d is nil", ErrInvalidShape, i)
 		}
 	}
 	sp := &FitSpline{s: s, Fit: append([]*Point(nil), fit...), id: len(s.ents)}

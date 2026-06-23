@@ -23,11 +23,11 @@ func Example_sketch_units() {
 	// A dimension carries a unit; internally the solver stays in millimetres.
 	world := sketch.NewWorld()
 	s, _ := world.CreateSketch(world.XY())
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(50, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(50, 0)
 	a.MoveTo(0, 0)
 	s.Fix(a)
-	s.AddConstraint(sketch.NewHorizontal(s.AddLine(a, b)))
+	s.AddConstraint(sketch.NewHorizontal(s.CreateLine(a, b)))
 
 	d := sketch.NewDistance(a, b, 0)
 	s.AddConstraint(d)

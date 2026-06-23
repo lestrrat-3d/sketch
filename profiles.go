@@ -117,7 +117,7 @@ func (s *Sketch) buildProfiles() ([]*Profile, bool, [][2]float64) {
 			// pointer identity, exactly like a line's endpoints.
 			ctrl := make([]*geom.Point, len(t.Control))
 			for i, cp := range t.Control {
-				if cp != nil { // AddSpline rejects nil; stay panic-safe regardless
+				if cp != nil { // CreateSpline rejects nil; stay panic-safe regardless
 					ctrl[i] = pt(cp)
 				}
 			}
@@ -141,7 +141,7 @@ func (s *Sketch) buildProfiles() ([]*Profile, bool, [][2]float64) {
 			// identity. Degree/knots/weights are the entity's stored structural data.
 			ctrl := make([]*geom.Point, len(t.Control))
 			for i, cp := range t.Control {
-				if cp != nil { // AddNURBS rejects nil; stay panic-safe regardless
+				if cp != nil { // CreateNURBS rejects nil; stay panic-safe regardless
 					ctrl[i] = pt(cp)
 				}
 			}

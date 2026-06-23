@@ -359,7 +359,7 @@ func (c *pointOnSpline) allocVars(s *Sketch) {
 	if c.tvar >= 0 {
 		return // idempotent: re-adding the handle must not leak fresh aux vars
 	}
-	// control-point count is guaranteed >=4 by the Spline constructor (AddSpline).
+	// control-point count is guaranteed >=4 by the Spline constructor (CreateSpline).
 	t, _ := geom.NearestParamCubicBSpline(c.Sp.controlCoords(), c.P.x(), c.P.y())
 	allocBoxParam(s, t, &c.tvar, &c.w0, &c.w1)
 }
@@ -1793,7 +1793,7 @@ func sampsonEllipse(px, py, cx, cy, rx, ry, rot float64) float64 {
 func NewPointOnEllipse(p *Point, e *Ellipse) Constraint { return &pointOnEllipse{p, e} }
 
 // ellipticalArcOn is the internal constraint auto-added (twice) by
-// AddEllipticalArc that pins a boundary point onto the arc's ellipse via the
+// CreateEllipticalArc that pins a boundary point onto the arc's ellipse via the
 // Sampson residual. It is not serialized — recreated by the constructor on load.
 type ellipticalArcOn struct {
 	ea *EllipticalArc

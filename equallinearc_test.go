@@ -13,18 +13,18 @@ func TestEqualLineArc(t *testing.T) {
 	// A free horizontal line is forced to equal the swept length of a fixed
 	// quarter arc (R=4, sweep π/2 → length 2π), so the line grows to 2π.
 	s := newSketch(t)
-	ac := s.AddPoint(0, 0)
-	astart := s.AddPoint(4, 0)
-	aend := s.AddPoint(0, 4)
+	ac := s.CreatePoint(0, 0)
+	astart := s.CreatePoint(4, 0)
+	aend := s.CreatePoint(0, 4)
 	s.Fix(ac)
 	s.Fix(astart)
 	s.Fix(aend)
-	arc := s.AddArc(ac, astart, aend)
+	arc := s.CreateArc(ac, astart, aend)
 
-	p1 := s.AddPoint(0, -1)
-	p2 := s.AddPoint(10, -1)
+	p1 := s.CreatePoint(0, -1)
+	p2 := s.CreatePoint(10, -1)
 	s.Fix(p1)
-	line := s.AddLine(p1, p2)
+	line := s.CreateLine(p1, p2)
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewEqualLineArc(line, arc))
 
@@ -39,18 +39,18 @@ func TestEqualLineArcDrivesArcBeyondPi(t *testing.T) {
 	// the swept length 2·sweep must reach 3π, so the sweep settles at 3π/2 — the
 	// branch the unwrapped-sweep variable exists to reach.
 	s := newSketch(t)
-	p1 := s.AddPoint(0, 10)
-	p2 := s.AddPoint(3*math.Pi, 10)
+	p1 := s.CreatePoint(0, 10)
+	p2 := s.CreatePoint(3*math.Pi, 10)
 	s.Fix(p1)
 	s.Fix(p2) // a rigid line of length 3π
-	line := s.AddLine(p1, p2)
+	line := s.CreateLine(p1, p2)
 
-	ac := s.AddPoint(0, 0)
-	astart := s.AddPoint(2, 0)
+	ac := s.CreatePoint(0, 0)
+	astart := s.CreatePoint(2, 0)
 	s.Fix(ac)
-	s.Fix(astart)            // R=2, start ray at angle 0
-	aend := s.AddPoint(0, 2) // sweep π/2 initially
-	arc := s.AddArc(ac, astart, aend)
+	s.Fix(astart)               // R=2, start ray at angle 0
+	aend := s.CreatePoint(0, 2) // sweep π/2 initially
+	arc := s.CreateArc(ac, astart, aend)
 	s.AddConstraint(sketch.NewEqualLineArc(line, arc))
 
 	_, err := s.Solve()
@@ -65,18 +65,18 @@ func TestEqualLineArcOverLengthRejected(t *testing.T) {
 	// not bless it via a multi-turn parameterization. Here R=2 (max length 4π) and
 	// the line is 5π, with everything fixed.
 	s := newSketch(t)
-	ac := s.AddPoint(0, 0)
-	astart := s.AddPoint(2, 0)
-	aend := s.AddPoint(0, 2) // quarter arc, length π
+	ac := s.CreatePoint(0, 0)
+	astart := s.CreatePoint(2, 0)
+	aend := s.CreatePoint(0, 2) // quarter arc, length π
 	s.Fix(ac)
 	s.Fix(astart)
 	s.Fix(aend)
-	arc := s.AddArc(ac, astart, aend)
-	p1 := s.AddPoint(0, 10)
-	p2 := s.AddPoint(5*math.Pi, 10) // line length 5π > 2πR = 4π
+	arc := s.CreateArc(ac, astart, aend)
+	p1 := s.CreatePoint(0, 10)
+	p2 := s.CreatePoint(5*math.Pi, 10) // line length 5π > 2πR = 4π
 	s.Fix(p1)
 	s.Fix(p2)
-	s.AddConstraint(sketch.NewEqualLineArc(s.AddLine(p1, p2), arc))
+	s.AddConstraint(sketch.NewEqualLineArc(s.CreateLine(p1, p2), arc))
 
 	_, err := s.Solve()
 	require.ErrorIs(t, err, sketch.ErrNotConverged)
@@ -85,18 +85,18 @@ func TestEqualLineArcOverLengthRejected(t *testing.T) {
 
 func TestEqualLineArcDOFAndRemoval(t *testing.T) {
 	s := newSketch(t)
-	ac := s.AddPoint(0, 0)
-	astart := s.AddPoint(4, 0)
-	aend := s.AddPoint(0, 4)
+	ac := s.CreatePoint(0, 0)
+	astart := s.CreatePoint(4, 0)
+	aend := s.CreatePoint(0, 4)
 	s.Fix(ac)
 	s.Fix(astart)
 	s.Fix(aend)
-	arc := s.AddArc(ac, astart, aend)
+	arc := s.CreateArc(ac, astart, aend)
 
-	p1 := s.AddPoint(0, -1)
-	p2 := s.AddPoint(10, -1)
+	p1 := s.CreatePoint(0, -1)
+	p2 := s.CreatePoint(10, -1)
 	s.Fix(p1)
-	line := s.AddLine(p1, p2)
+	line := s.CreateLine(p1, p2)
 	s.AddConstraint(sketch.NewHorizontal(line))
 	require.Equal(t, 1, s.DOF(), "the horizontal line's free end slides along x")
 
@@ -110,17 +110,17 @@ func TestEqualLineArcDOFAndRemoval(t *testing.T) {
 
 func TestEqualLineArcRoundTrip(t *testing.T) {
 	s := newSketch(t)
-	ac := s.AddPoint(0, 0)
-	astart := s.AddPoint(4, 0)
-	aend := s.AddPoint(0, 4)
+	ac := s.CreatePoint(0, 0)
+	astart := s.CreatePoint(4, 0)
+	aend := s.CreatePoint(0, 4)
 	s.Fix(ac)
 	s.Fix(astart)
 	s.Fix(aend)
-	arc := s.AddArc(ac, astart, aend)
-	p1 := s.AddPoint(0, -1)
-	p2 := s.AddPoint(10, -1)
+	arc := s.CreateArc(ac, astart, aend)
+	p1 := s.CreatePoint(0, -1)
+	p2 := s.CreatePoint(10, -1)
 	s.Fix(p1)
-	line := s.AddLine(p1, p2)
+	line := s.CreateLine(p1, p2)
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewEqualLineArc(line, arc))
 	_, err := s.Solve()

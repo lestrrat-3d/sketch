@@ -13,10 +13,10 @@ import (
 // quarterCircleControl returns the three control points + weights + knots of the
 // classic rational quadratic NURBS that traces an exact unit quarter circle.
 func quarterCircleNURBS(t *testing.T, s *sketch.Sketch) *sketch.NURBS {
-	p0 := s.AddPoint(1, 0)
-	p1 := s.AddPoint(1, 1)
-	p2 := s.AddPoint(0, 1)
-	c, err := s.AddNURBS(2, []*sketch.Point{p0, p1, p2},
+	p0 := s.CreatePoint(1, 0)
+	p1 := s.CreatePoint(1, 1)
+	p2 := s.CreatePoint(0, 1)
+	c, err := s.CreateNURBS(2, []*sketch.Point{p0, p1, p2},
 		[]float64{1, 1 / math.Sqrt2, 1}, []float64{0, 0, 0, 1, 1, 1})
 	require.NoError(t, err)
 	return c
@@ -52,8 +52,8 @@ func TestNURBSAddAndAccessors(t *testing.T) {
 
 func TestNURBSNonRationalDefaultWeights(t *testing.T) {
 	s := newSketch(t)
-	p := []*sketch.Point{s.AddPoint(0, 0), s.AddPoint(1, 2), s.AddPoint(3, -1), s.AddPoint(5, 1)}
-	c, err := s.AddNURBS(3, p, nil, sketch.ClampedUniformKnots(4, 3))
+	p := []*sketch.Point{s.CreatePoint(0, 0), s.CreatePoint(1, 2), s.CreatePoint(3, -1), s.CreatePoint(5, 1)}
+	c, err := s.CreateNURBS(3, p, nil, sketch.ClampedUniformKnots(4, 3))
 	require.NoError(t, err)
 	require.False(t, c.Rational(), "nil weights → all 1 → non-rational")
 	require.Equal(t, []float64{1, 1, 1, 1}, c.Weights())
@@ -64,7 +64,7 @@ func TestNURBSValidation(t *testing.T) {
 	p := func(n int) []*sketch.Point {
 		out := make([]*sketch.Point, n)
 		for i := range out {
-			out[i] = s.AddPoint(float64(i), 0)
+			out[i] = s.CreatePoint(float64(i), 0)
 		}
 		return out
 	}
@@ -88,17 +88,17 @@ func TestNURBSValidation(t *testing.T) {
 		{"empty domain", 2, p(3), nil, []float64{0, 0, 0, 0, 0, 0}},
 	}
 	for _, tc := range cases {
-		_, err := s.AddNURBS(tc.degree, tc.control, tc.weights, tc.knots)
+		_, err := s.CreateNURBS(tc.degree, tc.control, tc.weights, tc.knots)
 		require.ErrorIsf(t, err, sketch.ErrInvalidShape, "%s rejected", tc.name)
 	}
 
 	// A nil control point is rejected, not a deferred panic.
 	good := p(3)
-	_, err := s.AddNURBS(2, []*sketch.Point{good[0], nil, good[2]}, nil, []float64{0, 0, 0, 1, 1, 1})
+	_, err := s.CreateNURBS(2, []*sketch.Point{good[0], nil, good[2]}, nil, []float64{0, 0, 0, 1, 1, 1})
 	require.ErrorIs(t, err, sketch.ErrInvalidShape, "nil control point rejected")
 
 	// A well-formed curve is accepted.
-	_, err = s.AddNURBS(2, p(3), nil, []float64{0, 0, 0, 1, 1, 1})
+	_, err = s.CreateNURBS(2, p(3), nil, []float64{0, 0, 0, 1, 1, 1})
 	require.NoError(t, err)
 }
 
@@ -106,8 +106,8 @@ func TestNURBSFreeDOF(t *testing.T) {
 	// A free NURBS has DOF 2·(n+1) — only its control points are unknowns; degree,
 	// knots and weights are stored structural data, not solver vars.
 	s := newSketch(t)
-	p := []*sketch.Point{s.AddPoint(1, 0), s.AddPoint(1, 1), s.AddPoint(0, 1)}
-	_, err := s.AddNURBS(2, p, []float64{1, 1 / math.Sqrt2, 1}, []float64{0, 0, 0, 1, 1, 1})
+	p := []*sketch.Point{s.CreatePoint(1, 0), s.CreatePoint(1, 1), s.CreatePoint(0, 1)}
+	_, err := s.CreateNURBS(2, p, []float64{1, 1 / math.Sqrt2, 1}, []float64{0, 0, 0, 1, 1, 1})
 	require.NoError(t, err)
 	require.Equal(t, 6, s.DOF(), "3 control points × 2 = 2(n+1), no weight/knot vars")
 
@@ -115,9 +115,9 @@ func TestNURBSFreeDOF(t *testing.T) {
 	s2 := newSketch(t)
 	p2 := make([]*sketch.Point, 5)
 	for i := range p2 {
-		p2[i] = s2.AddPoint(float64(i), float64(i%2))
+		p2[i] = s2.CreatePoint(float64(i), float64(i%2))
 	}
-	_, err = s2.AddNURBS(3, p2, nil, sketch.ClampedUniformKnots(5, 3))
+	_, err = s2.CreateNURBS(3, p2, nil, sketch.ClampedUniformKnots(5, 3))
 	require.NoError(t, err)
 	require.Equal(t, 10, s2.DOF(), "5 control points × 2")
 }
@@ -126,9 +126,9 @@ func TestNURBSProfileParticipation(t *testing.T) {
 	s := newSketch(t)
 	c := quarterCircleNURBS(t, s)
 	// Close the loop back to the origin with two lines.
-	o := s.AddPoint(0, 0)
-	s.AddLine(c.Control[2], o) // (0,1) → origin
-	s.AddLine(o, c.Control[0]) // origin → (1,0)
+	o := s.CreatePoint(0, 0)
+	s.CreateLine(c.Control[2], o) // (0,1) → origin
+	s.CreateLine(o, c.Control[0]) // origin → (1,0)
 
 	profiles := s.Profiles()
 	require.Len(t, profiles, 1, "NURBS + two chords bound one region")
@@ -141,13 +141,13 @@ func TestNURBSSelfIntersectingFlagged(t *testing.T) {
 	// A cubic NURBS whose control polygon loops crosses itself; closed by a chord it
 	// is a self-intersecting boundary the oracle must NOT bless.
 	s := newSketch(t)
-	p0 := s.AddPoint(0, 0)
-	p1 := s.AddPoint(-4.0/3.0, -5.0/12.0)
-	p2 := s.AddPoint(-4.0/3.0, -3.0/2.0)
-	p3 := s.AddPoint(0, 3.0/4.0)
-	_, err := s.AddNURBS(3, []*sketch.Point{p0, p1, p2, p3}, nil, sketch.ClampedUniformKnots(4, 3))
+	p0 := s.CreatePoint(0, 0)
+	p1 := s.CreatePoint(-4.0/3.0, -5.0/12.0)
+	p2 := s.CreatePoint(-4.0/3.0, -3.0/2.0)
+	p3 := s.CreatePoint(0, 3.0/4.0)
+	_, err := s.CreateNURBS(3, []*sketch.Point{p0, p1, p2, p3}, nil, sketch.ClampedUniformKnots(4, 3))
 	require.NoError(t, err)
-	s.AddLine(p3, p0)
+	s.CreateLine(p3, p0)
 
 	rep := s.Verify()
 	require.False(t, rep.ProfilesValid, "a self-intersecting NURBS loop is not valid")
@@ -165,9 +165,9 @@ func TestNURBSConstructionExcluded(t *testing.T) {
 	s := newSketch(t)
 	c := quarterCircleNURBS(t, s)
 	c.SetConstruction(true)
-	o := s.AddPoint(0, 0)
-	s.AddLine(c.Control[2], o)
-	s.AddLine(o, c.Control[0])
+	o := s.CreatePoint(0, 0)
+	s.CreateLine(c.Control[2], o)
+	s.CreateLine(o, c.Control[0])
 	require.Empty(t, s.Profiles(), "a construction NURBS bounds no reported profile")
 }
 
@@ -249,7 +249,7 @@ func TestNURBSDXFRationalRoundTrip(t *testing.T) {
 	s2 := newSketch(t)
 	ctrl := make([]*sketch.Point, 3)
 	for i := range ctrl {
-		ctrl[i] = s2.AddPoint(mustFloat(t, xs[i]), mustFloat(t, ys[i]))
+		ctrl[i] = s2.CreatePoint(mustFloat(t, xs[i]), mustFloat(t, ys[i]))
 	}
 	w := make([]float64, 3)
 	for i := range w {
@@ -259,7 +259,7 @@ func TestNURBSDXFRationalRoundTrip(t *testing.T) {
 	for i := range k {
 		k[i] = mustFloat(t, knots[i])
 	}
-	rebuilt, err := s2.AddNURBS(2, ctrl, w, k)
+	rebuilt, err := s2.CreateNURBS(2, ctrl, w, k)
 	require.NoError(t, err)
 	for i := 0; i <= 16; i++ {
 		u := float64(i) / 16
@@ -270,8 +270,8 @@ func TestNURBSDXFRationalRoundTrip(t *testing.T) {
 
 func TestNURBSNonRationalDXFFlag(t *testing.T) {
 	s := newSketch(t)
-	p := []*sketch.Point{s.AddPoint(0, 0), s.AddPoint(1, 2), s.AddPoint(3, -1), s.AddPoint(5, 1)}
-	_, err := s.AddNURBS(3, p, nil, sketch.ClampedUniformKnots(4, 3))
+	p := []*sketch.Point{s.CreatePoint(0, 0), s.CreatePoint(1, 2), s.CreatePoint(3, -1), s.CreatePoint(5, 1)}
+	_, err := s.CreateNURBS(3, p, nil, sketch.ClampedUniformKnots(4, 3))
 	require.NoError(t, err)
 
 	dxf, err := s.DXF()

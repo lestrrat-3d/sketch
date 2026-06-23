@@ -15,11 +15,11 @@ separation contract — see `docs/verification-roadmap.md`.
 
 **Missing**, roughly in order of how often Fusion users reach for them:
 
-- ~~**Ellipse**~~ — *closed*: `geom.NewEllipse`/`AddEllipse` with a
+- ~~**Ellipse**~~ — *closed*: `geom.NewEllipse`/`CreateEllipse` with a
   center point plus semi-axis/rotation unknowns, `NewPointOnEllipse`
   (Sampson-normalized residual), `NewSemiMajor`/`NewSemiMinor`/
   `NewEllipseRotation` dimensions, JSON/SVG/DXF support.
-- ~~**Elliptical arc**~~ — *closed (geometry primitive)*: `AddEllipticalArc`
+- ~~**Elliptical arc**~~ — *closed (geometry primitive)*: `CreateEllipticalArc`
   (center + start/end points + rx/ry/rotation vars), with two internal
   on-ellipse constraints pinning the endpoints (Sampson residual);
   eccentric-angle `Sweep`, `geom.EllipticalArc` sampling, profile/arrangement
@@ -45,7 +45,7 @@ separation contract — see `docs/verification-roadmap.md`.
   arc is rejected). Still open (follow-ups): the conic–conic shared-endpoint
   branch, reference elliptical arcs, and trim/split.
 - ~~**Splines**~~ — *v1 closed*: control-point clamped cubic
-  B-splines (`geom.NewSpline`/`AddSpline`); control points are ordinary
+  B-splines (`geom.NewSpline`/`CreateSpline`); control points are ordinary
   sketch points, so constraints/dimensions/goals reshape the curve with no
   new solver machinery (design: `docs/spline-design.md`). **Point-on-spline**
   (`NewPointOnSpline`) is in: the existential `P=S(t)` with the foot parameter
@@ -55,12 +55,12 @@ separation contract — see `docs/verification-roadmap.md`.
   (`NewTangentToSpline`) is in too: the same bounded contact-`t`, with
   contact-on-carrier-line + parallel-to-analytic-`S'(t)` rows and a scale-relative
   no-cusp guard. Still open: fit-point splines, closed/periodic splines.
-- ~~**Slot** (straight)~~ — *closed*: `AddSlot` (two arcs + two flanks;
+- ~~**Slot** (straight)~~ — *closed*: `CreateSlot` (two arcs + two flanks;
   equal cap radii + perpendicular construction spokes at the contact points —
   perpendicularity implies tangency *and* pins the contact point, which a plain
   tangent constraint does not). Arc slot still open.
-- ~~**Rectangle / polygon constructors**~~ — *closed*: `AddRectangle`
-  (H/V constraints) and `AddPolygon` (equal sides + equal construction spokes).
+- ~~**Rectangle / polygon constructors**~~ — *closed*: `CreateRectangle`
+  (H/V constraints) and `CreatePolygon` (equal sides + equal construction spokes).
 - **Construction geometry flag** — already existed (`.Construction` on any
   entity; rendered dashed, separate DXF layer).
 
@@ -147,18 +147,18 @@ toolkit + `RemoveEntity`); offset added a new `Offset` constraint. Design in
   `LineCircleIntersections`, `CircleCircleIntersections`, arc variants,
   `SplitLineAt`/`SplitArcAt`, `ClosestPointOnLine` — plus the sketch-level
   replace tools).
-- **Offset** — *closed*: `AddOffset` offsets a chain at a signed
+- **Offset** — *closed*: `CreateOffset` offsets a chain at a signed
   distance; the new `Offset` constraint keeps each segment parallel at distance
   d and mitres shared corners at the offset intersection, so editing
   `OffsetGroup.Set(d)` moves the copy. (Arc/concentric chain offset still open.)
-- **Fillet / chamfer** — *closed*: `AddFillet` / `AddChamfer` on
+- **Fillet / chamfer** — *closed*: `CreateFillet` / `CreateChamfer` on
   committed corners (arc/cut + tangency/coincidence + editable radius/setback
   dimensions), wrapping the `geom.Fillet`/`geom.Chamfer` template helpers.
-- **Mirror** — *closed*: `AddMirror` creates mirrored copies *with
+- **Mirror** — *closed*: `CreateMirror` creates mirrored copies *with
   symmetric constraints attached* (plus equal-radius for circles) so they stay
   linked.
-- **Rectangular / circular patterns** — *closed*: `AddPatternRect` /
-  `AddPatternCircular` create copies rigidly tied to the seed by distance /
+- **Rectangular / circular patterns** — *closed*: `CreatePatternRect` /
+  `CreatePatternCircular` create copies rigidly tied to the seed by distance /
   construction-spoke constraints, so the field follows the seed. (A single
   shared-parameter spacing knob is a recorded follow-up.)
 - ~~**Project / intersect**~~ — the *representation* is in: **reference
@@ -213,7 +213,7 @@ for tighter tolerance on near-tangencies.
 ## Suggested priority order
 
 1. ~~**Rectangle/polygon/slot compound constructors**~~ — *done*
-   (`AddRectangle`/`AddPolygon`/`AddSlot` in `compound.go`).
+   (`CreateRectangle`/`CreatePolygon`/`CreateSlot` in `compound.go`).
 2. ~~**Tangent/equal coverage for arcs + point↔line and line↔line distance
    dimensions**~~ — *done*.
 3. ~~**Driven dimensions**~~ — *done*.

@@ -12,11 +12,11 @@ import (
 func Example_sketch_goal() {
 	w := sketch.NewWorld()
 	s, _ := w.CreateSketch(w.XY())
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(2, 2)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(2, 2)
 	a.MoveTo(0, 0)
 	s.Fix(a)
-	l := s.AddLine(a, b)
+	l := s.CreateLine(a, b)
 	s.AddConstraint(sketch.NewHorizontal(l)) // b must stay on the x-axis (y = 0)
 
 	// Drag b toward (7, 5). The horizontal constraint pins y to 0; the goal is

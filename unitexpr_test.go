@@ -16,8 +16,8 @@ import (
 func boundWidth(t *testing.T, expr string) (*sketch.Sketch, *sketch.Distance) {
 	t.Helper()
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(80, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(80, 0)
 	s.Fix(a)
 	d := sketch.NewDistance(a, b, 80)
 	s.AddConstraint(d)
@@ -78,8 +78,8 @@ func TestUnitExprSmuggledAngleRejected(t *testing.T) {
 	// by an angle expression must not pass: the angle would otherwise drive the
 	// length dimension undetected.
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(80, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(80, 0)
 	s.Fix(a)
 	d := sketch.NewDistance(a, b, 80)
 	s.AddConstraint(d)

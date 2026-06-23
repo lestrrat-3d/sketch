@@ -11,8 +11,8 @@ func TestRankMarginHealthy(t *testing.T) {
 	// A point pinned by orthogonal horizontal + vertical distances: the rank
 	// decision rests on well-separated, O(1) pivots.
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(3, 1)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(3, 1)
 	s.Fix(a)
 	s.AddConstraint(sketch.NewHorizontalDistance(a, b, 10))
 	s.AddConstraint(sketch.NewVerticalDistance(a, b, 5))
@@ -34,16 +34,16 @@ func TestRankMarginNearSingularFlagged(t *testing.T) {
 	// gate now refuses to bless it: Trustworthy is false because the constraint
 	// system is numerically near-singular, even though nothing structural is wrong.
 	s := newSketch(t)
-	o1 := s.AddPoint(0, 0)
-	e1 := s.AddPoint(1, 0)
-	o2 := s.AddPoint(0, 0)
-	e2 := s.AddPoint(1, 1e-6) // ≈1e-6 rad from line 1
+	o1 := s.CreatePoint(0, 0)
+	e1 := s.CreatePoint(1, 0)
+	o2 := s.CreatePoint(0, 0)
+	e2 := s.CreatePoint(1, 1e-6) // ≈1e-6 rad from line 1
 	for _, p := range []*sketch.Point{o1, e1, o2, e2} {
 		s.Fix(p)
 	}
-	l1 := s.AddLine(o1, e1)
-	l2 := s.AddLine(o2, e2)
-	p := s.AddPoint(0, 0) // the intersection
+	l1 := s.CreateLine(o1, e1)
+	l2 := s.CreateLine(o2, e2)
+	p := s.CreatePoint(0, 0) // the intersection
 	s.AddConstraint(sketch.NewPointOnLine(p, l1))
 	s.AddConstraint(sketch.NewPointOnLine(p, l2))
 	_, err := s.Solve()
@@ -66,12 +66,12 @@ func TestRankMarginExactRedundancyNotRediscovered(t *testing.T) {
 	// machinery. The rank-margin signal is about MARGINAL pivots, not exact
 	// redundancy, so it should report well-separated (the accepted pivot is O(1)).
 	s := newSketch(t)
-	o := s.AddPoint(0, 0)
-	e := s.AddPoint(10, 0)
+	o := s.CreatePoint(0, 0)
+	e := s.CreatePoint(10, 0)
 	s.Fix(o)
 	s.Fix(e)
-	l := s.AddLine(o, e)
-	p := s.AddPoint(4, 0)
+	l := s.CreateLine(o, e)
+	p := s.CreatePoint(4, 0)
 	s.AddConstraint(sketch.NewPointOnLine(p, l))
 	s.AddConstraint(sketch.NewPointOnLine(p, l)) // exact duplicate
 	_, err := s.Solve()

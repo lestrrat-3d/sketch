@@ -26,7 +26,7 @@ Every mutating tool follows one pattern:
 2. Compute the replacement with the `geom` math toolkit.
 3. Build the new geometry from **sketch points**: reuse the originals'
    surviving `*sketch.Point` handles wherever a vertex must stay shared (so
-   neighbouring geometry stays attached), and `s.AddPoint` only the genuinely
+   neighbouring geometry stays attached), and `s.CreatePoint` only the genuinely
    new vertices (split points, fillet contacts). Attach the holding
    constraints, then retire the originals with `RemoveEntity`/`RemovePoint`.
 
@@ -50,8 +50,8 @@ re-apply entity constraints. Constraint transfer is left to the UI layer.
 ## Naming
 
 `Add…` (returns a non-serialized grouping handle, like `compound.go`) for tools
-that **commit new geometry**: `AddFillet`, `AddChamfer`, `AddMirror`,
-`AddPatternRect`, `AddPatternCircular`, `AddOffset`. Bare verbs for tools that
+that **commit new geometry**: `CreateFillet`, `CreateChamfer`, `CreateMirror`,
+`CreatePatternRect`, `CreatePatternCircular`, `CreateOffset`. Bare verbs for tools that
 **shorten/remove**: `Trim`, `Extend`, `Break`.
 
 ## API
@@ -63,14 +63,14 @@ func (s *Sketch) Trim(l *Line, x, y float64) (*Line, bool)
 func (s *Sketch) Extend(l *Line, end *Point) (*Line, bool)
 
 // Corner tools: arc/cut + tangency/coincidence + editable dimension.
-func (s *Sketch) AddFillet(l1, l2 *Line, r float64) (*Fillet, error)
-func (s *Sketch) AddChamfer(l1, l2 *Line, d float64) (*Chamfer, error)
+func (s *Sketch) CreateFillet(l1, l2 *Line, r float64) (*Fillet, error)
+func (s *Sketch) CreateChamfer(l1, l2 *Line, d float64) (*Chamfer, error)
 
 // Copy tools: copies linked to the seed by constraints.
-func (s *Sketch) AddMirror(ents []Entity, axis *Line) *Mirror
-func (s *Sketch) AddPatternRect(ents []Entity, nx, ny int, dx, dy float64) (*Pattern, error)
-func (s *Sketch) AddPatternCircular(ents []Entity, center *Point, n int) (*Pattern, error)
-func (s *Sketch) AddOffset(ents []Entity, d float64) (*OffsetGroup, error)
+func (s *Sketch) CreateMirror(ents []Entity, axis *Line) *Mirror
+func (s *Sketch) CreatePatternRect(ents []Entity, nx, ny int, dx, dy float64) (*Pattern, error)
+func (s *Sketch) CreatePatternCircular(ents []Entity, center *Point, n int) (*Pattern, error)
+func (s *Sketch) CreateOffset(ents []Entity, d float64) (*OffsetGroup, error)
 ```
 
 ## Mechanics per tool
@@ -104,12 +104,12 @@ func (s *Sketch) AddOffset(ents []Entity, d float64) (*OffsetGroup, error)
   copy point to its source with `NewHorizontalDistance`/`NewVerticalDistance`
   (rigid translate); circular cells tie each copy point to its source by a
   construction spoke from `center` constrained `NewEqual` in length and
-  `NewAngle` at the cell angle (rigid rotate, the `AddPolygon` spoke idiom). A
+  `NewAngle` at the cell angle (rigid rotate, the `CreatePolygon` spoke idiom). A
   circle copy also gets `NewEqualRadius`. Either way a copy is a rigid image of
   the seed, so the whole field follows when the seed moves.
 - **Offset** is the one new solver constraint. `Offset` drives a destination
   line to a **signed** perpendicular distance `d` from the source line's
-  infinite line (positive on the left of the source direction). `AddOffset`
+  infinite line (positive on the left of the source direction). `CreateOffset`
   makes one offset line per source segment with one `Offset` each; segments that
   share a source corner share an offset point, which the two constraints pull to
   the offset intersection — so chains mitre. `OffsetGroup.Set(d)` retargets the
@@ -159,7 +159,7 @@ doubled). `geom/transform_test.go` covers the pure math.
 - **Single-knob parametric spacing** for rectangular patterns via a shared
   parameter — today each cell carries its own distance dims (rigid to the seed);
   a `param.Table`-bound spacing is a clean follow-up.
-- **Offset of arcs/circles** as a chain (concentric offset) — `AddOffset` skips
+- **Offset of arcs/circles** as a chain (concentric offset) — `CreateOffset` skips
   non-line entities; a single circle offset is already expressible with
   `NewConcentric` + `NewRadius`.
 - **Trim/Break of circles** (needs two break points) and ellipse mirroring.

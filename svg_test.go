@@ -14,9 +14,9 @@ import (
 func TestSVGOptions(t *testing.T) {
 	newLineSketch := func() *sketch.Sketch {
 		s := newSketch(t)
-		a := s.AddPoint(0, 0)
-		b := s.AddPoint(10, 0)
-		s.AddLine(a, b)
+		a := s.CreatePoint(0, 0)
+		b := s.CreatePoint(10, 0)
+		s.CreateLine(a, b)
 		return s
 	}
 
@@ -64,19 +64,19 @@ func TestSVGOptions(t *testing.T) {
 	})
 	t.Run("arc segments", func(t *testing.T) {
 		s := newSketch(t)
-		o := s.AddPoint(0, 0)
-		st := s.AddPoint(5, 0)
-		en := s.AddPoint(0, 5)
-		s.AddArc(o, st, en)
+		o := s.CreatePoint(0, 0)
+		st := s.CreatePoint(5, 0)
+		en := s.CreatePoint(0, 5)
+		s.CreateArc(o, st, en)
 		svg, err := s.SVG(sketch.WithArcSegments(4), sketch.WithShowPoints(false))
 		require.NoError(t, err)
 		require.Equal(t, 4, strings.Count(svg, "L"), "4 segments render as 4 line commands")
 	})
 	t.Run("construction color", func(t *testing.T) {
 		s := newSketch(t)
-		a := s.AddPoint(0, 0)
-		b := s.AddPoint(10, 0)
-		s.AddLine(a, b).SetConstruction(true)
+		a := s.CreatePoint(0, 0)
+		b := s.CreatePoint(10, 0)
+		s.CreateLine(a, b).SetConstruction(true)
 		svg, err := s.SVG(sketch.WithConstruction("#00ff00"), sketch.WithShowPoints(false))
 		require.NoError(t, err)
 		require.Contains(t, svg, `stroke="#00ff00"`, "construction color applied")

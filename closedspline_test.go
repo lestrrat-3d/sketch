@@ -10,11 +10,11 @@ import (
 
 func TestClosedSplineBoundsProfile(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(4, 0)
-	c := s.AddPoint(4, 4)
-	d := s.AddPoint(0, 4)
-	sp, err := s.AddClosedSpline(a, b, c, d)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(4, 0)
+	c := s.CreatePoint(4, 4)
+	d := s.CreatePoint(0, 4)
+	sp, err := s.CreateClosedSpline(a, b, c, d)
 	require.NoError(t, err)
 
 	profiles := s.Profiles()
@@ -28,11 +28,11 @@ func TestClosedSplineBoundsProfile(t *testing.T) {
 func TestClosedSplineFigureEightInvalid(t *testing.T) {
 	// A control polygon whose periodic loop crosses itself.
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(4, 3)
-	c := s.AddPoint(0, 3)
-	d := s.AddPoint(4, 0)
-	_, err := s.AddClosedSpline(a, b, c, d)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(4, 3)
+	c := s.CreatePoint(0, 3)
+	d := s.CreatePoint(4, 0)
+	_, err := s.CreateClosedSpline(a, b, c, d)
 	require.NoError(t, err)
 
 	rep := s.Verify()
@@ -49,22 +49,22 @@ func TestClosedSplineFigureEightInvalid(t *testing.T) {
 
 func TestClosedSplineValidation(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(1, 0)
-	_, err := s.AddClosedSpline(a, b)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(1, 0)
+	_, err := s.CreateClosedSpline(a, b)
 	require.ErrorIs(t, err, sketch.ErrInvalidShape, "fewer than 3 control points is rejected")
-	c := s.AddPoint(0, 1)
-	_, err = s.AddClosedSpline(a, b, nil, c)
+	c := s.CreatePoint(0, 1)
+	_, err = s.CreateClosedSpline(a, b, nil, c)
 	require.ErrorIs(t, err, sketch.ErrInvalidShape, "a nil control point is rejected")
 }
 
 func TestClosedSplineFixEntityDOF(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(4, 0)
-	c := s.AddPoint(4, 4)
-	d := s.AddPoint(0, 4)
-	sp, err := s.AddClosedSpline(a, b, c, d)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(4, 0)
+	c := s.CreatePoint(4, 4)
+	d := s.CreatePoint(0, 4)
+	sp, err := s.CreateClosedSpline(a, b, c, d)
 	require.NoError(t, err)
 	require.Equal(t, 8, s.DOF(), "4 free control points, no size vars or internal constraints")
 	s.FixEntity(sp)
@@ -73,11 +73,11 @@ func TestClosedSplineFixEntityDOF(t *testing.T) {
 
 func TestClosedSplineConstructionExcluded(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(4, 0)
-	c := s.AddPoint(4, 4)
-	d := s.AddPoint(0, 4)
-	sp, err := s.AddClosedSpline(a, b, c, d)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(4, 0)
+	c := s.CreatePoint(4, 4)
+	d := s.CreatePoint(0, 4)
+	sp, err := s.CreateClosedSpline(a, b, c, d)
 	require.NoError(t, err)
 	sp.SetConstruction(true)
 	require.Empty(t, s.Profiles(), "a construction closed spline bounds no reported profile")
@@ -85,11 +85,11 @@ func TestClosedSplineConstructionExcluded(t *testing.T) {
 
 func TestClosedSplineRoundTrip(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(4, 0)
-	c := s.AddPoint(4, 4)
-	d := s.AddPoint(0, 4)
-	_, err := s.AddClosedSpline(a, b, c, d)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(4, 0)
+	c := s.CreatePoint(4, 4)
+	d := s.CreatePoint(0, 4)
+	_, err := s.CreateClosedSpline(a, b, c, d)
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -106,11 +106,11 @@ func TestClosedSplineRoundTrip(t *testing.T) {
 
 func TestClosedSplineExporters(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(4, 0)
-	c := s.AddPoint(4, 4)
-	d := s.AddPoint(0, 4)
-	_, err := s.AddClosedSpline(a, b, c, d)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(4, 0)
+	c := s.CreatePoint(4, 4)
+	d := s.CreatePoint(0, 4)
+	_, err := s.CreateClosedSpline(a, b, c, d)
 	require.NoError(t, err)
 
 	svg, err := s.SVG()
@@ -130,13 +130,13 @@ func TestClosedSplineForeignControlNotTrustworthy(t *testing.T) {
 	// A closed spline built with a control point owned by another sketch must be
 	// caught by the reference-integrity scan (it was previously invisible).
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(4, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(4, 0)
 	s.Fix(a)
 	s.Fix(b)
 	other := newSketch(t)
-	foreign := other.AddPoint(2, 4)
-	_, err := s.AddClosedSpline(a, b, foreign)
+	foreign := other.CreatePoint(2, 4)
+	_, err := s.CreateClosedSpline(a, b, foreign)
 	require.NoError(t, err)
 
 	rep := s.Verify()

@@ -22,8 +22,8 @@ const epsTool = 1e-9
 
 // Errors returned by the corner-modification tools.
 var (
-	// ErrNoSharedCorner is returned when two lines passed to AddFillet or
-	// AddChamfer do not share an endpoint point.
+	// ErrNoSharedCorner is returned when two lines passed to CreateFillet or
+	// CreateChamfer do not share an endpoint point.
 	ErrNoSharedCorner = errors.New("sketch: lines do not share a corner point")
 	// ErrFilletInfeasible is returned when the fillet radius is not positive,
 	// the legs are collinear, or the radius is too large for either leg.
@@ -31,10 +31,10 @@ var (
 	// ErrChamferInfeasible is returned when the chamfer setback is not positive,
 	// the legs are collinear, or the setback exceeds either leg.
 	ErrChamferInfeasible = errors.New("sketch: chamfer distance does not fit the corner")
-	// ErrReferenceGeometry is returned by the modification tools (AddFillet,
-	// AddChamfer, AddPatternRect, AddPatternCircular, AddOffset) when an input is
+	// ErrReferenceGeometry is returned by the modification tools (CreateFillet,
+	// CreateChamfer, CreatePatternRect, CreatePatternCircular, CreateOffset) when an input is
 	// reference geometry, which is externally locked and must not be modified or
-	// re-derived. Trim/Extend/Break report it by returning false, and AddMirror
+	// re-derived. Trim/Extend/Break report it by returning false, and CreateMirror
 	// (which has no error return) by returning nil.
 	ErrReferenceGeometry = errors.New("sketch: cannot modify reference geometry")
 )
@@ -56,8 +56,8 @@ func (s *Sketch) Break(e Entity, x, y float64) (Entity, Entity, bool) {
 		if param <= epsTool || param >= 1-epsTool {
 			return nil, nil, false
 		}
-		mid := s.AddPoint(sl.Start.X+param*(sl.End.X-sl.Start.X), sl.Start.Y+param*(sl.End.Y-sl.Start.Y))
-		l1, l2 := s.AddLine(t.Start, mid), s.AddLine(mid, t.End)
+		mid := s.CreatePoint(sl.Start.X+param*(sl.End.X-sl.Start.X), sl.Start.Y+param*(sl.End.Y-sl.Start.Y))
+		l1, l2 := s.CreateLine(t.Start, mid), s.CreateLine(mid, t.End)
 		s.RemoveEntity(t)
 		return l1, l2, true
 	case *Arc:
@@ -68,8 +68,8 @@ func (s *Sketch) Break(e Entity, x, y float64) (Entity, Entity, bool) {
 		if !sa.Contains(split) || near(split, sa.Start) || near(split, sa.End) {
 			return nil, nil, false
 		}
-		mid := s.AddPoint(split.X, split.Y)
-		a1, a2 := s.AddArc(t.Center, t.Start, mid), s.AddArc(t.Center, mid, t.End)
+		mid := s.CreatePoint(split.X, split.Y)
+		a1, a2 := s.CreateArc(t.Center, t.Start, mid), s.CreateArc(t.Center, mid, t.End)
 		s.RemoveEntity(t)
 		return a1, a2, true
 	}
@@ -107,11 +107,11 @@ func (s *Sketch) Trim(l *Line, x, y float64) (*Line, bool) {
 
 	switch {
 	case loP == nil && hiP != nil: // crossing only above the pick: cut the start stub
-		nl := s.AddLine(s.AddPoint(hiP.X, hiP.Y), l.End)
+		nl := s.CreateLine(s.CreatePoint(hiP.X, hiP.Y), l.End)
 		s.RemoveEntity(l)
 		return nl, true
 	case hiP == nil && loP != nil: // crossing only below the pick: cut the end stub
-		nl := s.AddLine(l.Start, s.AddPoint(loP.X, loP.Y))
+		nl := s.CreateLine(l.Start, s.CreatePoint(loP.X, loP.Y))
 		s.RemoveEntity(l)
 		return nl, true
 	}
@@ -156,12 +156,12 @@ func (s *Sketch) Extend(l *Line, end *Point) (*Line, bool) {
 	if best == nil {
 		return nil, false
 	}
-	np := s.AddPoint(best.X, best.Y)
+	np := s.CreatePoint(best.X, best.Y)
 	var nl *Line
 	if fromStart {
-		nl = s.AddLine(np, l.End)
+		nl = s.CreateLine(np, l.End)
 	} else {
-		nl = s.AddLine(l.Start, np)
+		nl = s.CreateLine(l.Start, np)
 	}
 	s.RemoveEntity(l)
 	return nl, true
@@ -209,7 +209,7 @@ func near(a, b *geom.Point) bool { return math.Hypot(a.X-b.X, a.Y-b.Y) <= epsToo
 
 // --- fillet / chamfer -------------------------------------------------------
 
-// Fillet groups the geometry created by [Sketch.AddFillet]: the rounding arc,
+// Fillet groups the geometry created by [Sketch.CreateFillet]: the rounding arc,
 // the two shortened legs that meet it, the contact points T1 (on L1) and T2
 // (on L2), and the editable radius dimension.
 type Fillet struct {
@@ -219,7 +219,7 @@ type Fillet struct {
 	Radius *Distance
 }
 
-// AddFillet rounds the corner shared by lines l1 and l2 with a tangent arc of
+// CreateFillet rounds the corner shared by lines l1 and l2 with a tangent arc of
 // radius r. The shared corner is removed and each leg is shortened to its
 // contact point; the arc is held tangent to both legs and its radius pinned by
 // an editable dimension, so editing [Fillet.Radius] and re-solving keeps the
@@ -228,7 +228,7 @@ type Fillet struct {
 // to the returned [Fillet.L1]/[Fillet.L2] if needed. Constraints on the
 // surviving far endpoints are kept. Returns [ErrNoSharedCorner] or
 // [ErrFilletInfeasible] without modifying the sketch.
-func (s *Sketch) AddFillet(l1, l2 *Line, r float64) (*Fillet, error) {
+func (s *Sketch) CreateFillet(l1, l2 *Line, r float64) (*Fillet, error) {
 	if l1.IsReference() || l2.IsReference() {
 		return nil, ErrReferenceGeometry
 	}
@@ -247,13 +247,13 @@ func (s *Sketch) AddFillet(l1, l2 *Line, r float64) (*Fillet, error) {
 	}
 	c1, c2 := otherEnd(copy1, copy1.Start), otherEnd(copy2, copy2.Start)
 
-	t1, t2 := s.AddPoint(c1.X, c1.Y), s.AddPoint(c2.X, c2.Y)
-	ctr := s.AddPoint(arc.Center.X, arc.Center.Y)
+	t1, t2 := s.CreatePoint(c1.X, c1.Y), s.CreatePoint(c2.X, c2.Y)
+	ctr := s.CreatePoint(arc.Center.X, arc.Center.Y)
 	nL1 := s.orientLeg(l1, corner, far1, t1)
 	nL2 := s.orientLeg(l2, corner, far2, t2)
-	nArc := s.AddArc(ctr, t1, t2)
+	nArc := s.CreateArc(ctr, t1, t2)
 	if arc.Start != c1 { // geom.Fillet took the minor arc the other way
-		nArc = s.AddArc(ctr, t2, t1)
+		nArc = s.CreateArc(ctr, t2, t1)
 	}
 
 	s.AddConstraint(NewTangent(nL1, nArc), NewTangent(nL2, nArc))
@@ -267,7 +267,7 @@ func (s *Sketch) AddFillet(l1, l2 *Line, r float64) (*Fillet, error) {
 	return &Fillet{Arc: nArc, L1: nL1, L2: nL2, T1: t1, T2: t2, Radius: rad}, nil
 }
 
-// Chamfer groups the geometry created by [Sketch.AddChamfer]: the cut line, the
+// Chamfer groups the geometry created by [Sketch.CreateChamfer]: the cut line, the
 // two shortened legs, the contact points T1/T2, and the editable setback
 // dimensions D1/D2 (each the surviving distance from a far endpoint to its
 // contact).
@@ -278,14 +278,14 @@ type Chamfer struct {
 	D1, D2 *Distance
 }
 
-// AddChamfer cuts the corner shared by lines l1 and l2 with a straight line
+// CreateChamfer cuts the corner shared by lines l1 and l2 with a straight line
 // whose contacts sit d from the corner along each leg. The corner is removed
 // and each leg shortened to its contact; the contacts are pinned by editable
 // distance dimensions from the far endpoints (D1/D2), so editing them and
 // re-solving moves the chamfer parametrically. Constraint handling matches
-// [Sketch.AddFillet]. Returns [ErrNoSharedCorner] or [ErrChamferInfeasible]
+// [Sketch.CreateFillet]. Returns [ErrNoSharedCorner] or [ErrChamferInfeasible]
 // without modifying the sketch.
-func (s *Sketch) AddChamfer(l1, l2 *Line, d float64) (*Chamfer, error) {
+func (s *Sketch) CreateChamfer(l1, l2 *Line, d float64) (*Chamfer, error) {
 	if l1.IsReference() || l2.IsReference() {
 		return nil, ErrReferenceGeometry
 	}
@@ -306,12 +306,12 @@ func (s *Sketch) AddChamfer(l1, l2 *Line, d float64) (*Chamfer, error) {
 	}
 	c1, c2 := otherEnd(copy1, copy1.Start), otherEnd(copy2, copy2.Start)
 
-	t1, t2 := s.AddPoint(c1.X, c1.Y), s.AddPoint(c2.X, c2.Y)
+	t1, t2 := s.CreatePoint(c1.X, c1.Y), s.CreatePoint(c2.X, c2.Y)
 	nL1 := s.orientLeg(l1, corner, far1, t1)
 	nL2 := s.orientLeg(l2, corner, far2, t2)
-	nCut := s.AddLine(t1, t2)
+	nCut := s.CreateLine(t1, t2)
 	if cut.Start != c1 {
-		nCut = s.AddLine(t2, t1)
+		nCut = s.CreateLine(t2, t1)
 	}
 
 	d1, d2 := NewDistance(far1, t1, len1-d), NewDistance(far2, t2, len2-d)
@@ -356,14 +356,14 @@ func otherEnd(l *geom.Line, known *geom.Point) *geom.Point {
 // point where the corner used to be and reusing the surviving far point.
 func (s *Sketch) orientLeg(orig *Line, corner, far, contact *Point) *Line {
 	if orig.Start == corner {
-		return s.AddLine(contact, far)
+		return s.CreateLine(contact, far)
 	}
-	return s.AddLine(far, contact)
+	return s.CreateLine(far, contact)
 }
 
 // --- mirror -----------------------------------------------------------------
 
-// Mirror groups the geometry created by [Sketch.AddMirror]: the source entities
+// Mirror groups the geometry created by [Sketch.CreateMirror]: the source entities
 // (left in place), their mirrored copies, and the constraints that keep each
 // copy the reflection of its source — symmetric constraints on every point pair
 // plus an equal-radius constraint per circle. Editing a source and re-solving
@@ -384,7 +384,7 @@ func containsReference(ents []Entity) bool {
 	return false
 }
 
-// AddMirror reflects each entity across the infinite line through axis,
+// CreateMirror reflects each entity across the infinite line through axis,
 // creating a linked copy. Lines, circles and arcs are supported (other entity
 // kinds are skipped). Copies share a mirror point wherever their sources share
 // a vertex, so a connected source chain mirrors to a connected copy. Each
@@ -392,7 +392,7 @@ func containsReference(ents []Entity) bool {
 // additionally get [NewEqualRadius], and arcs are reversed to stay
 // counter-clockwise. The sources are left untouched. Returns nil if any source
 // or the axis is reference geometry.
-func (s *Sketch) AddMirror(ents []Entity, axis *Line) *Mirror {
+func (s *Sketch) CreateMirror(ents []Entity, axis *Line) *Mirror {
 	if containsReference(ents) || axis.IsReference() {
 		return nil // reference geometry is locked; cannot be mirrored
 	}
@@ -404,7 +404,7 @@ func (s *Sketch) AddMirror(ents []Entity, axis *Line) *Mirror {
 			return cp
 		}
 		mp := geom.MirrorPoint(src.Geometry(), gaxis)
-		cp := s.AddPoint(mp.X, mp.Y)
+		cp := s.CreatePoint(mp.X, mp.Y)
 		cp.SetConstruction(src.IsConstruction())
 		copyOf[src] = cp
 		c := NewSymmetric(src, cp, axis)
@@ -419,8 +419,8 @@ func (s *Sketch) AddMirror(ents []Entity, axis *Line) *Mirror {
 
 // --- patterns ---------------------------------------------------------------
 
-// Pattern groups the geometry created by [Sketch.AddPatternRect] and
-// [Sketch.AddPatternCircular]: the seed entities (left in place), every copy
+// Pattern groups the geometry created by [Sketch.CreatePatternRect] and
+// [Sketch.CreatePatternCircular]: the seed entities (left in place), every copy
 // instance, the constraints tying each copy to the seed, and — for a circular
 // pattern — the construction spokes that hold the angular spacing.
 type Pattern struct {
@@ -430,19 +430,19 @@ type Pattern struct {
 	Spokes      []*Line
 }
 
-// AddPatternRect tiles the seed entities into an nx-by-ny grid with spacing dx
+// CreatePatternRect tiles the seed entities into an nx-by-ny grid with spacing dx
 // (along x) and dy (along y). The seed occupies cell (0,0); every other cell
 // holds a copy whose points are tied to the seed's corresponding points by
 // horizontal and vertical distance dimensions (and an equal-radius constraint
 // per circle), so the whole grid follows when the seed is moved or resized.
 // It returns [ErrInvalidShape] if nx or ny is below 1. Supports lines, circles
 // and arcs.
-func (s *Sketch) AddPatternRect(ents []Entity, nx, ny int, dx, dy float64) (*Pattern, error) {
+func (s *Sketch) CreatePatternRect(ents []Entity, nx, ny int, dx, dy float64) (*Pattern, error) {
 	if containsReference(ents) {
 		return nil, ErrReferenceGeometry
 	}
 	if nx < 1 || ny < 1 {
-		return nil, fmt.Errorf("%w: AddPatternRect requires nx,ny >= 1, got %d,%d", ErrInvalidShape, nx, ny)
+		return nil, fmt.Errorf("%w: CreatePatternRect requires nx,ny >= 1, got %d,%d", ErrInvalidShape, nx, ny)
 	}
 	p := &Pattern{Seed: ents}
 	for j := 0; j < ny; j++ {
@@ -456,7 +456,7 @@ func (s *Sketch) AddPatternRect(ents []Entity, nx, ny int, dx, dy float64) (*Pat
 				if cp, ok := copyOf[src]; ok {
 					return cp
 				}
-				cp := s.AddPoint(src.x()+ox, src.y()+oy)
+				cp := s.CreatePoint(src.x()+ox, src.y()+oy)
 				cp.SetConstruction(src.IsConstruction())
 				copyOf[src] = cp
 				hd, vd := NewHorizontalDistance(src, cp, ox), NewVerticalDistance(src, cp, oy)
@@ -470,17 +470,17 @@ func (s *Sketch) AddPatternRect(ents []Entity, nx, ny int, dx, dy float64) (*Pat
 	return p, nil
 }
 
-// AddPatternCircular copies the seed entities n times at equal angular steps
+// CreatePatternCircular copies the seed entities n times at equal angular steps
 // (2π/n) about center; cell 0 is the seed. Each copy point is tied to its
 // source by a construction spoke from center constrained equal in length and at
 // the instance's angle, so the ring follows when the seed is moved. It returns
 // [ErrInvalidShape] if n is below 2. Supports lines, circles and arcs.
-func (s *Sketch) AddPatternCircular(ents []Entity, center *Point, n int) (*Pattern, error) {
+func (s *Sketch) CreatePatternCircular(ents []Entity, center *Point, n int) (*Pattern, error) {
 	if containsReference(ents) {
 		return nil, ErrReferenceGeometry
 	}
 	if n < 2 {
-		return nil, fmt.Errorf("%w: AddPatternCircular requires n >= 2, got %d", ErrInvalidShape, n)
+		return nil, fmt.Errorf("%w: CreatePatternCircular requires n >= 2, got %d", ErrInvalidShape, n)
 	}
 	step := 2 * math.Pi / float64(n)
 	p := &Pattern{Seed: ents}
@@ -489,7 +489,7 @@ func (s *Sketch) AddPatternCircular(ents []Entity, center *Point, n int) (*Patte
 		if sp, ok := srcSpoke[src]; ok {
 			return sp
 		}
-		sp := s.AddLine(center, src)
+		sp := s.CreateLine(center, src)
 		sp.SetConstruction(true)
 		srcSpoke[src] = sp
 		p.Spokes = append(p.Spokes, sp)
@@ -504,11 +504,11 @@ func (s *Sketch) AddPatternCircular(ents []Entity, center *Point, n int) (*Patte
 				return cp
 			}
 			rp := geom.RotatePoint(src.Geometry(), gcenter, ang)
-			cp := s.AddPoint(rp.X, rp.Y)
+			cp := s.CreatePoint(rp.X, rp.Y)
 			cp.SetConstruction(src.IsConstruction())
 			copyOf[src] = cp
 			ssrc := spokeFor(src)
-			scp := s.AddLine(center, cp)
+			scp := s.CreateLine(center, cp)
 			scp.SetConstruction(true)
 			p.Spokes = append(p.Spokes, scp)
 			eq := NewEqual(ssrc, scp)
@@ -525,7 +525,7 @@ func (s *Sketch) AddPatternCircular(ents []Entity, center *Point, n int) (*Patte
 
 // --- offset -----------------------------------------------------------------
 
-// OffsetGroup groups the geometry created by [Sketch.AddOffset]: the source
+// OffsetGroup groups the geometry created by [Sketch.CreateOffset]: the source
 // lines (left in place), their offset copies, and the per-segment offset
 // constraints. Use [OffsetGroup.Set] to retarget the whole offset distance at
 // once and re-solve.
@@ -543,7 +543,7 @@ func (g *OffsetGroup) Set(d float64) {
 	}
 }
 
-// AddOffset creates a parallel offset of a chain of lines at signed distance d
+// CreateOffset creates a parallel offset of a chain of lines at signed distance d
 // (positive on the left of each segment's start→end direction). Each source
 // line gets an offset copy held parallel at distance d by an [Offset]
 // constraint; offset segments that meet at a shared source corner share a
@@ -551,7 +551,7 @@ func (g *OffsetGroup) Set(d float64) {
 // intersection — so editing the distance keeps a mitred chain. Non-line
 // entities in ents are skipped. It returns [ErrInvalidShape] if a source line
 // has zero length (no defined offset direction).
-func (s *Sketch) AddOffset(ents []Entity, d float64) (*OffsetGroup, error) {
+func (s *Sketch) CreateOffset(ents []Entity, d float64) (*OffsetGroup, error) {
 	if containsReference(ents) {
 		return nil, ErrReferenceGeometry
 	}
@@ -563,7 +563,7 @@ func (s *Sketch) AddOffset(ents []Entity, d float64) (*OffsetGroup, error) {
 			continue
 		}
 		if math.Hypot(l.End.x()-l.Start.x(), l.End.y()-l.Start.y()) == 0 {
-			return nil, fmt.Errorf("%w: AddOffset source line has zero length", ErrInvalidShape)
+			return nil, fmt.Errorf("%w: CreateOffset source line has zero length", ErrInvalidShape)
 		}
 	}
 	g := &OffsetGroup{Source: ents}
@@ -572,7 +572,7 @@ func (s *Sketch) AddOffset(ents []Entity, d float64) (*OffsetGroup, error) {
 		if cp, ok := copyOf[src]; ok {
 			return cp
 		}
-		cp := s.AddPoint(src.x()+d*nx, src.y()+d*ny)
+		cp := s.CreatePoint(src.x()+d*nx, src.y()+d*ny)
 		copyOf[src] = cp
 		return cp
 	}
@@ -585,7 +585,7 @@ func (s *Sketch) AddOffset(ents []Entity, d float64) (*OffsetGroup, error) {
 		n := math.Hypot(dx, dy) // nonzero: validated above
 		nx, ny := -dy/n, dx/n   // left normal of the segment direction
 		qa, qb := offsetPt(l.Start, nx, ny), offsetPt(l.End, nx, ny)
-		dst := s.AddLine(qa, qb)
+		dst := s.CreateLine(qa, qb)
 		off := NewOffset(l, dst, d)
 		s.AddConstraint(off)
 		g.Copies = append(g.Copies, dst)
@@ -606,11 +606,11 @@ func (s *Sketch) instantiate(ents []Entity, link func(*Point) *Point, swapArc bo
 	for _, e := range ents {
 		switch t := e.(type) {
 		case *Line:
-			cl := s.AddLine(link(t.Start), link(t.End))
+			cl := s.CreateLine(link(t.Start), link(t.End))
 			cl.SetConstruction(t.IsConstruction())
 			grp.Instances = append(grp.Instances, cl)
 		case *Circle:
-			cir := s.AddCircle(link(t.Center), t.r())
+			cir := s.CreateCircle(link(t.Center), t.r())
 			cir.SetConstruction(t.IsConstruction())
 			eq := NewEqualRadius(t, cir)
 			s.AddConstraint(eq)
@@ -621,7 +621,7 @@ func (s *Sketch) instantiate(ents []Entity, link func(*Point) *Point, swapArc bo
 			if swapArc {
 				cs, ce = ce, cs
 			}
-			ca := s.AddArc(cc, cs, ce)
+			ca := s.CreateArc(cc, cs, ce)
 			ca.SetConstruction(t.IsConstruction())
 			grp.Instances = append(grp.Instances, ca)
 		}

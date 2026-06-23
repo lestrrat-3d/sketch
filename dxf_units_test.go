@@ -37,8 +37,8 @@ func dxfGroup(t *testing.T, dxf, marker, code string) string {
 // millimetre geometry untouched — coordinates are already in base units.
 func TestDXFMetricHeaderAndExtents(t *testing.T) {
 	s := newSketch(t) // defaults to Metric (mm)
-	o := s.AddPoint(5, 5)
-	s.AddCircle(o, 3)
+	o := s.CreatePoint(5, 5)
+	s.CreateCircle(o, 3)
 
 	dxf, err := s.DXF()
 	require.NoError(t, err)
@@ -62,8 +62,8 @@ func TestDXFImperialLengthsConverted(t *testing.T) {
 	s.SetUnits(units.Imperial()) // inch / degree
 
 	// Author at base millimetres: center 5 in, radius 3 in.
-	o := s.AddPoint(127, 127) // 5 in
-	s.AddCircle(o, 76.2)      // 3 in
+	o := s.CreatePoint(127, 127) // 5 in
+	s.CreateCircle(o, 76.2)      // 3 in
 
 	dxf, err := s.DXF()
 	require.NoError(t, err)
@@ -82,10 +82,10 @@ func TestDXFImperialLengthsConverted(t *testing.T) {
 func TestDXFArcAnglesStayDegrees(t *testing.T) {
 	s := newSketch(t)
 	s.SetUnits(units.Imperial())
-	o := s.AddPoint(0, 0)
-	st := s.AddPoint(25.4, 0) // 1 in to the right → start angle 0°
-	en := s.AddPoint(0, 25.4) // 1 in up        → end angle 90°
-	s.AddArc(o, st, en)
+	o := s.CreatePoint(0, 0)
+	st := s.CreatePoint(25.4, 0) // 1 in to the right → start angle 0°
+	en := s.CreatePoint(0, 25.4) // 1 in up        → end angle 90°
+	s.CreateArc(o, st, en)
 
 	dxf, err := s.DXF()
 	require.NoError(t, err)

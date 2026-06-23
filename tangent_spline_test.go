@@ -26,9 +26,9 @@ func TestTangentToSpline(t *testing.T) {
 	// whose tangent is horizontal), so it settles at the spline's max height.
 	s := newSketch(t)
 	sp := archSpline(s) // fixed control points (0,0),(2,4),(6,4),(8,0)
-	p1 := s.AddPoint(-2, 3.5)
-	p2 := s.AddPoint(10, 3.5)
-	line := s.AddLine(p1, p2)
+	p1 := s.CreatePoint(-2, 3.5)
+	p2 := s.CreatePoint(10, 3.5)
+	line := s.CreateLine(p1, p2)
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewTangentToSpline(line, sp))
 
@@ -61,11 +61,11 @@ func TestTangentToSplineTransverseRejected(t *testing.T) {
 	// oracle must report it unsolvable, not bless the transverse crossing.
 	s := newSketch(t)
 	sp := archSpline(s)
-	a := s.AddPoint(5, -2)
-	b := s.AddPoint(5, 8)
+	a := s.CreatePoint(5, -2)
+	b := s.CreatePoint(5, 8)
 	s.Fix(a)
 	s.Fix(b) // a rigid vertical line x=5
-	s.AddConstraint(sketch.NewTangentToSpline(s.AddLine(a, b), sp))
+	s.AddConstraint(sketch.NewTangentToSpline(s.CreateLine(a, b), sp))
 
 	_, err := s.Solve()
 	require.ErrorIs(t, err, sketch.ErrNotConverged)
@@ -75,11 +75,11 @@ func TestTangentToSplineTransverseRejected(t *testing.T) {
 func TestTangentToSplineDOFAndRemoval(t *testing.T) {
 	s := newSketch(t)
 	sp := archSpline(s) // control points fixed
-	p1 := s.AddPoint(-2, 3.5)
-	p2 := s.AddPoint(10, 3.5)
+	p1 := s.CreatePoint(-2, 3.5)
+	p2 := s.CreatePoint(10, 3.5)
 	require.Equal(t, 4, s.DOF(), "a free line has four DOF")
 
-	con := sketch.NewTangentToSpline(s.AddLine(p1, p2), sp)
+	con := sketch.NewTangentToSpline(s.CreateLine(p1, p2), sp)
 	s.AddConstraint(con)
 	require.Equal(t, 3, s.DOF(), "tangency removes one DOF (the slacks net out)")
 
@@ -90,10 +90,10 @@ func TestTangentToSplineDOFAndRemoval(t *testing.T) {
 func TestTangentToSplineCheckConstraint(t *testing.T) {
 	s := newSketch(t)
 	sp := archSpline(s)
-	p1 := s.AddPoint(-2, 3.5)
-	p2 := s.AddPoint(10, 3.5)
+	p1 := s.CreatePoint(-2, 3.5)
+	p2 := s.CreatePoint(10, 3.5)
 	// Tangent to a free line removes one DOF — not over-constraining.
-	require.NoError(t, s.CheckConstraint(sketch.NewTangentToSpline(s.AddLine(p1, p2), sp)))
+	require.NoError(t, s.CheckConstraint(sketch.NewTangentToSpline(s.CreateLine(p1, p2), sp)))
 }
 
 func TestTangentToSplineScaleIsCurrentNotSnapshot(t *testing.T) {
@@ -107,19 +107,19 @@ func TestTangentToSplineScaleIsCurrentNotSnapshot(t *testing.T) {
 	// oracle must report it unsolvable.
 	x := math.Sqrt(99) // c0–c1 distance is exactly 10 to start in a clean basin
 	s := newSketch(t)
-	c0 := s.AddPoint(0, 0)
-	c1 := s.AddPoint(x, 1)
-	c2 := s.AddPoint(x+10, 1)
-	c3 := s.AddPoint(x+20, 1)
-	sp, err := s.AddSpline(c0, c1, c2, c3)
+	c0 := s.CreatePoint(0, 0)
+	c1 := s.CreatePoint(x, 1)
+	c2 := s.CreatePoint(x+10, 1)
+	c3 := s.CreatePoint(x+20, 1)
+	sp, err := s.CreateSpline(c0, c1, c2, c3)
 	require.NoError(t, err)
 	s.Fix(c0)
 
-	a := s.AddPoint(10, 1)
-	b := s.AddPoint(10.0000001, 1) // length 1e-7, horizontal
+	a := s.CreatePoint(10, 1)
+	b := s.CreatePoint(10.0000001, 1) // length 1e-7, horizontal
 	s.Fix(a)
 	s.Fix(b)
-	s.AddConstraint(sketch.NewTangentToSpline(s.AddLine(a, b), sp)) // allocVars sees the small spline
+	s.AddConstraint(sketch.NewTangentToSpline(s.CreateLine(a, b), sp)) // allocVars sees the small spline
 
 	s.AddConstraint(sketch.NewDistance(c0, c1, 1000))
 	s.AddConstraint(sketch.NewDistance(c1, c2, 1000))
@@ -133,9 +133,9 @@ func TestTangentToSplineScaleIsCurrentNotSnapshot(t *testing.T) {
 func TestTangentToSplineRoundTrip(t *testing.T) {
 	s := newSketch(t)
 	sp := archSpline(s)
-	p1 := s.AddPoint(-2, 3.5)
-	p2 := s.AddPoint(10, 3.5)
-	line := s.AddLine(p1, p2)
+	p1 := s.CreatePoint(-2, 3.5)
+	p2 := s.CreatePoint(10, 3.5)
+	line := s.CreateLine(p1, p2)
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewTangentToSpline(line, sp))
 	_, err := s.Solve()

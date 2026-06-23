@@ -19,11 +19,11 @@
 //	w := sketch.NewWorld()
 //	s, _ := w.CreateSketch(w.XY())
 //	// Geometry is authored from points; sharing a point ties entities together.
-//	a := s.AddPoint(0, 0)
-//	b := s.AddPoint(7, 2)
-//	d := s.AddPoint(-1, 8)
-//	ab := s.AddLine(a, b)
-//	ad := s.AddLine(a, d)
+//	a := s.CreatePoint(0, 0)
+//	b := s.CreatePoint(7, 2)
+//	d := s.CreatePoint(-1, 8)
+//	ab := s.CreateLine(a, b)
+//	ad := s.CreateLine(a, d)
 //
 //	s.Fix(a) // ground the shared origin corner
 //	wd := sketch.NewDistance(a, b, 100) // driving dimension

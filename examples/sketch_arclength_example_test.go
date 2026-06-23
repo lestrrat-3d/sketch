@@ -12,12 +12,12 @@ import (
 func Example_sketch_arcLength() {
 	w := sketch.NewWorld()
 	s, _ := w.CreateSketch(w.XY())
-	c := s.AddPoint(0, 0)
-	start := s.AddPoint(4, 0)
+	c := s.CreatePoint(0, 0)
+	start := s.CreatePoint(4, 0)
 	s.Fix(c)
 	s.Fix(start) // radius 4, start on the +x axis
-	end := s.AddPoint(0, 4)
-	arc := s.AddArc(c, start, end)
+	end := s.CreatePoint(0, 4)
+	arc := s.CreateArc(c, start, end)
 
 	// Drive the swept length to 3π — at radius 4 that is a 135° sweep.
 	s.AddConstraint(sketch.NewArcLength(arc, 3*math.Pi))

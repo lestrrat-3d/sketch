@@ -31,7 +31,7 @@ func TestNewWorldSeedsDatums(t *testing.T) {
 
 func TestNewEqualsNewOnWorldXY(t *testing.T) {
 	s := newSketch(t)
-	p := s.AddPoint(3, 4)
+	p := s.CreatePoint(3, 4)
 	// A bare sketch is a world-XY sketch: world == (x, y, 0).
 	worldVecEqual(t, space.NewVec3(3, 4, 0), p.World())
 	require.NoError(t, p.WorldErr())
@@ -44,7 +44,7 @@ func TestSketchOnXZWorldCoords(t *testing.T) {
 	// A unit square on XZ: local (u, v) → world (u, 0, v).
 	corners := [][2]float64{{0, 0}, {1, 0}, {1, 1}, {0, 1}}
 	for _, c := range corners {
-		p := s.AddPoint(c[0], c[1])
+		p := s.CreatePoint(c[0], c[1])
 		worldVecEqual(t, space.NewVec3(c[0], 0, c[1]), p.World())
 	}
 }
@@ -55,7 +55,7 @@ func TestOffsetPlaneShiftsWorldZ(t *testing.T) {
 	require.NoError(t, err)
 	s, err := w.CreateSketch(off)
 	require.NoError(t, err)
-	p := s.AddPoint(3, 4)
+	p := s.CreatePoint(3, 4)
 	worldVecEqual(t, space.NewVec3(3, 4, 5), p.World())
 }
 
@@ -126,9 +126,9 @@ func TestWorldPolylineLiftsToWorld(t *testing.T) {
 	w := sketch.NewWorld()
 	s, err := w.CreateSketch(w.XZ())
 	require.NoError(t, err)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(2, 0)
-	line := s.AddLine(a, b)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(2, 0)
+	line := s.CreateLine(a, b)
 	pts, err := s.WorldPolyline(line)
 	require.NoError(t, err)
 	require.Len(t, pts, 2)
@@ -143,14 +143,14 @@ func TestWorldPolylineRejectsForeignEntity(t *testing.T) {
 	s2, err := w.CreateSketch(w.XZ())
 	require.NoError(t, err)
 
-	foreign := s1.AddLine(s1.AddPoint(0, 0), s1.AddPoint(1, 0))
+	foreign := s1.CreateLine(s1.CreatePoint(0, 0), s1.CreatePoint(1, 0))
 	_, err = s2.WorldPolyline(foreign) // entity of s1 lifted through s2's plane
 	require.ErrorIs(t, err, sketch.ErrForeignEntity)
 	_, err = s2.WorldPolyline(nil)
 	require.ErrorIs(t, err, sketch.ErrForeignEntity)
 
 	// A removed entity is a dead handle.
-	line := s1.AddLine(s1.AddPoint(2, 0), s1.AddPoint(3, 0))
+	line := s1.CreateLine(s1.CreatePoint(2, 0), s1.CreatePoint(3, 0))
 	require.True(t, s1.RemoveEntity(line))
 	_, err = s1.WorldPolyline(line)
 	require.ErrorIs(t, err, sketch.ErrForeignEntity)
@@ -164,6 +164,6 @@ func TestSketchOnXYPlacement(t *testing.T) {
 	// so Plane() identity is consistent.
 	require.Same(t, s.Plane(), s.Plane())
 	require.Same(t, w.XY(), s.Plane())
-	p := s.AddPoint(3, 4)
+	p := s.CreatePoint(3, 4)
 	worldVecEqual(t, space.NewVec3(3, 4, 0), p.World())
 }

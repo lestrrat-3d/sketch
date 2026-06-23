@@ -24,8 +24,8 @@ func chordFractions(pts [][2]float64) []float64 {
 
 func TestFitSplineInterpolatesFitPoints(t *testing.T) {
 	s := newSketch(t)
-	pts := []*sketch.Point{s.AddPoint(0, 0), s.AddPoint(2, 3), s.AddPoint(5, -1), s.AddPoint(7, 1)}
-	sp, err := s.AddFitSpline(pts...)
+	pts := []*sketch.Point{s.CreatePoint(0, 0), s.CreatePoint(2, 3), s.CreatePoint(5, -1), s.CreatePoint(7, 1)}
+	sp, err := s.CreateFitSpline(pts...)
 	require.NoError(t, err)
 	coords := make([][2]float64, len(pts))
 	for i, p := range pts {
@@ -43,12 +43,12 @@ func TestFitSplineInterpolatesAfterSolve(t *testing.T) {
 	// The whole point of architecture A: the solver moves a fit point, and the
 	// curve still passes through the MOVED point (the interpolant is recomputed).
 	s := newSketch(t)
-	p0 := s.AddPoint(0, 0)
-	p1 := s.AddPoint(3, 2)
-	p2 := s.AddPoint(6, 0)
+	p0 := s.CreatePoint(0, 0)
+	p1 := s.CreatePoint(3, 2)
+	p2 := s.CreatePoint(6, 0)
 	s.Fix(p0)
 	s.Fix(p2)
-	sp, err := s.AddFitSpline(p0, p1, p2)
+	sp, err := s.CreateFitSpline(p0, p1, p2)
 	require.NoError(t, err)
 	s.AddConstraint(sketch.NewVerticalDistance(p0, p1, 5)) // pull p1 up to y=5
 	_, err = s.Solve()
@@ -64,13 +64,13 @@ func TestFitSplineInterpolatesAfterSolve(t *testing.T) {
 
 func TestFitSplineBoundsProfile(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	m1 := s.AddPoint(2, 3)
-	m2 := s.AddPoint(4, 3)
-	b := s.AddPoint(6, 0)
-	sp, err := s.AddFitSpline(a, m1, m2, b)
+	a := s.CreatePoint(0, 0)
+	m1 := s.CreatePoint(2, 3)
+	m2 := s.CreatePoint(4, 3)
+	b := s.CreatePoint(6, 0)
+	sp, err := s.CreateFitSpline(a, m1, m2, b)
 	require.NoError(t, err)
-	s.AddLine(b, a) // chord closes the loop
+	s.CreateLine(b, a) // chord closes the loop
 
 	profiles := s.Profiles()
 	require.Len(t, profiles, 1, "fit spline + chord bound one region")
@@ -81,13 +81,13 @@ func TestFitSplineBoundsProfile(t *testing.T) {
 
 func TestFitSplineSelfCrossingInvalid(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	m1 := s.AddPoint(4, 1)
-	m2 := s.AddPoint(0, 2)
-	m3 := s.AddPoint(4, 3)
-	_, err := s.AddFitSpline(a, m1, m2, m3)
+	a := s.CreatePoint(0, 0)
+	m1 := s.CreatePoint(4, 1)
+	m2 := s.CreatePoint(0, 2)
+	m3 := s.CreatePoint(4, 3)
+	_, err := s.CreateFitSpline(a, m1, m2, m3)
 	require.NoError(t, err)
-	s.AddLine(m3, a)
+	s.CreateLine(m3, a)
 
 	rep := s.Verify()
 	require.False(t, rep.ProfilesValid)
@@ -103,20 +103,20 @@ func TestFitSplineSelfCrossingInvalid(t *testing.T) {
 
 func TestFitSplineValidation(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	_, err := s.AddFitSpline(a)
+	a := s.CreatePoint(0, 0)
+	_, err := s.CreateFitSpline(a)
 	require.ErrorIs(t, err, sketch.ErrInvalidShape, "fewer than 2 fit points is rejected")
-	b := s.AddPoint(1, 0)
-	_, err = s.AddFitSpline(a, nil, b)
+	b := s.CreatePoint(1, 0)
+	_, err = s.CreateFitSpline(a, nil, b)
 	require.ErrorIs(t, err, sketch.ErrInvalidShape, "a nil fit point is rejected")
 }
 
 func TestFitSplineFixEntityDOF(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	m := s.AddPoint(3, 2)
-	b := s.AddPoint(6, 0)
-	sp, err := s.AddFitSpline(a, m, b)
+	a := s.CreatePoint(0, 0)
+	m := s.CreatePoint(3, 2)
+	b := s.CreatePoint(6, 0)
+	sp, err := s.CreateFitSpline(a, m, b)
 	require.NoError(t, err)
 	require.Equal(t, 6, s.DOF(), "3 free fit points, no size vars or internal constraints")
 	s.FixEntity(sp)
@@ -125,24 +125,24 @@ func TestFitSplineFixEntityDOF(t *testing.T) {
 
 func TestFitSplineConstructionExcluded(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	m1 := s.AddPoint(2, 3)
-	m2 := s.AddPoint(4, 3)
-	b := s.AddPoint(6, 0)
-	sp, err := s.AddFitSpline(a, m1, m2, b)
+	a := s.CreatePoint(0, 0)
+	m1 := s.CreatePoint(2, 3)
+	m2 := s.CreatePoint(4, 3)
+	b := s.CreatePoint(6, 0)
+	sp, err := s.CreateFitSpline(a, m1, m2, b)
 	require.NoError(t, err)
 	sp.SetConstruction(true)
-	s.AddLine(b, a)
+	s.CreateLine(b, a)
 	require.Empty(t, s.Profiles(), "a construction fit spline bounds no reported profile")
 }
 
 func TestFitSplineRoundTrip(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	m1 := s.AddPoint(2, 3)
-	m2 := s.AddPoint(4, 3)
-	b := s.AddPoint(6, 0)
-	_, err := s.AddFitSpline(a, m1, m2, b)
+	a := s.CreatePoint(0, 0)
+	m1 := s.CreatePoint(2, 3)
+	m2 := s.CreatePoint(4, 3)
+	b := s.CreatePoint(6, 0)
+	_, err := s.CreateFitSpline(a, m1, m2, b)
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -162,10 +162,10 @@ func TestFitSplineRoundTrip(t *testing.T) {
 
 func TestFitSplineExportersAndDegenerate(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	m := s.AddPoint(3, 2)
-	b := s.AddPoint(6, 0)
-	_, err := s.AddFitSpline(a, m, b)
+	a := s.CreatePoint(0, 0)
+	m := s.CreatePoint(3, 2)
+	b := s.CreatePoint(6, 0)
+	_, err := s.CreateFitSpline(a, m, b)
 	require.NoError(t, err)
 
 	svg, err := s.SVG()
@@ -181,10 +181,10 @@ func TestFitSplineExportersAndDegenerate(t *testing.T) {
 	// Coincident consecutive fit points must not panic (the evaluator collapses
 	// zero-length chord spans).
 	s2 := newSketch(t)
-	c0 := s2.AddPoint(0, 0)
-	c1 := s2.AddPoint(0, 0) // coincident with c0
-	c2 := s2.AddPoint(4, 0)
-	sp, err := s2.AddFitSpline(c0, c1, c2)
+	c0 := s2.CreatePoint(0, 0)
+	c1 := s2.CreatePoint(0, 0) // coincident with c0
+	c2 := s2.CreatePoint(4, 0)
+	sp, err := s2.CreateFitSpline(c0, c1, c2)
 	require.NoError(t, err)
 	require.NotPanics(t, func() {
 		sp.Polyline(16)
@@ -194,13 +194,13 @@ func TestFitSplineExportersAndDegenerate(t *testing.T) {
 
 func TestFitSplineForeignPointNotTrustworthy(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(4, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(4, 0)
 	s.Fix(a)
 	s.Fix(b)
 	other := newSketch(t)
-	foreign := other.AddPoint(2, 3)
-	_, err := s.AddFitSpline(a, foreign, b)
+	foreign := other.CreatePoint(2, 3)
+	_, err := s.CreateFitSpline(a, foreign, b)
 	require.NoError(t, err)
 	rep := s.Verify()
 	require.True(t, rep.ForeignHandles)

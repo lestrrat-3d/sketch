@@ -17,10 +17,10 @@ import (
 // TestBaselineDimensions: several features dimensioned from one datum along x.
 func TestBaselineDimensions(t *testing.T) {
 	s := newSketch(t)
-	o := s.AddPoint(0, 0)
+	o := s.CreatePoint(0, 0)
 	s.Fix(o)
-	a := s.AddPoint(3, 1)
-	b := s.AddPoint(7, 2)
+	a := s.CreatePoint(3, 1)
+	b := s.CreatePoint(7, 2)
 	s.AddConstraint(
 		sketch.NewHorizontalDistance(o, a, 10), // baseline x of A
 		sketch.NewHorizontalDistance(o, b, 25), // baseline x of B (same datum O)
@@ -36,9 +36,9 @@ func TestBaselineDimensions(t *testing.T) {
 // TestOrdinateDimensions: x and y readout of one feature from a common origin.
 func TestOrdinateDimensions(t *testing.T) {
 	s := newSketch(t)
-	o := s.AddPoint(0, 0)
+	o := s.CreatePoint(0, 0)
 	s.Fix(o)
-	p := s.AddPoint(2, 2)
+	p := s.CreatePoint(2, 2)
 	s.AddConstraint(
 		sketch.NewHorizontalDistance(o, p, 10), // ordinate x
 		sketch.NewVerticalDistance(o, p, 6),    // ordinate y
@@ -53,10 +53,10 @@ func TestOrdinateDimensions(t *testing.T) {
 // TestChainedDimensions: dimensions measured end-to-end accumulate.
 func TestChainedDimensions(t *testing.T) {
 	s := newSketch(t)
-	o := s.AddPoint(0, 0)
+	o := s.CreatePoint(0, 0)
 	s.Fix(o)
-	a := s.AddPoint(3, 0)
-	b := s.AddPoint(9, 0)
+	a := s.CreatePoint(3, 0)
+	b := s.CreatePoint(9, 0)
 	s.AddConstraint(
 		sketch.NewHorizontalDistance(o, a, 10), // O→A
 		sketch.NewHorizontalDistance(a, b, 15), // A→B (chained from A)
@@ -72,10 +72,10 @@ func TestChainedDimensions(t *testing.T) {
 // conflicting). The oracle rejects it pre-commit and flags it post-commit.
 func TestChainPlusBaselineConsistentIsRedundant(t *testing.T) {
 	s := newSketch(t)
-	o := s.AddPoint(0, 0)
+	o := s.CreatePoint(0, 0)
 	s.Fix(o)
-	a := s.AddPoint(3, 0)
-	b := s.AddPoint(9, 0)
+	a := s.CreatePoint(3, 0)
+	b := s.CreatePoint(9, 0)
 	s.AddConstraint(
 		sketch.NewHorizontalDistance(o, a, 10),
 		sketch.NewHorizontalDistance(a, b, 15),
@@ -99,10 +99,10 @@ func TestChainPlusBaselineConsistentIsRedundant(t *testing.T) {
 // sketch unsolvable with the baseline blamed against the chain.
 func TestChainPlusBaselineConflicting(t *testing.T) {
 	s := newSketch(t)
-	o := s.AddPoint(0, 0)
+	o := s.CreatePoint(0, 0)
 	s.Fix(o)
-	a := s.AddPoint(3, 0)
-	b := s.AddPoint(9, 0)
+	a := s.CreatePoint(3, 0)
+	b := s.CreatePoint(9, 0)
 	oa := sketch.NewHorizontalDistance(o, a, 10)
 	ab := sketch.NewHorizontalDistance(a, b, 15)
 	s.AddConstraint(oa, ab)
@@ -132,9 +132,9 @@ func TestChainPlusBaselineConflicting(t *testing.T) {
 // conflict with a driving dimension over the same span, and refreshes its target.
 func TestDrivenOrdinateReadout(t *testing.T) {
 	s := newSketch(t)
-	o := s.AddPoint(0, 0)
+	o := s.CreatePoint(0, 0)
 	s.Fix(o)
-	p := s.AddPoint(2, 2)
+	p := s.CreatePoint(2, 2)
 	s.AddConstraint(
 		sketch.NewHorizontalDistance(o, p, 10), // driving
 		sketch.NewVerticalDistance(o, p, 6),    // driving

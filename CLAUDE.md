@@ -53,14 +53,14 @@ from a solid — the seam is first-class reference geometry), live in
 | File | Responsibility |
 |---|---|
 | `sketch.go` | `Sketch`, solver-bound geometry (`Point`/`Line`/`Circle`/`Arc`/`Ellipse`) authored from points, the parameter model, grounding, construction flag, `Geometry()` snapshots. |
-| `compound.go` | Compound shape builders (`AddRectangle`/`AddPolygon`/`AddSlot`): primitives + shape-holding constraints, returned as a grouping handle (handle itself is not serialized). |
-| `tools.go` | Sketch-modification tools on committed geometry (`Trim`/`Extend`/`Break`, `AddFillet`/`AddChamfer`, `AddMirror`, `AddPatternRect`/`AddPatternCircular`, `AddOffset`): build-then-replace via the `geom` toolkit + `RemoveEntity`. Design in `docs/modification-tools-design.md`. |
+| `compound.go` | Compound shape builders (`CreateRectangle`/`CreatePolygon`/`CreateSlot`): primitives + shape-holding constraints, returned as a grouping handle (handle itself is not serialized). |
+| `tools.go` | Sketch-modification tools on committed geometry (`Trim`/`Extend`/`Break`, `CreateFillet`/`CreateChamfer`, `CreateMirror`, `CreatePatternRect`/`CreatePatternCircular`, `CreateOffset`): build-then-replace via the `geom` toolkit + `RemoveEntity`. Design in `docs/modification-tools-design.md`. |
 | `profiles.go` | `Sketch.Profiles()`: closed planar regions via the `geom` arrangement engine — bare-crossing subdivision, holes/nesting, net area, and per-region validity (self-intersecting/degenerate). `Profile` carries `Outer`/`Holes` (`BoundaryEdge`s, whole or fragment), `Area`, `Valid`, `SelfIntersecting`; construction excluded, reference geometry included. Internal `buildProfiles` also surfaces arrangement degeneracy to `Verify`. |
 | `constraint.go` | `Constraint` interface and every constraint's residual + the public `New…` constructors. |
 | `solver.go` | Levenberg–Marquardt solver, numerical Jacobian, DOF/redundancy (rank) analysis. |
 | `diagnose.go` | Constraint diagnostics: `conflictAnalysis` (the shared dependency pass behind `RedundantConstraints`/`Diagnose`/`Verify`), `Diagnose` (redundant vs conflicting), `ConflictSet` (a conflicting constraint + the earlier ones it fights), `CheckConstraint` (pre-commit over-constraint rejection), `FreePoints`/`Point.IsFullyConstrained` (free-DOF attribution). Design in `docs/diagnostics-design.md`. |
 | `verify.go` | `Sketch.Verify(...VerifyOption) *VerificationReport`: the headless-oracle aggregation layer — one non-mutating call gathering solvability, DOF, `Status`, redundant constraints, conflict sets, free points, profiles + their validity (`ProfilesValid`/`InvalidProfiles` — self-intersecting/degenerate regions gate `Trustworthy()`), stale/broken/foreign reference signals, parameter unit-kind validity (`ParametersValid`), the **advisory** `RankMargin` (how far the STRUCTURAL rank/DOF decision sits from the rank-zero cutoff — a fragility hint; now scale-invariant, computed on the nondimensional Jacobian, but still does NOT gate `Trustworthy()` — it measures a coarser, different question than conditioning), the **scale-invariant** `Conditioning` (`conditioning.go`: the reciprocal condition number of the nondimensionalized Jacobian — this one DOES gate `Trustworthy()`, below a tolerance-derived `max(1e-6, 4·√tol)` threshold), `Trustworthy()`, and (opt-in via `WithProbe`) discrete ambiguity. A pure consumer of the diagnostic building blocks. |
-| `reference.go` | Reference geometry — the sketch/3D separation keystone: read-only, externally-locked 2D snapshots of 3D-derived geometry (`AddReferencePoint`/`AddReferenceLine`/`AddReferenceArc`/`AddReferenceCircle`) carrying a `source` id + staleness; locked via `fixed[]`, a topology seal (`refSeals`), `RefreshReference`/`RefreshReferenceCircle`/`MarkStale`, and the Verify integrity/staleness/reachability scan. Design in `docs/reference-geometry-design.md`. |
+| `reference.go` | Reference geometry — the sketch/3D separation keystone: read-only, externally-locked 2D snapshots of 3D-derived geometry (`CreateReferencePoint`/`CreateReferenceLine`/`CreateReferenceArc`/`CreateReferenceCircle`) carrying a `source` id + staleness; locked via `fixed[]`, a topology seal (`refSeals`), `RefreshReference`/`RefreshReferenceCircle`/`MarkStale`, and the Verify integrity/staleness/reachability scan. Design in `docs/reference-geometry-design.md`. |
 | `probe.go` | `Sketch.ProbeConfigurations`: multi-solution ambiguity probe — deterministic multi-start search (structured mirrors + splitmix64 restarts) for the discrete configurations a DOF-0 sketch admits. A falsifier: ≥2 found proves ambiguity, 1 never proves uniqueness. Design in `docs/ambiguity-probe-design.md`. |
 | `plane.go` / `world.go` | 3D world & construction planes. `Plane` (datum = `space.Frame` derived from a stored definition), `World` (the mandatory document root: owns planes + sketches, datum accessors `XY`/`XZ`/`YZ`, plane builders `CreatePlaneFromFrame`/`CreatePlaneFromPoints`/`CreateOffsetPlane`, `CreateSketch`, `RemovePlane`). Design in `docs/3d-planes-design.md`. |
 | `svg.go` / `png.go` / `dxf.go` / `json.go` / `json_world.go` | Exporters / serialization. `png.go` is a stdlib-only rasterizer (`image/png`) so agents/tools that read raster images can sanity-check sketches; visually equivalent to the SVG output. `dxf.go` emits length fields in the sketch's **display length unit** (via the `units` library — angles/ratios/knots stay raw) with a matching `$INSUNITS`/`$MEASUREMENT` + `$EXTMIN`/`$EXTMAX` header, so a CAD importer reads the drawing at the right scale (metric output is unchanged). Coordinates are plane-**local** by default; `DXF(WithWorldSpace(true))` places geometry in 3D world coordinates via the plane frame — LINE/SPLINE/ELLIPSE in WCS, CIRCLE/ARC/LWPOLYLINE in the entity OCS (arbitrary-axis algorithm from the plane normal) + extrusion, arc angles recomputed in the OCS. `json_world.go` is the v2 `World`/`Plane` serialization + the `kind`-discriminator preflight. |
@@ -89,8 +89,8 @@ cases filtered by `Arc.Contains`), `ClosestPointOnLine`, `SplitLineAt`/
 contact points and return the connecting arc/line), and the `MirrorPoint`/
 `TranslatePoint`/`RotatePoint` transforms. These compute on transient geometry;
 the *mutating* sketch-level tools in `tools.go` (`Trim`/`Extend`/`Break`/
-`AddFillet`/`AddChamfer`/`AddMirror`/`AddPatternRect`/`AddPatternCircular`/
-`AddOffset`) feed them an entity's `Geometry()` snapshot, then build the
+`CreateFillet`/`CreateChamfer`/`CreateMirror`/`CreatePatternRect`/`CreatePatternCircular`/
+`CreateOffset`) feed them an entity's `Geometry()` snapshot, then build the
 replacement from sketch points and retire the originals with `RemoveEntity`.
 
 It also holds the **planar-arrangement / region engine** (`region.go`,
@@ -261,9 +261,9 @@ The model follows Fusion's transient-geometry / sketch-entity split.
 building block for the math layer and the **snapshot** an entity returns from
 `Geometry()`. It carries no document state and is never committed. **Sketch
 geometry** (`sketch.Point`/`Line`/…) is the durable, solver-bound entity, and
-the only handle you hold. You author it directly: `s.AddPoint(x, y)` returns a
-`*Point`; the curve builders `s.AddLine(p1, p2)`/`AddCircle(center, r)`/
-`AddArc(c, s, e)`/`AddEllipse(center, rx, ry, rot)`/`AddSpline(pts…)` take those
+the only handle you hold. You author it directly: `s.CreatePoint(x, y)` returns a
+`*Point`; the curve builders `s.CreateLine(p1, p2)`/`CreateCircle(center, r)`/
+`CreateArc(c, s, e)`/`CreateEllipse(center, rx, ry, rot)`/`CreateSpline(pts…)` take those
 points. **Topology is expressed by sharing a `*Point`** between entities (a
 shared corner is literally one point) — there is no generic-pointer identity
 map and no idempotency; each `Add…` makes a fresh entity. Constraints reference
@@ -359,7 +359,7 @@ when `allocVars` re-runs on load. This is the deliberate, narrow exception to
   plane. Newer versions are rejected. Bump `jsonVersion` + add read-side
   migration for schema changes.
 - **Internal constraints** (those implementing `internalConstraint`, e.g. the
-  arc radius-consistency constraint auto-added by `AddArc`) are *not* serialized
+  arc radius-consistency constraint auto-added by `CreateArc`) are *not* serialized
   — they're recreated by the constructor on load. New auto-added constraints
   must follow this pattern or round-trips will double them.
 - **The `param` table serializes in definition order.** Its JSON preserves the
@@ -392,11 +392,11 @@ when `allocVars` re-runs on load. This is the deliberate, narrow exception to
   to observe internal state, add a documented exported accessor rather than
   reaching into unexported fields (e.g. `Sketch.Points`, `Point.ID`,
   `Point.Geometry`, `DriverExpr`). No named return values, including in tests.
-  Author geometry with the real builders (`s.AddPoint(x,y)`, `s.AddLine(a,b)`,
+  Author geometry with the real builders (`s.CreatePoint(x,y)`, `s.CreateLine(a,b)`,
   …) directly in tests — do not wrap them in trivial 1:1 helpers; explicit is
   better.
-- Geometry is authored against the sketch from points (`s.AddPoint` then
-  `s.AddLine`/`AddCircle`/`AddArc`/`AddEllipse`/`AddSpline`); constraints come
+- Geometry is authored against the sketch from points (`s.CreatePoint` then
+  `s.CreateLine`/`CreateCircle`/`CreateArc`/`CreateEllipse`/`CreateSpline`); constraints come
   from package-level `New…` functions (the `New` prefix is forced for the
   dimensional ones because their concrete handle types — `Distance`, `Radius`,
   `Angle`, … — already own the bare name; keep all constructors consistent) and
@@ -420,8 +420,8 @@ when `allocVars` re-runs on load. This is the deliberate, narrow exception to
   with `.Set`/`.SetValue`; geometric constructors return the `Constraint`
   interface.
 - **Public constructors validate input by returning errors, never panicking.**
-  The shape/pattern builders (`AddPolygon`/`AddSlot`/`AddSpline`/
-  `AddPatternRect`/`AddPatternCircular` → `ErrInvalidShape`),
+  The shape/pattern builders (`CreatePolygon`/`CreateSlot`/`CreateSpline`/
+  `CreatePatternRect`/`CreatePatternCircular` → `ErrInvalidShape`),
   `World.CreateSketch`/`CreateOffsetPlane` (`ErrForeignPlane`), and the plane/frame
   constructors (`World.CreatePlaneFromFrame`/`CreatePlaneFromPoints`,
   `space.ErrDegenerateFrame`, `geom.ErrTooFewControlPoints`) all return
@@ -487,7 +487,7 @@ These are unsettled. If you resolve one, record the decision here.
   inside the residual would be a nested finite difference the Jacobian
   re-differentiates.
   **Closed (periodic) splines** are in as a separate `ClosedSpline` entity
-  (`AddClosedSpline`, ≥3 control points) over an exact cyclic uniform cubic basis
+  (`CreateClosedSpline`, ≥3 control points) over an exact cyclic uniform cubic basis
   (`geom.EvalPeriodicCubicBSpline`) — a smooth C2 loop that bounds a region on its
   own (a sealed `geom.ClosedCurve`, not a `Curve`), with periodic-ring
   self-crossing detection and `closed_spline` serialization. A point can be
@@ -500,7 +500,7 @@ These are unsettled. If you resolve one, record the decision here.
   parallel to the analytic periodic tangent `S'(t)`
   (`geom.EvalPeriodicCubicBSplineDeriv`, dimensionless), and the no-cusp guard.
   **Fit-point (interpolating) splines** are in as a separate `FitSpline` entity
-  (`AddFitSpline`, ≥2 fit points) whose curve passes *through* the fit points: the
+  (`CreateFitSpline`, ≥2 fit points) whose curve passes *through* the fit points: the
   fit points are the durable solver handles and a natural-cubic interpolant
   (chord-length parameterization, Thomas tridiagonal solve in
   `geom.EvalFitSpline`/`SampleFitSpline`) is recomputed from their current
@@ -518,7 +518,7 @@ These are unsettled. If you resolve one, record the decision here.
   Ellipses are in
   (center point + rx/ry/rotation vars; `NewPointOnEllipse` uses a
   Sampson-normalized residual — |F|/|∇F| — to stay in length units).
-  **Elliptical arcs** are in as a geometry primitive (`AddEllipticalArc`:
+  **Elliptical arcs** are in as a geometry primitive (`CreateEllipticalArc`:
   center + start/end points + rx/ry/rotation vars, two internal on-ellipse
   constraints pinning the endpoints, eccentric-angle sweep, exact-segment area
   in the arrangement). Its shape is dimensionable via the sealed `Elliptical`
@@ -546,7 +546,7 @@ These are unsettled. If you resolve one, record the decision here.
   **shared-endpoint branch** enforces tangency *at* that point — `parallel` +
   internal/external branch rows there, no free witness and no membership/sweep
   rows (an endpoint is already on both curves and in-sweep by definition).
-  **Conics** are in as a geometry primitive (`AddConic(start, apex, end, rho)` —
+  **Conics** are in as a geometry primitive (`CreateConic(start, apex, end, rho)` —
   a rational quadratic Bézier; `rho ∈ (0,1)` sets fullness, `ρ<0.5` ellipse /
   `ρ=0.5` parabola / `ρ>0.5` hyperbola arc, apex weight `w=ρ/(1−ρ)`). An open
   `Curve` like the elliptical arc: authorable, profile-participating (exact
@@ -558,7 +558,7 @@ These are unsettled. If you resolve one, record the decision here.
   bounded-`t` witness like `NewTangentToSpline`, using the analytic
   `geom.Conic.EvalDeriv`). *Follow-ups:* a rho dimension, analytic line/conic &
   conic/conic intersections.
-  **NURBS** are in as a geometry primitive (`AddNURBS(degree, control, weights,
+  **NURBS** are in as a geometry primitive (`CreateNURBS(degree, control, weights,
   knots)` — a general non-uniform **rational** B-spline of arbitrary degree over a
   clamped/open knot vector; design in `docs/nurbs-design.md`). Control points are
   ordinary sketch points (the durable handles); **knots, weights and degree are

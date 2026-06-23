@@ -10,7 +10,7 @@ import (
 
 func TestSplineSolveReshapesCurve(t *testing.T) {
 	s := newSketch(t)
-	sp, err := s.AddSpline(s.AddPoint(0, 0), s.AddPoint(2, 4), s.AddPoint(8, 4), s.AddPoint(9, 1))
+	sp, err := s.CreateSpline(s.CreatePoint(0, 0), s.CreatePoint(2, 4), s.CreatePoint(8, 4), s.CreatePoint(9, 1))
 	require.NoError(t, err)
 	s.Fix(sp.Control[0])
 
@@ -33,7 +33,7 @@ func TestSplineSolveReshapesCurve(t *testing.T) {
 
 func TestSplineControlPointGoal(t *testing.T) {
 	s := newSketch(t)
-	sp, err := s.AddSpline(s.AddPoint(0, 0), s.AddPoint(2, 4), s.AddPoint(8, 4), s.AddPoint(10, 0))
+	sp, err := s.CreateSpline(s.CreatePoint(0, 0), s.CreatePoint(2, 4), s.CreatePoint(8, 4), s.CreatePoint(10, 0))
 	require.NoError(t, err)
 
 	// Drag an interior control point; the curve follows.
@@ -45,7 +45,7 @@ func TestSplineControlPointGoal(t *testing.T) {
 
 func TestSplineJSONRoundTrip(t *testing.T) {
 	s := newSketch(t)
-	sp, err := s.AddSpline(s.AddPoint(0, 0), s.AddPoint(2, 4), s.AddPoint(8, 4), s.AddPoint(10, 0), s.AddPoint(12, -2))
+	sp, err := s.CreateSpline(s.CreatePoint(0, 0), s.CreatePoint(2, 4), s.CreatePoint(8, 4), s.CreatePoint(10, 0), s.CreatePoint(12, -2))
 	require.NoError(t, err)
 	s.Fix(sp.Control[0])
 
@@ -68,7 +68,7 @@ func TestSplineJSONRoundTrip(t *testing.T) {
 
 func TestSplineExports(t *testing.T) {
 	s := newSketch(t)
-	_, err := s.AddSpline(s.AddPoint(0, 0), s.AddPoint(2, 4), s.AddPoint(8, 4), s.AddPoint(10, 0))
+	_, err := s.CreateSpline(s.CreatePoint(0, 0), s.CreatePoint(2, 4), s.CreatePoint(8, 4), s.CreatePoint(10, 0))
 	require.NoError(t, err)
 
 	svg, err := s.SVG()

@@ -12,8 +12,8 @@ import (
 
 func TestEllipseDimensions(t *testing.T) {
 	s := newSketch(t)
-	c := s.AddPoint(0, 0)
-	e := s.AddEllipse(c, 2, 1, 0) // rough initial shape
+	c := s.CreatePoint(0, 0)
+	e := s.CreateEllipse(c, 2, 1, 0) // rough initial shape
 	s.Fix(e.Center)
 	s.AddConstraint(sketch.NewSemiMajor(e, 6), sketch.NewSemiMinor(e, 4), sketch.NewEllipseRotation(e, 30))
 
@@ -27,14 +27,14 @@ func TestEllipseDimensions(t *testing.T) {
 
 func TestPointOnEllipse(t *testing.T) {
 	s := newSketch(t)
-	c := s.AddPoint(0, 0)
-	e := s.AddEllipse(c, 5, 3, 0)
+	c := s.CreatePoint(0, 0)
+	e := s.CreateEllipse(c, 5, 3, 0)
 	s.Fix(e.Center)
 	s.AddConstraint(sketch.NewSemiMajor(e, 5), sketch.NewSemiMinor(e, 3), sketch.NewEllipseRotation(e, 0))
 
 	// Pin the point to the x axis; the ellipse constraint pushes it to x=±5,
 	// and the rough start at (4, 1) selects the +x vertex.
-	p := s.AddPoint(4, 1)
+	p := s.CreatePoint(4, 1)
 	s.AddConstraint(sketch.NewPointOnEllipse(p, e), sketch.NewVerticalDistance(c, p, 0))
 
 	_, err := s.Solve()
@@ -45,8 +45,8 @@ func TestPointOnEllipse(t *testing.T) {
 
 func TestPointOnRotatedEllipse(t *testing.T) {
 	s := newSketch(t)
-	c := s.AddPoint(0, 0)
-	e := s.AddEllipse(c, 5, 3, math.Pi/2)
+	c := s.CreatePoint(0, 0)
+	e := s.CreateEllipse(c, 5, 3, math.Pi/2)
 	s.Fix(e.Center)
 	s.AddConstraint(sketch.NewSemiMajor(e, 5), sketch.NewSemiMinor(e, 3))
 	rot := sketch.NewEllipseRotation(e, 0)
@@ -55,7 +55,7 @@ func TestPointOnRotatedEllipse(t *testing.T) {
 
 	// With the frame rotated 90°, the long axis lies along global y: a point
 	// pinned to x=0 lands at y=±5.
-	p := s.AddPoint(0.5, 4)
+	p := s.CreatePoint(0.5, 4)
 	s.AddConstraint(sketch.NewPointOnEllipse(p, e), sketch.NewHorizontalDistance(c, p, 0))
 
 	_, err := s.Solve()
@@ -66,8 +66,8 @@ func TestPointOnRotatedEllipse(t *testing.T) {
 
 func TestEllipseDrivenMeasure(t *testing.T) {
 	s := newSketch(t)
-	c := s.AddPoint(0, 0)
-	e := s.AddEllipse(c, 5, 3, 0)
+	c := s.CreatePoint(0, 0)
+	e := s.CreateEllipse(c, 5, 3, 0)
 	s.Fix(e.Center)
 	s.AddConstraint(sketch.NewSemiMajor(e, 5), sketch.NewSemiMinor(e, 3), sketch.NewEllipseRotation(e, 0))
 
@@ -83,11 +83,11 @@ func TestEllipseDrivenMeasure(t *testing.T) {
 
 func TestEllipseJSONRoundTrip(t *testing.T) {
 	s := newSketch(t)
-	c := s.AddPoint(1, 2)
-	e := s.AddEllipse(c, 5, 3, math.Pi/6)
+	c := s.CreatePoint(1, 2)
+	e := s.CreateEllipse(c, 5, 3, math.Pi/6)
 	s.Fix(e.Center)
 	s.AddConstraint(sketch.NewSemiMajor(e, 5), sketch.NewSemiMinor(e, 3), sketch.NewEllipseRotation(e, 30))
-	p := s.AddPoint(4, 3)
+	p := s.CreatePoint(4, 3)
 	s.AddConstraint(sketch.NewPointOnEllipse(p, e))
 	_, err := s.Solve()
 	require.NoError(t, err)
@@ -111,8 +111,8 @@ func TestEllipseJSONRoundTrip(t *testing.T) {
 
 func TestEllipseExports(t *testing.T) {
 	s := newSketch(t)
-	c := s.AddPoint(0, 0)
-	s.AddEllipse(c, 5, 3, math.Pi/4)
+	c := s.CreatePoint(0, 0)
+	s.CreateEllipse(c, 5, 3, math.Pi/4)
 
 	svg, err := s.SVG()
 	require.NoError(t, err, "svg")

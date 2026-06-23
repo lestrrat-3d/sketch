@@ -523,7 +523,7 @@ func safeEndpoints(c Curve) (*Point, *Point, bool) {
 // nurbsValid reports whether a NURBS is structurally well-formed enough for the
 // arrangement to evaluate: non-nil, degree >= 1, at least degree+1 control
 // points (none nil), and a clamped non-decreasing knot vector of the right
-// length. The sketch entity's AddNURBS validates the same conditions up front, so
+// length. The sketch entity's CreateNURBS validates the same conditions up front, so
 // this is a defensive guard against a hand-built or typed-nil snapshot.
 func nurbsValid(c *NURBS) bool {
 	if c == nil || c.Degree < 1 || len(c.Control) < c.Degree+1 {

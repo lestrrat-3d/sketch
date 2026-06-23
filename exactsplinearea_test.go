@@ -15,10 +15,10 @@ import (
 func TestProfileClosedSplineAreaExact(t *testing.T) {
 	s := newSketch(t)
 	pts := []*sketch.Point{
-		s.AddPoint(0, 0), s.AddPoint(4, 0), s.AddPoint(5, 3),
-		s.AddPoint(2, 5), s.AddPoint(-1, 3),
+		s.CreatePoint(0, 0), s.CreatePoint(4, 0), s.CreatePoint(5, 3),
+		s.CreatePoint(2, 5), s.CreatePoint(-1, 3),
 	}
-	_, err := s.AddClosedSpline(pts...)
+	_, err := s.CreateClosedSpline(pts...)
 	require.NoError(t, err)
 
 	profiles := s.Profiles()

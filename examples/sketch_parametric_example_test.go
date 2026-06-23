@@ -16,17 +16,17 @@ func Example_sketch_parametric() {
 	s, _ := w.CreateSketch(w.XY())
 
 	// Four corners + a center point for the hole (rough initial guesses).
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 1)
-	c := s.AddPoint(9, 6)
-	d := s.AddPoint(1, 5)
-	o := s.AddPoint(5, 3)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 1)
+	c := s.CreatePoint(9, 6)
+	d := s.CreatePoint(1, 5)
+	o := s.CreatePoint(5, 3)
 
-	ab := s.AddLine(a, b)
-	bc := s.AddLine(b, c)
-	dc := s.AddLine(d, c)
-	ad := s.AddLine(a, d)
-	hole := s.AddCircle(o, 1)
+	ab := s.CreateLine(a, b)
+	bc := s.CreateLine(b, c)
+	dc := s.CreateLine(d, c)
+	ad := s.CreateLine(a, d)
+	hole := s.CreateCircle(o, 1)
 
 	// Geometric constraints: grounded origin, axis-aligned rectangle.
 	a.MoveTo(0, 0)

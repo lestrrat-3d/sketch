@@ -9,11 +9,11 @@ import (
 
 func TestProbeMirrorTriangle(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
 	s.Fix(a)
 	s.Fix(b)
-	p := s.AddPoint(5, 3)
+	p := s.CreatePoint(5, 3)
 	s.AddConstraint(sketch.NewDistance(a, p, 8))
 	s.AddConstraint(sketch.NewDistance(b, p, 8))
 
@@ -37,13 +37,13 @@ func TestProbeMirrorTriangle(t *testing.T) {
 
 func TestProbeTangentSideFlip(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
 	s.Fix(a)
 	s.Fix(b)
-	l := s.AddLine(a, b)
-	center := s.AddPoint(5, 3)
-	c := s.AddCircle(center, 2.5)
+	l := s.CreateLine(a, b)
+	center := s.CreatePoint(5, 3)
+	c := s.CreateCircle(center, 2.5)
 	s.AddConstraint(sketch.NewTangent(l, c))
 	s.AddConstraint(sketch.NewRadius(c, 2))
 	s.AddConstraint(sketch.NewHorizontalDistance(a, center, 5))
@@ -63,9 +63,9 @@ func TestProbeTangentSideFlip(t *testing.T) {
 
 func TestProbeUniquelyPinnedPoint(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
+	a := s.CreatePoint(0, 0)
 	s.Fix(a)
-	p := s.AddPoint(1, 1)
+	p := s.CreatePoint(1, 1)
 	s.AddConstraint(sketch.NewHorizontalDistance(a, p, 3))
 	s.AddConstraint(sketch.NewVerticalDistance(a, p, 4))
 
@@ -83,13 +83,13 @@ func TestProbeSignedAngleUnique(t *testing.T) {
 	// admits exactly one configuration — (8.66, -5) is NOT a solution, so the
 	// probe must not report a mirror branch.
 	s := newSketch(t)
-	o := s.AddPoint(0, 0)
-	ref := s.AddPoint(10, 0)
+	o := s.CreatePoint(0, 0)
+	ref := s.CreatePoint(10, 0)
 	s.Fix(o)
 	s.Fix(ref)
-	lref := s.AddLine(o, ref)
-	p := s.AddPoint(7, 5)
-	lp := s.AddLine(o, p)
+	lref := s.CreateLine(o, ref)
+	p := s.CreatePoint(7, 5)
+	lp := s.CreateLine(o, p)
 	s.AddConstraint(sketch.NewDistance(o, p, 10))
 	s.AddConstraint(sketch.NewAngle(lref, lp, 30))
 
@@ -105,14 +105,14 @@ func TestProbeDistanceRectangleIsAmbiguous(t *testing.T) {
 	// Rectangles held only by unsigned distances + perpendicularity are the
 	// classic trap: every corner has a mirror branch.
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
+	a := s.CreatePoint(0, 0)
 	s.Fix(a)
-	b := s.AddPoint(4, 0.5)
-	c := s.AddPoint(4.5, 3)
-	d := s.AddPoint(0.5, 3.5)
-	ab := s.AddLine(a, b)
-	bc := s.AddLine(b, c)
-	cd := s.AddLine(c, d)
+	b := s.CreatePoint(4, 0.5)
+	c := s.CreatePoint(4.5, 3)
+	d := s.CreatePoint(0.5, 3.5)
+	ab := s.CreateLine(a, b)
+	bc := s.CreateLine(b, c)
+	cd := s.CreateLine(c, d)
 	s.AddConstraint(sketch.NewHorizontal(ab))
 	s.AddConstraint(sketch.NewDistance(a, b, 4))
 	s.AddConstraint(sketch.NewPerpendicular(ab, bc))
@@ -133,11 +133,11 @@ func TestProbeDistanceRectangleIsAmbiguous(t *testing.T) {
 func TestProbeDeterministic(t *testing.T) {
 	build := func() (*sketch.Sketch, *sketch.Point) {
 		s := newSketch(t)
-		a := s.AddPoint(0, 0)
-		b := s.AddPoint(10, 0)
+		a := s.CreatePoint(0, 0)
+		b := s.CreatePoint(10, 0)
 		s.Fix(a)
 		s.Fix(b)
-		p := s.AddPoint(5, 3)
+		p := s.CreatePoint(5, 3)
 		s.AddConstraint(sketch.NewDistance(a, p, 8))
 		s.AddConstraint(sketch.NewDistance(b, p, 8))
 		_, err := s.Solve()
@@ -169,11 +169,11 @@ func TestProbeDeterministic(t *testing.T) {
 
 func TestProbeDoesNotMutateSketch(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
 	s.Fix(a)
 	s.Fix(b)
-	p := s.AddPoint(5, 3)
+	p := s.CreatePoint(5, 3)
 	s.AddConstraint(sketch.NewDistance(a, p, 8))
 	s.AddConstraint(sketch.NewDistance(b, p, 8))
 	ref := sketch.NewDistance(a, p, 1)
@@ -197,11 +197,11 @@ func TestProbeDoesNotMutateSketch(t *testing.T) {
 
 func TestProbeApplySelectsBranch(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
 	s.Fix(a)
 	s.Fix(b)
-	p := s.AddPoint(5, 3)
+	p := s.CreatePoint(5, 3)
 	s.AddConstraint(sketch.NewDistance(a, p, 8))
 	s.AddConstraint(sketch.NewDistance(b, p, 8))
 
@@ -226,9 +226,9 @@ func TestProbeApplySelectsBranch(t *testing.T) {
 
 func TestProbeRejectsUnderconstrained(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
+	a := s.CreatePoint(0, 0)
 	s.Fix(a)
-	p := s.AddPoint(3, 0)
+	p := s.CreatePoint(3, 0)
 	s.AddConstraint(sketch.NewDistance(a, p, 5))
 
 	_, err := s.Solve()

@@ -12,10 +12,10 @@ import (
 
 func TestConicAddAndAccessors(t *testing.T) {
 	s := newSketch(t)
-	start := s.AddPoint(0, 0)
-	apex := s.AddPoint(2, 5)
-	end := s.AddPoint(6, 0)
-	c, err := s.AddConic(start, apex, end, 0.4)
+	start := s.CreatePoint(0, 0)
+	apex := s.CreatePoint(2, 5)
+	end := s.CreatePoint(6, 0)
+	c, err := s.CreateConic(start, apex, end, 0.4)
 	require.NoError(t, err)
 	require.InDelta(t, 0.4, c.Rho(), 1e-12)
 	require.Same(t, start, c.Start)
@@ -35,14 +35,14 @@ func TestConicAddAndAccessors(t *testing.T) {
 
 func TestConicValidation(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(2, 5)
-	d := s.AddPoint(6, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(2, 5)
+	d := s.CreatePoint(6, 0)
 	for _, rho := range []float64{0, 1, -0.1, 1.5, math.NaN()} {
-		_, err := s.AddConic(a, b, d, rho)
+		_, err := s.CreateConic(a, b, d, rho)
 		require.ErrorIsf(t, err, sketch.ErrInvalidShape, "rho %v rejected", rho)
 	}
-	_, err := s.AddConic(nil, b, d, 0.5)
+	_, err := s.CreateConic(nil, b, d, 0.5)
 	require.ErrorIs(t, err, sketch.ErrInvalidShape, "nil start rejected")
 }
 
@@ -50,10 +50,10 @@ func TestConicFreeDOF(t *testing.T) {
 	// A free conic is 3 points (6) + 1 rho (7) of free DOF, exactly like a free
 	// ellipse is under-constrained.
 	s := newSketch(t)
-	start := s.AddPoint(0, 0)
-	apex := s.AddPoint(2, 5)
-	end := s.AddPoint(6, 0)
-	c, err := s.AddConic(start, apex, end, 0.5)
+	start := s.CreatePoint(0, 0)
+	apex := s.CreatePoint(2, 5)
+	end := s.CreatePoint(6, 0)
+	c, err := s.CreateConic(start, apex, end, 0.5)
 	require.NoError(t, err)
 	require.Equal(t, 7, s.DOF(), "3 free points + 1 free rho")
 
@@ -64,13 +64,13 @@ func TestConicFreeDOF(t *testing.T) {
 
 func TestConicFixEntityGroundsRho(t *testing.T) {
 	s := newSketch(t)
-	start := s.AddPoint(0, 0)
-	apex := s.AddPoint(2, 5)
-	end := s.AddPoint(6, 0)
+	start := s.CreatePoint(0, 0)
+	apex := s.CreatePoint(2, 5)
+	end := s.CreatePoint(6, 0)
 	s.Fix(start)
 	s.Fix(apex)
 	s.Fix(end)
-	c, err := s.AddConic(start, apex, end, 0.5)
+	c, err := s.CreateConic(start, apex, end, 0.5)
 	require.NoError(t, err)
 	// Points fixed but rho free: 1 DOF remains.
 	require.Equal(t, 1, s.DOF(), "rho is still a free DOF")
@@ -80,12 +80,12 @@ func TestConicFixEntityGroundsRho(t *testing.T) {
 
 func TestConicProfileParticipation(t *testing.T) {
 	s := newSketch(t)
-	start := s.AddPoint(0, 0)
-	apex := s.AddPoint(3, 4)
-	end := s.AddPoint(6, 0)
-	c, err := s.AddConic(start, apex, end, 0.6)
+	start := s.CreatePoint(0, 0)
+	apex := s.CreatePoint(3, 4)
+	end := s.CreatePoint(6, 0)
+	c, err := s.CreateConic(start, apex, end, 0.6)
 	require.NoError(t, err)
-	s.AddLine(end, start) // chord closes the loop
+	s.CreateLine(end, start) // chord closes the loop
 
 	profiles := s.Profiles()
 	require.Len(t, profiles, 1, "conic + chord bound one region")
@@ -99,12 +99,12 @@ func TestConicProfileAreaSamplingIndependent(t *testing.T) {
 	// rendering fidelity for every family.
 	for _, rho := range []float64{0.3, 0.5, 0.8} {
 		s := newSketch(t)
-		start := s.AddPoint(0, 0)
-		apex := s.AddPoint(2, 5)
-		end := s.AddPoint(6, 0)
-		_, err := s.AddConic(start, apex, end, rho)
+		start := s.CreatePoint(0, 0)
+		apex := s.CreatePoint(2, 5)
+		end := s.CreatePoint(6, 0)
+		_, err := s.CreateConic(start, apex, end, rho)
 		require.NoError(t, err)
-		s.AddLine(end, start)
+		s.CreateLine(end, start)
 		profiles := s.Profiles()
 		require.Lenf(t, profiles, 1, "rho %v", rho)
 		require.Greaterf(t, profiles[0].Area, 1e-6, "rho %v positive area", rho)
@@ -113,22 +113,22 @@ func TestConicProfileAreaSamplingIndependent(t *testing.T) {
 
 func TestConicConstructionExcluded(t *testing.T) {
 	s := newSketch(t)
-	start := s.AddPoint(0, 0)
-	apex := s.AddPoint(3, 4)
-	end := s.AddPoint(6, 0)
-	c, err := s.AddConic(start, apex, end, 0.6)
+	start := s.CreatePoint(0, 0)
+	apex := s.CreatePoint(3, 4)
+	end := s.CreatePoint(6, 0)
+	c, err := s.CreateConic(start, apex, end, 0.6)
 	require.NoError(t, err)
 	c.SetConstruction(true)
-	s.AddLine(end, start)
+	s.CreateLine(end, start)
 	require.Empty(t, s.Profiles(), "a construction conic bounds no reported profile")
 }
 
 func TestConicRoundTrip(t *testing.T) {
 	s := newSketch(t)
-	start := s.AddPoint(0, 0)
-	apex := s.AddPoint(2, 5)
-	end := s.AddPoint(6, 0)
-	_, err := s.AddConic(start, apex, end, 0.73)
+	start := s.CreatePoint(0, 0)
+	apex := s.CreatePoint(2, 5)
+	end := s.CreatePoint(6, 0)
+	_, err := s.CreateConic(start, apex, end, 0.73)
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -152,10 +152,10 @@ func TestConicRoundTrip(t *testing.T) {
 
 func TestConicExportersContainIt(t *testing.T) {
 	s := newSketch(t)
-	start := s.AddPoint(0, 0)
-	apex := s.AddPoint(3, 4)
-	end := s.AddPoint(6, 0)
-	_, err := s.AddConic(start, apex, end, 0.5)
+	start := s.CreatePoint(0, 0)
+	apex := s.CreatePoint(3, 4)
+	end := s.CreatePoint(6, 0)
+	_, err := s.CreateConic(start, apex, end, 0.5)
 	require.NoError(t, err)
 
 	svg, err := s.SVG()
@@ -173,11 +173,11 @@ func TestConicExportersContainIt(t *testing.T) {
 
 func TestConicDXFRationalWeights(t *testing.T) {
 	s := newSketch(t)
-	start := s.AddPoint(0, 0)
-	apex := s.AddPoint(3, 4)
-	end := s.AddPoint(6, 0)
+	start := s.CreatePoint(0, 0)
+	apex := s.CreatePoint(3, 4)
+	end := s.CreatePoint(6, 0)
 	const rho = 0.6
-	_, err := s.AddConic(start, apex, end, rho)
+	_, err := s.CreateConic(start, apex, end, rho)
 	require.NoError(t, err)
 
 	dxf, err := s.DXF()
@@ -207,10 +207,10 @@ func TestConicDXFWorldSpaceControlPoints(t *testing.T) {
 	// On a tilted plane the conic's control points are emitted in true world
 	// coordinates (the putWCS path) — each equals the point's World().
 	s := tiltedSketch(t)
-	start := s.AddPoint(0, 0)
-	apex := s.AddPoint(3, 4)
-	end := s.AddPoint(6, 0)
-	_, err := s.AddConic(start, apex, end, 0.5)
+	start := s.CreatePoint(0, 0)
+	apex := s.CreatePoint(3, 4)
+	end := s.CreatePoint(6, 0)
+	_, err := s.CreateConic(start, apex, end, 0.5)
 	require.NoError(t, err)
 
 	dxf, err := s.DXF(sketch.WithWorldSpace(true))
@@ -230,10 +230,10 @@ func TestConicDXFWorldSpaceControlPoints(t *testing.T) {
 
 func TestConicRemoveEntityRetiresRho(t *testing.T) {
 	s := newSketch(t)
-	start := s.AddPoint(0, 0)
-	apex := s.AddPoint(3, 4)
-	end := s.AddPoint(6, 0)
-	c, err := s.AddConic(start, apex, end, 0.5)
+	start := s.CreatePoint(0, 0)
+	apex := s.CreatePoint(3, 4)
+	end := s.CreatePoint(6, 0)
+	c, err := s.CreateConic(start, apex, end, 0.5)
 	require.NoError(t, err)
 	require.Equal(t, 7, s.DOF())
 
@@ -253,13 +253,13 @@ func TestConicForeignPointNotTrustworthy(t *testing.T) {
 	// A conic built over a point from another sketch is a foreign handle — the
 	// reachability scan (which reads the conic's defining points) must see it.
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(6, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(6, 0)
 	s.Fix(a)
 	s.Fix(b)
 	other := newSketch(t)
-	foreign := other.AddPoint(3, 4)
-	_, err := s.AddConic(a, foreign, b, 0.5)
+	foreign := other.CreatePoint(3, 4)
+	_, err := s.CreateConic(a, foreign, b, 0.5)
 	require.NoError(t, err)
 	rep := s.Verify()
 	require.True(t, rep.ForeignHandles)

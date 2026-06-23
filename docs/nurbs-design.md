@@ -51,7 +51,7 @@ type NURBS struct {
 }
 ```
 
-`AddNURBS(degree int, control []*Point, weights, knots []float64) (*NURBS, error)`:
+`CreateNURBS(degree int, control []*Point, weights, knots []float64) (*NURBS, error)`:
 
 - Validates: `degree ≥ 1`; `len(control) ≥ degree+1`; `len(knots) =
   len(control)+degree+1`; knots non-decreasing and **clamped**; `len(weights) =
@@ -128,7 +128,7 @@ flagged `SelfIntersecting`.
 - **geom**: `NURBS` type + kernels (`nurbs.go` new file) + `Eval`/`EvalDeriv`/
   `Polyline`/`Endpoints`; arrange.go `srcNURBS` + `at` + kind-assignment + area
   case + `nurbsBulgeSpan` + the self-crossing self-test entry.
-- **sketch.go**: `NURBS` entity + `AddNURBS` + `ClampedUniformKnots` + accessors;
+- **sketch.go**: `NURBS` entity + `CreateNURBS` + `ClampedUniformKnots` + accessors;
   `localPolyline`, `entityPoints` (all control points), `entitySizeVars` (none —
   no shape vars).
 - **json.go**: marshal/rebuild `"nurbs"` (control ids + degree + knots + weights).
@@ -166,7 +166,7 @@ kernel is a possible later cleanup, not part of this increment.
 - Profile participation; JSON round-trip (degree/knots/weights/points; no
   doubling); SVG/PNG/DXF export contains it; DXF carries degree/knots/weights and
   rebuilds to the same curve; world-space DXF round-trips control points.
-- `AddNURBS` validation table (bad degree / knot count / unclamped / non-monotone
+- `CreateNURBS` validation table (bad degree / knot count / unclamped / non-monotone
   knots / non-positive or wrong-count weights / too-few control points / nil) →
   `ErrInvalidShape`. Free-NURBS DOF = `2(n+1)`. `RemoveEntity` keeps the points.
 - An executable `examples/` example with `// Output:`.

@@ -27,7 +27,7 @@ func Example_sketch_world() {
 		fmt.Printf("failed to make sketch: %s\n", err)
 		return
 	}
-	rect := s.AddRectangle(0, 0, 4, 3)
+	rect := s.CreateRectangle(0, 0, 4, 3)
 	s.Fix(rect.A)
 
 	if _, err := s.Solve(); err != nil {

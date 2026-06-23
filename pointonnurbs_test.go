@@ -12,10 +12,10 @@ import (
 // archNURBS builds a fixed degree-2 NURBS arch (3 control points, clamped uniform
 // knots → domain [0,1]) bulging upward, with its control points grounded.
 func archNURBS(s *sketch.Sketch) *sketch.NURBS {
-	c0 := s.AddPoint(0, 0)
-	c1 := s.AddPoint(4, 8)
-	c2 := s.AddPoint(8, 0)
-	c, err := s.AddNURBS(2, []*sketch.Point{c0, c1, c2}, nil, sketch.ClampedUniformKnots(3, 2))
+	c0 := s.CreatePoint(0, 0)
+	c1 := s.CreatePoint(4, 8)
+	c2 := s.CreatePoint(8, 0)
+	c, err := s.CreateNURBS(2, []*sketch.Point{c0, c1, c2}, nil, sketch.ClampedUniformKnots(3, 2))
 	if err != nil {
 		panic(err)
 	}
@@ -50,7 +50,7 @@ func distToNURBS(p *sketch.Point, c *sketch.NURBS) float64 {
 func TestPointOnNURBS(t *testing.T) {
 	s := newSketch(t)
 	c := archNURBS(s)
-	p := s.AddPoint(4, 1) // below the arch interior; pulled up onto it
+	p := s.CreatePoint(4, 1) // below the arch interior; pulled up onto it
 	s.AddConstraint(sketch.NewPointOnNURBS(p, c))
 
 	_, err := s.Solve()
@@ -64,7 +64,7 @@ func TestPointOnNURBSConfinedToRange(t *testing.T) {
 	// extrapolate past it — the slack box keeps the foot parameter within [0,1].
 	s := newSketch(t)
 	c := archNURBS(s)
-	p := s.AddPoint(12, -2) // past the (8,0) end
+	p := s.CreatePoint(12, -2) // past the (8,0) end
 	s.AddConstraint(sketch.NewPointOnNURBS(p, c))
 
 	_, err := s.Solve()
@@ -78,7 +78,7 @@ func TestPointOnNURBSConfinedToRange(t *testing.T) {
 func TestPointOnNURBSDOFAndRemoval(t *testing.T) {
 	s := newSketch(t)
 	c := archNURBS(s) // control points fixed
-	p := s.AddPoint(4, 1)
+	p := s.CreatePoint(4, 1)
 	require.Equal(t, 2, s.DOF(), "the free point has two DOF")
 
 	con := sketch.NewPointOnNURBS(p, c)
@@ -92,14 +92,14 @@ func TestPointOnNURBSDOFAndRemoval(t *testing.T) {
 func TestPointOnNURBSCheckConstraint(t *testing.T) {
 	s := newSketch(t)
 	c := archNURBS(s)
-	p := s.AddPoint(4, 1)
+	p := s.CreatePoint(4, 1)
 	require.NoError(t, s.CheckConstraint(sketch.NewPointOnNURBS(p, c)))
 }
 
 func TestPointOnNURBSRoundTrip(t *testing.T) {
 	s := newSketch(t)
 	c := archNURBS(s)
-	p := s.AddPoint(4, 1)
+	p := s.CreatePoint(4, 1)
 	s.AddConstraint(sketch.NewPointOnNURBS(p, c))
 	_, err := s.Solve()
 	require.NoError(t, err)
@@ -117,7 +117,7 @@ func TestPointOnNURBSRoundTrip(t *testing.T) {
 func TestPointOnNURBSEntityRemovalCascades(t *testing.T) {
 	s := newSketch(t)
 	c := archNURBS(s)
-	p := s.AddPoint(4, 1)
+	p := s.CreatePoint(4, 1)
 	con := sketch.NewPointOnNURBS(p, c)
 	s.AddConstraint(con)
 	require.Len(t, s.Constraints(), 1)
@@ -131,9 +131,9 @@ func TestTangentToNURBS(t *testing.T) {
 	// horizontal tangent), so it settles at the curve's max height.
 	s := newSketch(t)
 	c := archNURBS(s)
-	p1 := s.AddPoint(-2, 3.5)
-	p2 := s.AddPoint(10, 3.5)
-	line := s.AddLine(p1, p2)
+	p1 := s.CreatePoint(-2, 3.5)
+	p2 := s.CreatePoint(10, 3.5)
+	line := s.CreateLine(p1, p2)
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewTangentToNURBS(line, c))
 
@@ -168,11 +168,11 @@ func lineGapToNURBS(p1, p2 *sketch.Point, c *sketch.NURBS) float64 {
 func TestTangentToNURBSDOFAndRemoval(t *testing.T) {
 	s := newSketch(t)
 	c := archNURBS(s) // control points fixed
-	p1 := s.AddPoint(-2, 3.5)
-	p2 := s.AddPoint(10, 3.5)
+	p1 := s.CreatePoint(-2, 3.5)
+	p2 := s.CreatePoint(10, 3.5)
 	require.Equal(t, 4, s.DOF(), "a free line has four DOF")
 
-	con := sketch.NewTangentToNURBS(s.AddLine(p1, p2), c)
+	con := sketch.NewTangentToNURBS(s.CreateLine(p1, p2), c)
 	s.AddConstraint(con)
 	require.Equal(t, 3, s.DOF(), "tangency removes one DOF (the slacks net out)")
 
@@ -183,17 +183,17 @@ func TestTangentToNURBSDOFAndRemoval(t *testing.T) {
 func TestTangentToNURBSCheckConstraint(t *testing.T) {
 	s := newSketch(t)
 	c := archNURBS(s)
-	p1 := s.AddPoint(-2, 3.5)
-	p2 := s.AddPoint(10, 3.5)
-	require.NoError(t, s.CheckConstraint(sketch.NewTangentToNURBS(s.AddLine(p1, p2), c)))
+	p1 := s.CreatePoint(-2, 3.5)
+	p2 := s.CreatePoint(10, 3.5)
+	require.NoError(t, s.CheckConstraint(sketch.NewTangentToNURBS(s.CreateLine(p1, p2), c)))
 }
 
 func TestTangentToNURBSRoundTrip(t *testing.T) {
 	s := newSketch(t)
 	c := archNURBS(s)
-	p1 := s.AddPoint(-2, 3.5)
-	p2 := s.AddPoint(10, 3.5)
-	line := s.AddLine(p1, p2)
+	p1 := s.CreatePoint(-2, 3.5)
+	p2 := s.CreatePoint(10, 3.5)
+	line := s.CreateLine(p1, p2)
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewTangentToNURBS(line, c))
 	_, err := s.Solve()

@@ -13,12 +13,12 @@ import (
 // coincident with it solves TO it (the pierce case).
 func TestReferencePointLockedAndPierce(t *testing.T) {
 	s := newSketch(t)
-	ref := s.AddReferencePoint(3, 4, "vertex#1")
+	ref := s.CreateReferencePoint(3, 4, "vertex#1")
 	require.True(t, ref.IsReference())
 	require.Equal(t, "vertex#1", ref.Source())
 	require.True(t, ref.IsFixed(), "reference geometry is locked")
 
-	free := s.AddPoint(0, 0)
+	free := s.CreatePoint(0, 0)
 	s.AddConstraint(sketch.NewCoincident(free, ref))
 	if _, err := s.Solve(); err != nil {
 		t.Fatalf("solve: %v", err)
@@ -35,7 +35,7 @@ func TestReferencePointLockedAndPierce(t *testing.T) {
 // rewrites them.
 func TestReferenceReadOnly(t *testing.T) {
 	s := newSketch(t)
-	ref := s.AddReferencePoint(1, 1, "v")
+	ref := s.CreateReferencePoint(1, 1, "v")
 	ref.MoveTo(9, 9)
 	require.Equal(t, 1.0, ref.X(), "MoveTo is a no-op on reference geometry")
 	s.Unfix(ref)
@@ -46,25 +46,25 @@ func TestReferenceReadOnly(t *testing.T) {
 	require.NoError(t, s.RefreshReference(ref, 2, 3))
 	require.Equal(t, 2.0, ref.X())
 	require.Equal(t, 3.0, ref.Y())
-	require.ErrorIs(t, s.RefreshReference(s.AddPoint(0, 0), 1, 1), sketch.ErrNotReference)
+	require.ErrorIs(t, s.RefreshReference(s.CreatePoint(0, 0), 1, 1), sketch.ErrNotReference)
 }
 
 // Reference curves require reference points of this sketch.
 func TestReferenceCurveRequiresRefPoints(t *testing.T) {
 	s := newSketch(t)
-	r1 := s.AddReferencePoint(0, 0, "a")
-	r2 := s.AddReferencePoint(5, 0, "b")
-	free := s.AddPoint(1, 1)
+	r1 := s.CreateReferencePoint(0, 0, "a")
+	r2 := s.CreateReferencePoint(5, 0, "b")
+	free := s.CreatePoint(1, 1)
 
-	_, err := s.AddReferenceLine(r1, free, "edge")
+	_, err := s.CreateReferenceLine(r1, free, "edge")
 	require.ErrorIs(t, err, sketch.ErrNotReference, "a reference line needs reference points")
 
 	other := newSketch(t)
-	foreign := other.AddReferencePoint(0, 0, "x")
-	_, err = s.AddReferenceLine(r1, foreign, "edge")
+	foreign := other.CreateReferencePoint(0, 0, "x")
+	_, err = s.CreateReferenceLine(r1, foreign, "edge")
 	require.ErrorIs(t, err, sketch.ErrForeignPoint, "a reference line cannot use a foreign point")
 
-	l, err := s.AddReferenceLine(r1, r2, "edge")
+	l, err := s.CreateReferenceLine(r1, r2, "edge")
 	require.NoError(t, err)
 	require.True(t, l.IsReference())
 	require.Equal(t, "edge", l.Source())
@@ -73,8 +73,8 @@ func TestReferenceCurveRequiresRefPoints(t *testing.T) {
 // A reference circle's radius is locked too (not just its center point).
 func TestReferenceCircleRadiusLocked(t *testing.T) {
 	s := newSketch(t)
-	center := s.AddReferencePoint(0, 0, "hole")
-	circ, err := s.AddReferenceCircle(center, 5, "hole")
+	center := s.CreateReferencePoint(0, 0, "hole")
+	circ, err := s.CreateReferenceCircle(center, 5, "hole")
 	require.NoError(t, err)
 	require.True(t, circ.IsReference())
 
@@ -93,9 +93,9 @@ func TestReferenceCircleRadiusLocked(t *testing.T) {
 // (Trim/Break) and the copying ones (Mirror/Pattern/Offset).
 func TestReferenceToolsReject(t *testing.T) {
 	s := newSketch(t)
-	p1 := s.AddReferencePoint(0, 0, "a")
-	p2 := s.AddReferencePoint(10, 0, "b")
-	l, err := s.AddReferenceLine(p1, p2, "edge")
+	p1 := s.CreateReferencePoint(0, 0, "a")
+	p2 := s.CreateReferencePoint(10, 0, "b")
+	l, err := s.CreateReferenceLine(p1, p2, "edge")
 	require.NoError(t, err)
 
 	_, ok := s.Trim(l, 5, 0)
@@ -103,11 +103,11 @@ func TestReferenceToolsReject(t *testing.T) {
 	_, _, ok = s.Break(l, 5, 0)
 	require.False(t, ok, "Break refuses reference geometry")
 
-	axis := s.AddLine(s.AddPoint(0, -1), s.AddPoint(10, -1))
-	require.Nil(t, s.AddMirror([]sketch.Entity{l}, axis), "Mirror refuses reference geometry")
-	_, err = s.AddPatternRect([]sketch.Entity{l}, 2, 1, 5, 5)
+	axis := s.CreateLine(s.CreatePoint(0, -1), s.CreatePoint(10, -1))
+	require.Nil(t, s.CreateMirror([]sketch.Entity{l}, axis), "Mirror refuses reference geometry")
+	_, err = s.CreatePatternRect([]sketch.Entity{l}, 2, 1, 5, 5)
 	require.ErrorIs(t, err, sketch.ErrReferenceGeometry)
-	_, err = s.AddOffset([]sketch.Entity{l}, 2)
+	_, err = s.CreateOffset([]sketch.Entity{l}, 2)
 	require.ErrorIs(t, err, sketch.ErrReferenceGeometry)
 }
 
@@ -115,9 +115,9 @@ func TestReferenceToolsReject(t *testing.T) {
 // not panic the residual/profile analysis.
 func TestReferenceNilTopologyNoPanic(t *testing.T) {
 	s := newSketch(t)
-	p1 := s.AddReferencePoint(0, 0, "a")
-	p2 := s.AddReferencePoint(10, 0, "b")
-	l, err := s.AddReferenceLine(p1, p2, "edge")
+	p1 := s.CreateReferencePoint(0, 0, "a")
+	p2 := s.CreateReferencePoint(10, 0, "b")
+	l, err := s.CreateReferenceLine(p1, p2, "edge")
 	require.NoError(t, err)
 	l.Start = nil // corrupt topology
 
@@ -131,19 +131,19 @@ func TestReferenceNilTopologyNoPanic(t *testing.T) {
 // different reference point — is detected as a broken reference.
 func TestReferenceIntegrityRewire(t *testing.T) {
 	s := newSketch(t)
-	p1 := s.AddReferencePoint(0, 0, "a")
-	p2 := s.AddReferencePoint(10, 0, "b")
-	l, err := s.AddReferenceLine(p1, p2, "edge")
+	p1 := s.CreateReferencePoint(0, 0, "a")
+	p2 := s.CreateReferencePoint(10, 0, "b")
+	l, err := s.CreateReferenceLine(p1, p2, "edge")
 	require.NoError(t, err)
 	require.Empty(t, s.Verify().BrokenReferences, "a freshly built reference is intact")
 
-	free := s.AddPoint(1, 1)
+	free := s.CreatePoint(1, 1)
 	l.Start = free // rewire to a free point
 	rep := s.Verify()
 	require.Contains(t, rep.BrokenReferences, sketch.Entity(l))
 	require.False(t, rep.Trustworthy())
 
-	p3 := s.AddReferencePoint(2, 2, "c")
+	p3 := s.CreateReferencePoint(2, 2, "c")
 	l.Start = p3 // rewire to a DIFFERENT reference point: still caught by the seal
 	require.Contains(t, s.Verify().BrokenReferences, sketch.Entity(l))
 }
@@ -152,9 +152,9 @@ func TestReferenceIntegrityRewire(t *testing.T) {
 // surfaced rather than silently trusted.
 func TestReferenceForeignHandle(t *testing.T) {
 	s := newSketch(t)
-	local := s.AddPoint(0, 0)
+	local := s.CreatePoint(0, 0)
 	other := newSketch(t)
-	foreign := other.AddReferencePoint(5, 5, "x")
+	foreign := other.CreateReferencePoint(5, 5, "x")
 	s.AddConstraint(sketch.NewCoincident(local, foreign))
 
 	rep := s.Verify()
@@ -165,9 +165,9 @@ func TestReferenceForeignHandle(t *testing.T) {
 // Staleness is marked per source and clears only by refreshing every unit.
 func TestReferenceStaleness(t *testing.T) {
 	s := newSketch(t)
-	p1 := s.AddReferencePoint(0, 0, "edge")
-	p2 := s.AddReferencePoint(10, 0, "edge")
-	l, err := s.AddReferenceLine(p1, p2, "edge")
+	p1 := s.CreateReferencePoint(0, 0, "edge")
+	p2 := s.CreateReferencePoint(10, 0, "edge")
+	l, err := s.CreateReferenceLine(p1, p2, "edge")
 	require.NoError(t, err)
 	require.False(t, s.Verify().Stale)
 	require.True(t, s.Verify().Trustworthy())
@@ -192,9 +192,9 @@ func TestReferenceStaleness(t *testing.T) {
 // carry different (vertex) sources.
 func TestReferenceStaleEntitySource(t *testing.T) {
 	s := newSketch(t)
-	p1 := s.AddReferencePoint(0, 0, "v1")
-	p2 := s.AddReferencePoint(10, 0, "v2")
-	l, err := s.AddReferenceLine(p1, p2, "edge1")
+	p1 := s.CreateReferencePoint(0, 0, "v1")
+	p2 := s.CreateReferencePoint(10, 0, "v2")
+	l, err := s.CreateReferenceLine(p1, p2, "edge1")
 	require.NoError(t, err)
 
 	s.MarkStale("edge1") // matches the line's source, not the points'
@@ -207,23 +207,23 @@ func TestReferenceStaleEntitySource(t *testing.T) {
 // projected (reference) edge is detected.
 func TestReferenceProfileMixedLoop(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddReferencePoint(0, 0, "e")
-	b := s.AddReferencePoint(10, 0, "e")
-	if _, err := s.AddReferenceLine(a, b, "e"); err != nil {
+	a := s.CreateReferencePoint(0, 0, "e")
+	b := s.CreateReferencePoint(10, 0, "e")
+	if _, err := s.CreateReferenceLine(a, b, "e"); err != nil {
 		t.Fatalf("ref line: %v", err)
 	}
-	c := s.AddPoint(5, 8)
-	s.AddLine(b, c)
-	s.AddLine(c, a)
+	c := s.CreatePoint(5, 8)
+	s.CreateLine(b, c)
+	s.CreateLine(c, a)
 	require.Len(t, s.Profiles(), 1, "a mixed sketch+reference loop closes")
 }
 
 // reference/source/stale/lock survive a JSON round-trip.
 func TestReferenceRoundTrip(t *testing.T) {
 	s := newSketch(t)
-	s.AddReferencePoint(3, 4, "v")
-	center := s.AddReferencePoint(0, 0, "h")
-	circ, err := s.AddReferenceCircle(center, 5, "h")
+	s.CreateReferencePoint(3, 4, "v")
+	center := s.CreateReferencePoint(0, 0, "h")
+	circ, err := s.CreateReferenceCircle(center, 5, "h")
 	require.NoError(t, err)
 	circ.SetConstruction(true) // must stay non-construction
 	s.MarkStale("h")
@@ -259,9 +259,9 @@ func TestReferenceLoadRejectsCorrupt(t *testing.T) {
 	// Build a valid normal-line sketch, then forge reference:true onto the line
 	// without making its points reference.
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
-	s.AddLine(a, b)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
+	s.CreateLine(a, b)
 	data, err := json.Marshal(s)
 	require.NoError(t, err)
 	forged := strings.Replace(string(data), `"type":"line"`, `"type":"line","reference":true,"source":"e"`, 1)
@@ -273,9 +273,9 @@ func TestReferenceLoadRejectsCorrupt(t *testing.T) {
 // A reference entity and its points remove cleanly.
 func TestReferenceRemoval(t *testing.T) {
 	s := newSketch(t)
-	p1 := s.AddReferencePoint(0, 0, "a")
-	p2 := s.AddReferencePoint(10, 0, "b")
-	l, err := s.AddReferenceLine(p1, p2, "edge")
+	p1 := s.CreateReferencePoint(0, 0, "a")
+	p2 := s.CreateReferencePoint(10, 0, "b")
+	l, err := s.CreateReferenceLine(p1, p2, "edge")
 	require.NoError(t, err)
 	require.True(t, s.RemoveEntity(l))
 	require.True(t, s.RemovePoint(p1))
@@ -288,10 +288,10 @@ func TestReferenceRemoval(t *testing.T) {
 // internal constraint (its locked points need no radius-consistency solver row).
 func TestReferenceArcTrustworthy(t *testing.T) {
 	s := newSketch(t)
-	center := s.AddReferencePoint(0, 0, "arc")
-	start := s.AddReferencePoint(5, 0, "arc")
-	end := s.AddReferencePoint(0, 5, "arc")
-	arc, err := s.AddReferenceArc(center, start, end, "arc")
+	center := s.CreateReferencePoint(0, 0, "arc")
+	start := s.CreateReferencePoint(5, 0, "arc")
+	end := s.CreateReferencePoint(0, 5, "arc")
+	arc, err := s.CreateReferenceArc(center, start, end, "arc")
 	require.NoError(t, err)
 	require.True(t, arc.IsReference())
 
@@ -300,7 +300,7 @@ func TestReferenceArcTrustworthy(t *testing.T) {
 	require.True(t, rep.Trustworthy())
 
 	// An inconsistent arc snapshot (start/end not equidistant) is rejected.
-	_, err = s.AddReferenceArc(center, s.AddReferencePoint(5, 0, "bad"), s.AddReferencePoint(0, 9, "bad"), "bad")
+	_, err = s.CreateReferenceArc(center, s.CreateReferencePoint(5, 0, "bad"), s.CreateReferencePoint(0, 9, "bad"), "bad")
 	require.ErrorIs(t, err, sketch.ErrInvalidShape)
 }
 
@@ -323,10 +323,10 @@ func TestReferenceVerifyTypedNilOperand(t *testing.T) {
 // invariant; the integrity check (not a solver constraint) catches it.
 func TestReferenceArcRefreshBreaksInvariant(t *testing.T) {
 	s := newSketch(t)
-	center := s.AddReferencePoint(0, 0, "arc")
-	start := s.AddReferencePoint(5, 0, "arc")
-	end := s.AddReferencePoint(0, 5, "arc")
-	arc, err := s.AddReferenceArc(center, start, end, "arc")
+	center := s.CreateReferencePoint(0, 0, "arc")
+	start := s.CreateReferencePoint(5, 0, "arc")
+	end := s.CreateReferencePoint(0, 5, "arc")
+	arc, err := s.CreateReferenceArc(center, start, end, "arc")
 	require.NoError(t, err)
 	require.True(t, s.Verify().Trustworthy())
 

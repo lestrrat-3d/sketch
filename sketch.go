@@ -16,9 +16,9 @@ import (
 // in a single flat parameter vector so the constraint solver can treat the whole
 // sketch as one nonlinear system.
 //
-// Geometry is authored directly against the sketch: [Sketch.AddPoint] takes
+// Geometry is authored directly against the sketch: [Sketch.CreatePoint] takes
 // coordinates and returns a durable [Point] handle; the curve builders
-// ([Sketch.AddLine], [Sketch.AddCircle], [Sketch.AddArc], …) take those points.
+// ([Sketch.CreateLine], [Sketch.CreateCircle], [Sketch.CreateArc], …) take those points.
 // Topology is expressed by sharing a [Point] between entities. The [geom]
 // package is the transient math/snapshot layer: [Entity] values expose their
 // current geometry as a fresh geom value via their Geometry method, and the
@@ -158,7 +158,7 @@ func (s *Sketch) ownsEntity(e Entity) bool {
 
 // Point is a solver-bound point. Its coordinates are unknowns solved for by the
 // constraint solver unless the point is grounded with [Sketch.Fix]. Create one
-// with [Sketch.AddPoint] and share it between entities to express topology.
+// with [Sketch.CreatePoint] and share it between entities to express topology.
 type Point struct {
 	s            *Sketch
 	xi, yi       int // indices into Sketch.vars
@@ -232,9 +232,9 @@ func (p *Point) DistanceToLine(l *Line) float64 { return p.Geometry().DistanceTo
 func (p *Point) x() float64 { return p.s.vars[p.xi] }
 func (p *Point) y() float64 { return p.s.vars[p.yi] }
 
-// AddPoint adds a point at (x, y), allocating its solver variables, and returns
+// CreatePoint adds a point at (x, y), allocating its solver variables, and returns
 // its handle. Share the returned point between entities to make them meet.
-func (s *Sketch) AddPoint(x, y float64) *Point {
+func (s *Sketch) CreatePoint(x, y float64) *Point {
 	p := &Point{s: s, xi: s.newVar(x), yi: s.newVar(y), id: len(s.points)}
 	s.points = append(s.points, p)
 	return p
@@ -377,7 +377,7 @@ func (s *Sketch) EntityFixed(e Entity) bool {
 // Entity is a line, circle, arc, ellipse or spline in a sketch. Construction
 // status is a settable per-entity property; reference status (externally-locked
 // 3D-snapshot geometry with a source id and staleness) is set at creation by the
-// AddReference… constructors and is read-only.
+// CreateReference… constructors and is read-only.
 type Entity interface {
 	entity()
 	entID() int
@@ -443,8 +443,8 @@ func (l *Line) Length() float64 { return math.Hypot(l.End.x()-l.Start.x(), l.End
 // (in (-π, π]) — the same quantity an [Angle] constraint drives.
 func (l *Line) AngleTo(other *Line) float64 { return l.Geometry().AngleTo(other.Geometry()) }
 
-// AddLine adds a line between two points and returns its handle.
-func (s *Sketch) AddLine(start, end *Point) *Line {
+// CreateLine adds a line between two points and returns its handle.
+func (s *Sketch) CreateLine(start, end *Point) *Line {
 	l := &Line{s: s, Start: start, End: end, id: len(s.ents)}
 	s.ents = append(s.ents, l)
 	return l
@@ -483,9 +483,9 @@ func (c *Circle) r() float64 { return c.s.vars[c.ri] }
 
 func (c *Circle) centerPt() *Point { return c.Center }
 
-// AddCircle adds a circle with the given center point and radius, allocating the
+// CreateCircle adds a circle with the given center point and radius, allocating the
 // radius variable, and returns its handle.
-func (s *Sketch) AddCircle(center *Point, r float64) *Circle {
+func (s *Sketch) CreateCircle(center *Point, r float64) *Circle {
 	c := &Circle{s: s, Center: center, ri: s.newVar(r), id: len(s.ents)}
 	s.ents = append(s.ents, c)
 	return c
@@ -543,9 +543,9 @@ func (a *Arc) Sweep() float64 {
 	return d
 }
 
-// AddArc adds an arc swept counter-clockwise from start to end about center, and
+// CreateArc adds an arc swept counter-clockwise from start to end about center, and
 // the internal radius-consistency constraint. Returns its handle.
-func (s *Sketch) AddArc(center, start, end *Point) *Arc {
+func (s *Sketch) CreateArc(center, start, end *Point) *Arc {
 	a := &Arc{s: s, Center: center, Start: start, End: end, id: len(s.ents)}
 	s.ents = append(s.ents, a)
 	s.cons = append(s.cons, &arcRadius{a})
@@ -599,9 +599,9 @@ func (e *Ellipse) rot() float64 { return e.s.vars[e.roti] }
 
 func (e *Ellipse) centerPt() *Point { return e.Center }
 
-// AddEllipse adds an ellipse with the given center point, semi-axes and rotation
+// CreateEllipse adds an ellipse with the given center point, semi-axes and rotation
 // (radians), allocating their variables, and returns its handle.
-func (s *Sketch) AddEllipse(center *Point, rx, ry, rotation float64) *Ellipse {
+func (s *Sketch) CreateEllipse(center *Point, rx, ry, rotation float64) *Ellipse {
 	e := &Ellipse{
 		s: s, Center: center,
 		rxi: s.newVar(rx), ryi: s.newVar(ry), roti: s.newVar(rotation),
@@ -662,12 +662,12 @@ func (e *EllipticalArc) StartParam() float64 { return e.Geometry().StartParam() 
 func (e *EllipticalArc) EndParam() float64   { return e.Geometry().EndParam() }
 func (e *EllipticalArc) Sweep() float64      { return e.Geometry().Sweep() }
 
-// AddEllipticalArc adds an elliptical arc on the ellipse (center, rx, ry,
+// CreateEllipticalArc adds an elliptical arc on the ellipse (center, rx, ry,
 // rotation) swept counter-clockwise from start to end. It allocates the shape
 // variables and auto-adds two internal constraints pinning start and end onto
 // the ellipse; for the arc to be valid, start and end should already lie on (or
 // near) it. Returns the handle.
-func (s *Sketch) AddEllipticalArc(center, start, end *Point, rx, ry, rotation float64) *EllipticalArc {
+func (s *Sketch) CreateEllipticalArc(center, start, end *Point, rx, ry, rotation float64) *EllipticalArc {
 	e := &EllipticalArc{
 		s: s, Center: center, Start: start, End: end,
 		rxi: s.newVar(rx), ryi: s.newVar(ry), roti: s.newVar(rotation),
@@ -725,16 +725,16 @@ func (c *Conic) Eval(t float64) (float64, float64) { return c.Geometry().Eval(t)
 // Polyline samples the solved conic from Start to End at segments+1 points.
 func (c *Conic) Polyline(segments int) [][2]float64 { return c.Geometry().Polyline(segments) }
 
-// AddConic adds a conic arc — a rational quadratic Bézier — through start and end
+// CreateConic adds a conic arc — a rational quadratic Bézier — through start and end
 // with apex control point apex and fullness rho. It allocates rho as a solver
 // variable and returns the handle. It returns [ErrInvalidShape] if rho is not in
 // the open interval (0, 1) or any point is nil.
-func (s *Sketch) AddConic(start, apex, end *Point, rho float64) (*Conic, error) {
+func (s *Sketch) CreateConic(start, apex, end *Point, rho float64) (*Conic, error) {
 	if start == nil || apex == nil || end == nil {
-		return nil, fmt.Errorf("%w: AddConic requires non-nil start, apex and end points", ErrInvalidShape)
+		return nil, fmt.Errorf("%w: CreateConic requires non-nil start, apex and end points", ErrInvalidShape)
 	}
 	if !(rho > 0 && rho < 1) {
-		return nil, fmt.Errorf("%w: AddConic rho must be in (0, 1), got %v", ErrInvalidShape, rho)
+		return nil, fmt.Errorf("%w: CreateConic rho must be in (0, 1), got %v", ErrInvalidShape, rho)
 	}
 	c := &Conic{
 		s: s, Start: start, Apex: apex, End: end,

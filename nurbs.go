@@ -88,12 +88,12 @@ func (c *NURBS) Polyline(segments int) [][2]float64 { return c.Geometry().Polyli
 
 // ClampedUniformKnots returns the common clamped knot vector for n control points
 // and the given degree — degree+1 copies of 0, evenly spaced interior knots, then
-// degree+1 copies of 1 (length n+degree+1) — so callers of [Sketch.AddNURBS]
+// degree+1 copies of 1 (length n+degree+1) — so callers of [Sketch.CreateNURBS]
 // rarely hand-write one. It returns nil for an invalid (degree < 1 or n <
 // degree+1) request.
 func ClampedUniformKnots(n, degree int) []float64 { return geom.ClampedUniformKnots(n, degree) }
 
-// AddNURBS adds a clamped non-uniform rational B-spline of the given degree over
+// CreateNURBS adds a clamped non-uniform rational B-spline of the given degree over
 // the control points, with optional per-control weights and an explicit knot
 // vector, and returns its handle. Share control points with other geometry to
 // relate them.
@@ -104,47 +104,47 @@ func ClampedUniformKnots(n, degree int) []float64 { return geom.ClampedUniformKn
 // len(control) with every weight > 0 (weights == nil means all 1, a non-rational
 // curve). Use [ClampedUniformKnots] for the common knot vector. Any violation
 // returns [ErrInvalidShape].
-func (s *Sketch) AddNURBS(degree int, control []*Point, weights, knots []float64) (*NURBS, error) {
+func (s *Sketch) CreateNURBS(degree int, control []*Point, weights, knots []float64) (*NURBS, error) {
 	if degree < 1 {
-		return nil, fmt.Errorf("%w: AddNURBS degree must be >= 1, got %d", ErrInvalidShape, degree)
+		return nil, fmt.Errorf("%w: CreateNURBS degree must be >= 1, got %d", ErrInvalidShape, degree)
 	}
 	n := len(control)
 	if n < degree+1 {
-		return nil, fmt.Errorf("%w: AddNURBS requires at least degree+1 = %d control points, got %d", ErrInvalidShape, degree+1, n)
+		return nil, fmt.Errorf("%w: CreateNURBS requires at least degree+1 = %d control points, got %d", ErrInvalidShape, degree+1, n)
 	}
 	for i, p := range control {
 		if p == nil {
-			return nil, fmt.Errorf("%w: AddNURBS control point %d is nil", ErrInvalidShape, i)
+			return nil, fmt.Errorf("%w: CreateNURBS control point %d is nil", ErrInvalidShape, i)
 		}
 	}
 	if len(knots) != n+degree+1 {
-		return nil, fmt.Errorf("%w: AddNURBS needs %d knots (control+degree+1), got %d", ErrInvalidShape, n+degree+1, len(knots))
+		return nil, fmt.Errorf("%w: CreateNURBS needs %d knots (control+degree+1), got %d", ErrInvalidShape, n+degree+1, len(knots))
 	}
 	for i := 1; i < len(knots); i++ {
 		if knots[i] < knots[i-1] {
-			return nil, fmt.Errorf("%w: AddNURBS knot vector must be non-decreasing (knot %d < knot %d)", ErrInvalidShape, i, i-1)
+			return nil, fmt.Errorf("%w: CreateNURBS knot vector must be non-decreasing (knot %d < knot %d)", ErrInvalidShape, i, i-1)
 		}
 	}
 	// Clamped: the first and last degree+1 knots are each repeated (equal).
 	for i := 1; i <= degree; i++ {
 		if knots[i] != knots[0] {
-			return nil, fmt.Errorf("%w: AddNURBS knot vector is not clamped at the start", ErrInvalidShape)
+			return nil, fmt.Errorf("%w: CreateNURBS knot vector is not clamped at the start", ErrInvalidShape)
 		}
 		if knots[len(knots)-1-i] != knots[len(knots)-1] {
-			return nil, fmt.Errorf("%w: AddNURBS knot vector is not clamped at the end", ErrInvalidShape)
+			return nil, fmt.Errorf("%w: CreateNURBS knot vector is not clamped at the end", ErrInvalidShape)
 		}
 	}
 	if knots[degree] >= knots[n] {
-		return nil, fmt.Errorf("%w: AddNURBS knot domain is empty", ErrInvalidShape)
+		return nil, fmt.Errorf("%w: CreateNURBS knot domain is empty", ErrInvalidShape)
 	}
 	var w []float64
 	if weights != nil {
 		if len(weights) != n {
-			return nil, fmt.Errorf("%w: AddNURBS needs %d weights (one per control point), got %d", ErrInvalidShape, n, len(weights))
+			return nil, fmt.Errorf("%w: CreateNURBS needs %d weights (one per control point), got %d", ErrInvalidShape, n, len(weights))
 		}
 		for i, wi := range weights {
 			if !(wi > 0) {
-				return nil, fmt.Errorf("%w: AddNURBS weight %d must be > 0, got %v", ErrInvalidShape, i, wi)
+				return nil, fmt.Errorf("%w: CreateNURBS weight %d must be > 0, got %v", ErrInvalidShape, i, wi)
 			}
 		}
 		w = append([]float64(nil), weights...)

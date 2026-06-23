@@ -33,7 +33,7 @@ smooth). One behavioral test per constraint.
 | `TestCollinearLines` | [gap] | All four endpoints on one infinite line; dimensioned lengths preserved. |
 | `TestPointOnCircle` | [gap] | `dist(p, center) == r` after solve; point retains one sliding DOF. |
 | `TestMidpoint` | [gap] | Point lands at segment midpoint; dragging an endpoint via goal keeps it at midpoint. |
-| `TestEqualLines` | [gap] | `NewEqual` directly (today only exercised through `AddPolygon` internals). |
+| `TestEqualLines` | [gap] | `NewEqual` directly (today only exercised through `CreatePolygon` internals). |
 | `TestDiameterDimension` | [gap] | `NewDiameter` drives `2r`; `.Set(d)` + re-solve updates radius. |
 | `TestUnfixRestoresFreedom` | [gap] | `Fix` drops DOF; `Unfix` restores it and the solver may move the point again. |
 | `TestHorizontalVerticalPoints` | [new] | Fusion allows horizontal/vertical between two **points**, not just on a line. Proposed: `NewHorizontalPoints(p1, p2 *Point)`, `NewVerticalPoints(p1, p2 *Point)`. |
@@ -104,20 +104,20 @@ The third assertion is what separates a CAD tool from a drawing program.
 | `TestTrimEndStub` / `TestTrimStartStub` / `TestTrimInteriorRejected` | [exists] | `s.Trim(line, x, y)` — committed line crossing a cutter: trim removes the stub on the pick side and replaces the line; a pick bounded by crossings on both sides is rejected (would split — use Break). |
 | `TestExtendToCutter` | [exists] | `s.Extend(line, end)` — endpoint extends to the nearest entity beyond it. |
 | `TestBreakLine` / `TestBreakArc` | [exists] | `s.Break(ent, x, y)` — one line/arc becomes two sharing the split vertex (and, for arcs, the center); `TestBreakIsParametric` dimensions a half and re-solves. |
-| `TestAddFillet` | [exists] | `s.AddFillet(l1, l2, r)` — removes the corner, adds the arc with tangent constraints to both legs + a radius dimension; editing `Fillet.Radius` and re-solving keeps tangency (parametric fillet). |
-| `TestAddChamfer` | [exists] | `s.AddChamfer(l1, l2, d)` — same shape with setback distance dimensions. |
-| `TestOffsetLine` / `TestOffsetChainMitresCorner` | [exists] | `s.AddOffset(entities, d)` — a parallel chain bound by the new `Offset` **constraint**; corners mitre at the offset intersection and `OffsetGroup.Set(d)` + re-solve moves the copy. |
-| `TestMirrorLine` / `TestMirrorTracksSource` | [exists] | `s.AddMirror(entities, axisLine)` — mirrored copies created with symmetric constraints; moving the original re-solves the mirror side. |
-| `TestPatternRect` / `TestPatternRectTracksSeed` | [exists] | `s.AddPatternRect(entities, nx, ny, dx, dy)` — instances rigid-tied to and following the seed. |
-| `TestPatternCircular` | [exists] | `s.AddPatternCircular(entities, center, n)` — equal angular spacing held by construction-spoke constraints. |
+| `TestCreateFillet` | [exists] | `s.CreateFillet(l1, l2, r)` — removes the corner, adds the arc with tangent constraints to both legs + a radius dimension; editing `Fillet.Radius` and re-solving keeps tangency (parametric fillet). |
+| `TestCreateChamfer` | [exists] | `s.CreateChamfer(l1, l2, d)` — same shape with setback distance dimensions. |
+| `TestOffsetLine` / `TestOffsetChainMitresCorner` | [exists] | `s.CreateOffset(entities, d)` — a parallel chain bound by the new `Offset` **constraint**; corners mitre at the offset intersection and `OffsetGroup.Set(d)` + re-solve moves the copy. |
+| `TestMirrorLine` / `TestMirrorTracksSource` | [exists] | `s.CreateMirror(entities, axisLine)` — mirrored copies created with symmetric constraints; moving the original re-solves the mirror side. |
+| `TestPatternRect` / `TestPatternRectTracksSeed` | [exists] | `s.CreatePatternRect(entities, nx, ny, dx, dy)` — instances rigid-tied to and following the seed. |
+| `TestPatternCircular` | [exists] | `s.CreatePatternCircular(entities, center, n)` — equal angular spacing held by construction-spoke constraints. |
 
 ## 6. Geometry coverage gaps
 
 | Test | Status | Asserts |
 |---|---|---|
-| `TestEllipticalArc` | [new] | Open item in CLAUDE.md: `AddEllipticalArc` with start/end angles; profile detection treats it as a boundary curve. |
+| `TestEllipticalArc` | [new] | Open item in CLAUDE.md: `CreateEllipticalArc` with start/end angles; profile detection treats it as a boundary curve. |
 | `TestFitPointSpline` | [new] | Fusion's default spline interpolates *through* fit points (current implementation is control-point B-spline). Proposed: `geom.NewFitSpline(pts)` — curve passes through every point; constraining a fit point reshapes the curve locally. |
-| `TestThreePointRectangle` | [new] | `AddRectangle3Pt` / `AddRectangleCenter` — Fusion's rectangle variants; each carries the right shape-holding constraint set. |
+| `TestThreePointRectangle` | [new] | `CreateRectangle3Pt` / `CreateRectangleCenter` — Fusion's rectangle variants; each carries the right shape-holding constraint set. |
 | `TestConstructionGeometry` | [gap→new] | `WithConstruction` exists only as an SVG option; the engine needs a first-class flag: `s.SetConstruction(ent, true)`. Construction entities are excluded from `Profiles()` (claimed in CLAUDE.md — pin it), still participate in constraints (centerline symmetry axis), survive JSON, render dashed in SVG. |
 | `TestIntersectionPoint` | [new] | `s.AddIntersectionPoint(e1, e2)` — committed point constrained to remain at the intersection as the sketch re-solves. |
 

@@ -16,11 +16,11 @@ import (
 
 // humpSpline is a fixed convex spline over x∈[0,3], rising to y≈1.5.
 func humpSpline(s *sketch.Sketch) *sketch.Spline {
-	cp := []*sketch.Point{s.AddPoint(0, 0), s.AddPoint(1, 2), s.AddPoint(2, 2), s.AddPoint(3, 0)}
+	cp := []*sketch.Point{s.CreatePoint(0, 0), s.CreatePoint(1, 2), s.CreatePoint(2, 2), s.CreatePoint(3, 0)}
 	for _, p := range cp {
 		s.Fix(p)
 	}
-	sp, err := s.AddSpline(cp[0], cp[1], cp[2], cp[3])
+	sp, err := s.CreateSpline(cp[0], cp[1], cp[2], cp[3])
 	if err != nil {
 		panic(err)
 	}
@@ -33,10 +33,10 @@ func TestAuditTangentToSplineImpossibleRejected(t *testing.T) {
 	// off-domain "tangent": the constraint stays unsatisfied, so Solvable is false.
 	s := newSketch(t)
 	sp := humpSpline(s)
-	a, b := s.AddPoint(-5, 5), s.AddPoint(5, 5)
+	a, b := s.CreatePoint(-5, 5), s.CreatePoint(5, 5)
 	s.Fix(a)
 	s.Fix(b)
-	l := s.AddLine(a, b)
+	l := s.CreateLine(a, b)
 	s.AddConstraint(sketch.NewTangentToSpline(l, sp))
 	s.Solve()
 	require.False(t, s.Verify().Solvable, "an impossible line/spline tangency must not be blessed Solvable")
@@ -47,8 +47,8 @@ func TestAuditTangentToSplineFeasibleReallyTouches(t *testing.T) {
 	// line genuinely touches the finite spline (perpendicular distance ~0).
 	s := newSketch(t)
 	sp := humpSpline(s)
-	a, b := s.AddPoint(-2, 0.5), s.AddPoint(5, 0.5)
-	l := s.AddLine(a, b)
+	a, b := s.CreatePoint(-2, 0.5), s.CreatePoint(5, 0.5)
+	l := s.CreateLine(a, b)
 	s.AddConstraint(sketch.NewTangentToSpline(l, sp))
 	s.Solve()
 	require.True(t, s.Verify().Solvable, "a feasible tangency must be solvable")
@@ -75,9 +75,9 @@ func TestAuditPointOnSplinePulledOffDomainRejected(t *testing.T) {
 	// the oracle must NOT bless a point that has left the curve.
 	s := newSketch(t)
 	sp := humpSpline(s)
-	p := s.AddPoint(0, 0)
+	p := s.CreatePoint(0, 0)
 	s.AddConstraint(sketch.NewPointOnSpline(p, sp))
-	anchor := s.AddPoint(20, 0)
+	anchor := s.CreatePoint(20, 0)
 	s.Fix(anchor)
 	s.AddConstraint(sketch.NewDistance(p, anchor, 0))
 	s.Solve()
@@ -102,12 +102,12 @@ func TestAuditConicTangencyImpossibleRejected(t *testing.T) {
 	// tangency. No internal tangency exists, so the contact-witness/branch-slack machinery
 	// must not fabricate one: Solvable is false.
 	s := newSketch(t)
-	ec := s.AddPoint(0, 0)
+	ec := s.CreatePoint(0, 0)
 	s.Fix(ec)
-	e := s.AddEllipse(ec, 2.0, 1.0, 0.0)
-	cc := s.AddPoint(10, 0)
+	e := s.CreateEllipse(ec, 2.0, 1.0, 0.0)
+	cc := s.CreatePoint(10, 0)
 	s.Fix(cc)
-	c := s.AddCircle(cc, 1.0)
+	c := s.CreateCircle(cc, 1.0)
 	s.AddConstraint(sketch.NewTangentEllipseCircular(e, c, true))
 	s.Solve()
 	require.False(t, s.Verify().Solvable, "an impossible internal conic tangency must not be blessed Solvable")
@@ -118,9 +118,9 @@ func TestAuditGoalSolveDoesNotCorruptVerify(t *testing.T) {
 	// transient solver rows, never constraints: the hard constraint must win, and Verify's
 	// Solvable/Residual must reflect ONLY the hard constraints, never the unreachable goal.
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
+	a := s.CreatePoint(0, 0)
 	s.Fix(a)
-	b := s.AddPoint(10, 0)
+	b := s.CreatePoint(10, 0)
 	s.AddConstraint(sketch.NewDistance(a, b, 10))
 	s.Solve(sketch.WithGoal(b, 1000, 0))
 

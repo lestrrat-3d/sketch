@@ -21,7 +21,7 @@ func TestDistancePointArcInSweep(t *testing.T) {
 	// to radius R+2 = 7 along an in-sweep direction.
 	s := newSketch(t)
 	arc := quarterArc(s)
-	p := s.AddPoint(4.2, 4.2) // ~45°, radius ~5.9
+	p := s.CreatePoint(4.2, 4.2) // ~45°, radius ~5.9
 	s.AddConstraint(sketch.NewDistancePointArc(p, arc, 2))
 	_, err := s.Solve()
 	require.NoError(t, err)
@@ -37,7 +37,7 @@ func TestDistancePointArcInsideTarget(t *testing.T) {
 	// A negative target places the point inside the carrier circle by |d|.
 	s := newSketch(t)
 	arc := quarterArc(s)
-	p := s.AddPoint(2.1, 2.1) // ~45°, radius ~3, inside
+	p := s.CreatePoint(2.1, 2.1) // ~45°, radius ~3, inside
 	s.AddConstraint(sketch.NewDistancePointArc(p, arc, -2))
 	_, err := s.Solve()
 	require.NoError(t, err)
@@ -50,7 +50,7 @@ func TestDistancePointArcOutOfSweepRejected(t *testing.T) {
 	// must report it unsolvable rather than measuring to the nearer endpoint.
 	s := newSketch(t)
 	arc := quarterArc(s)
-	p := s.AddPoint(-5, 0) // on the radius-5 circle, angle 180°
+	p := s.CreatePoint(-5, 0) // on the radius-5 circle, angle 180°
 	s.Fix(p)
 	s.AddConstraint(sketch.NewDistancePointArc(p, arc, 0))
 	_, err := s.Solve()
@@ -64,14 +64,14 @@ func TestDistancePointArcAtCenterRejected(t *testing.T) {
 	// degenerate config must be explicitly reported unsolvable — even with the
 	// target −R that makes the radial-gap row vanish.
 	s := newSketch(t)
-	o := s.AddPoint(0, 0)
-	start := s.AddPoint(5, 0)
-	end := s.AddPoint(0, -5) // CCW from (5,0) to (0,−5) is a 270° reflex sweep
+	o := s.CreatePoint(0, 0)
+	start := s.CreatePoint(5, 0)
+	end := s.CreatePoint(0, -5) // CCW from (5,0) to (0,−5) is a 270° reflex sweep
 	s.Fix(o)
 	s.Fix(start)
 	s.Fix(end)
-	arc := s.AddArc(o, start, end)
-	p := s.AddPoint(0, 0) // exactly at the center
+	arc := s.CreateArc(o, start, end)
+	p := s.CreatePoint(0, 0) // exactly at the center
 	s.Fix(p)
 	s.AddConstraint(sketch.NewDistancePointArc(p, arc, -arc.R()))
 	_, err := s.Solve()
@@ -84,7 +84,7 @@ func TestDistanceLineArcTangentInSweep(t *testing.T) {
 	// arc at its (5,0) end — the foot direction +x is in-sweep (inclusive).
 	s := newSketch(t)
 	arc := quarterArc(s)
-	l := s.AddLine(s.AddPoint(4.7, -2), s.AddPoint(4.7, 9))
+	l := s.CreateLine(s.CreatePoint(4.7, -2), s.CreatePoint(4.7, 9))
 	s.AddConstraint(sketch.NewDistanceLineArc(l, arc, 0))
 	_, err := s.Solve()
 	require.NoError(t, err)
@@ -102,7 +102,7 @@ func TestDistanceLineArcOutOfSweepRejected(t *testing.T) {
 	// is not, so it is unsolvable.
 	s := newSketch(t)
 	arc := quarterArc(s)
-	l := s.AddLine(s.AddPoint(-3, -5), s.AddPoint(8, -5))
+	l := s.CreateLine(s.CreatePoint(-3, -5), s.CreatePoint(8, -5))
 	s.Fix(l.Start)
 	s.Fix(l.End)
 	s.AddConstraint(sketch.NewDistanceLineArc(l, arc, 0))
@@ -114,7 +114,7 @@ func TestDistanceLineArcOutOfSweepRejected(t *testing.T) {
 func TestDistancePointArcDOFAndRemoval(t *testing.T) {
 	s := newSketch(t)
 	arc := quarterArc(s)
-	p := s.AddPoint(4.2, 4.2)
+	p := s.CreatePoint(4.2, 4.2)
 	require.Equal(t, 2, s.DOF(), "free point against a fixed arc")
 	con := sketch.NewDistancePointArc(p, arc, 2)
 	s.AddConstraint(con)
@@ -128,7 +128,7 @@ func TestDistancePointArcDriven(t *testing.T) {
 	// sweep slack, so toggling driven does not leak a free DOF.
 	s := newSketch(t)
 	arc := quarterArc(s)
-	p := s.AddPoint(7, 7)
+	p := s.CreatePoint(7, 7)
 	s.Fix(p)
 	con := sketch.NewDistancePointArc(p, arc, 0)
 	s.AddConstraint(con)
@@ -145,7 +145,7 @@ func TestDistancePointArcDrivenToggleDOF(t *testing.T) {
 	// it exactly (no orphaned variable left behind).
 	s := newSketch(t)
 	arc := quarterArc(s)
-	p := s.AddPoint(4.2, 4.2)
+	p := s.CreatePoint(4.2, 4.2)
 	con := sketch.NewDistancePointArc(p, arc, 2)
 	s.AddConstraint(con)
 	require.Equal(t, 1, s.DOF())
@@ -160,7 +160,7 @@ func TestDistanceArcCheckConstraintNonMutating(t *testing.T) {
 	// allocating its slack, then rolls back — leaving the DOF untouched.
 	s := newSketch(t)
 	arc := quarterArc(s)
-	p := s.AddPoint(4.2, 4.2)
+	p := s.CreatePoint(4.2, 4.2)
 	before := s.DOF()
 	err := s.CheckConstraint(sketch.NewDistancePointArc(p, arc, 2))
 	require.NoError(t, err)
@@ -170,12 +170,12 @@ func TestDistanceArcCheckConstraintNonMutating(t *testing.T) {
 func TestDistanceArcRoundTripDriven(t *testing.T) {
 	s := newSketch(t)
 	arc := quarterArc(s)
-	p := s.AddPoint(7, 7)
+	p := s.CreatePoint(7, 7)
 	s.Fix(p)
 	con := sketch.NewDistancePointArc(p, arc, 0)
 	s.AddConstraint(con)
 	con.SetDriven(true)
-	l := s.AddLine(s.AddPoint(5, -2), s.AddPoint(5, 9)) // tangent at the (5,0) end
+	l := s.CreateLine(s.CreatePoint(5, -2), s.CreatePoint(5, 9)) // tangent at the (5,0) end
 	s.Fix(l.Start)
 	s.Fix(l.End)
 	s.AddConstraint(sketch.NewDistanceLineArc(l, arc, 0))

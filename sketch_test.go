@@ -11,15 +11,15 @@ import (
 
 func TestRectangleSolves(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(18, 2) // deliberately rough guesses
-	c := s.AddPoint(17, 11)
-	d := s.AddPoint(1, 13)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(18, 2) // deliberately rough guesses
+	c := s.CreatePoint(17, 11)
+	d := s.CreatePoint(1, 13)
 
-	ab := s.AddLine(a, b)
-	bc := s.AddLine(b, c)
-	dc := s.AddLine(d, c)
-	ad := s.AddLine(a, d)
+	ab := s.CreateLine(a, b)
+	bc := s.CreateLine(b, c)
+	dc := s.CreateLine(d, c)
+	ad := s.CreateLine(a, d)
 
 	a.MoveTo(0, 0)
 	s.Fix(a)
@@ -41,15 +41,15 @@ func TestRectangleSolves(t *testing.T) {
 
 func TestParametricUpdate(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(18, 2) // deliberately rough guesses
-	c := s.AddPoint(17, 11)
-	d := s.AddPoint(1, 13)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(18, 2) // deliberately rough guesses
+	c := s.CreatePoint(17, 11)
+	d := s.CreatePoint(1, 13)
 
-	ab := s.AddLine(a, b)
-	bc := s.AddLine(b, c)
-	dc := s.AddLine(d, c)
-	ad := s.AddLine(a, d)
+	ab := s.CreateLine(a, b)
+	bc := s.CreateLine(b, c)
+	dc := s.CreateLine(d, c)
+	ad := s.CreateLine(a, d)
 
 	a.MoveTo(0, 0)
 	s.Fix(a)
@@ -73,11 +73,11 @@ func TestSharedPointTopology(t *testing.T) {
 	// Topology is expressed by sharing a *Point between entities: two lines
 	// that share an endpoint move together at that vertex.
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	corner := s.AddPoint(10, 0)
-	b := s.AddPoint(10, 10)
-	l1 := s.AddLine(a, corner)
-	l2 := s.AddLine(corner, b)
+	a := s.CreatePoint(0, 0)
+	corner := s.CreatePoint(10, 0)
+	b := s.CreatePoint(10, 10)
+	l1 := s.CreateLine(a, corner)
+	l2 := s.CreateLine(corner, b)
 
 	require.Same(t, l1.End, l2.Start, "the shared corner is one point")
 
@@ -96,7 +96,7 @@ func TestGeometrySnapshot(t *testing.T) {
 	// Geometry() returns a fresh geom snapshot at the CURRENT solved coords,
 	// independent of the entity afterwards.
 	s := newSketch(t)
-	l := s.AddLine(s.AddPoint(1, 2), s.AddPoint(4, 6))
+	l := s.CreateLine(s.CreatePoint(1, 2), s.CreatePoint(4, 6))
 	g := l.Geometry()
 	require.InDelta(t, 1, g.Start.X, 1e-9)
 	require.InDelta(t, 6, g.End.Y, 1e-9)
@@ -105,17 +105,17 @@ func TestGeometrySnapshot(t *testing.T) {
 
 func TestTangentLineCircle(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
 	a.MoveTo(0, 0)
 	s.Fix(a)
 	b.MoveTo(10, 0)
 	s.Fix(b)
-	line := s.AddLine(a, b)
+	line := s.CreateLine(a, b)
 
-	center := s.AddPoint(5, 5)
+	center := s.CreatePoint(5, 5)
 	s.Fix(center)
-	circ := s.AddCircle(center, 2) // bad initial radius
+	circ := s.CreateCircle(center, 2) // bad initial radius
 	s.AddConstraint(sketch.NewTangent(line, circ))
 
 	_, err := s.Solve()
@@ -125,13 +125,13 @@ func TestTangentLineCircle(t *testing.T) {
 
 func TestPerpendicular(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 1)
-	c := s.AddPoint(1, 5)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 1)
+	c := s.CreatePoint(1, 5)
 	a.MoveTo(0, 0)
 	s.Fix(a)
-	l1 := s.AddLine(a, b)
-	l2 := s.AddLine(a, c)
+	l1 := s.CreateLine(a, b)
+	l2 := s.CreateLine(a, c)
 	s.AddConstraint(sketch.NewHorizontal(l1), sketch.NewPerpendicular(l1, l2))
 	s.AddConstraint(sketch.NewDistance(a, b, 10))
 	s.AddConstraint(sketch.NewDistance(a, c, 5))
@@ -144,13 +144,13 @@ func TestPerpendicular(t *testing.T) {
 
 func TestAngleConstraint(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
-	c := s.AddPoint(5, 5)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
+	c := s.CreatePoint(5, 5)
 	a.MoveTo(0, 0)
 	s.Fix(a)
-	l1 := s.AddLine(a, b)
-	l2 := s.AddLine(a, c)
+	l1 := s.CreateLine(a, b)
+	l2 := s.CreateLine(a, c)
 	s.AddConstraint(sketch.NewHorizontal(l1))
 	s.AddConstraint(sketch.NewDistance(a, b, 10))
 	s.AddConstraint(sketch.NewDistance(a, c, 8))
@@ -163,13 +163,13 @@ func TestAngleConstraint(t *testing.T) {
 
 func TestArcRadiusConsistency(t *testing.T) {
 	s := newSketch(t)
-	center := s.AddPoint(0, 0)
-	start := s.AddPoint(5, 0)
-	end := s.AddPoint(1, 9) // off the radius-5 circle
+	center := s.CreatePoint(0, 0)
+	start := s.CreatePoint(5, 0)
+	end := s.CreatePoint(1, 9) // off the radius-5 circle
 	center.MoveTo(0, 0)
 	s.Fix(center)
 	s.Fix(start)
-	arc := s.AddArc(center, start, end)
+	arc := s.CreateArc(center, start, end)
 
 	_, err := s.Solve()
 	require.NoError(t, err)
@@ -179,12 +179,12 @@ func TestArcRadiusConsistency(t *testing.T) {
 
 func TestConcentricEqualRadius(t *testing.T) {
 	s := newSketch(t)
-	o1 := s.AddPoint(0, 0)
-	o2 := s.AddPoint(3, 2)
+	o1 := s.CreatePoint(0, 0)
+	o2 := s.CreatePoint(3, 2)
 	o1.MoveTo(0, 0)
 	s.Fix(o1)
-	c1 := s.AddCircle(o1, 5)
-	c2 := s.AddCircle(o2, 9)
+	c1 := s.CreateCircle(o1, 5)
+	c2 := s.CreateCircle(o2, 9)
 	s.AddConstraint(sketch.NewConcentric(c1, c2), sketch.NewEqualRadius(c1, c2), sketch.NewRadius(c1, 7))
 
 	_, err := s.Solve()
@@ -197,19 +197,19 @@ func TestConcentricEqualRadius(t *testing.T) {
 
 func TestTangentLineArc(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
 	s.Fix(a)
 	s.Fix(b)
-	line := s.AddLine(a, b)
+	line := s.CreateLine(a, b)
 
-	center := s.AddPoint(5, 5)
+	center := s.CreatePoint(5, 5)
 	s.Fix(center)
 	// The arc spans the bottom of the circle so the downward tangent contact
 	// lies within its sweep; seeded at the wrong radius (~4.24).
-	start := s.AddPoint(2, 2) // ~225°
-	end := s.AddPoint(8, 2)   // ~315°
-	arc := s.AddArc(center, start, end)
+	start := s.CreatePoint(2, 2) // ~225°
+	end := s.CreatePoint(8, 2)   // ~315°
+	arc := s.CreateArc(center, start, end)
 	s.AddConstraint(sketch.NewTangent(line, arc))
 
 	_, err := s.Solve()
@@ -221,16 +221,16 @@ func TestTangentLineArc(t *testing.T) {
 func TestTangentCircleArc(t *testing.T) {
 	t.Run("external", func(t *testing.T) {
 		s := newSketch(t)
-		o := s.AddPoint(0, 0)
+		o := s.CreatePoint(0, 0)
 		s.Fix(o)
-		circ := s.AddCircle(o, 3)
+		circ := s.CreateCircle(o, 3)
 		s.AddConstraint(sketch.NewRadius(circ, 3))
 
-		center := s.AddPoint(10, 0)
+		center := s.CreatePoint(10, 0)
 		s.Fix(center)
-		start := s.AddPoint(12, 0)
-		end := s.AddPoint(10, 2)
-		arc := s.AddArc(center, start, end)
+		start := s.CreatePoint(12, 0)
+		end := s.CreatePoint(10, 2)
+		arc := s.CreateArc(center, start, end)
 		s.AddConstraint(sketch.NewTangentCircles(circ, arc, false))
 
 		_, err := s.Solve()
@@ -239,16 +239,16 @@ func TestTangentCircleArc(t *testing.T) {
 	})
 	t.Run("internal", func(t *testing.T) {
 		s := newSketch(t)
-		o := s.AddPoint(0, 0)
+		o := s.CreatePoint(0, 0)
 		s.Fix(o)
-		circ := s.AddCircle(o, 10)
+		circ := s.CreateCircle(o, 10)
 		s.AddConstraint(sketch.NewRadius(circ, 10))
 
-		center := s.AddPoint(4, 0)
+		center := s.CreatePoint(4, 0)
 		s.Fix(center)
-		start := s.AddPoint(6, 0)
-		end := s.AddPoint(4, 2)
-		arc := s.AddArc(center, start, end)
+		start := s.CreatePoint(6, 0)
+		end := s.CreatePoint(4, 2)
+		arc := s.CreateArc(center, start, end)
 		s.AddConstraint(sketch.NewTangentCircles(circ, arc, true))
 
 		_, err := s.Solve()
@@ -259,18 +259,18 @@ func TestTangentCircleArc(t *testing.T) {
 
 func TestTangentArcArc(t *testing.T) {
 	s := newSketch(t)
-	c1 := s.AddPoint(0, 0)
+	c1 := s.CreatePoint(0, 0)
 	s.Fix(c1)
-	s1 := s.AddPoint(3, 0)
+	s1 := s.CreatePoint(3, 0)
 	s.Fix(s1) // pins the first arc's radius at 3
-	e1 := s.AddPoint(0, 3)
-	a1 := s.AddArc(c1, s1, e1)
+	e1 := s.CreatePoint(0, 3)
+	a1 := s.CreateArc(c1, s1, e1)
 
-	c2 := s.AddPoint(10, 0)
+	c2 := s.CreatePoint(10, 0)
 	s.Fix(c2)
-	s2 := s.AddPoint(12, 0)
-	e2 := s.AddPoint(10, 2)
-	a2 := s.AddArc(c2, s2, e2)
+	s2 := s.CreatePoint(12, 0)
+	e2 := s.CreatePoint(10, 2)
+	a2 := s.CreateArc(c2, s2, e2)
 	s.AddConstraint(sketch.NewTangentCircles(a1, a2, false))
 
 	_, err := s.Solve()
@@ -281,16 +281,16 @@ func TestTangentArcArc(t *testing.T) {
 
 func TestEqualRadiusCircleArc(t *testing.T) {
 	s := newSketch(t)
-	o := s.AddPoint(0, 0)
+	o := s.CreatePoint(0, 0)
 	s.Fix(o)
-	circ := s.AddCircle(o, 7)
+	circ := s.CreateCircle(o, 7)
 	s.AddConstraint(sketch.NewRadius(circ, 7))
 
-	center := s.AddPoint(20, 0)
+	center := s.CreatePoint(20, 0)
 	s.Fix(center)
-	start := s.AddPoint(22, 0)
-	end := s.AddPoint(20, 2)
-	arc := s.AddArc(center, start, end)
+	start := s.CreatePoint(22, 0)
+	end := s.CreatePoint(20, 2)
+	arc := s.CreateArc(center, start, end)
 	s.AddConstraint(sketch.NewEqualRadius(circ, arc))
 
 	_, err := s.Solve()
@@ -300,18 +300,18 @@ func TestEqualRadiusCircleArc(t *testing.T) {
 
 func TestEqualRadiusArcArc(t *testing.T) {
 	s := newSketch(t)
-	c1 := s.AddPoint(0, 0)
+	c1 := s.CreatePoint(0, 0)
 	s.Fix(c1)
-	s1 := s.AddPoint(5, 0)
+	s1 := s.CreatePoint(5, 0)
 	s.Fix(s1) // pins the first arc's radius at 5
-	e1 := s.AddPoint(0, 5)
-	a1 := s.AddArc(c1, s1, e1)
+	e1 := s.CreatePoint(0, 5)
+	a1 := s.CreateArc(c1, s1, e1)
 
-	c2 := s.AddPoint(20, 0)
+	c2 := s.CreatePoint(20, 0)
 	s.Fix(c2)
-	s2 := s.AddPoint(22, 0)
-	e2 := s.AddPoint(20, 2)
-	a2 := s.AddArc(c2, s2, e2)
+	s2 := s.CreatePoint(22, 0)
+	e2 := s.CreatePoint(20, 2)
+	a2 := s.CreateArc(c2, s2, e2)
 	s.AddConstraint(sketch.NewEqualRadius(a1, a2))
 
 	_, err := s.Solve()
@@ -321,13 +321,13 @@ func TestEqualRadiusArcArc(t *testing.T) {
 
 func TestDistancePointLine(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
 	s.Fix(a)
 	s.Fix(b)
-	line := s.AddLine(a, b)
+	line := s.CreateLine(a, b)
 
-	p := s.AddPoint(3, 2)
+	p := s.CreatePoint(3, 2)
 	s.AddConstraint(sketch.NewDistancePointLine(p, line, 5))
 
 	_, err := s.Solve()
@@ -337,15 +337,15 @@ func TestDistancePointLine(t *testing.T) {
 
 func TestDistanceLines(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
 	s.Fix(a)
 	s.Fix(b)
-	l1 := s.AddLine(a, b)
+	l1 := s.CreateLine(a, b)
 
-	c := s.AddPoint(0, 3)
-	d := s.AddPoint(10, 4) // deliberately not parallel
-	l2 := s.AddLine(c, d)
+	c := s.CreatePoint(0, 3)
+	d := s.CreatePoint(10, 4) // deliberately not parallel
+	l2 := s.CreateLine(c, d)
 	s.AddConstraint(sketch.NewDistanceLines(l1, l2, 6))
 
 	_, err := s.Solve()
@@ -359,15 +359,15 @@ func TestDistanceLines(t *testing.T) {
 
 func TestJSONRoundTripDistanceDims(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
 	s.Fix(a)
 	s.Fix(b)
-	l1 := s.AddLine(a, b)
-	p := s.AddPoint(3, 2)
-	c := s.AddPoint(0, 3)
-	d := s.AddPoint(10, 4)
-	l2 := s.AddLine(c, d)
+	l1 := s.CreateLine(a, b)
+	p := s.CreatePoint(3, 2)
+	c := s.CreatePoint(0, 3)
+	d := s.CreatePoint(10, 4)
+	l2 := s.CreateLine(c, d)
 	s.AddConstraint(sketch.NewDistancePointLine(p, l1, 5), sketch.NewDistanceLines(l1, l2, 6))
 
 	data, err := json.Marshal(s)
@@ -384,14 +384,14 @@ func TestJSONRoundTripDistanceDims(t *testing.T) {
 
 func TestDrivenDimension(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(18, 2)
-	c := s.AddPoint(17, 11)
-	d := s.AddPoint(1, 13)
-	ab := s.AddLine(a, b)
-	bc := s.AddLine(b, c)
-	dc := s.AddLine(d, c)
-	ad := s.AddLine(a, d)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(18, 2)
+	c := s.CreatePoint(17, 11)
+	d := s.CreatePoint(1, 13)
+	ab := s.CreateLine(a, b)
+	bc := s.CreateLine(b, c)
+	dc := s.CreateLine(d, c)
+	ad := s.CreateLine(a, d)
 	a.MoveTo(0, 0)
 	s.Fix(a)
 	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
@@ -419,14 +419,14 @@ func TestDrivenDimension(t *testing.T) {
 
 func TestJSONRoundTripDrivenDimension(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(18, 2)
-	c := s.AddPoint(17, 11)
-	d := s.AddPoint(1, 13)
-	ab := s.AddLine(a, b)
-	bc := s.AddLine(b, c)
-	dc := s.AddLine(d, c)
-	ad := s.AddLine(a, d)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(18, 2)
+	c := s.CreatePoint(17, 11)
+	d := s.CreatePoint(1, 13)
+	ab := s.CreateLine(a, b)
+	bc := s.CreateLine(b, c)
+	dc := s.CreateLine(d, c)
+	ad := s.CreateLine(a, d)
 	a.MoveTo(0, 0)
 	s.Fix(a)
 	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
@@ -457,16 +457,16 @@ func TestJSONRoundTripDrivenDimension(t *testing.T) {
 func TestSymmetric(t *testing.T) {
 	s := newSketch(t)
 	// vertical axis along x = 0
-	axA := s.AddPoint(0, 0)
-	axB := s.AddPoint(0, 10)
+	axA := s.CreatePoint(0, 0)
+	axB := s.CreatePoint(0, 10)
 	axA.MoveTo(0, 0)
 	s.Fix(axA)
 	axB.MoveTo(0, 10)
 	s.Fix(axB)
-	axis := s.AddLine(axA, axB)
+	axis := s.CreateLine(axA, axB)
 
-	p1 := s.AddPoint(-3, 4)
-	p2 := s.AddPoint(5, 1)
+	p1 := s.CreatePoint(-3, 4)
+	p2 := s.CreatePoint(5, 1)
 	s.Fix(p1)
 	s.AddConstraint(sketch.NewSymmetric(p1, p2, axis))
 
@@ -478,20 +478,20 @@ func TestSymmetric(t *testing.T) {
 
 func TestUnderConstrainedDOF(t *testing.T) {
 	s := newSketch(t)
-	s.AddPoint(0, 0) // single free point, nothing else
+	s.CreatePoint(0, 0) // single free point, nothing else
 	require.Equal(t, 2, s.DOF(), "DOF")
 }
 
 func TestRedundantConstraint(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(18, 2)
-	c := s.AddPoint(17, 11)
-	d := s.AddPoint(1, 13)
-	ab := s.AddLine(a, b)
-	bc := s.AddLine(b, c)
-	dc := s.AddLine(d, c)
-	ad := s.AddLine(a, d)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(18, 2)
+	c := s.CreatePoint(17, 11)
+	d := s.CreatePoint(1, 13)
+	ab := s.CreateLine(a, b)
+	bc := s.CreateLine(b, c)
+	dc := s.CreateLine(d, c)
+	ad := s.CreateLine(a, d)
 	a.MoveTo(0, 0)
 	s.Fix(a)
 	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
@@ -507,14 +507,14 @@ func TestRedundantConstraint(t *testing.T) {
 
 func TestRedundantConstraints(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(18, 2)
-	c := s.AddPoint(17, 11)
-	d := s.AddPoint(1, 13)
-	ab := s.AddLine(a, b)
-	bc := s.AddLine(b, c)
-	dc := s.AddLine(d, c)
-	ad := s.AddLine(a, d)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(18, 2)
+	c := s.CreatePoint(17, 11)
+	d := s.CreatePoint(1, 13)
+	ab := s.CreateLine(a, b)
+	bc := s.CreateLine(b, c)
+	dc := s.CreateLine(d, c)
+	ad := s.CreateLine(a, d)
 	a.MoveTo(0, 0)
 	s.Fix(a)
 	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
@@ -541,14 +541,14 @@ func TestRedundantConstraints(t *testing.T) {
 
 func TestJSONRoundTrip(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(18, 2)
-	c := s.AddPoint(17, 11)
-	d := s.AddPoint(1, 13)
-	ab := s.AddLine(a, b)
-	bc := s.AddLine(b, c)
-	dc := s.AddLine(d, c)
-	ad := s.AddLine(a, d)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(18, 2)
+	c := s.CreatePoint(17, 11)
+	d := s.CreatePoint(1, 13)
+	ab := s.CreateLine(a, b)
+	bc := s.CreateLine(b, c)
+	dc := s.CreateLine(d, c)
+	ad := s.CreateLine(a, d)
 	a.MoveTo(0, 0)
 	s.Fix(a)
 	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
@@ -575,22 +575,22 @@ func TestJSONRoundTrip(t *testing.T) {
 
 func TestJSONRoundTripArcTangent(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
 	s.Fix(a)
 	s.Fix(b)
-	line := s.AddLine(a, b)
+	line := s.CreateLine(a, b)
 
-	center := s.AddPoint(5, 5)
+	center := s.CreatePoint(5, 5)
 	s.Fix(center)
 	// Arc spans the bottom so the downward tangent contact is within the sweep.
-	start := s.AddPoint(2, 2)
-	end := s.AddPoint(8, 2)
-	arc := s.AddArc(center, start, end)
+	start := s.CreatePoint(2, 2)
+	end := s.CreatePoint(8, 2)
+	arc := s.CreateArc(center, start, end)
 
-	o := s.AddPoint(20, 0)
+	o := s.CreatePoint(20, 0)
 	s.Fix(o)
-	circ := s.AddCircle(o, 2)
+	circ := s.CreateCircle(o, 2)
 
 	s.AddConstraint(sketch.NewTangent(line, arc), sketch.NewEqualRadius(circ, arc))
 	_, err := s.Solve()
@@ -603,7 +603,7 @@ func TestJSONRoundTripArcTangent(t *testing.T) {
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2), "unmarshal")
 	// The internal arc radius-consistency constraint must be recreated by
-	// AddArc exactly once, not also deserialized.
+	// CreateArc exactly once, not also deserialized.
 	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraint count")
 
 	_, err = s2.Solve()
@@ -618,14 +618,14 @@ func TestJSONRoundTripArcTangent(t *testing.T) {
 
 func TestSVGOutput(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(18, 2)
-	c := s.AddPoint(17, 11)
-	d := s.AddPoint(1, 13)
-	ab := s.AddLine(a, b)
-	bc := s.AddLine(b, c)
-	dc := s.AddLine(d, c)
-	ad := s.AddLine(a, d)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(18, 2)
+	c := s.CreatePoint(17, 11)
+	d := s.CreatePoint(1, 13)
+	ab := s.CreateLine(a, b)
+	bc := s.CreateLine(b, c)
+	dc := s.CreateLine(d, c)
+	ad := s.CreateLine(a, d)
 	a.MoveTo(0, 0)
 	s.Fix(a)
 	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
@@ -634,8 +634,8 @@ func TestSVGOutput(t *testing.T) {
 
 	_, err := s.Solve()
 	require.NoError(t, err)
-	o := s.AddPoint(10, 6)
-	s.AddCircle(o, 3)
+	o := s.CreatePoint(10, 6)
+	s.CreateCircle(o, 3)
 
 	svg, err := s.SVG()
 	require.NoError(t, err)
@@ -646,14 +646,14 @@ func TestSVGOutput(t *testing.T) {
 
 func TestDXFOutput(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 0)
-	s.AddLine(a, b)
-	o := s.AddPoint(5, 5)
-	s.AddCircle(o, 3)
-	st := s.AddPoint(8, 5)
-	en := s.AddPoint(5, 8)
-	s.AddArc(o, st, en)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
+	s.CreateLine(a, b)
+	o := s.CreatePoint(5, 5)
+	s.CreateCircle(o, 3)
+	st := s.CreatePoint(8, 5)
+	en := s.CreatePoint(5, 8)
+	s.CreateArc(o, st, en)
 
 	dxf, err := s.DXF()
 	require.NoError(t, err)

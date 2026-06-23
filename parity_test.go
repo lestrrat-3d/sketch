@@ -13,9 +13,9 @@ import (
 
 func TestHorizontalPoints(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 4)
+	a := s.CreatePoint(0, 4)
 	s.Fix(a)
-	b := s.AddPoint(10, -3) // skewed: shares no line with a
+	b := s.CreatePoint(10, -3) // skewed: shares no line with a
 	s.AddConstraint(sketch.NewHorizontalPoints(a, b))
 
 	_, err := s.Solve()
@@ -26,9 +26,9 @@ func TestHorizontalPoints(t *testing.T) {
 
 func TestVerticalPoints(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(5, 0)
+	a := s.CreatePoint(5, 0)
 	s.Fix(a)
-	b := s.AddPoint(-2, 9)
+	b := s.CreatePoint(-2, 9)
 	s.AddConstraint(sketch.NewVerticalPoints(a, b))
 
 	_, err := s.Solve()
@@ -39,11 +39,11 @@ func TestVerticalPoints(t *testing.T) {
 
 func TestMidpointOf(t *testing.T) {
 	s := newSketch(t)
-	a := s.AddPoint(0, 0)
-	b := s.AddPoint(10, 6)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 6)
 	s.Fix(a)
 	s.Fix(b)
-	mid := s.AddPoint(1, 1) // arbitrary start
+	mid := s.CreatePoint(1, 1) // arbitrary start
 	s.AddConstraint(sketch.NewMidpointOf(mid, a, b))
 
 	_, err := s.Solve()
@@ -54,11 +54,11 @@ func TestMidpointOf(t *testing.T) {
 
 func TestRadiusOnArc(t *testing.T) {
 	s := newSketch(t)
-	c := s.AddPoint(0, 0)
+	c := s.CreatePoint(0, 0)
 	s.Fix(c)
-	start := s.AddPoint(3, 0)
-	end := s.AddPoint(0, 3)
-	a := s.AddArc(c, start, end)
+	start := s.CreatePoint(3, 0)
+	end := s.CreatePoint(0, 3)
+	a := s.CreateArc(c, start, end)
 	s.AddConstraint(sketch.NewRadius(a, 5))
 
 	_, err := s.Solve()
@@ -70,11 +70,11 @@ func TestRadiusOnArc(t *testing.T) {
 
 func TestDiameterOnArc(t *testing.T) {
 	s := newSketch(t)
-	c := s.AddPoint(0, 0)
+	c := s.CreatePoint(0, 0)
 	s.Fix(c)
-	start := s.AddPoint(2, 0)
-	end := s.AddPoint(0, 2)
-	a := s.AddArc(c, start, end)
+	start := s.CreatePoint(2, 0)
+	end := s.CreatePoint(0, 2)
+	a := s.CreateArc(c, start, end)
 	s.AddConstraint(sketch.NewDiameter(a, 12))
 
 	_, err := s.Solve()
@@ -84,16 +84,16 @@ func TestDiameterOnArc(t *testing.T) {
 
 func TestConcentricArcs(t *testing.T) {
 	s := newSketch(t)
-	c1 := s.AddPoint(0, 0)
+	c1 := s.CreatePoint(0, 0)
 	s.Fix(c1)
-	s1 := s.AddPoint(2, 0)
-	e1 := s.AddPoint(0, 2)
-	a1 := s.AddArc(c1, s1, e1)
+	s1 := s.CreatePoint(2, 0)
+	e1 := s.CreatePoint(0, 2)
+	a1 := s.CreateArc(c1, s1, e1)
 
-	c2 := s.AddPoint(5, 5) // displaced center
-	s2 := s.AddPoint(8, 5)
-	e2 := s.AddPoint(5, 8)
-	a2 := s.AddArc(c2, s2, e2)
+	c2 := s.CreatePoint(5, 5) // displaced center
+	s2 := s.CreatePoint(8, 5)
+	e2 := s.CreatePoint(5, 8)
+	a2 := s.CreateArc(c2, s2, e2)
 
 	s.AddConstraint(sketch.NewConcentric(a1, a2))
 
@@ -105,14 +105,14 @@ func TestConcentricArcs(t *testing.T) {
 // Concentric must still accept a circle paired with an arc.
 func TestConcentricCircleArc(t *testing.T) {
 	s := newSketch(t)
-	cc := s.AddPoint(0, 0)
+	cc := s.CreatePoint(0, 0)
 	s.Fix(cc)
-	circle := s.AddCircle(cc, 3)
+	circle := s.CreateCircle(cc, 3)
 
-	ac := s.AddPoint(5, 1)
-	as := s.AddPoint(7, 1)
-	ae := s.AddPoint(5, 3)
-	arc := s.AddArc(ac, as, ae)
+	ac := s.CreatePoint(5, 1)
+	as := s.CreatePoint(7, 1)
+	ae := s.CreatePoint(5, 3)
+	arc := s.CreateArc(ac, as, ae)
 
 	s.AddConstraint(sketch.NewConcentric(circle, arc))
 
