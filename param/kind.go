@@ -14,18 +14,6 @@ import (
 // algebra (there are no area or inverse-length units). Use [errors.Is].
 var ErrIncompatibleKind = errors.New("param: incompatible unit kinds")
 
-// kindName renders a units.Kind for error messages.
-func kindName(k units.Kind) string {
-	switch k {
-	case units.Length:
-		return "length"
-	case units.Angle:
-		return "angle"
-	default:
-		return "dimensionless"
-	}
-}
-
 // kindOf computes the unit kind an expression evaluates to, validating that
 // every operation combines compatible kinds. Identifier kinds are STATIC — a
 // parameter's kind is its declared unit's kind, a constant is dimensionless — so
@@ -62,7 +50,7 @@ func (e *binaryExpr) kindOf(t *Table) (units.Kind, error) {
 		// errors — a length never mixes with a bare number or an angle.
 		k, ok := combineAddSub(ka, kb)
 		if !ok {
-			return 0, fmt.Errorf("%w: cannot %c a %s and a %s", ErrIncompatibleKind, e.op, kindName(ka), kindName(kb))
+			return 0, fmt.Errorf("%w: cannot %c a %s and a %s", ErrIncompatibleKind, e.op, ka.String(), kb.String())
 		}
 		return k, nil
 	case '*':
@@ -75,7 +63,7 @@ func (e *binaryExpr) kindOf(t *Table) (units.Kind, error) {
 		case kb == units.Dimensionless:
 			return ka, nil
 		default:
-			return 0, fmt.Errorf("%w: cannot multiply a %s by a %s (no compound unit)", ErrIncompatibleKind, kindName(ka), kindName(kb))
+			return 0, fmt.Errorf("%w: cannot multiply a %s by a %s (no compound unit)", ErrIncompatibleKind, ka.String(), kb.String())
 		}
 	case '/':
 		// kind/dimensionless preserves the kind; same-kind/same-kind is a
@@ -87,19 +75,19 @@ func (e *binaryExpr) kindOf(t *Table) (units.Kind, error) {
 		case ka == kb:
 			return units.Dimensionless, nil
 		default:
-			return 0, fmt.Errorf("%w: cannot divide a %s by a %s", ErrIncompatibleKind, kindName(ka), kindName(kb))
+			return 0, fmt.Errorf("%w: cannot divide a %s by a %s", ErrIncompatibleKind, ka.String(), kb.String())
 		}
 	case '%':
 		k, ok := combineAddSub(ka, kb)
 		if !ok {
-			return 0, fmt.Errorf("%w: cannot take a %s modulo a %s", ErrIncompatibleKind, kindName(ka), kindName(kb))
+			return 0, fmt.Errorf("%w: cannot take a %s modulo a %s", ErrIncompatibleKind, ka.String(), kb.String())
 		}
 		return k, nil
 	case '^':
 		// Raising to a power needs a dimensionless base and exponent (a length^2
 		// would be an area).
 		if ka != units.Dimensionless || kb != units.Dimensionless {
-			return 0, fmt.Errorf("%w: '^' requires dimensionless operands, got %s ^ %s", ErrIncompatibleKind, kindName(ka), kindName(kb))
+			return 0, fmt.Errorf("%w: '^' requires dimensionless operands, got %s ^ %s", ErrIncompatibleKind, ka.String(), kb.String())
 		}
 		return units.Dimensionless, nil
 	}
@@ -135,7 +123,7 @@ type kindRule func(name string, ks []units.Kind) (units.Kind, error)
 func allDimensionless(name string, ks []units.Kind) (units.Kind, error) {
 	for _, k := range ks {
 		if k != units.Dimensionless {
-			return 0, fmt.Errorf("%w: %s expects dimensionless arguments, got a %s", ErrIncompatibleKind, name, kindName(k))
+			return 0, fmt.Errorf("%w: %s expects dimensionless arguments, got a %s", ErrIncompatibleKind, name, k.String())
 		}
 	}
 	return units.Dimensionless, nil
@@ -175,7 +163,7 @@ func sameKind(name string, ks []units.Kind) (units.Kind, error) {
 	for _, k := range ks[1:] {
 		c, ok := combineAddSub(acc, k)
 		if !ok {
-			return 0, fmt.Errorf("%w: %s expects arguments of one kind, got a %s and a %s", ErrIncompatibleKind, name, kindName(acc), kindName(k))
+			return 0, fmt.Errorf("%w: %s expects arguments of one kind, got a %s and a %s", ErrIncompatibleKind, name, acc.String(), k.String())
 		}
 		acc = c
 	}
@@ -189,7 +177,7 @@ func angleOrScalarToScalar(name string, ks []units.Kind) (units.Kind, error) {
 		return units.Dimensionless, nil
 	}
 	if ks[0] != units.Angle && ks[0] != units.Dimensionless {
-		return 0, fmt.Errorf("%w: %s expects an angle, got a %s", ErrIncompatibleKind, name, kindName(ks[0]))
+		return 0, fmt.Errorf("%w: %s expects an angle, got a %s", ErrIncompatibleKind, name, ks[0].String())
 	}
 	return units.Dimensionless, nil
 }
@@ -230,7 +218,7 @@ var funcKindRules = map[string]kindRule{
 	"deg": func(name string, ks []units.Kind) (units.Kind, error) {
 		// deg converts an angle to a dimensionless number of degrees.
 		if len(ks) == 1 && ks[0] != units.Angle && ks[0] != units.Dimensionless {
-			return 0, fmt.Errorf("%w: deg expects an angle, got a %s", ErrIncompatibleKind, kindName(ks[0]))
+			return 0, fmt.Errorf("%w: deg expects an angle, got a %s", ErrIncompatibleKind, ks[0].String())
 		}
 		return units.Dimensionless, nil
 	},

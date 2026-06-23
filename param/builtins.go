@@ -18,6 +18,12 @@ func arityErr(name string, want, got int) error {
 	return fmt.Errorf("param: %s expects %d argument(s), got %d", name, want, got)
 }
 
+// atLeastOneArgErr is the shared "needs ≥1 argument" error for the variadic
+// builtins (hypot, min, max).
+func atLeastOneArgErr(name string) error {
+	return fmt.Errorf("param: %s expects at least 1 argument", name)
+}
+
 func fn1(name string, f func(float64) float64) Func {
 	return func(a []float64) (float64, error) {
 		if len(a) != 1 {
@@ -76,7 +82,7 @@ func defaultFuncs() map[string]Func {
 	}
 	m["hypot"] = func(a []float64) (float64, error) {
 		if len(a) < 1 {
-			return 0, fmt.Errorf("param: hypot expects at least 1 argument")
+			return 0, atLeastOneArgErr("hypot")
 		}
 		var sum float64
 		for _, v := range a {
@@ -101,7 +107,7 @@ func defaultFuncs() map[string]Func {
 func variadic(name string, reduce func(float64, float64) float64) Func {
 	return func(a []float64) (float64, error) {
 		if len(a) == 0 {
-			return 0, fmt.Errorf("param: %s expects at least 1 argument", name)
+			return 0, atLeastOneArgErr(name)
 		}
 		acc := a[0]
 		for _, v := range a[1:] {

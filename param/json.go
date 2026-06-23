@@ -47,12 +47,7 @@ func (t *Table) UnmarshalJSON(data []byte) error {
 	}
 	t.entries = map[string]*entry{}
 	t.order = nil
-	if t.consts == nil {
-		t.consts = defaultConsts()
-	}
-	if t.funcs == nil {
-		t.funcs = defaultFuncs()
-	}
+	t.seedDefaults(false)
 	for _, je := range list {
 		u := units.One
 		if je.Unit != "" {
