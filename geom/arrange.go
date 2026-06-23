@@ -130,19 +130,12 @@ func (s *source) at(t float64) [2]float64 {
 
 // ellipsePoint evaluates the source's ellipse at eccentric angle ang.
 func (s *source) ellipsePoint(ang float64) [2]float64 {
-	lx, ly := s.rx*math.Cos(ang), s.ry*math.Sin(ang)
-	cosr, sinr := math.Cos(s.rot), math.Sin(s.rot)
-	return [2]float64{s.cx + lx*cosr - ly*sinr, s.cy + lx*sinr + ly*cosr}
+	return ellipsePointAt(s.cx, s.cy, s.rx, s.ry, s.rot, ang)
 }
 
 // conicPoint evaluates the source's rational quadratic Bézier at parameter t.
 func (s *source) conicPoint(t float64) [2]float64 {
-	u := 1 - t
-	b0, b1, b2 := u*u, 2*u*t*s.conW, t*t
-	den := b0 + b1 + b2
-	x := (b0*s.conStart[0] + b1*s.conApex[0] + b2*s.conEnd[0]) / den
-	y := (b0*s.conStart[1] + b1*s.conApex[1] + b2*s.conEnd[1]) / den
-	return [2]float64{x, y}
+	return conicEvalRaw(s.conStart, s.conApex, s.conEnd, s.conW, t)
 }
 
 // differential returns the first and second derivatives of the source's position

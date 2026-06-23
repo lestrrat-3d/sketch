@@ -2,6 +2,15 @@ package geom
 
 import "math"
 
+// ellipsePointAt maps the eccentric angle ang on an ellipse centred at (cx,cy)
+// with semi-axes rx,ry rotated by rot into world coordinates: the local-frame
+// point (rx·cos, ry·sin) rotated by rot and translated to the centre.
+func ellipsePointAt(cx, cy, rx, ry, rot, ang float64) [2]float64 {
+	lx, ly := rx*math.Cos(ang), ry*math.Sin(ang)
+	cosr, sinr := math.Cos(rot), math.Sin(rot)
+	return [2]float64{cx + lx*cosr - ly*sinr, cy + lx*sinr + ly*cosr}
+}
+
 // Polyline returns the line's two endpoints. It exists so every curve type
 // offers a uniform Polyline sampler.
 func (l *Line) Polyline() [][2]float64 {
@@ -46,14 +55,12 @@ func (e *EllipticalArc) Polyline(segments int) [][2]float64 {
 	if segments < 2 {
 		segments = 2
 	}
-	cosr, sinr := math.Cos(e.Rotation), math.Sin(e.Rotation)
 	start := e.StartParam()
 	sweep := e.Sweep()
 	pts := make([][2]float64, segments+1)
 	for i := 0; i <= segments; i++ {
 		ang := start + sweep*float64(i)/float64(segments)
-		lx, ly := e.Rx*math.Cos(ang), e.Ry*math.Sin(ang)
-		pts[i] = [2]float64{e.Center.X + lx*cosr - ly*sinr, e.Center.Y + lx*sinr + ly*cosr}
+		pts[i] = ellipsePointAt(e.Center.X, e.Center.Y, e.Rx, e.Ry, e.Rotation, ang)
 	}
 	// The interior is on the ellipse; pin the ends to the exact boundary points
 	// (which a caller may not have placed perfectly on the ellipse) so the
@@ -87,12 +94,10 @@ func (e *Ellipse) Polyline(segments int) [][2]float64 {
 	if segments < 2 {
 		segments = 2
 	}
-	cosr, sinr := math.Cos(e.Rotation), math.Sin(e.Rotation)
 	pts := make([][2]float64, segments+1)
 	for i := 0; i <= segments; i++ {
 		ang := 2 * math.Pi * float64(i) / float64(segments)
-		lx, ly := e.Rx*math.Cos(ang), e.Ry*math.Sin(ang)
-		pts[i] = [2]float64{e.Center.X + lx*cosr - ly*sinr, e.Center.Y + lx*sinr + ly*cosr}
+		pts[i] = ellipsePointAt(e.Center.X, e.Center.Y, e.Rx, e.Ry, e.Rotation, ang)
 	}
 	return pts
 }

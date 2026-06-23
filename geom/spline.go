@@ -3,7 +3,6 @@ package geom
 import (
 	"errors"
 	"fmt"
-	"math"
 )
 
 // Spline is an open cubic B-spline defined by its control points, using a
@@ -137,63 +136,8 @@ func NearestParamCubicBSpline(ctrl [][2]float64, px, py float64) float64 {
 	if n < 4 {
 		panic(fmt.Sprintf("geom: cubic B-spline needs at least 4 control points, got %d", n))
 	}
-	segs := 16 * (n - 3)
-	if segs < 64 {
-		segs = 64
-	}
-	bestT, bestD2 := 0.0, math.Inf(1)
-	px0, py0 := EvalCubicBSpline(ctrl, 0)
-	for i := 1; i <= segs; i++ {
-		t1 := float64(i) / float64(segs)
-		px1, py1 := EvalCubicBSpline(ctrl, t1)
-		// Project (px,py) onto the chord [(px0,py0),(px1,py1)], clamped to it,
-		// and map the chord parameter back to a curve parameter in this span.
-		dx, dy := px1-px0, py1-py0
-		seg2 := dx*dx + dy*dy
-		u := 0.0
-		if seg2 > 0 {
-			u = ((px-px0)*dx + (py-py0)*dy) / seg2
-			if u < 0 {
-				u = 0
-			} else if u > 1 {
-				u = 1
-			}
-		}
-		t := (float64(i-1) + u) / float64(segs)
-		cx, cy := EvalCubicBSpline(ctrl, t)
-		if d2 := (px-cx)*(px-cx) + (py-cy)*(py-cy); d2 < bestD2 {
-			bestD2, bestT = d2, t
-		}
-		px0, py0 = px1, py1
-	}
-	// Golden-section refine within ±1 span of the best parameter.
-	span := 1.0 / float64(segs)
-	lo, hi := bestT-span, bestT+span
-	if lo < 0 {
-		lo = 0
-	}
-	if hi > 1 {
-		hi = 1
-	}
-	const invphi = 0.6180339887498949
-	dist2 := func(t float64) float64 {
-		cx, cy := EvalCubicBSpline(ctrl, t)
-		return (px-cx)*(px-cx) + (py-cy)*(py-cy)
-	}
-	c, d := hi-invphi*(hi-lo), lo+invphi*(hi-lo)
-	fc, fd := dist2(c), dist2(d)
-	for k := 0; k < 24; k++ {
-		if fc < fd {
-			hi, d, fd = d, c, fc
-			c = hi - invphi*(hi-lo)
-			fc = dist2(c)
-		} else {
-			lo, c, fc = c, d, fd
-			d = lo + invphi*(hi-lo)
-			fd = dist2(d)
-		}
-	}
-	return (lo + hi) / 2
+	eval := func(t float64) (float64, float64) { return EvalCubicBSpline(ctrl, t) }
+	return nearestParamSampled(eval, 16*(n-3), false, px, py)
 }
 
 // ClampedKnots builds the clamped uniform knot vector used by all splines in
