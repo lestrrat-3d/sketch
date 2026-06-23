@@ -455,8 +455,7 @@ func (s *Sketch) rank(free []int, m int) int {
 // committedRankAnalysis runs the scale-invariant rank analysis over the committed
 // constraint rows (residuals(), driven dims skipped).
 func (s *Sketch) committedRankAnalysis(free []int) rankAnalysis {
-	L := s.lengthScale()
-	return s.rankAnalysisOf(free, s.residuals, s.residualRowKinds(), s.condVarScales(L), L)
+	return rankAnalysisOfMatrix(s.committedScaledJacobian(free), len(free))
 }
 
 // rankAnalysisOf computes the rank and the deciding pivot magnitudes on the
@@ -469,8 +468,14 @@ func (s *Sketch) committedRankAnalysis(free []int) rankAnalysis {
 // colScale) so [Sketch.CheckConstraint] can rank an augmented, candidate-aware
 // system.
 func (s *Sketch) rankAnalysisOf(free []int, eval func([]float64) []float64, rowKinds []rowKind, colScale []float64, L float64, extraPos ...[2]int) rankAnalysis {
-	A := s.scaledJacobian(free, eval, rowKinds, colScale, L, extraPos...)
-	n := len(free)
+	return rankAnalysisOfMatrix(s.scaledJacobian(free, eval, rowKinds, colScale, L, extraPos...), len(free))
+}
+
+// rankAnalysisOfMatrix runs the partial-pivot Gaussian elimination of
+// [Sketch.rankAnalysisOf] on a prebuilt nondimensional Jacobian A over n free
+// variables (columns). Split out so the committed path and the candidate-aware
+// path share one elimination kernel while building A through different preludes.
+func rankAnalysisOfMatrix(A [][]float64, n int) rankAnalysis {
 	m := len(A)
 	ra := rankAnalysis{minAcceptedPivot: math.Inf(1)}
 	row := 0

@@ -118,8 +118,7 @@ func (s *Sketch) conflictAnalysis() ([]Constraint, []ConflictSet) {
 	// same scaled basis as rank/DOF), so the structural cutoff is scale/unit
 	// invariant and the redundancy verdict matches DOF at any geometry size. Row
 	// kinds mirror residuals() iteration (and therefore owners) by construction.
-	L := s.lengthScale()
-	J := s.scaledJacobian(free, s.residuals, s.residualRowKinds(), s.condVarScales(L), L)
+	J := s.committedScaledJacobian(free)
 
 	// Incremental Gram–Schmidt over the Jacobian rows: a row that projects to
 	// (numerically) zero against the rows accepted so far adds no independent
@@ -396,8 +395,7 @@ func (s *Sketch) movableVars() map[int]struct{} {
 	// scale-invariant. Positive diagonal column scaling preserves which variables a
 	// null direction touches, so the free-point support is unchanged in exact
 	// arithmetic — only the zero threshold becomes scale-invariant.
-	L := s.lengthScale()
-	J := s.scaledJacobian(free, s.residuals, s.residualRowKinds(), s.condVarScales(L), L)
+	J := s.committedScaledJacobian(free)
 	n := len(free)
 	const eps = rankZeroTol
 	isPivot := make([]bool, n)
