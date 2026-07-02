@@ -31,6 +31,7 @@ type (
 	identProfileFill struct{}
 	identAnnColor    struct{}
 	identAnnScale    struct{}
+	identPixelWidth  struct{}
 )
 
 // WithDimensions toggles drawing dimensional constraints (distance, radius,
@@ -75,6 +76,12 @@ func WithAnnotationColor(v string) SVGPNGOption {
 func WithAnnotationScale(v float64) SVGPNGOption {
 	return svgPNGOption{option.New(identAnnScale{}, v)}
 }
+
+// WithPixelWidth sets the SVG's display width in pixels, scaling the height to
+// preserve aspect ratio; the viewBox stays in geometry units so the drawing
+// simply scales up. Use it to embed a small sketch at a legible size. Zero (the
+// default) keeps the display size equal to the geometry units. SVG only.
+func WithPixelWidth(v float64) SVGPNGOption { return svgPNGOption{option.New(identPixelWidth{}, v)} }
 
 // --- screen-space vector helpers --------------------------------------------
 

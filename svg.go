@@ -100,6 +100,7 @@ type svgConfig struct {
 	profileFill bool    // fill valid closed regions
 	annColor    string  // dimension line / glyph stroke color
 	annScale    float64 // multiplies annotation glyph/text/arrow sizes
+	pixelWidth  float64 // target display width in px (0 = geometry units); viewBox unchanged
 }
 
 func defaultSVGConfig() svgConfig {
@@ -153,6 +154,8 @@ func applyRenderOption(cfg *svgConfig, o option.Interface) bool {
 		cfg.statusBadge = option.MustGet[bool](o)
 	case identProfileFill:
 		cfg.profileFill = option.MustGet[bool](o)
+	case identPixelWidth:
+		cfg.pixelWidth = option.MustGet[float64](o)
 	case identAnnColor:
 		cfg.annColor = option.MustGet[string](o)
 	case identAnnScale:
@@ -265,10 +268,19 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 	tx := func(x float64) float64 { return x - b.minX + cfg.margin }
 	ty := func(y float64) float64 { return b.maxY - y + cfg.margin }
 
+	// Display size defaults to the geometry units, but WithPixelWidth decouples
+	// it: the viewBox stays in geometry units while the root width/height are a
+	// pixel size (aspect preserved), so the SVG scales up for embedding.
+	outW, outH := w, h
+	if cfg.pixelWidth > 0 {
+		outW = cfg.pixelWidth
+		outH = cfg.pixelWidth * h / w
+	}
+
 	var sb strings.Builder
 	fmt.Fprintf(&sb,
 		`<svg xmlns="http://www.w3.org/2000/svg" width="%s" height="%s" viewBox="0 0 %s %s">`,
-		f(w), f(h), f(w), f(h))
+		f(outW), f(outH), f(w), f(h))
 	sb.WriteByte('\n')
 	if cfg.background != "" {
 		fmt.Fprintf(&sb, `  <rect width="100%%" height="100%%" fill="%s"/>`+"\n", cfg.background)

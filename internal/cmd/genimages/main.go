@@ -84,8 +84,11 @@ var builders = map[string]func() (string, error){
 	"fillet-after":         filletAfter,
 }
 
-// annStyle is the shared annotation styling for the gallery.
-var annStyle = []sketch.SVGOption{sketch.WithMargin(8)}
+// annStyle is the shared styling for the gallery. Geometry is authored at a
+// ~200-unit scale so the default stroke/point sizes read as clean CAD
+// proportions; WithPixelWidth then scales the whole drawing up to a legible
+// embed size while the viewBox stays in geometry units.
+var annStyle = []sketch.SVGOption{sketch.WithMargin(16), sketch.WithPixelWidth(520)}
 
 func withAnn(opts ...sketch.SVGOption) []sketch.SVGOption {
 	return append(append([]sketch.SVGOption{}, annStyle...), opts...)
@@ -104,7 +107,7 @@ func groundedRect(w, h float64) (*sketch.Sketch, *sketch.Rectangle) {
 }
 
 func quickstart() (string, error) {
-	s, _ := groundedRect(40, 24)
+	s, _ := groundedRect(200, 120)
 	if _, err := s.Solve(); err != nil {
 		return "", err
 	}
@@ -114,7 +117,7 @@ func quickstart() (string, error) {
 func hexagon() (string, error) {
 	world := sketch.NewWorld()
 	s, _ := world.CreateSketch(world.XY())
-	poly, err := s.CreatePolygon(0, 0, 6, 24)
+	poly, err := s.CreatePolygon(0, 0, 6, 110)
 	if err != nil {
 		return "", err
 	}
@@ -131,16 +134,16 @@ func underRect() *sketch.Sketch {
 	world := sketch.NewWorld()
 	s, _ := world.CreateSketch(world.XY())
 	a := s.CreatePoint(0, 0)
-	b := s.CreatePoint(40, 0)
-	c := s.CreatePoint(40, 24)
-	d := s.CreatePoint(0, 24)
+	b := s.CreatePoint(200, 0)
+	c := s.CreatePoint(200, 120)
+	d := s.CreatePoint(0, 120)
 	ab := s.CreateLine(a, b)
 	s.CreateLine(b, c)
 	s.CreateLine(c, d)
 	da := s.CreateLine(d, a)
 	a.MoveTo(0, 0)
 	s.Fix(a)
-	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewVertical(da), sketch.NewDistance(a, b, 40))
+	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewVertical(da), sketch.NewDistance(a, b, 200))
 	s.Solve()
 	return s
 }
@@ -150,7 +153,7 @@ func dofUnder() (string, error) {
 }
 
 func dofFull() (string, error) {
-	s, _ := groundedRect(40, 24)
+	s, _ := groundedRect(200, 120)
 	if _, err := s.Solve(); err != nil {
 		return "", err
 	}
@@ -161,13 +164,13 @@ func conflict() (string, error) {
 	world := sketch.NewWorld()
 	s, _ := world.CreateSketch(world.XY())
 	a := s.CreatePoint(0, 0)
-	b := s.CreatePoint(40, 0)
+	b := s.CreatePoint(200, 0)
 	a.MoveTo(0, 0)
 	s.Fix(a)
 	l := s.CreateLine(a, b)
 	s.AddConstraint(sketch.NewHorizontal(l))
 	// Two distances fight over the same span.
-	s.AddConstraint(sketch.NewDistance(a, b, 40), sketch.NewDistance(a, b, 28))
+	s.AddConstraint(sketch.NewDistance(a, b, 200), sketch.NewDistance(a, b, 140))
 	s.Solve() // will not converge; render the conflict anyway
 	return s.SVG(withAnn(sketch.WithConflicts(true), sketch.WithStatusBadge(true))...)
 }
@@ -199,17 +202,17 @@ func parametric(width float64) (string, error) {
 func profiles() (string, error) {
 	world := sketch.NewWorld()
 	s, _ := world.CreateSketch(world.XY())
-	r := s.CreateRectangle(0, 0, 40, 24)
-	o := s.CreatePoint(20, 12)
-	hole := s.CreateCircle(o, 6)
+	r := s.CreateRectangle(0, 0, 200, 120)
+	o := s.CreatePoint(100, 60)
+	hole := s.CreateCircle(o, 32)
 	r.A.MoveTo(0, 0)
 	s.Fix(r.A)
 	s.AddConstraint(
-		sketch.NewDistance(r.A, r.B, 40),
-		sketch.NewDistance(r.A, r.D, 24),
-		sketch.NewHorizontalDistance(r.A, o, 20),
-		sketch.NewVerticalDistance(r.A, o, 12),
-		sketch.NewRadius(hole, 6),
+		sketch.NewDistance(r.A, r.B, 200),
+		sketch.NewDistance(r.A, r.D, 120),
+		sketch.NewHorizontalDistance(r.A, o, 100),
+		sketch.NewVerticalDistance(r.A, o, 60),
+		sketch.NewRadius(hole, 32),
 	)
 	if _, err := s.Solve(); err != nil {
 		return "", err
@@ -218,7 +221,7 @@ func profiles() (string, error) {
 }
 
 func filletBefore() (string, error) {
-	s, _ := groundedRect(40, 24)
+	s, _ := groundedRect(200, 120)
 	if _, err := s.Solve(); err != nil {
 		return "", err
 	}
@@ -226,11 +229,11 @@ func filletBefore() (string, error) {
 }
 
 func filletAfter() (string, error) {
-	s, r := groundedRect(40, 24)
+	s, r := groundedRect(200, 120)
 	if _, err := s.Solve(); err != nil {
 		return "", err
 	}
-	if _, err := s.CreateFillet(r.BC, r.CD, 8); err != nil {
+	if _, err := s.CreateFillet(r.BC, r.CD, 40); err != nil {
 		return "", err
 	}
 	if _, err := s.Solve(); err != nil {

@@ -1,31 +1,31 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="56" height="40" viewBox="0 0 56 40">
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="340.6897" viewBox="0 0 232 152">
   <rect width="100%" height="100%" fill="white"/>
-  <line x1="8" y1="32" x2="48" y2="32" stroke="#1a73e8" stroke-width="1"/>
-  <line x1="48" y1="32" x2="48" y2="8" stroke="#1a73e8" stroke-width="1"/>
-  <line x1="48" y1="8" x2="8" y2="8" stroke="#1a73e8" stroke-width="1"/>
-  <line x1="8" y1="8" x2="8" y2="32" stroke="#1a73e8" stroke-width="1"/>
-  <circle cx="8" cy="32" r="2" fill="#202124"/>
-  <circle cx="48" cy="32" r="2" fill="#d93025"/>
-  <circle cx="48" cy="8" r="2" fill="#d93025"/>
-  <circle cx="8" cy="8" r="2" fill="#d93025"/>
-  <line x1="8" y1="32" x2="8" y2="35.4986" stroke="#5f6368" stroke-width="1"/>
-  <line x1="48" y1="32" x2="48" y2="35.4986" stroke="#5f6368" stroke-width="1"/>
-  <line x1="8" y1="34.7989" x2="48" y2="34.7989" stroke="#5f6368" stroke-width="1"/>
-  <path d="M8 34.7989 L8.933 34.4723 L8.933 35.1254 Z" fill="#5f6368"/>
-  <path d="M48 34.7989 L47.067 35.1254 L47.067 34.4723 Z" fill="#5f6368"/>
-  <text x="28" y="36.105" font-size="1.8659" fill="#5f6368" text-anchor="middle" dominant-baseline="central">40 mm</text>
-  <line x1="8" y1="32" x2="4.5014" y2="32" stroke="#5f6368" stroke-width="1"/>
-  <line x1="8" y1="8" x2="4.5014" y2="8" stroke="#5f6368" stroke-width="1"/>
-  <line x1="5.2011" y1="32" x2="5.2011" y2="8" stroke="#5f6368" stroke-width="1"/>
-  <path d="M5.2011 32 L4.8746 31.067 L5.5277 31.067 Z" fill="#5f6368"/>
-  <path d="M5.2011 8 L5.5277 8.933 L4.8746 8.933 Z" fill="#5f6368"/>
-  <text x="3.895" y="20" font-size="1.8659" fill="#5f6368" text-anchor="middle" dominant-baseline="central">24 mm</text>
-  <rect x="26.414" y="30.414" width="3.172" height="3.172" rx="0.4758" fill="white" stroke="#5f6368" stroke-width="0.75"/>
-  <text x="28" y="32" font-size="1.8659" fill="#5f6368" text-anchor="middle" dominant-baseline="central">H</text>
-  <rect x="26.414" y="6.414" width="3.172" height="3.172" rx="0.4758" fill="white" stroke="#5f6368" stroke-width="0.75"/>
-  <text x="28" y="8" font-size="1.8659" fill="#5f6368" text-anchor="middle" dominant-baseline="central">H</text>
-  <rect x="46.414" y="18.414" width="3.172" height="3.172" rx="0.4758" fill="white" stroke="#5f6368" stroke-width="0.75"/>
-  <text x="48" y="20" font-size="1.8659" fill="#5f6368" text-anchor="middle" dominant-baseline="central">V</text>
-  <rect x="6.414" y="18.414" width="3.172" height="3.172" rx="0.4758" fill="white" stroke="#5f6368" stroke-width="0.75"/>
-  <text x="8" y="20" font-size="1.8659" fill="#5f6368" text-anchor="middle" dominant-baseline="central">V</text>
+  <line x1="16" y1="136" x2="216" y2="136" stroke="#1a73e8" stroke-width="1"/>
+  <line x1="216" y1="136" x2="216" y2="16" stroke="#1a73e8" stroke-width="1"/>
+  <line x1="216" y1="16" x2="16" y2="16" stroke="#1a73e8" stroke-width="1"/>
+  <line x1="16" y1="16" x2="16" y2="136" stroke="#1a73e8" stroke-width="1"/>
+  <circle cx="16" cy="136" r="2" fill="#202124"/>
+  <circle cx="216" cy="136" r="2" fill="#d93025"/>
+  <circle cx="216" cy="16" r="2" fill="#d93025"/>
+  <circle cx="16" cy="16" r="2" fill="#d93025"/>
+  <line x1="16" y1="136" x2="16" y2="153.4929" stroke="#5f6368" stroke-width="1"/>
+  <line x1="216" y1="136" x2="216" y2="153.4929" stroke="#5f6368" stroke-width="1"/>
+  <line x1="16" y1="149.9943" x2="216" y2="149.9943" stroke="#5f6368" stroke-width="1"/>
+  <path d="M16 149.9943 L20.6648 148.3616 L20.6648 151.627 Z" fill="#5f6368"/>
+  <path d="M216 149.9943 L211.3352 151.627 L211.3352 148.3616 Z" fill="#5f6368"/>
+  <text x="116" y="156.525" font-size="9.3295" fill="#5f6368" text-anchor="middle" dominant-baseline="central">200 mm</text>
+  <line x1="16" y1="136" x2="-1.4929" y2="136" stroke="#5f6368" stroke-width="1"/>
+  <line x1="16" y1="16" x2="-1.4929" y2="16" stroke="#5f6368" stroke-width="1"/>
+  <line x1="2.0057" y1="136" x2="2.0057" y2="16" stroke="#5f6368" stroke-width="1"/>
+  <path d="M2.0057 136 L0.373 131.3352 L3.6384 131.3352 Z" fill="#5f6368"/>
+  <path d="M2.0057 16 L3.6384 20.6648 L0.373 20.6648 Z" fill="#5f6368"/>
+  <text x="-4.525" y="76" font-size="9.3295" fill="#5f6368" text-anchor="middle" dominant-baseline="central">120 mm</text>
+  <rect x="108.0699" y="128.0699" width="15.8602" height="15.8602" rx="2.379" fill="white" stroke="#5f6368" stroke-width="0.75"/>
+  <text x="116" y="136" font-size="9.3295" fill="#5f6368" text-anchor="middle" dominant-baseline="central">H</text>
+  <rect x="108.0699" y="8.0699" width="15.8602" height="15.8602" rx="2.379" fill="white" stroke="#5f6368" stroke-width="0.75"/>
+  <text x="116" y="16" font-size="9.3295" fill="#5f6368" text-anchor="middle" dominant-baseline="central">H</text>
+  <rect x="208.0699" y="68.0699" width="15.8602" height="15.8602" rx="2.379" fill="white" stroke="#5f6368" stroke-width="0.75"/>
+  <text x="216" y="76" font-size="9.3295" fill="#5f6368" text-anchor="middle" dominant-baseline="central">V</text>
+  <rect x="8.0699" y="68.0699" width="15.8602" height="15.8602" rx="2.379" fill="white" stroke="#5f6368" stroke-width="0.75"/>
+  <text x="16" y="76" font-size="9.3295" fill="#5f6368" text-anchor="middle" dominant-baseline="central">V</text>
 </svg>

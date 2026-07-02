@@ -346,3 +346,17 @@ func TestProfileFillValidRegion(t *testing.T) {
 	require.Contains(t, out, `fill-opacity="0.12"`, "region fill emitted")
 	require.Contains(t, out, `fill-rule="evenodd"`)
 }
+
+func TestPixelWidthScalesDisplayNotViewBox(t *testing.T) {
+	s, _ := rectWithDistance(t)
+
+	def, err := s.SVG()
+	require.NoError(t, err)
+	// Default: display width equals the viewBox width (geometry units).
+	require.Regexp(t, `width="40" height="32" viewBox="0 0 40 32"`, def)
+
+	out, err := s.SVG(sketch.WithPixelWidth(400))
+	require.NoError(t, err)
+	// Display width is 400px; the viewBox stays in geometry units, aspect kept.
+	require.Regexp(t, `width="400" height="320" viewBox="0 0 40 32"`, out)
+}

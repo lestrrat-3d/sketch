@@ -1,40 +1,40 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="136" height="88" viewBox="0 0 136 88">
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="355.7895" viewBox="0 0 152 104">
   <rect width="100%" height="100%" fill="white"/>
-  <line x1="8" y1="80" x2="128" y2="80" stroke="#1a73e8" stroke-width="1"/>
-  <line x1="128" y1="80" x2="128" y2="8" stroke="#1a73e8" stroke-width="1"/>
-  <line x1="128" y1="8" x2="8" y2="8" stroke="#1a73e8" stroke-width="1"/>
-  <line x1="8" y1="8" x2="8" y2="80" stroke="#1a73e8" stroke-width="1"/>
-  <circle cx="68" cy="44" r="15" fill="none" stroke="#1a73e8" stroke-width="1"/>
-  <circle cx="8" cy="80" r="2" fill="#202124"/>
-  <circle cx="128" cy="80" r="2" fill="#d93025"/>
-  <circle cx="128" cy="8" r="2" fill="#d93025"/>
-  <circle cx="8" cy="8" r="2" fill="#d93025"/>
-  <circle cx="68" cy="44" r="2" fill="#d93025"/>
-  <line x1="8" y1="80" x2="8" y2="90.4957" stroke="#5f6368" stroke-width="1"/>
-  <line x1="128" y1="80" x2="128" y2="90.4957" stroke="#5f6368" stroke-width="1"/>
-  <line x1="8" y1="88.3966" x2="128" y2="88.3966" stroke="#5f6368" stroke-width="1"/>
-  <path d="M8 88.3966 L10.7989 87.417 L10.7989 89.3762 Z" fill="#5f6368"/>
-  <path d="M128 88.3966 L125.2011 89.3762 L125.2011 87.417 Z" fill="#5f6368"/>
-  <text x="68" y="92.315" font-size="5.5977" fill="#5f6368" text-anchor="middle" dominant-baseline="central">120 mm</text>
-  <line x1="8" y1="80" x2="-2.4957" y2="80" stroke="#5f6368" stroke-width="1"/>
-  <line x1="8" y1="8" x2="-2.4957" y2="8" stroke="#5f6368" stroke-width="1"/>
-  <line x1="-0.3966" y1="80" x2="-0.3966" y2="8" stroke="#5f6368" stroke-width="1"/>
-  <path d="M-0.3966 80 L-1.3762 77.2011 L0.583 77.2011 Z" fill="#5f6368"/>
-  <path d="M-0.3966 8 L0.583 10.7989 L-1.3762 10.7989 Z" fill="#5f6368"/>
-  <text x="-4.315" y="44" font-size="5.5977" fill="#5f6368" text-anchor="middle" dominant-baseline="central">72 mm</text>
-  <line x1="8" y1="80" x2="8" y2="90.4957" stroke="#5f6368" stroke-width="1"/>
-  <line x1="68" y1="44" x2="68" y2="90.4957" stroke="#5f6368" stroke-width="1"/>
-  <line x1="8" y1="88.3966" x2="68" y2="88.3966" stroke="#5f6368" stroke-width="1"/>
-  <path d="M8 88.3966 L10.7989 87.417 L10.7989 89.3762 Z" fill="#5f6368"/>
-  <path d="M68 88.3966 L65.2011 89.3762 L65.2011 87.417 Z" fill="#5f6368"/>
-  <text x="38" y="92.315" font-size="5.5977" fill="#5f6368" text-anchor="middle" dominant-baseline="central">60 mm</text>
-  <line x1="8" y1="80" x2="78.4957" y2="80" stroke="#5f6368" stroke-width="1"/>
-  <line x1="68" y1="44" x2="78.4957" y2="44" stroke="#5f6368" stroke-width="1"/>
-  <line x1="76.3966" y1="80" x2="76.3966" y2="44" stroke="#5f6368" stroke-width="1"/>
-  <path d="M76.3966 80 L75.417 77.2011 L77.3762 77.2011 Z" fill="#5f6368"/>
-  <path d="M76.3966 44 L77.3762 46.7989 L75.417 46.7989 Z" fill="#5f6368"/>
-  <text x="80.315" y="62" font-size="5.5977" fill="#5f6368" text-anchor="middle" dominant-baseline="central">36 mm</text>
-  <line x1="68" y1="44" x2="78.6066" y2="33.3934" stroke="#5f6368" stroke-width="1"/>
-  <path d="M78.6066 33.3934 L77.3202 36.0652 L75.9348 34.6798 Z" fill="#5f6368"/>
-  <text x="82.5648" y="29.4352" font-size="5.5977" fill="#5f6368" text-anchor="middle" dominant-baseline="central">R15 mm</text>
+  <line x1="16" y1="88" x2="136" y2="88" stroke="#1a73e8" stroke-width="1"/>
+  <line x1="136" y1="88" x2="136" y2="16" stroke="#1a73e8" stroke-width="1"/>
+  <line x1="136" y1="16" x2="16" y2="16" stroke="#1a73e8" stroke-width="1"/>
+  <line x1="16" y1="16" x2="16" y2="88" stroke="#1a73e8" stroke-width="1"/>
+  <circle cx="76" cy="52" r="15" fill="none" stroke="#1a73e8" stroke-width="1"/>
+  <circle cx="16" cy="88" r="2" fill="#202124"/>
+  <circle cx="136" cy="88" r="2" fill="#d93025"/>
+  <circle cx="136" cy="16" r="2" fill="#d93025"/>
+  <circle cx="16" cy="16" r="2" fill="#d93025"/>
+  <circle cx="76" cy="52" r="2" fill="#d93025"/>
+  <line x1="16" y1="88" x2="16" y2="98.4957" stroke="#5f6368" stroke-width="1"/>
+  <line x1="136" y1="88" x2="136" y2="98.4957" stroke="#5f6368" stroke-width="1"/>
+  <line x1="16" y1="96.3966" x2="136" y2="96.3966" stroke="#5f6368" stroke-width="1"/>
+  <path d="M16 96.3966 L18.7989 95.417 L18.7989 97.3762 Z" fill="#5f6368"/>
+  <path d="M136 96.3966 L133.2011 97.3762 L133.2011 95.417 Z" fill="#5f6368"/>
+  <text x="76" y="100.315" font-size="5.5977" fill="#5f6368" text-anchor="middle" dominant-baseline="central">120 mm</text>
+  <line x1="16" y1="88" x2="5.5043" y2="88" stroke="#5f6368" stroke-width="1"/>
+  <line x1="16" y1="16" x2="5.5043" y2="16" stroke="#5f6368" stroke-width="1"/>
+  <line x1="7.6034" y1="88" x2="7.6034" y2="16" stroke="#5f6368" stroke-width="1"/>
+  <path d="M7.6034 88 L6.6238 85.2011 L8.583 85.2011 Z" fill="#5f6368"/>
+  <path d="M7.6034 16 L8.583 18.7989 L6.6238 18.7989 Z" fill="#5f6368"/>
+  <text x="3.685" y="52" font-size="5.5977" fill="#5f6368" text-anchor="middle" dominant-baseline="central">72 mm</text>
+  <line x1="16" y1="88" x2="16" y2="98.4957" stroke="#5f6368" stroke-width="1"/>
+  <line x1="76" y1="52" x2="76" y2="98.4957" stroke="#5f6368" stroke-width="1"/>
+  <line x1="16" y1="96.3966" x2="76" y2="96.3966" stroke="#5f6368" stroke-width="1"/>
+  <path d="M16 96.3966 L18.7989 95.417 L18.7989 97.3762 Z" fill="#5f6368"/>
+  <path d="M76 96.3966 L73.2011 97.3762 L73.2011 95.417 Z" fill="#5f6368"/>
+  <text x="46" y="100.315" font-size="5.5977" fill="#5f6368" text-anchor="middle" dominant-baseline="central">60 mm</text>
+  <line x1="16" y1="88" x2="86.4957" y2="88" stroke="#5f6368" stroke-width="1"/>
+  <line x1="76" y1="52" x2="86.4957" y2="52" stroke="#5f6368" stroke-width="1"/>
+  <line x1="84.3966" y1="88" x2="84.3966" y2="52" stroke="#5f6368" stroke-width="1"/>
+  <path d="M84.3966 88 L83.417 85.2011 L85.3762 85.2011 Z" fill="#5f6368"/>
+  <path d="M84.3966 52 L85.3762 54.7989 L83.417 54.7989 Z" fill="#5f6368"/>
+  <text x="88.315" y="70" font-size="5.5977" fill="#5f6368" text-anchor="middle" dominant-baseline="central">36 mm</text>
+  <line x1="76" y1="52" x2="86.6066" y2="41.3934" stroke="#5f6368" stroke-width="1"/>
+  <path d="M86.6066 41.3934 L85.3202 44.0652 L83.9348 42.6798 Z" fill="#5f6368"/>
+  <text x="90.5648" y="37.4352" font-size="5.5977" fill="#5f6368" text-anchor="middle" dominant-baseline="central">R15 mm</text>
 </svg>
