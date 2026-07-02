@@ -13,13 +13,14 @@ dimension, re-solve, and the geometry updates.
 
 This engine is built to be **driven by an AI agent as a verification step
 before it acts on real CAD software**. Constraint sketching is easy to get
-subtly wrong — an under- or over-constrained profile, an ambiguous
-configuration that can flip, a dimension that doesn't resolve the way you
-intended. Rather than discover that inside Fusion (or another CAD tool) *after*
-committing to an operation, an agent can reproduce the sketch here first and
-check it programmatically: Does it fully constrain (`DOF == 0`)? Are any
-constraints redundant or conflicting? Does it admit more than one valid
-configuration? Does the solved geometry actually match the intended dimensions?
+subtly wrong — an under- or over-constrained profile, a configuration that can
+flip, a dimension that doesn't resolve as intended.
+
+Rather than discover that inside Fusion *after* committing to an operation, an
+agent can reproduce the sketch here first and check it programmatically: Does it
+fully constrain (`DOF == 0`)? Are any constraints redundant or conflicting? Does
+it admit more than one valid configuration?
+
 Only once the sketch is proven sound does the agent carry the plan into the CAD
 package — and the SVG/PNG exporters let an agent or human eyeball the result
 along the way.
