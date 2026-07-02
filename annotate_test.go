@@ -360,3 +360,50 @@ func TestPixelWidthScalesDisplayNotViewBox(t *testing.T) {
 	// Display width is 400px; the viewBox stays in geometry units, aspect kept.
 	require.Regexp(t, `width="400" height="320" viewBox="0 0 40 32"`, out)
 }
+
+func TestEntityIsFullyConstrained(t *testing.T) {
+	w := sketch.NewWorld()
+	s, err := w.CreateSketch(w.XY())
+	require.NoError(t, err)
+	o := s.CreatePoint(0, 0)
+	o.MoveTo(0, 0)
+	s.Fix(o)
+	c := s.CreateCircle(o, 5)
+	_, _ = s.Solve()
+
+	// Center pinned but radius free: the point is constrained, the circle is not.
+	require.True(t, o.IsFullyConstrained())
+	require.False(t, s.EntityIsFullyConstrained(c), "a free radius leaves the circle under-constrained")
+
+	// Pin the radius: now the circle is fully constrained.
+	s.AddConstraint(sketch.NewRadius(c, 5))
+	_, _ = s.Solve()
+	require.True(t, s.EntityIsFullyConstrained(c))
+}
+
+// TestDOFColoringFreeRadiusCircleBlue is the case the old points-only overlay
+// got wrong: a circle whose center is pinned but whose radius is free must read
+// blue (under-constrained), not black.
+func TestDOFColoringFreeRadiusCircleBlue(t *testing.T) {
+	w := sketch.NewWorld()
+	s, err := w.CreateSketch(w.XY())
+	require.NoError(t, err)
+	o := s.CreatePoint(0, 0)
+	o.MoveTo(0, 0)
+	s.Fix(o)
+	c := s.CreateCircle(o, 5)
+	_, _ = s.Solve()
+	require.False(t, s.EntityIsFullyConstrained(c))
+
+	out, err := s.SVG(sketch.WithDOFColoring(true))
+	require.NoError(t, err)
+	// The circle geometry (fill="none") is stroked blue because its radius is free.
+	require.Regexp(t, `<circle cx="[^"]*" cy="[^"]*" r="[^"]*" fill="none" stroke="#1a73e8"`, out)
+
+	// With the radius pinned it becomes black.
+	s.AddConstraint(sketch.NewRadius(c, 5))
+	_, _ = s.Solve()
+	out, err = s.SVG(sketch.WithDOFColoring(true))
+	require.NoError(t, err)
+	require.Regexp(t, `<circle cx="[^"]*" cy="[^"]*" r="[^"]*" fill="none" stroke="#202124"`, out)
+}
