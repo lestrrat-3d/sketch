@@ -952,7 +952,22 @@ func (a *arranger) analyticPrepass() {
 			// conservatively flag degeneracy. Pure line/line pairs are exact (sample ==
 			// geometry), so a clean shallow crossing is never false-flagged.
 			if (isCurvedKind(si.kind) || isCurvedKind(sj.kind)) && !internalTan {
-				if a.sampledCrossCount(i, j) != nCross || !a.analyticCrossHosted(i, j, events) {
+				// A crossing at a shared endpoint of BOTH sources is a corner join
+				// (a loop vertex where two edges meet), not a transverse interior
+				// crossing: applyAnalyticCut no-ops at an endpoint, so it cuts
+				// neither source, and the sampled interior-crossing predicate
+				// (segsCrossInterior) never hosts it. Counting such joins against
+				// the sampled interior count false-flags a valid corner — a line
+				// meeting an arc at a loop vertex (a circular segment, slot, pie
+				// slice, or gear tooth) — as a degenerate arrangement. Compare only
+				// the interior crossings, which is what the sampled count measures.
+				nInteriorCross := 0
+				for _, e := range events {
+					if e.kind == evCross && !cornerJoin(si, sj, e) {
+						nInteriorCross++
+					}
+				}
+				if a.sampledCrossCount(i, j) != nInteriorCross || !a.analyticCrossHosted(i, j, events) {
 					rx, ry := sourceRep(si)
 					sx, sy := sourceRep(sj)
 					a.flagDegenerate((rx+sx)/2, (ry+sy)/2)
@@ -1086,6 +1101,13 @@ func (a *arranger) analyticCrossHosted(i, j int, events []xEvent) bool {
 		if e.kind != evCross {
 			continue
 		}
+		// A crossing at a shared endpoint of both sources is a corner join, not a
+		// transverse interior crossing — the sampled interior predicate never
+		// hosts it and it splits neither source, so it needs no witness (see the
+		// consistency gate in analyticPrepass).
+		if cornerJoin(&a.sources[i], &a.sources[j], e) {
+			continue
+		}
 		si := a.segContaining(i, e.ti)
 		sj := a.segContaining(j, e.tj)
 		if si < 0 || sj < 0 || !a.segsCrossInterior(si, sj) {
@@ -1093,6 +1115,15 @@ func (a *arranger) analyticCrossHosted(i, j int, events []xEvent) bool {
 		}
 	}
 	return true
+}
+
+// cornerJoin reports whether an analytic crossing sits at an endpoint of BOTH
+// sources — a loop vertex where two edges meet (a corner/join), as opposed to a
+// transverse crossing interior to at least one source. Such a join cuts neither
+// source (applyAnalyticCut no-ops at an endpoint) and is resolved by shared-vertex
+// topology, so the interior-crossing consistency gate must not count it.
+func cornerJoin(si, sj *source, e xEvent) bool {
+	return e.kind == evCross && atSourceEnd(si, e.ti) && atSourceEnd(sj, e.tj)
 }
 
 // applyAnalyticCut records an exact cut at source-parameter t (event point x,y) on
