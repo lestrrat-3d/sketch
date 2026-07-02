@@ -22,6 +22,7 @@ type NURBS struct {
 	weights      []float64
 	id           int
 	construction bool
+	named        // optional label
 	refState     // reference NURBS are a follow-up; stale derived from control points
 }
 

@@ -34,11 +34,12 @@ type Sketch struct {
 	ents   []Entity
 	cons   []Constraint
 
-	world    *World              // owning world (every sketch belongs to one)
-	params   *param.Table        // drives bound dimensions; shared with the world
-	sys      units.System        // default length/angle units
-	pl       *Plane              // placement; nil reads as the world XY datum
-	refSeals map[Entity][]*Point // reference entity -> its construction-time defining points (topology seal)
+	world    *World                // owning world (every sketch belongs to one)
+	params   *param.Table          // drives bound dimensions; shared with the world
+	sys      units.System          // default length/angle units
+	pl       *Plane                // placement; nil reads as the world XY datum
+	refSeals map[Entity][]*Point   // reference entity -> its construction-time defining points (topology seal)
+	conNames map[Constraint]string // optional constraint labels (see names.go); not on the constraint itself
 }
 
 // newSketch is the shared constructor used by [World.CreateSketch] and the
@@ -377,7 +378,9 @@ func (s *Sketch) EntityFixed(e Entity) bool {
 // Entity is a line, circle, arc, ellipse or spline in a sketch. Construction
 // status is a settable per-entity property; reference status (externally-locked
 // 3D-snapshot geometry with a source id and staleness) is set at creation by the
-// CreateReference… constructors and is read-only.
+// CreateReference… constructors and is read-only. The optional, non-unique name
+// is a settable label that survives JSON round-trips and is looked up with
+// [Sketch.EntityByName].
 type Entity interface {
 	entity()
 	entID() int
@@ -386,6 +389,8 @@ type Entity interface {
 	IsReference() bool
 	Source() string
 	IsStale() bool
+	Name() string
+	SetName(name string)
 }
 
 // Circular is a sketch entity with a center point and a radius: a [*Circle] or
@@ -416,6 +421,7 @@ type Line struct {
 	Start, End   *Point
 	id           int
 	construction bool
+	named        // optional label
 	refState     // stale derived from the endpoints
 }
 
@@ -457,6 +463,7 @@ type Circle struct {
 	ri           int // radius index into Sketch.vars
 	id           int
 	construction bool
+	named        // optional label
 	refState     // stale = radius freshness (center staleness is the center point's)
 }
 
@@ -499,6 +506,7 @@ type Arc struct {
 	Center, Start, End *Point
 	id                 int
 	construction       bool
+	named              // optional label
 	refState           // stale derived from center/start/end
 }
 
@@ -561,6 +569,7 @@ type Ellipse struct {
 	rxi, ryi, roti int // var indices: semi-axes and rotation
 	id             int
 	construction   bool
+	named          // optional label
 	refState       // reference ellipses are a follow-up; stale derived from center
 }
 
@@ -622,6 +631,7 @@ type EllipticalArc struct {
 	rxi, ryi, roti     int // var indices: semi-axes and rotation
 	id                 int
 	construction       bool
+	named              // optional label
 	refState           // reference elliptical arcs are a follow-up
 }
 
@@ -691,6 +701,7 @@ type Conic struct {
 	rhoi             int // var index of the fullness rho, kept in (0, 1)
 	id               int
 	construction     bool
+	named            // optional label
 	refState         // reference conics are a follow-up; stale derived from points
 }
 

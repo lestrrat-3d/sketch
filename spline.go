@@ -17,6 +17,7 @@ type Spline struct {
 	Control      []*Point
 	id           int
 	construction bool
+	named        // optional label
 	refState     // reference splines are a follow-up; stale derived from control points
 }
 
@@ -101,6 +102,7 @@ type ClosedSpline struct {
 	Control      []*Point
 	id           int
 	construction bool
+	named        // optional label
 	refState     // reference closed splines are a follow-up; stale derived from control points
 }
 
@@ -185,6 +187,7 @@ type FitSpline struct {
 	Fit          []*Point
 	id           int
 	construction bool
+	named        // optional label
 	refState     // reference fit splines are a follow-up; stale derived from fit points
 }
 

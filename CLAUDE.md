@@ -57,6 +57,8 @@ from a solid — the seam is first-class reference geometry), live in
 | `tools.go` | Sketch-modification tools on committed geometry (`Trim`/`Extend`/`Break`, `CreateFillet`/`CreateChamfer`, `CreateMirror`, `CreatePatternRect`/`CreatePatternCircular`, `CreateOffset`): build-then-replace via the `geom` toolkit + `RemoveEntity`. Design in `docs/modification-tools-design.md`. |
 | `profiles.go` | `Sketch.Profiles()`: closed planar regions via the `geom` arrangement engine — bare-crossing subdivision, holes/nesting, net area, and per-region validity (self-intersecting/degenerate). `Profile` carries `Outer`/`Holes` (`BoundaryEdge`s, whole or fragment), `Area`, `Valid`, `SelfIntersecting`; construction excluded, reference geometry included. Internal `buildProfiles` also surfaces arrangement degeneracy to `Verify`. |
 | `constraint.go` | `Constraint` interface and every constraint's residual + the public `New…` constructors. |
+| `introspect.go` | Constraint introspection over the sealed `Constraint` interface: `ConstraintKind` (stable type id — **derived from `marshalConstraint`** so it never drifts from the JSON schema; internal constraints report `arc_radius`/`elliptical_arc_on`), `ConstraintRefs` (the referenced points+entities, via `constraintRefs`), `ConstraintResiduals` (`c.residual(nil)`), `IsInternal`. All read-only, package-level. |
+| `names.go` | Optional, non-unique labels + first-match lookup: the embedded `named` (every `Entity`'s `Name`/`SetName`), constraint labels held on the sketch (`SetConstraintName`/`ConstraintName` in `conNames`, since a constraint is only ever an interface value), and `PointByName`/`EntityByName`/`ConstraintByName`. Names survive JSON round-trips (`name` on `jsonPoint`/`jsonEntity`/`jsonConstraint`) and are purged by the removal cascade. |
 | `solver.go` | Levenberg–Marquardt solver, numerical Jacobian, DOF/redundancy (rank) analysis. |
 | `diagnose.go` | Constraint diagnostics: `conflictAnalysis` (the shared dependency pass behind `RedundantConstraints`/`Diagnose`/`Verify`), `Diagnose` (redundant vs conflicting), `ConflictSet` (a conflicting constraint + the earlier ones it fights), `CheckConstraint` (pre-commit over-constraint rejection), `FreePoints`/`Point.IsFullyConstrained` (per-point free-DOF attribution) + `Sketch.EntityIsFullyConstrained` (per-entity: an entity is free when any defining-point coord OR any intrinsic shape var — `entityShapeVars`: circle radius / ellipse rx,ry,rot / conic rho; none for line/arc/spline — is in the null-space support). Design in `docs/diagnostics-design.md`. |
 | `verify.go` | `Sketch.Verify(...VerifyOption) *VerificationReport`: the headless-oracle aggregation layer — one non-mutating call gathering solvability, DOF, `Status`, redundant constraints, conflict sets, free points, profiles + their validity (`ProfilesValid`/`InvalidProfiles` — self-intersecting/degenerate regions gate `Trustworthy()`), stale/broken/foreign reference signals, parameter unit-kind validity (`ParametersValid`), the **advisory** `RankMargin` (how far the STRUCTURAL rank/DOF decision sits from the rank-zero cutoff — a fragility hint; now scale-invariant, computed on the nondimensional Jacobian, but still does NOT gate `Trustworthy()` — it measures a coarser, different question than conditioning), the **scale-invariant** `Conditioning` (`conditioning.go`: the reciprocal condition number of the nondimensionalized Jacobian — this one DOES gate `Trustworthy()`, below a tolerance-derived `max(1e-6, 4·√tol)` threshold), `Trustworthy()`, and (opt-in via `WithProbe`) discrete ambiguity. A pure consumer of the diagnostic building blocks. |
@@ -664,11 +666,15 @@ These are unsettled. If you resolve one, record the decision here.
   dimensions, geometric-constraint glyphs, DOF coloring, conflict highlighting, a
   status badge and profile fill (all opt-in, default off); `internal/cmd/genimages`
   regenerates the README gallery heroes with an in-sync test. The renderer is
-  **internal** (type-switches the unexported constraint types). *Open follow-ups:*
-  a **public introspection API** (`Sketch.Annotations()` returning typed exported
-  descriptors — kind + referenced entity handles + dimension value/unit/driven —
-  extracted from this renderer's data model, so a DSL/GUI/tests can consume the
-  same data; the north-star "programmability over UI" endpoint), an
+  **internal** (type-switches the unexported constraint types). A **constraint-level
+  public introspection API** is in (`introspect.go`: `ConstraintKind`/`ConstraintRefs`/
+  `ConstraintResiduals`/`IsInternal`) plus optional entity/constraint **names** with
+  first-match lookup (`names.go`), giving a DSL/GUI/tests a durable, type-free handle
+  on constraints. *Open follow-ups:* the richer **annotation-descriptor API**
+  (`Sketch.Annotations()` returning typed exported descriptors — kind + referenced
+  entity handles + dimension value/unit/driven — extracted from this renderer's data
+  model, so a consumer gets the rendering-level data, not just the constraint graph;
+  the north-star "programmability over UI" endpoint), an
   **ambiguity/probe overlay** and a **modification-tools before/after** hero (both
   need a shared-bounds multi-state compositor genimages does not yet have — the
   current heroes are single-state), **rich PNG annotation text** (the rasterizer

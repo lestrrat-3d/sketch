@@ -33,6 +33,7 @@ type jsonEntity struct {
 	Degree       int       `json:"degree,omitempty"`   // spline degree (always 3 today); NURBS degree
 	Knots        []float64 `json:"knots,omitempty"`    // NURBS knot vector
 	Weights      []float64 `json:"weights,omitempty"`  // NURBS per-control weights
+	Name         string    `json:"name,omitempty"`     // optional entity label
 	Construction bool      `json:"construction,omitempty"`
 	Reference    bool      `json:"reference,omitempty"`
 	Source       string    `json:"source,omitempty"`
@@ -41,6 +42,7 @@ type jsonEntity struct {
 
 type jsonConstraint struct {
 	Type     string  `json:"type"`
+	Name     string  `json:"name,omitempty"` // optional constraint label
 	Points   []int   `json:"points,omitempty"`
 	Entities []int   `json:"entities,omitempty"`
 	Value    float64 `json:"value,omitempty"`
@@ -155,6 +157,7 @@ func (s *Sketch) marshalBody() (jsonSketchBody, error) {
 	}
 
 	for _, e := range s.ents {
+		before := len(body.Entities)
 		switch t := e.(type) {
 		case *Line:
 			body.Entities = append(body.Entities, jsonEntity{
@@ -213,6 +216,10 @@ func (s *Sketch) marshalBody() (jsonSketchBody, error) {
 				Points:  pointIDs(t.Control),
 			})
 		}
+		// Attach the optional label to whichever entity this iteration appended.
+		if len(body.Entities) > before {
+			body.Entities[before].Name = e.Name()
+		}
 	}
 
 	for _, c := range s.cons {
@@ -223,6 +230,7 @@ func (s *Sketch) marshalBody() (jsonSketchBody, error) {
 		if !ok {
 			return jsonSketchBody{}, fmt.Errorf("sketch: cannot serialize constraint %T", c)
 		}
+		jc.Name = s.conNames[c] // optional label lives on the sketch, not the constraint
 		body.Constraints = append(body.Constraints, jc)
 	}
 
@@ -490,6 +498,7 @@ func (s *Sketch) buildFromBody(body jsonSketchBody) error {
 	}
 
 	for _, je := range body.Entities {
+		before := len(s.ents)
 		ps, err := s.pointsRef(je.Points)
 		if err != nil {
 			return err
@@ -533,6 +542,9 @@ func (s *Sketch) buildFromBody(body jsonSketchBody) error {
 				c.stale = je.Stale // restore radius staleness
 			default:
 				return fmt.Errorf("sketch: reference geometry of kind %q is not supported", je.Type)
+			}
+			if len(s.ents) > before {
+				s.ents[before].SetName(je.Name)
 			}
 			continue
 		}
@@ -609,11 +621,19 @@ func (s *Sketch) buildFromBody(body jsonSketchBody) error {
 		default:
 			return fmt.Errorf("sketch: unknown entity type %q", je.Type)
 		}
+		if len(s.ents) > before {
+			s.ents[before].SetName(je.Name)
+		}
 	}
 
 	for _, jc := range body.Constraints {
 		if err := s.rebuildConstraint(jc, line, circle, circular, ellipse, elliptical); err != nil {
 			return err
+		}
+		// rebuildConstraint appends exactly one public constraint via AddConstraint;
+		// restore its optional label.
+		if jc.Name != "" && len(s.cons) > 0 {
+			s.SetConstraintName(s.cons[len(s.cons)-1], jc.Name)
 		}
 	}
 
