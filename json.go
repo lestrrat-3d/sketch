@@ -33,6 +33,7 @@ type jsonEntity struct {
 	Degree       int       `json:"degree,omitempty"`   // spline degree (always 3 today); NURBS degree
 	Knots        []float64 `json:"knots,omitempty"`    // NURBS knot vector
 	Weights      []float64 `json:"weights,omitempty"`  // NURBS per-control weights
+	Name         string    `json:"name,omitempty"`     // optional entity label
 	Construction bool      `json:"construction,omitempty"`
 	Reference    bool      `json:"reference,omitempty"`
 	Source       string    `json:"source,omitempty"`
@@ -41,6 +42,7 @@ type jsonEntity struct {
 
 type jsonConstraint struct {
 	Type     string  `json:"type"`
+	Name     string  `json:"name,omitempty"` // optional constraint label
 	Points   []int   `json:"points,omitempty"`
 	Entities []int   `json:"entities,omitempty"`
 	Value    float64 `json:"value,omitempty"`
@@ -155,6 +157,7 @@ func (s *Sketch) marshalBody() (jsonSketchBody, error) {
 	}
 
 	for _, e := range s.ents {
+		before := len(body.Entities)
 		switch t := e.(type) {
 		case *Line:
 			body.Entities = append(body.Entities, jsonEntity{
@@ -213,6 +216,10 @@ func (s *Sketch) marshalBody() (jsonSketchBody, error) {
 				Points:  pointIDs(t.Control),
 			})
 		}
+		// Attach the optional label to whichever entity this iteration appended.
+		if len(body.Entities) > before {
+			body.Entities[before].Name = e.Name()
+		}
 	}
 
 	for _, c := range s.cons {
@@ -223,6 +230,7 @@ func (s *Sketch) marshalBody() (jsonSketchBody, error) {
 		if !ok {
 			return jsonSketchBody{}, fmt.Errorf("sketch: cannot serialize constraint %T", c)
 		}
+		jc.Name = s.conNames[c] // optional label lives on the sketch, not the constraint
 		body.Constraints = append(body.Constraints, jc)
 	}
 
@@ -235,121 +243,250 @@ func (s *Sketch) marshalBody() (jsonSketchBody, error) {
 	return body, nil
 }
 
-func marshalConstraint(c Constraint) (jsonConstraint, bool) {
+// constraintKind is the single source of truth for a constraint's stable,
+// serialized type string. Both marshalConstraint (which adds the operand refs)
+// and the public ConstraintKind read it, so the two can never drift — and any
+// typo here breaks the round-trip-every-kind serialization test, not just
+// introspection. It is deliberately side-effect-free: it switches on the
+// constraint's own type (and, for tangentConics, its operand's type) and never
+// dereferences operand coordinates, so it is safe on any constructed
+// constraint, including one built with nil operands. Internal constraints
+// (never serialized) report their own kinds; an unknown type reports "".
+func constraintKind(c Constraint) string {
 	switch t := c.(type) {
 	case *coincident:
-		return jsonConstraint{Type: "coincident", Points: []int{t.P1.id, t.P2.id}}, true
+		return "coincident"
 	case *horizontal:
-		return jsonConstraint{Type: "horizontal", Entities: []int{t.L.id}}, true
+		return "horizontal"
 	case *vertical:
-		return jsonConstraint{Type: "vertical", Entities: []int{t.L.id}}, true
+		return "vertical"
 	case *horizontalPoints:
-		return jsonConstraint{Type: "horizontal_points", Points: []int{t.P1.id, t.P2.id}}, true
+		return "horizontal_points"
 	case *verticalPoints:
-		return jsonConstraint{Type: "vertical_points", Points: []int{t.P1.id, t.P2.id}}, true
+		return "vertical_points"
 	case *parallel:
-		return jsonConstraint{Type: "parallel", Entities: []int{t.L1.id, t.L2.id}}, true
+		return "parallel"
 	case *perpendicular:
-		return jsonConstraint{Type: "perpendicular", Entities: []int{t.L1.id, t.L2.id}}, true
+		return "perpendicular"
 	case *pointOnLine:
-		return jsonConstraint{Type: "point_on_line", Points: []int{t.P.id}, Entities: []int{t.L.id}}, true
+		return "point_on_line"
 	case *collinear:
-		return jsonConstraint{Type: "collinear", Entities: []int{t.L1.id, t.L2.id}}, true
+		return "collinear"
 	case *concentric:
-		return jsonConstraint{Type: "concentric", Entities: []int{t.C1.entID(), t.C2.entID()}}, true
+		return "concentric"
 	case *pointOnCircle:
-		return jsonConstraint{Type: "point_on_circle", Points: []int{t.P.id}, Entities: []int{t.C.id}}, true
+		return "point_on_circle"
 	case *pointOnArc:
-		return jsonConstraint{Type: "point_on_arc", Points: []int{t.P.id}, Entities: []int{t.A.id}}, true
+		return "point_on_arc"
 	case *pointOnEllipticalArc:
-		return jsonConstraint{Type: "point_on_elliptical_arc", Points: []int{t.P.id}, Entities: []int{t.A.id}}, true
+		return "point_on_elliptical_arc"
 	case *pointOnEllipse:
-		return jsonConstraint{Type: "point_on_ellipse", Points: []int{t.P.id}, Entities: []int{t.E.id}}, true
+		return "point_on_ellipse"
 	case *pointOnSpline:
-		return jsonConstraint{Type: "point_on_spline", Points: []int{t.P.id}, Entities: []int{t.Sp.id}}, true
+		return "point_on_spline"
 	case *pointOnClosedSpline:
-		return jsonConstraint{Type: "point_on_closed_spline", Points: []int{t.P.id}, Entities: []int{t.Sp.id}}, true
+		return "point_on_closed_spline"
 	case *pointOnFitSpline:
-		return jsonConstraint{Type: "point_on_fit_spline", Points: []int{t.P.id}, Entities: []int{t.Sp.id}}, true
+		return "point_on_fit_spline"
 	case *tangentToSpline:
-		return jsonConstraint{Type: "tangent_spline", Entities: []int{t.L.id, t.Sp.id}}, true
+		return "tangent_spline"
 	case *tangentToClosedSpline:
-		return jsonConstraint{Type: "tangent_closed_spline", Entities: []int{t.L.id, t.Sp.id}}, true
+		return "tangent_closed_spline"
 	case *tangentToFitSpline:
-		return jsonConstraint{Type: "tangent_fit_spline", Entities: []int{t.L.id, t.Sp.id}}, true
+		return "tangent_fit_spline"
 	case *pointOnConic:
-		return jsonConstraint{Type: "point_on_conic", Points: []int{t.P.id}, Entities: []int{t.C.id}}, true
+		return "point_on_conic"
 	case *tangentToConic:
-		return jsonConstraint{Type: "tangent_conic", Entities: []int{t.L.id, t.C.id}}, true
+		return "tangent_conic"
 	case *pointOnNURBS:
-		return jsonConstraint{Type: "point_on_nurbs", Points: []int{t.P.id}, Entities: []int{t.C.id}}, true
+		return "point_on_nurbs"
 	case *tangentToNURBS:
-		return jsonConstraint{Type: "tangent_nurbs", Entities: []int{t.L.id, t.C.id}}, true
+		return "tangent_nurbs"
 	case *tangentConics:
-		typ := "tangent_ellipses"
 		switch t.B.(type) {
 		case circleConic, arcConic: // B is a circular operand (circle or arc)
-			typ = "tangent_ellipse_circle"
+			return "tangent_ellipse_circle"
 		}
+		return "tangent_ellipses"
+	case *midpoint:
+		return "midpoint"
+	case *midpointOf:
+		return "midpoint_of"
+	case *symmetric:
+		return "symmetric"
+	case *symmetricLines:
+		return "symmetric_lines"
+	case *symmetricCircles:
+		return "symmetric_circles"
+	case *symmetricArcs:
+		return "symmetric_arcs"
+	case *equalLines:
+		return "equal_lines"
+	case *equalRadii:
+		return "equal_radii"
+	case *equalLineArc:
+		return "equal_line_arc"
+	case *tangentLineCircle:
+		return "tangent_line_circle"
+	case *tangentCircles:
+		return "tangent_circles"
+	case *tangentLineEllipse:
+		return "tangent_ellipse"
+	case *Distance:
+		return "distance"
+	case *HorizontalDistance:
+		return "hdistance"
+	case *VerticalDistance:
+		return "vdistance"
+	case *DistancePointLine:
+		return "distance_point_line"
+	case *DistancePointCircle:
+		return "distance_point_circle"
+	case *DistanceLineCircle:
+		return "distance_line_circle"
+	case *DistancePointArc:
+		return "distance_point_arc"
+	case *DistanceLineArc:
+		return "distance_line_arc"
+	case *DistanceLines:
+		return "distance_lines"
+	case *Offset:
+		return "offset"
+	case *Radius:
+		return "radius"
+	case *Diameter:
+		return "diameter"
+	case *ArcLength:
+		return "arc_length"
+	case *Angle:
+		return "angle"
+	case *SemiMajor:
+		return "semi_major"
+	case *SemiMinor:
+		return "semi_minor"
+	case *EllipseRotation:
+		return "ellipse_rotation"
+	// Internal (auto-added) constraints are never serialized, so they have no
+	// marshalConstraint case; they still report a stable kind for introspection.
+	case *arcRadius:
+		return "arc_radius"
+	case *ellipticalArcOn:
+		return "elliptical_arc_on"
+	}
+	return ""
+}
+
+func marshalConstraint(c Constraint) (jsonConstraint, bool) {
+	typ := constraintKind(c)
+	switch t := c.(type) {
+	case *coincident:
+		return jsonConstraint{Type: typ, Points: []int{t.P1.id, t.P2.id}}, true
+	case *horizontal:
+		return jsonConstraint{Type: typ, Entities: []int{t.L.id}}, true
+	case *vertical:
+		return jsonConstraint{Type: typ, Entities: []int{t.L.id}}, true
+	case *horizontalPoints:
+		return jsonConstraint{Type: typ, Points: []int{t.P1.id, t.P2.id}}, true
+	case *verticalPoints:
+		return jsonConstraint{Type: typ, Points: []int{t.P1.id, t.P2.id}}, true
+	case *parallel:
+		return jsonConstraint{Type: typ, Entities: []int{t.L1.id, t.L2.id}}, true
+	case *perpendicular:
+		return jsonConstraint{Type: typ, Entities: []int{t.L1.id, t.L2.id}}, true
+	case *pointOnLine:
+		return jsonConstraint{Type: typ, Points: []int{t.P.id}, Entities: []int{t.L.id}}, true
+	case *collinear:
+		return jsonConstraint{Type: typ, Entities: []int{t.L1.id, t.L2.id}}, true
+	case *concentric:
+		return jsonConstraint{Type: typ, Entities: []int{t.C1.entID(), t.C2.entID()}}, true
+	case *pointOnCircle:
+		return jsonConstraint{Type: typ, Points: []int{t.P.id}, Entities: []int{t.C.id}}, true
+	case *pointOnArc:
+		return jsonConstraint{Type: typ, Points: []int{t.P.id}, Entities: []int{t.A.id}}, true
+	case *pointOnEllipticalArc:
+		return jsonConstraint{Type: typ, Points: []int{t.P.id}, Entities: []int{t.A.id}}, true
+	case *pointOnEllipse:
+		return jsonConstraint{Type: typ, Points: []int{t.P.id}, Entities: []int{t.E.id}}, true
+	case *pointOnSpline:
+		return jsonConstraint{Type: typ, Points: []int{t.P.id}, Entities: []int{t.Sp.id}}, true
+	case *pointOnClosedSpline:
+		return jsonConstraint{Type: typ, Points: []int{t.P.id}, Entities: []int{t.Sp.id}}, true
+	case *pointOnFitSpline:
+		return jsonConstraint{Type: typ, Points: []int{t.P.id}, Entities: []int{t.Sp.id}}, true
+	case *tangentToSpline:
+		return jsonConstraint{Type: typ, Entities: []int{t.L.id, t.Sp.id}}, true
+	case *tangentToClosedSpline:
+		return jsonConstraint{Type: typ, Entities: []int{t.L.id, t.Sp.id}}, true
+	case *tangentToFitSpline:
+		return jsonConstraint{Type: typ, Entities: []int{t.L.id, t.Sp.id}}, true
+	case *pointOnConic:
+		return jsonConstraint{Type: typ, Points: []int{t.P.id}, Entities: []int{t.C.id}}, true
+	case *tangentToConic:
+		return jsonConstraint{Type: typ, Entities: []int{t.L.id, t.C.id}}, true
+	case *pointOnNURBS:
+		return jsonConstraint{Type: typ, Points: []int{t.P.id}, Entities: []int{t.C.id}}, true
+	case *tangentToNURBS:
+		return jsonConstraint{Type: typ, Entities: []int{t.L.id, t.C.id}}, true
+	case *tangentConics:
 		return jsonConstraint{Type: typ, Entities: []int{t.A.ent().entID(), t.B.ent().entID()}, Flag: t.Internal}, true
 	case *midpoint:
-		return jsonConstraint{Type: "midpoint", Points: []int{t.P.id}, Entities: []int{t.L.id}}, true
+		return jsonConstraint{Type: typ, Points: []int{t.P.id}, Entities: []int{t.L.id}}, true
 	case *midpointOf:
-		return jsonConstraint{Type: "midpoint_of", Points: []int{t.Mid.id, t.P1.id, t.P2.id}}, true
+		return jsonConstraint{Type: typ, Points: []int{t.Mid.id, t.P1.id, t.P2.id}}, true
 	case *symmetric:
-		return jsonConstraint{Type: "symmetric", Points: []int{t.P1.id, t.P2.id}, Entities: []int{t.Axis.id}}, true
+		return jsonConstraint{Type: typ, Points: []int{t.P1.id, t.P2.id}, Entities: []int{t.Axis.id}}, true
 	case *symmetricLines:
-		return jsonConstraint{Type: "symmetric_lines", Entities: []int{t.L1.id, t.L2.id, t.Axis.id}}, true
+		return jsonConstraint{Type: typ, Entities: []int{t.L1.id, t.L2.id, t.Axis.id}}, true
 	case *symmetricCircles:
-		return jsonConstraint{Type: "symmetric_circles", Entities: []int{t.C1.id, t.C2.id, t.Axis.id}}, true
+		return jsonConstraint{Type: typ, Entities: []int{t.C1.id, t.C2.id, t.Axis.id}}, true
 	case *symmetricArcs:
-		return jsonConstraint{Type: "symmetric_arcs", Entities: []int{t.A1.id, t.A2.id, t.Axis.id}}, true
+		return jsonConstraint{Type: typ, Entities: []int{t.A1.id, t.A2.id, t.Axis.id}}, true
 	case *equalLines:
-		return jsonConstraint{Type: "equal_lines", Entities: []int{t.L1.id, t.L2.id}}, true
+		return jsonConstraint{Type: typ, Entities: []int{t.L1.id, t.L2.id}}, true
 	case *equalRadii:
-		return jsonConstraint{Type: "equal_radii", Entities: []int{t.C1.entID(), t.C2.entID()}}, true
+		return jsonConstraint{Type: typ, Entities: []int{t.C1.entID(), t.C2.entID()}}, true
 	case *equalLineArc:
-		return jsonConstraint{Type: "equal_line_arc", Entities: []int{t.L.id, t.A.id}}, true
+		return jsonConstraint{Type: typ, Entities: []int{t.L.id, t.A.id}}, true
 	case *tangentLineCircle:
-		return jsonConstraint{Type: "tangent_line_circle", Entities: []int{t.L.id, t.C.entID()}}, true
+		return jsonConstraint{Type: typ, Entities: []int{t.L.id, t.C.entID()}}, true
 	case *tangentCircles:
-		return jsonConstraint{Type: "tangent_circles", Entities: []int{t.C1.entID(), t.C2.entID()}, Flag: t.Internal}, true
+		return jsonConstraint{Type: typ, Entities: []int{t.C1.entID(), t.C2.entID()}, Flag: t.Internal}, true
 	case *tangentLineEllipse:
-		return jsonConstraint{Type: "tangent_ellipse", Entities: []int{t.L.id, t.E.entID()}}, true
+		return jsonConstraint{Type: typ, Entities: []int{t.L.id, t.E.entID()}}, true
 	case *Distance:
-		return dimJSON("distance", t, []int{t.P1.id, t.P2.id}, nil), true
+		return dimJSON(typ, t, []int{t.P1.id, t.P2.id}, nil), true
 	case *HorizontalDistance:
-		return dimJSON("hdistance", t, []int{t.P1.id, t.P2.id}, nil), true
+		return dimJSON(typ, t, []int{t.P1.id, t.P2.id}, nil), true
 	case *VerticalDistance:
-		return dimJSON("vdistance", t, []int{t.P1.id, t.P2.id}, nil), true
+		return dimJSON(typ, t, []int{t.P1.id, t.P2.id}, nil), true
 	case *DistancePointLine:
-		return dimJSON("distance_point_line", t, []int{t.P.id}, []int{t.L.id}), true
+		return dimJSON(typ, t, []int{t.P.id}, []int{t.L.id}), true
 	case *DistancePointCircle:
-		return dimJSON("distance_point_circle", t, []int{t.P.id}, []int{t.C.id}), true
+		return dimJSON(typ, t, []int{t.P.id}, []int{t.C.id}), true
 	case *DistanceLineCircle:
-		return dimJSON("distance_line_circle", t, nil, []int{t.L.id, t.C.id}), true
+		return dimJSON(typ, t, nil, []int{t.L.id, t.C.id}), true
 	case *DistancePointArc:
-		return dimJSON("distance_point_arc", t, []int{t.P.id}, []int{t.A.id}), true
+		return dimJSON(typ, t, []int{t.P.id}, []int{t.A.id}), true
 	case *DistanceLineArc:
-		return dimJSON("distance_line_arc", t, nil, []int{t.L.id, t.A.id}), true
+		return dimJSON(typ, t, nil, []int{t.L.id, t.A.id}), true
 	case *DistanceLines:
-		return dimJSON("distance_lines", t, nil, []int{t.L1.id, t.L2.id}), true
+		return dimJSON(typ, t, nil, []int{t.L1.id, t.L2.id}), true
 	case *Offset:
-		return dimJSON("offset", t, nil, []int{t.Src.id, t.Dst.id}), true
+		return dimJSON(typ, t, nil, []int{t.Src.id, t.Dst.id}), true
 	case *Radius:
-		return dimJSON("radius", t, nil, []int{t.C.entID()}), true
+		return dimJSON(typ, t, nil, []int{t.C.entID()}), true
 	case *Diameter:
-		return dimJSON("diameter", t, nil, []int{t.C.entID()}), true
+		return dimJSON(typ, t, nil, []int{t.C.entID()}), true
 	case *ArcLength:
-		return dimJSON("arc_length", t, nil, []int{t.A.id}), true
+		return dimJSON(typ, t, nil, []int{t.A.id}), true
 	case *Angle:
-		return dimJSON("angle", t, nil, []int{t.L1.id, t.L2.id}), true
+		return dimJSON(typ, t, nil, []int{t.L1.id, t.L2.id}), true
 	case *SemiMajor:
-		return dimJSON("semi_major", t, nil, []int{t.E.entID()}), true
+		return dimJSON(typ, t, nil, []int{t.E.entID()}), true
 	case *SemiMinor:
-		return dimJSON("semi_minor", t, nil, []int{t.E.entID()}), true
+		return dimJSON(typ, t, nil, []int{t.E.entID()}), true
 	case *EllipseRotation:
-		return dimJSON("ellipse_rotation", t, nil, []int{t.E.entID()}), true
+		return dimJSON(typ, t, nil, []int{t.E.entID()}), true
 	}
 	return jsonConstraint{}, false
 }
@@ -490,6 +627,7 @@ func (s *Sketch) buildFromBody(body jsonSketchBody) error {
 	}
 
 	for _, je := range body.Entities {
+		before := len(s.ents)
 		ps, err := s.pointsRef(je.Points)
 		if err != nil {
 			return err
@@ -533,6 +671,9 @@ func (s *Sketch) buildFromBody(body jsonSketchBody) error {
 				c.stale = je.Stale // restore radius staleness
 			default:
 				return fmt.Errorf("sketch: reference geometry of kind %q is not supported", je.Type)
+			}
+			if len(s.ents) > before {
+				s.ents[before].SetName(je.Name)
 			}
 			continue
 		}
@@ -609,11 +750,19 @@ func (s *Sketch) buildFromBody(body jsonSketchBody) error {
 		default:
 			return fmt.Errorf("sketch: unknown entity type %q", je.Type)
 		}
+		if len(s.ents) > before {
+			s.ents[before].SetName(je.Name)
+		}
 	}
 
 	for _, jc := range body.Constraints {
 		if err := s.rebuildConstraint(jc, line, circle, circular, ellipse, elliptical); err != nil {
 			return err
+		}
+		// rebuildConstraint appends exactly one public constraint via AddConstraint;
+		// restore its optional label.
+		if jc.Name != "" && len(s.cons) > 0 {
+			s.SetConstraintName(s.cons[len(s.cons)-1], jc.Name)
 		}
 	}
 

@@ -18,6 +18,7 @@ func (s *Sketch) RemoveConstraint(c Constraint) bool {
 			// committed more than once shares a single set of aux variables.
 			if !containsConstraint(s.cons, c) {
 				s.retireConstraintVars(c)
+				delete(s.conNames, c) // purge the optional label with the last occurrence
 			}
 			return true
 		}
@@ -158,6 +159,7 @@ func (s *Sketch) removeConstraintsReferencing(p *Point, e Entity) {
 	for _, c := range removed {
 		if !containsConstraint(s.cons, c) {
 			s.retireConstraintVars(c)
+			delete(s.conNames, c) // purge the optional label with the last occurrence
 		}
 	}
 }
