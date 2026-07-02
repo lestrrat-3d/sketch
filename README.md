@@ -91,9 +91,12 @@ tangent arc:
 | ![A plain rectangle with sharp corners](docs/images/fillet-before.svg) | ![The same rectangle with one corner rounded off by a tangent fillet arc](docs/images/fillet-after.svg) |
 
 **Regular polygon** — a hexagon whose equal-length side and equal-spoke
-constraints (the `=` glyphs) hold its regularity:
+constraints (the `=` glyphs) hold its regularity, then grounded to **DOF 0**: a
+fixed center pins position, a horizontal construction diagonal pins rotation, and
+a circumradius dimension pins size. Every edge is black (fully constrained) and
+the badge confirms it:
 
-![A regular hexagon with equal-length glyphs on its sides and equal construction spokes from its center](docs/images/hexagon.svg)
+![A regular hexagon rendered fully constrained: black edges, equal-length glyphs on the sides, equal construction spokes, a dashed horizontal diagonal carrying an H constraint glyph, and a badge reading DOF 0, fully constrained](docs/images/hexagon.svg)
 
 ## Quick start
 

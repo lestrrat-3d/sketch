@@ -121,12 +121,24 @@ func hexagon() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// CreatePolygon holds regularity (equal sides + equal spokes) but leaves
+	// position, rotation and size free. Ground it fully: fix the center
+	// (position), make a long diagonal horizontal (rotation), and dimension the
+	// circumradius (size) — DOF 0.
 	poly.Center.MoveTo(0, 0)
 	s.Fix(poly.Center)
+	diagonal := s.CreateLine(poly.Vertices[0], poly.Vertices[3])
+	diagonal.SetConstruction(true)
+	s.AddConstraint(sketch.NewHorizontal(diagonal))
+	s.AddConstraint(sketch.NewDistance(poly.Center, poly.Vertices[0], 110))
 	if _, err := s.Solve(); err != nil {
 		return "", err
 	}
-	return s.SVG(withAnn(sketch.WithConstraints(true))...)
+	return s.SVG(withAnn(
+		sketch.WithConstraints(true),
+		sketch.WithDOFColoring(true),
+		sketch.WithStatusBadge(true),
+	)...)
 }
 
 // underRect builds a rectangle whose top-right corner is left free.

@@ -1,24 +1,25 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="520" height="459.1798" viewBox="0 0 252 222.5256">
   <rect width="100%" height="100%" fill="white"/>
-  <line x1="236" y1="111.2628" x2="181" y2="16" stroke="#1a73e8" stroke-width="1"/>
+  <line x1="236" y1="111.2628" x2="181" y2="16" stroke="#202124" stroke-width="1"/>
   <line x1="126" y1="111.2628" x2="236" y2="111.2628" stroke="#bbbbbb" stroke-width="1" stroke-dasharray="4,3"/>
-  <line x1="181" y1="16" x2="71" y2="16" stroke="#1a73e8" stroke-width="1"/>
+  <line x1="181" y1="16" x2="71" y2="16" stroke="#202124" stroke-width="1"/>
   <line x1="126" y1="111.2628" x2="181" y2="16" stroke="#bbbbbb" stroke-width="1" stroke-dasharray="4,3"/>
-  <line x1="71" y1="16" x2="16" y2="111.2628" stroke="#1a73e8" stroke-width="1"/>
+  <line x1="71" y1="16" x2="16" y2="111.2628" stroke="#202124" stroke-width="1"/>
   <line x1="126" y1="111.2628" x2="71" y2="16" stroke="#bbbbbb" stroke-width="1" stroke-dasharray="4,3"/>
-  <line x1="16" y1="111.2628" x2="71" y2="206.5256" stroke="#1a73e8" stroke-width="1"/>
+  <line x1="16" y1="111.2628" x2="71" y2="206.5256" stroke="#202124" stroke-width="1"/>
   <line x1="126" y1="111.2628" x2="16" y2="111.2628" stroke="#bbbbbb" stroke-width="1" stroke-dasharray="4,3"/>
-  <line x1="71" y1="206.5256" x2="181" y2="206.5256" stroke="#1a73e8" stroke-width="1"/>
+  <line x1="71" y1="206.5256" x2="181" y2="206.5256" stroke="#202124" stroke-width="1"/>
   <line x1="126" y1="111.2628" x2="71" y2="206.5256" stroke="#bbbbbb" stroke-width="1" stroke-dasharray="4,3"/>
-  <line x1="181" y1="206.5256" x2="236" y2="111.2628" stroke="#1a73e8" stroke-width="1"/>
+  <line x1="181" y1="206.5256" x2="236" y2="111.2628" stroke="#202124" stroke-width="1"/>
   <line x1="126" y1="111.2628" x2="181" y2="206.5256" stroke="#bbbbbb" stroke-width="1" stroke-dasharray="4,3"/>
+  <line x1="236" y1="111.2628" x2="16" y2="111.2628" stroke="#bbbbbb" stroke-width="1" stroke-dasharray="4,3"/>
   <circle cx="126" cy="111.2628" r="2" fill="#202124"/>
-  <circle cx="236" cy="111.2628" r="2" fill="#d93025"/>
-  <circle cx="181" cy="16" r="2" fill="#d93025"/>
-  <circle cx="71" cy="16" r="2" fill="#d93025"/>
-  <circle cx="16" cy="111.2628" r="2" fill="#d93025"/>
-  <circle cx="71" cy="206.5256" r="2" fill="#d93025"/>
-  <circle cx="181" cy="206.5256" r="2" fill="#d93025"/>
+  <circle cx="236" cy="111.2628" r="2" fill="#202124"/>
+  <circle cx="181" cy="16" r="2" fill="#202124"/>
+  <circle cx="71" cy="16" r="2" fill="#202124"/>
+  <circle cx="16" cy="111.2628" r="2" fill="#202124"/>
+  <circle cx="71" cy="206.5256" r="2" fill="#202124"/>
+  <circle cx="181" cy="206.5256" r="2" fill="#202124"/>
   <rect x="198.6049" y="53.7363" width="19.7902" height="19.7902" rx="2.9685" fill="white" stroke="#5f6368" stroke-width="0.75"/>
   <text x="208.5" y="63.6314" font-size="11.6413" fill="#5f6368" text-anchor="middle" dominant-baseline="central">=</text>
   <rect x="116.1049" y="6.1049" width="19.7902" height="19.7902" rx="2.9685" fill="white" stroke="#5f6368" stroke-width="0.75"/>
@@ -59,4 +60,8 @@
   <text x="181" y="190.4237" font-size="11.6413" fill="#5f6368" text-anchor="middle" dominant-baseline="central">=</text>
   <rect x="143.6049" y="148.9991" width="19.7902" height="19.7902" rx="2.9685" fill="white" stroke="#5f6368" stroke-width="0.75"/>
   <text x="153.5" y="158.8942" font-size="11.6413" fill="#5f6368" text-anchor="middle" dominant-baseline="central">=</text>
+  <rect x="116.1049" y="101.3677" width="19.7902" height="19.7902" rx="2.9685" fill="white" stroke="#5f6368" stroke-width="0.75"/>
+  <text x="126" y="111.2628" font-size="11.6413" fill="#5f6368" text-anchor="middle" dominant-baseline="central">H</text>
+  <rect x="2" y="2" width="219.9708" height="15.876" rx="3.528" fill="white" fill-opacity="0.85" stroke="#5f6368" stroke-width="0.75"/>
+  <text x="6.41" y="9.938" font-size="8.82" fill="#5f6368" dominant-baseline="central">DOF 0 · fully constrained · solvable=true</text>
 </svg>
