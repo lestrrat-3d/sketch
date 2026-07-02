@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="56" height="40" viewBox="0 0 56 40">
+  <rect width="100%" height="100%" fill="white"/>
+  <line x1="8" y1="32" x2="48" y2="32" stroke="#1a73e8" stroke-width="1"/>
+  <line x1="48" y1="32" x2="48" y2="8" stroke="#1a73e8" stroke-width="1"/>
+  <line x1="48" y1="8" x2="8" y2="8" stroke="#1a73e8" stroke-width="1"/>
+  <line x1="8" y1="8" x2="8" y2="32" stroke="#1a73e8" stroke-width="1"/>
+  <circle cx="8" cy="32" r="2" fill="#202124"/>
+  <circle cx="48" cy="32" r="2" fill="#d93025"/>
+  <circle cx="48" cy="8" r="2" fill="#d93025"/>
+  <circle cx="8" cy="8" r="2" fill="#d93025"/>
+  <line x1="8" y1="32" x2="8" y2="35.4986" stroke="#5f6368" stroke-width="1"/>
+  <line x1="48" y1="32" x2="48" y2="35.4986" stroke="#5f6368" stroke-width="1"/>
+  <line x1="8" y1="34.7989" x2="48" y2="34.7989" stroke="#5f6368" stroke-width="1"/>
+  <path d="M8 34.7989 L8.933 34.4723 L8.933 35.1254 Z" fill="#5f6368"/>
+  <path d="M48 34.7989 L47.067 35.1254 L47.067 34.4723 Z" fill="#5f6368"/>
+  <text x="28" y="36.105" font-size="1.8659" fill="#5f6368" text-anchor="middle" dominant-baseline="central">40 mm</text>
+  <line x1="8" y1="32" x2="4.5014" y2="32" stroke="#5f6368" stroke-width="1"/>
+  <line x1="8" y1="8" x2="4.5014" y2="8" stroke="#5f6368" stroke-width="1"/>
+  <line x1="5.2011" y1="32" x2="5.2011" y2="8" stroke="#5f6368" stroke-width="1"/>
+  <path d="M5.2011 32 L4.8746 31.067 L5.5277 31.067 Z" fill="#5f6368"/>
+  <path d="M5.2011 8 L5.5277 8.933 L4.8746 8.933 Z" fill="#5f6368"/>
+  <text x="3.895" y="20" font-size="1.8659" fill="#5f6368" text-anchor="middle" dominant-baseline="central">24 mm</text>
+  <rect x="26.414" y="30.414" width="3.172" height="3.172" rx="0.4758" fill="white" stroke="#5f6368" stroke-width="0.75"/>
+  <text x="28" y="32" font-size="1.8659" fill="#5f6368" text-anchor="middle" dominant-baseline="central">H</text>
+  <rect x="26.414" y="6.414" width="3.172" height="3.172" rx="0.4758" fill="white" stroke="#5f6368" stroke-width="0.75"/>
+  <text x="28" y="8" font-size="1.8659" fill="#5f6368" text-anchor="middle" dominant-baseline="central">H</text>
+  <rect x="46.414" y="18.414" width="3.172" height="3.172" rx="0.4758" fill="white" stroke="#5f6368" stroke-width="0.75"/>
+  <text x="48" y="20" font-size="1.8659" fill="#5f6368" text-anchor="middle" dominant-baseline="central">V</text>
+  <rect x="6.414" y="18.414" width="3.172" height="3.172" rx="0.4758" fill="white" stroke="#5f6368" stroke-width="0.75"/>
+  <text x="8" y="20" font-size="1.8659" fill="#5f6368" text-anchor="middle" dominant-baseline="central">V</text>
+</svg>

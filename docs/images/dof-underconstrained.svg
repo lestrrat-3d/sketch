@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="56" height="40" viewBox="0 0 56 40">
+  <rect width="100%" height="100%" fill="white"/>
+  <line x1="8" y1="32" x2="48" y2="32" stroke="#202124" stroke-width="1"/>
+  <line x1="48" y1="32" x2="48" y2="8" stroke="#1a73e8" stroke-width="1"/>
+  <line x1="48" y1="8" x2="8" y2="8" stroke="#1a73e8" stroke-width="1"/>
+  <line x1="8" y1="8" x2="8" y2="32" stroke="#1a73e8" stroke-width="1"/>
+  <circle cx="8" cy="32" r="2" fill="#202124"/>
+  <circle cx="48" cy="32" r="2" fill="#202124"/>
+  <circle cx="48" cy="8" r="2" fill="white" stroke="#1a73e8" stroke-width="1"/>
+  <circle cx="8" cy="8" r="2" fill="white" stroke="#1a73e8" stroke-width="1"/>
+  <rect x="2" y="2" width="47.7456" height="3.528" rx="0.784" fill="white" fill-opacity="0.85" stroke="#5f6368" stroke-width="0.75"/>
+  <text x="2.98" y="3.764" font-size="1.96" fill="#5f6368" dominant-baseline="central">DOF 3 · underconstrained · solvable=true</text>
+</svg>
