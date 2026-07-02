@@ -116,6 +116,54 @@ func TestRegionsHalfDiskArcLoop(t *testing.T) {
 	require.Equal(t, map[int]bool{0: true, 1: true}, srcs, "edges back-reference both sources")
 }
 
+func TestRegionsLineArcCornerJoinNotDegenerate(t *testing.T) {
+	// A line meeting an arc at a SHARED ENDPOINT is a loop corner (a join), not a
+	// transverse crossing: it splits neither edge and must not flag the
+	// arrangement degenerate. Regression for the consistency gate counting the
+	// endpoint join against the sampled interior-crossing count, which
+	// false-flagged every circular segment / slot / pie slice / gear-tooth loop.
+	t.Run("circular segments across the full angle range", func(t *testing.T) {
+		for _, halfDeg := range []float64{10, 15, 45, 90, 135, 179} {
+			a := halfDeg * math.Pi / 180.0
+			pA := geom.NewPoint(math.Cos(a), -math.Sin(a)) // both on the unit circle
+			pB := geom.NewPoint(math.Cos(a), math.Sin(a))
+			arc := geom.NewArc(geom.NewPoint(0, 0), pA, pB) // minor arc across +x
+			chord := geom.NewLine(pB, pA)
+			arr := geom.Regions([]geom.Curve{arc, chord}, nil)
+			require.Falsef(t, arr.Degenerate,
+				"a %g° circular segment is a valid profile, not degenerate", 2*halfDeg)
+			require.Len(t, arr.Regions, 1, "one segment region")
+		}
+	})
+	t.Run("pie slice (two radial lines + arc)", func(t *testing.T) {
+		// Radial lines meet the arc perpendicularly at the loop corners — the same
+		// contact the gear's flank-to-root lines make with the root arc.
+		ang := 40.0 * math.Pi / 180.0
+		c := geom.NewPoint(0, 0)
+		s0 := geom.NewPoint(3, 0)
+		e0 := geom.NewPoint(3*math.Cos(ang), 3*math.Sin(ang))
+		arr := geom.Regions([]geom.Curve{
+			geom.NewLine(c, s0), geom.NewArc(c, s0, e0), geom.NewLine(e0, c),
+		}, nil)
+		require.False(t, arr.Degenerate, "a pie slice is a valid profile")
+		require.Len(t, arr.Regions, 1, "one pie-slice region")
+		require.InDelta(t, 0.5*9*ang, arr.Regions[0].Area, 1e-3, "sector area = r²·θ/2")
+	})
+	t.Run("corner join coexisting with a genuine interior crossing", func(t *testing.T) {
+		// The corner-join exclusion must be NARROW: on a pair that shares one
+		// endpoint (a corner) AND also crosses transversally in the interior, only
+		// the endpoint contact is excused — the interior crossing is still resolved
+		// and bounds a region. A secant from the semicircle's start (1,0) heads into
+		// the disk and re-crosses the arc at an interior point.
+		arc := geom.NewArc(geom.NewPoint(0, 0), geom.NewPoint(1, 0), geom.NewPoint(-1, 0))
+		line := geom.NewLine(geom.NewPoint(1, 0), geom.NewPoint(-1, 0.3))
+		arr := geom.Regions([]geom.Curve{arc, line}, nil)
+		require.False(t, arr.Degenerate, "the shared-endpoint corner must not flag degeneracy")
+		require.Len(t, arr.Regions, 1, "the interior crossing still bounds one region")
+		require.InDelta(t, 1.2752, arr.Regions[0].Area, 1e-3, "region between arc and secant")
+	})
+}
+
 func TestRegionsSquareWithDiagonals(t *testing.T) {
 	// A square plus both diagonals (sharing corners) is a branched wire, not a
 	// simple self-crossing loop: it subdivides into four triangles and must NOT
