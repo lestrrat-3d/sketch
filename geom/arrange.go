@@ -1122,6 +1122,15 @@ func (a *arranger) analyticCrossHosted(i, j int, events []xEvent) bool {
 // transverse crossing interior to at least one source. Such a join cuts neither
 // source (applyAnalyticCut no-ops at an endpoint) and is resolved by shared-vertex
 // topology, so the interior-crossing consistency gate must not count it.
+//
+// The endpoint test is atSourceEnd (a sourceEndEps parametric window), the SAME
+// predicate applyAnalyticCut and analyticSelfX use above to decide endpoint vs
+// interior, so a contact this treats as a corner is exactly one those treat as an
+// endpoint (no cut, no self-crossing) — keeping the gate consistent with what the
+// cut phase actually does. It is deliberately NOT the caller's vertex-merge
+// tolerance: tying it there would diverge from that adjacent endpoint logic and
+// false-flag a legitimate tiny-gap corner. A crossing interior to at least one
+// source is never a corner join, so a genuine transverse crossing is unaffected.
 func cornerJoin(si, sj *source, e xEvent) bool {
 	return e.kind == evCross && atSourceEnd(si, e.ti) && atSourceEnd(sj, e.tj)
 }
