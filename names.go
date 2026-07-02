@@ -19,13 +19,22 @@ func (n *named) Name() string { return n.name }
 // SetName sets the entity's optional label. The empty string clears it.
 func (n *named) SetName(name string) { n.name = name }
 
-// SetConstraintName attaches an optional label to a constraint. Names on
-// internal (auto-added) constraints are allowed but not persisted, since
-// internal constraints never serialize. Setting the empty string clears the
-// label.
+// SetConstraintName attaches an optional label to a constraint that has already
+// been added to this sketch. Setting the empty string clears the label. A label
+// is only meaningful for a live, user-facing constraint, so the call is a no-op
+// for a constraint not in this sketch (nothing [Sketch.ConstraintByName] could
+// resolve) and for an internal (auto-added) constraint (which never serializes,
+// so its label could not survive a round-trip) — either would otherwise leave a
+// dangling map entry that lookup can't find and JSON can't persist.
 func (s *Sketch) SetConstraintName(c Constraint, name string) {
 	if name == "" {
-		delete(s.conNames, c)
+		delete(s.conNames, c) // clearing is always honored, even for a stale key
+		return
+	}
+	if _, internal := c.(internalConstraint); internal {
+		return
+	}
+	if !containsConstraint(s.cons, c) {
 		return
 	}
 	if s.conNames == nil {

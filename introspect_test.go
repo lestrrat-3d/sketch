@@ -144,6 +144,16 @@ func TestConstraintRefsIdentity(t *testing.T) {
 	require.Same(t, a, again[0])
 }
 
+// TestConstraintKindNilOperandsSafe pins that ConstraintKind is a pure query:
+// asking a constraint's kind must never dereference its operands, so it does not
+// panic even on a constraint constructed with nil points.
+func TestConstraintKindNilOperandsSafe(t *testing.T) {
+	require.NotPanics(t, func() {
+		require.Equal(t, "coincident", sketch.ConstraintKind(sketch.NewCoincident(nil, nil)))
+		require.Equal(t, "distance", sketch.ConstraintKind(sketch.NewDistance(nil, nil, 0)))
+	})
+}
+
 func TestConstraintResiduals(t *testing.T) {
 	s := newSketch(t)
 	a := s.CreatePoint(0, 0)

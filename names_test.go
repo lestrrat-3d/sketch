@@ -114,6 +114,41 @@ func TestNameLookupSemantics(t *testing.T) {
 	require.Nil(t, s.ConstraintByName("join"))
 }
 
+// TestConstraintNameOnlyLiveNonInternal pins that SetConstraintName ignores a
+// constraint that is not a live, user-facing member of the sketch — a detached
+// (not-yet-added) or internal (auto-added) constraint — so no dangling label is
+// left that ConstraintByName can't resolve and JSON can't persist.
+func TestConstraintNameOnlyLiveNonInternal(t *testing.T) {
+	s := newSketch(t)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(5, 0)
+
+	// Not added to the sketch → no-op.
+	detached := sketch.NewCoincident(a, b)
+	s.SetConstraintName(detached, "ghost")
+	require.Equal(t, "", s.ConstraintName(detached))
+	require.Nil(t, s.ConstraintByName("ghost"))
+
+	// Internal (auto-added) constraint → no-op (never serializes).
+	s.CreateArc(s.CreatePoint(0, 0), s.CreatePoint(1, 0), s.CreatePoint(0, 1))
+	var internal sketch.Constraint
+	for _, c := range s.Constraints() {
+		if sketch.IsInternal(c) {
+			internal = c
+		}
+	}
+	require.NotNil(t, internal)
+	s.SetConstraintName(internal, "radius-guard")
+	require.Equal(t, "", s.ConstraintName(internal))
+	require.Nil(t, s.ConstraintByName("radius-guard"))
+
+	// Once added, naming a user-facing constraint works.
+	live := sketch.NewCoincident(a, b)
+	s.AddConstraint(live)
+	s.SetConstraintName(live, "join")
+	require.Same(t, live, s.ConstraintByName("join"))
+}
+
 // TestNamesRemovalCleanup pins that removal purges constraint-name entries:
 // both direct RemoveConstraint and the RemoveEntity cascade.
 func TestNamesRemovalCleanup(t *testing.T) {

@@ -8,24 +8,15 @@ package sketch
 
 // ConstraintKind returns a stable, machine-readable identifier for the
 // constraint's type — the same string used as "type" in the sketch's JSON
-// serialization (e.g. "coincident", "point_on_line", "distance"). It is derived
-// from the serialization switch, so it never drifts from the on-disk schema. The
-// internal constraints auto-added by the geometry builders (never serialized)
-// report their own stable kinds — "arc_radius" and "elliptical_arc_on". An
-// unknown constraint type reports "".
+// serialization (e.g. "coincident", "point_on_line", "distance"). It shares its
+// mapping with the serializer (via constraintKind), so it never drifts from the
+// on-disk schema. The internal constraints auto-added by the geometry builders
+// (never serialized) report their own stable kinds — "arc_radius" and
+// "elliptical_arc_on". An unknown constraint type reports "". It is a pure query
+// with no side effects: it never dereferences the constraint's operands, so it
+// is safe to call even on a constraint constructed with nil operands.
 func ConstraintKind(c Constraint) string {
-	if jc, ok := marshalConstraint(c); ok {
-		return jc.Type
-	}
-	// Internal constraints are excluded from marshalConstraint (they are never
-	// serialized); name them explicitly so introspection still identifies them.
-	switch c.(type) {
-	case *arcRadius:
-		return "arc_radius"
-	case *ellipticalArcOn:
-		return "elliptical_arc_on"
-	}
-	return ""
+	return constraintKind(c)
 }
 
 // ConstraintRefs returns the sketch points and entities the constraint
