@@ -105,6 +105,7 @@ func build() (map[string]string, error) {
 
 // builders maps each hero image name to its generator.
 var builders = map[string]func() (string, error){
+	"banner":               banner,
 	"quickstart":           quickstart,
 	"hexagon":              hexagon,
 	"dof-underconstrained": dofUnder,

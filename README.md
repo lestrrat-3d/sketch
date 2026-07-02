@@ -1,5 +1,9 @@
 # sketch
 
+<p align="center">
+  <img src="docs/images/banner.svg" alt="sketch — A parametric 2D sketch engine" width="640">
+</p>
+
 A standalone, fully programmable **parametric 2D sketch engine** for Go, in the
 spirit of the sketch environment in Autodesk Fusion.
 
