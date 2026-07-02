@@ -89,6 +89,25 @@ type svgConfig struct {
 	stroke       string
 	construction string
 	reference    string
+
+	// Annotation options (see annotate.go). All default off so the baseline
+	// output is byte-identical.
+	dimensions  bool    // draw dimensional constraints
+	constraints bool    // draw geometric-constraint glyphs
+	dofColoring bool    // color free vs. constrained geometry
+	conflicts   bool    // highlight conflicting-constraint geometry
+	statusBadge bool    // draw a verification status card
+	profileFill bool    // fill valid closed regions
+	annColor    string  // dimension line / glyph stroke color
+	annScale    float64 // multiplies annotation glyph/text/arrow sizes
+	pixelWidth  float64 // target display width in px (0 = geometry units); viewBox unchanged
+
+	// Windowed framing (see frame.go). Default off keeps output byte-identical.
+	frame       bool    // draw a border rectangle framing the sketch
+	grid        bool    // draw a background grid inside the frame
+	gridSpacing float64 // grid spacing in sketch units (0 = auto nice step)
+	framePad    float64 // outer padding canvas edge -> frame (0 = auto)
+	watermark   string  // provenance text along the frame's bottom edge
 }
 
 func defaultSVGConfig() svgConfig {
@@ -102,6 +121,8 @@ func defaultSVGConfig() svgConfig {
 		stroke:       "#1a73e8",
 		construction: "#bbbbbb",
 		reference:    "#e8731a",
+		annColor:     "#5f6368",
+		annScale:     1,
 	}
 }
 
@@ -128,6 +149,34 @@ func applyRenderOption(cfg *svgConfig, o option.Interface) bool {
 		cfg.construction = option.MustGet[string](o)
 	case identReference:
 		cfg.reference = option.MustGet[string](o)
+	case identDimensions:
+		cfg.dimensions = option.MustGet[bool](o)
+	case identConstraints:
+		cfg.constraints = option.MustGet[bool](o)
+	case identDOFColoring:
+		cfg.dofColoring = option.MustGet[bool](o)
+	case identConflicts:
+		cfg.conflicts = option.MustGet[bool](o)
+	case identStatusBadge:
+		cfg.statusBadge = option.MustGet[bool](o)
+	case identProfileFill:
+		cfg.profileFill = option.MustGet[bool](o)
+	case identPixelWidth:
+		cfg.pixelWidth = option.MustGet[float64](o)
+	case identFrame:
+		cfg.frame = option.MustGet[bool](o)
+	case identGrid:
+		cfg.grid = option.MustGet[bool](o)
+	case identGridSpacing:
+		cfg.gridSpacing = option.MustGet[float64](o)
+	case identFramePad:
+		cfg.framePad = option.MustGet[float64](o)
+	case identWatermark:
+		cfg.watermark = option.MustGet[string](o)
+	case identAnnColor:
+		cfg.annColor = option.MustGet[string](o)
+	case identAnnScale:
+		cfg.annScale = option.MustGet[float64](o)
 	default:
 		return false
 	}
@@ -232,25 +281,63 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 
 	b, w, h := s.renderBounds(cfg.margin)
 
-	// Map sketch coords to SVG coords (flip y).
-	tx := func(x float64) float64 { return x - b.minX + cfg.margin }
-	ty := func(y float64) float64 { return b.maxY - y + cfg.margin }
+	// Windowed framing adds an outer padding P around the margin-padded content;
+	// the frame border sits at that boundary and the sketch's own margin becomes
+	// the gap between the frame and the geometry (see frame.go). Off by default,
+	// so pad is 0 and the layout is unchanged.
+	pad := s.framePadding(cfg, w, h)
+	canvasW, canvasH := w+2*pad, h+2*pad
+
+	// Map sketch coords to SVG coords (flip y), shifted by the frame padding.
+	tx := func(x float64) float64 { return x - b.minX + cfg.margin + pad }
+	ty := func(y float64) float64 { return b.maxY - y + cfg.margin + pad }
+
+	// Display size defaults to the geometry units, but WithPixelWidth decouples
+	// it: the viewBox stays in geometry units while the root width/height are a
+	// pixel size (aspect preserved), so the SVG scales up for embedding.
+	outW, outH := canvasW, canvasH
+	if cfg.pixelWidth > 0 {
+		outW = cfg.pixelWidth
+		outH = cfg.pixelWidth * canvasH / canvasW
+	}
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb,
 		`<svg xmlns="http://www.w3.org/2000/svg" width="%s" height="%s" viewBox="0 0 %s %s">`,
-		f(w), f(h), f(w), f(h))
+		f(outW), f(outH), f(canvasW), f(canvasH))
 	sb.WriteByte('\n')
 	if cfg.background != "" {
 		fmt.Fprintf(&sb, `  <rect width="100%%" height="100%%" fill="%s"/>`+"\n", cfg.background)
 	}
 
+	// Grid renders behind everything (but inside the frame); the frame border is
+	// drawn on top of the grid, before the geometry.
+	if pad > 0 {
+		s.writeFrameGrid(&sb, cfg, b, pad, w, h, tx, ty)
+	}
+
+	// Profile fill renders under the geometry, so it is emitted first.
+	if cfg.profileFill {
+		s.writeProfileFill(&sb, tx, ty)
+	}
+
+	ov := s.computeOverlaySets(cfg)
 	color := func(e Entity) string {
+		// Precedence: conflict-red > DOF-blue > reference/construction > default.
+		if _, ok := ov.conf[e]; ok {
+			return colorConflict
+		}
+		if _, ok := ov.freeEnt[e]; ok {
+			return colorFree
+		}
 		switch {
 		case e.IsReference():
 			return cfg.reference
 		case e.IsConstruction():
 			return cfg.construction
+		}
+		if cfg.dofColoring { // fully constrained under DOF coloring reads black
+			return colorConstrained
 		}
 		return cfg.stroke
 	}
@@ -323,6 +410,20 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 
 	if cfg.showPoints {
 		for _, p := range s.points {
+			if cfg.dofColoring {
+				// Free points render hollow blue, constrained points filled black —
+				// a redundant shape channel so DOF reads without color.
+				if _, free := ov.freePt[p]; free {
+					fmt.Fprintf(&sb,
+						`  <circle cx="%s" cy="%s" r="%s" fill="white" stroke="%s" stroke-width="%s"/>`+"\n",
+						f(tx(p.x())), f(ty(p.y())), f(cfg.pointRadius), colorFree, f(cfg.strokeWidth))
+					continue
+				}
+				fmt.Fprintf(&sb,
+					`  <circle cx="%s" cy="%s" r="%s" fill="%s"/>`+"\n",
+					f(tx(p.x())), f(ty(p.y())), f(cfg.pointRadius), colorConstrained)
+				continue
+			}
 			fill := "#d93025"
 			if p.IsFixed() {
 				fill = "#202124"
@@ -331,6 +432,21 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 				`  <circle cx="%s" cy="%s" r="%s" fill="%s"/>`+"\n",
 				f(tx(p.x())), f(ty(p.y())), f(cfg.pointRadius), fill)
 		}
+	}
+
+	// Annotations render on top of geometry and point markers (see annotate.go).
+	if cfg.dimensions {
+		s.writeDimensions(&sb, cfg, b, tx, ty)
+	}
+	if cfg.constraints {
+		s.writeGlyphs(&sb, cfg, b, tx, ty)
+	}
+	if cfg.statusBadge {
+		s.writeStatusBadge(&sb, cfg, pad, w)
+	}
+	// Watermark sits on top, inside the frame's bottom band.
+	if pad > 0 && cfg.watermark != "" {
+		s.writeWatermark(&sb, cfg, pad, w, h)
 	}
 
 	sb.WriteString("</svg>\n")

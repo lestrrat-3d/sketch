@@ -33,3 +33,18 @@ func (l *Line) AngleTo(other *Line) float64 {
 	d2x, d2y := other.End.X-other.Start.X, other.End.Y-other.Start.Y
 	return math.Atan2(d1x*d2y-d1y*d2x, d1x*d2x+d1y*d2y)
 }
+
+// MidAngle returns the angle (radians) of the arc's midpoint about its center —
+// StartAngle plus half the counter-clockwise sweep. Used to anchor annotations
+// (a radius/diameter leader, a length label) on the drawn portion of the arc
+// rather than an arbitrary rim direction that may fall outside the sweep.
+func (a *Arc) MidAngle() float64 {
+	return a.StartAngle() + a.Sweep()/2
+}
+
+// MidPoint returns the point on the arc at its MidAngle — the anchor for
+// annotations placed against the arc's drawn portion.
+func (a *Arc) MidPoint() *Point {
+	m, r := a.MidAngle(), a.Radius()
+	return &Point{X: a.Center.X + r*math.Cos(m), Y: a.Center.Y + r*math.Sin(m)}
+}

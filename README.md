@@ -37,12 +37,69 @@ along the way.
   ambiguity probe.
 * Units of measure and parameter/expression-driven dimensions.
 * Profile (closed-region) detection.
-* Export to **SVG** and **PNG** (visual inspection), **DXF** R12 (CAD
-  interchange) and **JSON** (lossless save / load round-trip).
+* Export to **SVG** and **PNG** (visual inspection) — optionally **annotated**
+  with dimensions, geometric-constraint glyphs, degree-of-freedom coloring,
+  conflict highlighting and a verification status badge (see the Gallery) —
+  plus **DXF** R12 (CAD interchange) and **JSON** (lossless save / load
+  round-trip).
 
 ```go
 import "github.com/lestrrat-3d/sketch"
 ```
+
+## Gallery
+
+The exporters render **annotated** SVG, so you can *see* a sketch's constraints
+and — the point of the engine — its verification state, not just its geometry.
+Every image below is generated from a compiled builder by
+`internal/cmd/genimages` and kept in sync by a test. Pass the `With…` options
+(`WithDimensions`, `WithConstraints`, `WithDOFColoring`, `WithConflicts`,
+`WithStatusBadge`, `WithProfileFill`) to `SVG`/`PNG`; all default off. The
+gallery also renders "windowed" — `WithFrame` draws a border, `WithGrid` lays a
+coordinate grid behind the sketch, and `WithWatermark` stamps a provenance
+footer.
+
+**Constraints and dimensions** — geometric-constraint glyphs (H/V = horizontal
+/ vertical, ∥ = parallel, ⊥ = perpendicular) and CAD-style dimensions with
+arrowheads and units:
+
+![A grounded rectangle with horizontal, vertical, parallel and perpendicular constraint glyphs on its sides and width and height dimension lines labelled in millimetres](docs/images/quickstart.svg)
+
+**Degrees of freedom** — the headline verification cue. Geometry that is not
+fully constrained is blue and hollow; fully constrained geometry is black. A
+status badge reports the DOF count and constraint state:
+
+| Under-constrained (a free corner) | Fully constrained |
+|---|---|
+| ![A rectangle whose top edge and corners are blue and hollow because they still have free degrees of freedom, with a badge reading DOF 3, underconstrained](docs/images/dof-underconstrained.svg) | ![The same rectangle fully constrained: every edge and point is black, with a badge reading DOF 0, fully constrained](docs/images/dof-constrained.svg) |
+
+**Conflicting constraints** — an over-constrained sketch highlights the geometry
+whose constraints fight, in red, and the badge reports it is unsolvable:
+
+![A single line drawn in red because two contradictory distance constraints are applied to it, with a badge reading DOF 0, overconstrained, solvable false](docs/images/conflict.svg)
+
+**Parametric** — dimensions are editable values; change one and re-solve and
+everything driven by it follows:
+
+| width = 120 mm | width = 200 mm |
+|---|---|
+| ![A plate with a centered circular hole dimensioned at width 120 millimetres](docs/images/parametric-before.svg) | ![The same plate re-solved at width 200 millimetres, larger, with the hole still centered and proportional](docs/images/parametric-after.svg) |
+
+**Modification tools** — trim, fillet, chamfer, mirror, pattern and offset run
+on committed geometry. A fillet, for example, replaces a sharp corner with a
+tangent arc:
+
+| Before | After (corner filleted) |
+|---|---|
+| ![A plain rectangle with sharp corners](docs/images/fillet-before.svg) | ![The same rectangle with one corner rounded off by a tangent fillet arc](docs/images/fillet-after.svg) |
+
+**Regular polygon** — a hexagon whose equal-length side and equal-spoke
+constraints (the `=` glyphs) hold its regularity, then grounded to **DOF 0**: a
+fixed center pins position, a horizontal construction diagonal pins rotation, and
+a circumradius dimension pins size. Every edge is black (fully constrained) and
+the badge confirms it:
+
+![A regular hexagon rendered fully constrained: black edges, equal-length glyphs on the sides, equal construction spokes, a dashed horizontal diagonal carrying an H constraint glyph, and a badge reading DOF 0, fully constrained](docs/images/hexagon.svg)
 
 ## Quick start
 
@@ -451,12 +508,18 @@ parentheses, numeric literals (including scientific notation), constants (`pi`,
 
 ## Profiles
 
-`s.Profiles()` detects closed region boundaries: every non-construction circle
-and ellipse, plus every closed loop of lines/arcs connected end-to-end through
-shared points (`geom.Loops` underneath). Open chains and construction geometry
-contribute nothing. Profiles are the input that future extrude/revolve
-operations will consume. Boundaries that cross without sharing a point are not
-subdivided into regions (yet).
+`s.Profiles()` detects closed planar regions via the `geom` arrangement engine:
+every non-construction circle/ellipse and every closed loop of curves. Boundaries
+that **cross without sharing a point are subdivided** into separate faces, a shape
+inside another becomes a **hole** (nesting), and each region carries its net
+`Area`, its `Outer`/`Holes` boundary edges, and validity flags
+(`Valid`/`SelfIntersecting`) so a self-intersecting or degenerate region is caught
+rather than silently trusted. Open chains and construction geometry contribute
+nothing; reference geometry is included. Profiles are the input that future
+extrude/revolve operations will consume, and `SVG(WithProfileFill(true))` shades
+them:
+
+![A rectangular plate with a circular hole; both detected closed regions are shaded — the plate with the hole cut out, and the inner disk bounded by the circle](docs/images/profiles.svg)
 
 ## Solving
 

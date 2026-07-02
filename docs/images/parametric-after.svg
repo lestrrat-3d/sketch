@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="426.6667" viewBox="0 0 336 256">
+  <rect width="100%" height="100%" fill="white"/>
+  <line x1="48" y1="34" x2="48" y2="222" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="68" y1="34" x2="68" y2="222" stroke="#cfd8dc" stroke-width="0.75"/>
+  <line x1="88" y1="34" x2="88" y2="222" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="108" y1="34" x2="108" y2="222" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="128" y1="34" x2="128" y2="222" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="148" y1="34" x2="148" y2="222" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="168" y1="34" x2="168" y2="222" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="188" y1="34" x2="188" y2="222" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="208" y1="34" x2="208" y2="222" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="228" y1="34" x2="228" y2="222" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="248" y1="34" x2="248" y2="222" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="268" y1="34" x2="268" y2="222" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="288" y1="34" x2="288" y2="222" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="208" x2="302" y2="208" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="188" x2="302" y2="188" stroke="#cfd8dc" stroke-width="0.75"/>
+  <line x1="34" y1="168" x2="302" y2="168" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="148" x2="302" y2="148" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="128" x2="302" y2="128" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="108" x2="302" y2="108" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="88" x2="302" y2="88" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="68" x2="302" y2="68" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="48" x2="302" y2="48" stroke="#eceff1" stroke-width="0.5"/>
+  <rect x="34" y="34" width="268" height="188" fill="none" stroke="#90a4ae" stroke-width="1"/>
+  <line x1="68" y1="188" x2="268" y2="188" stroke="#1a73e8" stroke-width="1"/>
+  <line x1="268" y1="188" x2="268" y2="68" stroke="#1a73e8" stroke-width="1"/>
+  <line x1="268" y1="68" x2="68" y2="68" stroke="#1a73e8" stroke-width="1"/>
+  <line x1="68" y1="68" x2="68" y2="188" stroke="#1a73e8" stroke-width="1"/>
+  <circle cx="168" cy="128" r="25" fill="none" stroke="#1a73e8" stroke-width="1"/>
+  <circle cx="68" cy="188" r="2" fill="#202124"/>
+  <circle cx="268" cy="188" r="2" fill="#d93025"/>
+  <circle cx="268" cy="68" r="2" fill="#d93025"/>
+  <circle cx="68" cy="68" r="2" fill="#d93025"/>
+  <circle cx="168" cy="128" r="2" fill="#d93025"/>
+  <line x1="68" y1="188" x2="68" y2="205.4929" stroke="#5f6368" stroke-width="1"/>
+  <line x1="268" y1="188" x2="268" y2="205.4929" stroke="#5f6368" stroke-width="1"/>
+  <line x1="68" y1="201.9943" x2="268" y2="201.9943" stroke="#5f6368" stroke-width="1"/>
+  <path d="M68 201.9943 L72.6648 200.3616 L72.6648 203.627 Z" fill="#5f6368"/>
+  <path d="M268 201.9943 L263.3352 203.627 L263.3352 200.3616 Z" fill="#5f6368"/>
+  <text x="168" y="208.525" font-size="9.3295" fill="#5f6368" text-anchor="middle" dominant-baseline="central">200 mm</text>
+  <line x1="68" y1="188" x2="50.5071" y2="188" stroke="#5f6368" stroke-width="1"/>
+  <line x1="68" y1="68" x2="50.5071" y2="68" stroke="#5f6368" stroke-width="1"/>
+  <line x1="54.0057" y1="188" x2="54.0057" y2="68" stroke="#5f6368" stroke-width="1"/>
+  <path d="M54.0057 188 L52.373 183.3352 L55.6384 183.3352 Z" fill="#5f6368"/>
+  <path d="M54.0057 68 L55.6384 72.6648 L52.373 72.6648 Z" fill="#5f6368"/>
+  <text x="47.475" y="128" font-size="9.3295" fill="#5f6368" text-anchor="middle" dominant-baseline="central">120 mm</text>
+  <line x1="68" y1="188" x2="68" y2="205.4929" stroke="#5f6368" stroke-width="1"/>
+  <line x1="168" y1="128" x2="168" y2="205.4929" stroke="#5f6368" stroke-width="1"/>
+  <line x1="68" y1="201.9943" x2="168" y2="201.9943" stroke="#5f6368" stroke-width="1"/>
+  <path d="M68 201.9943 L72.6648 200.3616 L72.6648 203.627 Z" fill="#5f6368"/>
+  <path d="M168 201.9943 L163.3352 203.627 L163.3352 200.3616 Z" fill="#5f6368"/>
+  <text x="118" y="208.525" font-size="9.3295" fill="#5f6368" text-anchor="middle" dominant-baseline="central">100 mm</text>
+  <line x1="68" y1="188" x2="185.4929" y2="188" stroke="#5f6368" stroke-width="1"/>
+  <line x1="168" y1="128" x2="185.4929" y2="128" stroke="#5f6368" stroke-width="1"/>
+  <line x1="181.9943" y1="188" x2="181.9943" y2="128" stroke="#5f6368" stroke-width="1"/>
+  <path d="M181.9943 188 L180.3616 183.3352 L183.627 183.3352 Z" fill="#5f6368"/>
+  <path d="M181.9943 128 L183.627 132.6648 L180.3616 132.6648 Z" fill="#5f6368"/>
+  <text x="188.525" y="158" font-size="9.3295" fill="#5f6368" text-anchor="middle" dominant-baseline="central">60 mm</text>
+  <line x1="168" y1="128" x2="185.6777" y2="110.3223" stroke="#5f6368" stroke-width="1"/>
+  <path d="M185.6777 110.3223 L183.5337 114.7753 L181.2247 112.4663 Z" fill="#5f6368"/>
+  <text x="192.2746" y="103.7254" font-size="9.3295" fill="#5f6368" text-anchor="middle" dominant-baseline="central">R25 mm</text>
+  <text x="302" y="242.4" font-size="5.8926" fill="#b0b3b8" text-anchor="end">generated by github.com/lestrrat-3d/sketch@69031b6214e7</text>
+</svg>

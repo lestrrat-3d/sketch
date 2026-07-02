@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="426.6667" viewBox="0 0 336 256">
+  <rect width="100%" height="100%" fill="white"/>
+  <line x1="48" y1="34" x2="48" y2="222" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="68" y1="34" x2="68" y2="222" stroke="#cfd8dc" stroke-width="0.75"/>
+  <line x1="88" y1="34" x2="88" y2="222" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="108" y1="34" x2="108" y2="222" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="128" y1="34" x2="128" y2="222" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="148" y1="34" x2="148" y2="222" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="168" y1="34" x2="168" y2="222" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="188" y1="34" x2="188" y2="222" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="208" y1="34" x2="208" y2="222" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="228" y1="34" x2="228" y2="222" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="248" y1="34" x2="248" y2="222" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="268" y1="34" x2="268" y2="222" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="288" y1="34" x2="288" y2="222" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="208" x2="302" y2="208" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="188" x2="302" y2="188" stroke="#cfd8dc" stroke-width="0.75"/>
+  <line x1="34" y1="168" x2="302" y2="168" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="148" x2="302" y2="148" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="128" x2="302" y2="128" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="108" x2="302" y2="108" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="88" x2="302" y2="88" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="68" x2="302" y2="68" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="48" x2="302" y2="48" stroke="#eceff1" stroke-width="0.5"/>
+  <rect x="34" y="34" width="268" height="188" fill="none" stroke="#90a4ae" stroke-width="1"/>
+  <line x1="68" y1="188" x2="268" y2="188" stroke="#202124" stroke-width="1"/>
+  <line x1="268" y1="188" x2="268" y2="68" stroke="#202124" stroke-width="1"/>
+  <line x1="268" y1="68" x2="68" y2="68" stroke="#202124" stroke-width="1"/>
+  <line x1="68" y1="68" x2="68" y2="188" stroke="#202124" stroke-width="1"/>
+  <circle cx="68" cy="188" r="2" fill="#202124"/>
+  <circle cx="268" cy="188" r="2" fill="#202124"/>
+  <circle cx="268" cy="68" r="2" fill="#202124"/>
+  <circle cx="68" cy="68" r="2" fill="#202124"/>
+  <line x1="68" y1="188" x2="68" y2="205.4929" stroke="#5f6368" stroke-width="1"/>
+  <line x1="268" y1="188" x2="268" y2="205.4929" stroke="#5f6368" stroke-width="1"/>
+  <line x1="68" y1="201.9943" x2="268" y2="201.9943" stroke="#5f6368" stroke-width="1"/>
+  <path d="M68 201.9943 L72.6648 200.3616 L72.6648 203.627 Z" fill="#5f6368"/>
+  <path d="M268 201.9943 L263.3352 203.627 L263.3352 200.3616 Z" fill="#5f6368"/>
+  <text x="168" y="208.525" font-size="9.3295" fill="#5f6368" text-anchor="middle" dominant-baseline="central">200 mm</text>
+  <line x1="68" y1="188" x2="50.5071" y2="188" stroke="#5f6368" stroke-width="1"/>
+  <line x1="68" y1="68" x2="50.5071" y2="68" stroke="#5f6368" stroke-width="1"/>
+  <line x1="54.0057" y1="188" x2="54.0057" y2="68" stroke="#5f6368" stroke-width="1"/>
+  <path d="M54.0057 188 L52.373 183.3352 L55.6384 183.3352 Z" fill="#5f6368"/>
+  <path d="M54.0057 68 L55.6384 72.6648 L52.373 72.6648 Z" fill="#5f6368"/>
+  <text x="47.475" y="128" font-size="9.3295" fill="#5f6368" text-anchor="middle" dominant-baseline="central">120 mm</text>
+  <rect x="160.0699" y="180.0699" width="15.8602" height="15.8602" rx="2.379" fill="white" stroke="#5f6368" stroke-width="0.75"/>
+  <text x="168" y="188" font-size="9.3295" fill="#5f6368" text-anchor="middle" dominant-baseline="central">H</text>
+  <rect x="160.0699" y="60.0699" width="15.8602" height="15.8602" rx="2.379" fill="white" stroke="#5f6368" stroke-width="0.75"/>
+  <text x="168" y="68" font-size="9.3295" fill="#5f6368" text-anchor="middle" dominant-baseline="central">H</text>
+  <rect x="260.0699" y="120.0699" width="15.8602" height="15.8602" rx="2.379" fill="white" stroke="#5f6368" stroke-width="0.75"/>
+  <text x="268" y="128" font-size="9.3295" fill="#5f6368" text-anchor="middle" dominant-baseline="central">V</text>
+  <rect x="60.0699" y="120.0699" width="15.8602" height="15.8602" rx="2.379" fill="white" stroke="#5f6368" stroke-width="0.75"/>
+  <text x="68" y="128" font-size="9.3295" fill="#5f6368" text-anchor="middle" dominant-baseline="central">V</text>
+  <rect x="36" y="36" width="233.9372" height="16.884" rx="3.752" fill="white" fill-opacity="0.85" stroke="#5f6368" stroke-width="0.75"/>
+  <text x="40.69" y="44.442" font-size="9.38" fill="#5f6368" dominant-baseline="central">DOF 0 · fully constrained · solvable=true</text>
+  <text x="302" y="242.4" font-size="5.8926" fill="#b0b3b8" text-anchor="end">generated by github.com/lestrrat-3d/sketch@69031b6214e7</text>
+</svg>

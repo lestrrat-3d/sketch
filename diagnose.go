@@ -373,6 +373,56 @@ func (p *Point) IsFullyConstrained() bool {
 	return !ok
 }
 
+// EntityIsFullyConstrained reports whether none of an entity's degrees of
+// freedom can move within the constraints: its defining points' coordinates and
+// its own intrinsic shape variables. A [Line] or [Arc] owns no shape variable
+// (an arc's radius is the derived distance from center to start), so it is fully
+// constrained exactly when its points are; a [Circle], [Ellipse],
+// [EllipticalArc] or [Conic] also requires its radius / semi-axes / rotation /
+// rho to be pinned. It is the per-entity companion to [Point.IsFullyConstrained]
+// — the answer to "which curve would a GUI color as under-constrained".
+func (s *Sketch) EntityIsFullyConstrained(e Entity) bool {
+	return !entityMovable(e, s.movableVars())
+}
+
+// entityMovable reports whether any of an entity's defining-point coordinates or
+// intrinsic shape variables is in movable (the Jacobian null-space support).
+func entityMovable(e Entity, movable map[int]struct{}) bool {
+	for _, p := range entityPoints(e) {
+		if _, ok := movable[p.xi]; ok {
+			return true
+		}
+		if _, ok := movable[p.yi]; ok {
+			return true
+		}
+	}
+	for _, vi := range entityShapeVars(e) {
+		if _, ok := movable[vi]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// entityShapeVars returns the solver-variable indices an entity owns beyond its
+// defining points — the intrinsic shape degrees of freedom. Lines, arcs and the
+// spline families own none (their shape is fixed by their points); a circle owns
+// its radius, an ellipse/elliptical arc its semi-axes and rotation, a conic its
+// fullness rho.
+func entityShapeVars(e Entity) []int {
+	switch t := e.(type) {
+	case *Circle:
+		return []int{t.ri}
+	case *Ellipse:
+		return []int{t.rxi, t.ryi, t.roti}
+	case *EllipticalArc:
+		return []int{t.rxi, t.ryi, t.roti}
+	case *Conic:
+		return []int{t.rhoi}
+	}
+	return nil
+}
+
 // movableVars identifies the free variables with a nonzero component in some
 // null-space direction of the constraint Jacobian — the variables a
 // constraint-preserving motion can change. Computed by reducing the Jacobian
