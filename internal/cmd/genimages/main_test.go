@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -12,6 +13,16 @@ import (
 
 // imagesDir is the committed gallery directory, relative to this package.
 func imagesDir() string { return filepath.Join("..", "..", "..", "docs", "images") }
+
+// watermarkHash matches the commit hash stamped into the watermark. The in-sync
+// test normalizes it so a new commit (which changes the hash but nothing else)
+// does not require regenerating every image; a real geometry/annotation change
+// still fails the byte comparison.
+var watermarkHash = regexp.MustCompile(`(sketch@)[^<"]+`)
+
+func normalizeWatermark(svg string) string {
+	return watermarkHash.ReplaceAllString(svg, "${1}HASH")
+}
 
 // TestImagesInSync regenerates every hero and byte-compares it against the
 // committed file, so an example change that alters an image fails CI until the
@@ -25,7 +36,8 @@ func TestImagesInSync(t *testing.T) {
 	for name, want := range images {
 		got, err := os.ReadFile(filepath.Join(dir, name+".svg"))
 		require.NoErrorf(t, err, "missing committed image %s.svg; run: go generate ./...", name)
-		require.Equalf(t, want, string(got), "%s.svg is out of date; run: go generate ./...", name)
+		require.Equalf(t, normalizeWatermark(want), normalizeWatermark(string(got)),
+			"%s.svg is out of date; run: go generate ./...", name)
 	}
 
 	// No orphan committed images (every .svg has a builder).

@@ -799,16 +799,19 @@ func loopMin(loop []BoundaryEdge) (float64, float64) {
 	return minX, minY
 }
 
-// writeStatusBadge draws a corner card summarizing the verification state.
-func (s *Sketch) writeStatusBadge(sb *strings.Builder, cfg svgConfig, w float64) {
+// writeStatusBadge draws a corner card summarizing the verification state. pad
+// is the outer frame padding (0 when unframed), so the badge tucks inside the
+// frame's top-left when windowed.
+func (s *Sketch) writeStatusBadge(sb *strings.Builder, cfg svgConfig, pad, w float64) {
 	rep := s.Verify()
 	txt := fmt.Sprintf("DOF %d · %s · solvable=%t", rep.DOF, rep.Status, rep.Solvable)
 	size := w * 0.035 * cfg.annScale
 	if size <= 0 {
 		size = 1
 	}
-	// Top-left, inside the blank margin so it clears the geometry.
-	x, y := cfg.strokeWidth*2, cfg.strokeWidth*2
+	// Top-left, inside the blank margin (and inside the frame when windowed) so
+	// it clears the geometry.
+	x, y := pad+cfg.strokeWidth*2, pad+cfg.strokeWidth*2
 	boxW := float64(len(txt)) * size * 0.58
 	fmt.Fprintf(sb,
 		`  <rect x="%s" y="%s" width="%s" height="%s" rx="%s" fill="white" fill-opacity="0.85" stroke="%s" stroke-width="%s"/>`+"\n",
