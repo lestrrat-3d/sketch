@@ -84,6 +84,8 @@ var builders = map[string]func() (string, error){
 	"profiles":             profiles,
 	"fillet-before":        filletBefore,
 	"fillet-after":         filletAfter,
+	"geometry-primitives":  geometryPrimitives,
+	"compound-shapes":      compoundShapes,
 }
 
 // annStyle is the shared styling for the gallery. Geometry is authored at a
