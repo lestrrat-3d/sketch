@@ -91,7 +91,7 @@ is unsolvable:
 
 | Consistent (solves) | Conflicting (unsolvable) |
 |---|---|
-| ![A 400 by 300 right triangle with its hypotenuse dimensioned 500 mm, all geometry in normal color, with a badge reading DOF 0, fully constrained, solvable true](docs/images/conflict-valid.svg) | ![The same 400 by 300 right triangle but with its hypotenuse dimensioned 600 mm and drawn in red because that length conflicts with the two legs, with a badge reading DOF 0, overconstrained, solvable false](docs/images/conflict.svg) |
+| ![A 400 by 300 right triangle with its hypotenuse dimensioned 500 mm, every edge black because the sketch is fully constrained, with a badge reading DOF 0, fully constrained, solvable true](docs/images/conflict-valid.svg) | ![The same 400 by 300 right triangle but with its hypotenuse dimensioned 600 mm and drawn in red because that length conflicts with the two legs, with a badge reading DOF 0, overconstrained, solvable false](docs/images/conflict.svg) |
 
 **Parametric** — dimensions are editable values; change one and re-solve and
 everything driven by it follows:

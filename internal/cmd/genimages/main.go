@@ -220,12 +220,15 @@ func dofFull() (string, error) {
 }
 
 // triangleOpts is the shared render styling for the works/doesn't-work triangle
-// pair: dimensions, conflict highlighting and a status badge, with a wide margin
-// so the side dimensions stay inside the frame.
+// pair: dimensions, DOF coloring, conflict highlighting and a status badge, with
+// a wide margin so the side dimensions stay inside the frame. DOF coloring is on
+// so the "works" triangle reads as fully constrained (black) rather than the
+// default stroke, which the gallery's color language would misread as free.
 func triangleOpts() []sketch.SVGOption {
 	return withAnn(
 		sketch.WithMargin(64),
 		sketch.WithDimensions(true),
+		sketch.WithDOFColoring(true),
 		sketch.WithConflicts(true),
 		sketch.WithStatusBadge(true),
 	)
