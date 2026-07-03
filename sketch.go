@@ -256,6 +256,15 @@ func (p *Point) MoveTo(x, y float64) {
 // Fix grounds a point at its current location so the solver will not move it.
 // To ground a point at a specific location, move it first: p.MoveTo(x, y) then
 // s.Fix(p).
+//
+// Ground, don't pin. Fix exactly one anchor point — the sketch's tie to the
+// origin (p.MoveTo(0, 0); s.Fix(p)) — and remove the remaining rotational
+// freedom with a single orientation constraint (a horizontal or vertical line).
+// Locate every other point with geometric and dimensional constraints, not by
+// fixing its coordinates: a fixed coordinate is outside the parameter model, so
+// it cannot be driven by a parameter (see [Sketch.Bind]) and will not reflow
+// when a driving dimension changes. Fixing interior or non-origin points — or
+// more than the single origin anchor — is a non-parametric anti-pattern.
 func (s *Sketch) Fix(p *Point) {
 	s.fixed[p.xi] = true
 	s.fixed[p.yi] = true

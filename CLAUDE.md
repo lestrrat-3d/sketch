@@ -287,6 +287,23 @@ settable per-entity property (`entity.SetConstruction`). Any new geometry that
 introduces unknowns must allocate them via `newVar` in its `Add…` method and
 reference them by index so the solver sees them automatically.
 
+**Author for parametricity: ground, don't pin** (guidance for every consumer of
+the engine, and for code the engine itself ships). Use `s.Fix` on **exactly one**
+anchor point, and only to pin it at the **origin** (`p.MoveTo(0, 0)` then
+`s.Fix(p)`); remove the remaining rotational DOF with **one** orientation
+constraint (a horizontal/vertical line), and locate every other point with
+geometric + dimensional constraints on the geometry — never by fixing its
+coordinates. A fixed coordinate is outside the parameter model: it cannot be
+`Bind`-driven and will not reflow when a driving dimension changes, so pinning
+interior points, non-origin points, or more than the single origin anchor is a
+non-parametric anti-pattern (the SolidWorks/Fusion "avoid the Fix/Ground
+constraint" rule). Fixing a second full point already over-grounds by one DOF.
+The gallery builders `groundedRect`/`hexagon` follow this. (Reference geometry is
+the deliberate exception — it is externally locked via `fixed[]` by design; see
+`reference.go`.) A corollary: an **unsolvable over-constraint has no satisfying
+configuration, so it must distort when solved** — never "fix" that distortion by
+pinning points; that fakes the geometry.
+
 A **constraint** may also own auxiliary variables when it genuinely needs them
 (the arc-tangency sweep slack, and the arc-length dimension's unwrapped-sweep
 variable). It allocates them in an
