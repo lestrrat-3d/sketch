@@ -243,6 +243,26 @@ func TestGlyphsDrawn(t *testing.T) {
 	require.NotContains(t, out, "Inf")
 }
 
+func TestPointRadiusFloorScalesWithDrawing(t *testing.T) {
+	// A point marker has a scale-relative minimum (a fraction of the bbox
+	// diagonal), so it stays visible on a large drawing where a fixed radius
+	// would be a speck; a small drawing keeps the configured radius.
+	line := func(length float64) string {
+		w := sketch.NewWorld()
+		s, err := w.CreateSketch(w.XY())
+		require.NoError(t, err)
+		s.CreateLine(s.CreatePoint(0, 0), s.CreatePoint(length, 0))
+		out, err := s.SVG(sketch.WithPointRadius(2))
+		require.NoError(t, err)
+		return out
+	}
+	// diagonal 10 → floor 0.08 < 2, configured radius wins.
+	require.Contains(t, line(10), `r="2"`)
+	// diagonal 1000 → floor 0.008*1000 = 8 wins.
+	require.Contains(t, line(1000), `r="8"`)
+	require.NotContains(t, line(1000), `r="2"`)
+}
+
 func TestGlyphsStackOnSharedAnchor(t *testing.T) {
 	// Two constraints on the same line share an anchor and must not draw their
 	// badges at the identical position (they stack).

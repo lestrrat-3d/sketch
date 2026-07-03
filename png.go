@@ -161,12 +161,13 @@ func (s *Sketch) PNG(options ...PNGOption) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+		pr := pointRadius(cfg.pointRadius, b) // same scale-relative minimum as the SVG exporter
 		for _, p := range s.points {
 			col := free
 			if p.IsFixed() {
 				col = fixedCol
 			}
-			r.fillDisc(px(p.x()), py(p.y()), cfg.pointRadius*scale, col)
+			r.fillDisc(px(p.x()), py(p.y()), pr*scale, col)
 		}
 	}
 
