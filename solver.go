@@ -121,14 +121,19 @@ func defaultSolveConfig() solveConfig {
 // which usually means the sketch is over-constrained or contradictory.
 //
 // The ctx argument bounds the solve: its cancellation or deadline aborts the
-// run. Solve checks it before every outer Levenberg–Marquardt iteration and
-// between its internal phases; when ctx is done it stops early and returns the
-// partial [Result] together with a non-nil error that wraps ctx.Err() (so
+// run. Solve checks it before every outer Levenberg–Marquardt iteration (i.e.
+// before each Jacobian build), before each damping trial, and between its
+// internal phases; when ctx is done it stops early and returns the partial
+// [Result] together with a non-nil error that wraps ctx.Err() (so
 // errors.Is(err, context.DeadlineExceeded) or context.Canceled matches). Pass
-// context.Background() for an unbounded solve. This is the intended bound on
-// solve *time* when a sketch may come from an untrusted source: the iteration
-// budget ([WithMaxIterations]) caps the number of steps, but a context deadline
-// caps wall-clock work regardless of how expensive each iteration is.
+// context.Background() for an unbounded solve.
+//
+// The check is at iteration granularity, not mid-iteration: a Jacobian build or
+// residual evaluation already in progress runs to completion before the next
+// check, so a deadline caps solve time to within one outer iteration's work
+// rather than instantly. Together with the step-count cap ([WithMaxIterations])
+// this is the intended bound on solve *time* when a sketch may come from an
+// untrusted source.
 func (s *Sketch) Solve(ctx context.Context, options ...SolveOption) (*Result, error) {
 	o := defaultSolveConfig()
 	for _, opt := range options {
