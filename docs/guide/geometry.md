@@ -18,6 +18,8 @@ and each `Create…` creates a fresh entity. A bound handle exposes solved value
 (`p.X()`, `l.Length()`, `c.R()`, `e.Rx()`) and a transient
 [`geom`](../../geom) snapshot of its current shape via `Geometry()`.
 
+![A line, a circle, a quarter arc, a rotated ellipse and an S-shaped spline, one of each common builder, laid out on a CAD grid](../images/geometry-primitives.svg)
+
 A spline's control points are ordinary sketch points: constrain, dimension,
 ground or drag (`WithGoal`) them and the curve follows — the curve itself
 carries no extra unknowns. Clamping means the curve starts/ends exactly at the
@@ -54,6 +56,8 @@ equal construction spokes; equal cap radii and perpendicular contact spokes) —
 and return a grouping handle with the bound parts. The pieces are ordinary
 sketch geometry/constraints and serialize as such; position and size stay free
 to ground and dimension.
+
+![A rectangle, a regular hexagon with its equal-length construction spokes, and a rounded slot with its contact spokes — the three compound builders](../images/compound-shapes.svg)
 
 ## Shaping templates (the `geom` toolkit)
 

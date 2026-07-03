@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="480.8481" viewBox="0 0 283 243">
+  <rect width="100%" height="100%" fill="white"/>
+  <line x1="38" y1="34" x2="38" y2="209" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="48" y1="34" x2="48" y2="209" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="58" y1="34" x2="58" y2="209" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="68" y1="34" x2="68" y2="209" stroke="#cfd8dc" stroke-width="0.75"/>
+  <line x1="78" y1="34" x2="78" y2="209" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="88" y1="34" x2="88" y2="209" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="98" y1="34" x2="98" y2="209" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="108" y1="34" x2="108" y2="209" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="118" y1="34" x2="118" y2="209" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="128" y1="34" x2="128" y2="209" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="138" y1="34" x2="138" y2="209" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="148" y1="34" x2="148" y2="209" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="158" y1="34" x2="158" y2="209" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="168" y1="34" x2="168" y2="209" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="178" y1="34" x2="178" y2="209" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="188" y1="34" x2="188" y2="209" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="198" y1="34" x2="198" y2="209" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="208" y1="34" x2="208" y2="209" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="218" y1="34" x2="218" y2="209" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="228" y1="34" x2="228" y2="209" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="238" y1="34" x2="238" y2="209" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="248" y1="34" x2="248" y2="209" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="205" x2="249" y2="205" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="195" x2="249" y2="195" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="185" x2="249" y2="185" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="175" x2="249" y2="175" stroke="#cfd8dc" stroke-width="0.75"/>
+  <line x1="34" y1="165" x2="249" y2="165" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="155" x2="249" y2="155" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="145" x2="249" y2="145" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="135" x2="249" y2="135" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="125" x2="249" y2="125" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="115" x2="249" y2="115" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="105" x2="249" y2="105" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="95" x2="249" y2="95" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="85" x2="249" y2="85" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="75" x2="249" y2="75" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="65" x2="249" y2="65" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="55" x2="249" y2="55" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="45" x2="249" y2="45" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="35" x2="249" y2="35" stroke="#eceff1" stroke-width="0.5"/>
+  <rect x="34" y="34" width="215" height="175" fill="none" stroke="#90a4ae" stroke-width="1"/>
+  <line x1="68" y1="175" x2="208" y2="175" stroke="#1a73e8" stroke-width="1"/>
+  <line x1="208" y1="175" x2="208" y2="75" stroke="#bbbbbb" stroke-width="1" stroke-dasharray="4,3"/>
+  <circle cx="208" cy="75" r="7" fill="none" stroke="#bbbbbb" stroke-width="1" stroke-dasharray="4,3"/>
+  <circle cx="68" cy="175" r="2" fill="#202124"/>
+  <circle cx="208" cy="175" r="2" fill="#d93025"/>
+  <circle cx="208" cy="75" r="2" fill="#d93025"/>
+  <rect x="131.8182" y="168.8182" width="12.3637" height="12.3637" rx="1.8545" fill="white" stroke="#5f6368" stroke-width="0.75"/>
+  <text x="138" y="175" font-size="7.2727" fill="#5f6368" text-anchor="middle" dominant-baseline="central">H</text>
+  <text x="249" y="229.4" font-size="4.9899" fill="#b0b3b8" text-anchor="end">github.com/lestrrat-3d/sketch</text>
+</svg>
