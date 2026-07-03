@@ -20,6 +20,12 @@ and NURBS is also available (`NewTangentToSpline`, `NewTangentEllipse`,
 the full set and their point-on counterparts (`NewPointOnSpline`,
 `NewPointOnEllipticalArc`, `NewPointOnConic`, `NewPointOnNURBS`, …).
 
+Annotated SVG (`SVG(WithConstraints(true))`) draws a glyph for each geometric
+constraint — here two circles held concentric (◎), a point kept on the outer
+circle (•), and two lines tangent to it (T) that are perpendicular (⊥):
+
+![Two concentric circles with a concentric glyph at their shared center, a point-on-circle glyph at the bottom, and two tangent lines carrying tangent and perpendicular glyphs](../images/constraint-showcase.svg)
+
 ## Dimensional
 
 Editable; each carries a unit and has a `.Set`/`.SetValue`.

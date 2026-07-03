@@ -86,6 +86,7 @@ var builders = map[string]func() (string, error){
 	"fillet-after":         filletAfter,
 	"geometry-primitives":  geometryPrimitives,
 	"compound-shapes":      compoundShapes,
+	"constraint-showcase":  constraintShowcase,
 }
 
 // annStyle is the shared styling for the gallery. Geometry is authored at a
