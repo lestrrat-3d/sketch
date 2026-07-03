@@ -61,7 +61,7 @@ from a solid — the seam is first-class reference geometry), live in
 | `names.go` | Optional, non-unique labels + first-match lookup: the embedded `named` (every `Entity`'s `Name`/`SetName`), constraint labels held on the sketch (`SetConstraintName`/`ConstraintName` in `conNames`, since a constraint is only ever an interface value), and `PointByName`/`EntityByName`/`ConstraintByName`. Names survive JSON round-trips (`name` on `jsonPoint`/`jsonEntity`/`jsonConstraint`) and are purged by the removal cascade. |
 | `solver.go` | Levenberg–Marquardt solver, numerical Jacobian, DOF/redundancy (rank) analysis. |
 | `diagnose.go` | Constraint diagnostics: `conflictAnalysis` (the shared dependency pass behind `RedundantConstraints`/`Diagnose`/`Verify`), `Diagnose` (redundant vs conflicting), `ConflictSet` (a conflicting constraint + the earlier ones it fights), `CheckConstraint` (pre-commit over-constraint rejection), `FreePoints`/`Point.IsFullyConstrained` (per-point free-DOF attribution) + `Sketch.EntityIsFullyConstrained` (per-entity: an entity is free when any defining-point coord OR any intrinsic shape var — `entityShapeVars`: circle radius / ellipse rx,ry,rot / conic rho; none for line/arc/spline — is in the null-space support). Design in `docs/diagnostics-design.md`. |
-| `verify.go` | `Sketch.Verify(...VerifyOption) *VerificationReport`: the headless-oracle aggregation layer — one non-mutating call gathering solvability, DOF, `Status`, redundant constraints, conflict sets, free points, profiles + their validity (`ProfilesValid`/`InvalidProfiles` — self-intersecting/degenerate regions gate `Trustworthy()`), stale/broken/foreign reference signals, parameter unit-kind validity (`ParametersValid`), the **advisory** `RankMargin` (how far the STRUCTURAL rank/DOF decision sits from the rank-zero cutoff — a fragility hint; now scale-invariant, computed on the nondimensional Jacobian, but still does NOT gate `Trustworthy()` — it measures a coarser, different question than conditioning), the **scale-invariant** `Conditioning` (`conditioning.go`: the reciprocal condition number of the nondimensionalized Jacobian — this one DOES gate `Trustworthy()`, below a tolerance-derived `max(1e-6, 4·√tol)` threshold), `Trustworthy()`, and (opt-in via `WithProbe`) discrete ambiguity. A pure consumer of the diagnostic building blocks. |
+| `verify.go` | `Sketch.Verify(ctx context.Context, ...VerifyOption) *VerificationReport`: the headless-oracle aggregation layer — one non-mutating call gathering solvability, DOF, `Status`, redundant constraints, conflict sets, free points, profiles + their validity (`ProfilesValid`/`InvalidProfiles` — self-intersecting/degenerate regions gate `Trustworthy()`), stale/broken/foreign reference signals, parameter unit-kind validity (`ParametersValid`), the **advisory** `RankMargin` (how far the STRUCTURAL rank/DOF decision sits from the rank-zero cutoff — a fragility hint; now scale-invariant, computed on the nondimensional Jacobian, but still does NOT gate `Trustworthy()` — it measures a coarser, different question than conditioning), the **scale-invariant** `Conditioning` (`conditioning.go`: the reciprocal condition number of the nondimensionalized Jacobian — this one DOES gate `Trustworthy()`, below a tolerance-derived `max(1e-6, 4·√tol)` threshold), `Trustworthy()`, and (opt-in via `WithProbe`) discrete ambiguity. A pure consumer of the diagnostic building blocks. |
 | `reference.go` | Reference geometry — the sketch/3D separation keystone: read-only, externally-locked 2D snapshots of 3D-derived geometry (`CreateReferencePoint`/`CreateReferenceLine`/`CreateReferenceArc`/`CreateReferenceCircle`) carrying a `source` id + staleness; locked via `fixed[]`, a topology seal (`refSeals`), `RefreshReference`/`RefreshReferenceCircle`/`MarkStale`, and the Verify integrity/staleness/reachability scan. Design in `docs/reference-geometry-design.md`. |
 | `probe.go` | `Sketch.ProbeConfigurations`: multi-solution ambiguity probe — deterministic multi-start search (structured mirrors + splitmix64 restarts) for the discrete configurations a DOF-0 sketch admits. A falsifier: ≥2 found proves ambiguity, 1 never proves uniqueness. Design in `docs/ambiguity-probe-design.md`. |
 | `plane.go` / `world.go` | 3D world & construction planes. `Plane` (datum = `space.Frame` derived from a stored definition), `World` (the mandatory document root: owns planes + sketches, datum accessors `XY`/`XZ`/`YZ`, plane builders `CreatePlaneFromFrame`/`CreatePlaneFromPoints`/`CreateOffsetPlane`, `CreateSketch`, `RemovePlane`). Design in `docs/3d-planes-design.md`. |
@@ -206,7 +206,7 @@ object (the sketch's geometry builders). Load-bearing rules:
   *different* table is `ErrTableMismatch`. **Offset planes are parameter-driven**
   (`World.BindOffsetPlane(p, expr)` → a length expression on `planeDef.distExpr`,
   kind-checked, re-evaluated on every `Frame()` call with NO cache so an edit
-  reflows immediately; wrong-kind surfaces through `Frame()`). `World.Verify()` →
+  reflows immediately; wrong-kind surfaces through `Frame()`). `World.Verify(ctx)` →
   `WorldVerificationReport` aggregates the shared table, every plane frame, and
   each sketch's report. World docs are **v3** (top-level `parameters` + plane
   `dist_expr`); a legacy v2 world migrates by promoting identical per-sketch
@@ -656,12 +656,12 @@ These are unsettled. If you resolve one, record the decision here.
   dependent — the engine half of Fusion's "refuse the over-constraining
   gesture". `Sketch.FreePoints()`/`Point.IsFullyConstrained()` attribute the
   remaining DOF to points via the Jacobian null space (the blue/black
-  coloring answer). `Sketch.ProbeConfigurations()` (`probe.go`; design in
+  coloring answer). `Sketch.ProbeConfigurations(ctx)` (`probe.go`; design in
   `docs/ambiguity-probe-design.md`) covers the discrete side DOF analysis
   cannot see: a deterministic multi-start probe that searches for the multiple
   configurations a fully-constrained sketch may admit (mirror flips, tangent
   side choices). It is a falsifier — finding ≥2 configurations proves
-  ambiguity; finding 1 never certifies uniqueness. `Sketch.Verify()`
+  ambiguity; finding 1 never certifies uniqueness. `Sketch.Verify(ctx)`
   (`verify.go`) aggregates all of the above into one non-mutating
   `VerificationReport` (solvability, DOF, `Status`, redundant constraints,
   conflict sets, free points, profiles, opt-in ambiguity via `WithProbe`) for
@@ -712,7 +712,7 @@ These are unsettled. If you resolve one, record the decision here.
   expression's kind (an angle expression cannot masquerade as a length parameter).
   `Table.EvalValue` returns the kind-carrying value; `Sketch.evalDimension` uses it
   to reject a compound expression that mixes kinds or whose kind ≠ the dimension's
-  (not just a direct single-parameter reference); `Verify()` runs a non-mutating
+  (not just a direct single-parameter reference); `Verify(ctx)` runs a non-mutating
   parameter-validation pass exposing `ParametersValid`/`ParameterErrors`, which
   gate `Trustworthy()` — so a unit-kind bug hidden in an expression is no longer
   silently blessed. *Limited on purpose:* this is **kind** algebra, not full

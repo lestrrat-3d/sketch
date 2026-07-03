@@ -181,7 +181,7 @@ toolkit + `RemoveEntity`); offset added a new `Offset` constraint. Design in
 - **Under-constrained visualization data** — Fusion shows unconstrained
   geometry in blue. API equivalent: report which variables/entities still have
   free DOF (null-space of J).
-- ~~**Dragging**~~ — *engine side closed*: `Solve(WithGoal(p, x, y))`
+- ~~**Dragging**~~ — *engine side closed*: `Solve(ctx, WithGoal(p, x, y))`
   pulls a point toward a target while constraints hold exactly (two-phase:
   augmented pull + hard-only polish; see `docs/goal-solve-design.md`). Gesture
   policy (entity dragging semantics, snapping, hit-testing) deliberately stays
@@ -220,7 +220,7 @@ for tighter tolerance on near-tangencies.
 4. ~~**Redundant-constraint identification**~~ — *done*
    (`RedundantConstraints()`; conflicting-vs-redundant still open).
 5. ~~**Drag-solve API**~~ — *done* as goal-solve
-   (`Solve(WithGoal(…))`; design in `docs/goal-solve-design.md`).
+   (`Solve(ctx, WithGoal(…))`; design in `docs/goal-solve-design.md`).
 6. ~~**Offset/fillet/trim**~~ — *done* (all sketch-modification tools
    in `tools.go`: trim/extend/break, fillet/chamfer, mirror, patterns, offset;
    design in `docs/modification-tools-design.md`),

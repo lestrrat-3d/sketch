@@ -247,7 +247,7 @@ reading the output can tell locked snapshots from solver geometry.
   false (the seal mismatches); a half-locked reference (an owned var left free) is
   broken too; a constraint or entity referencing a foreign reference point (from
   another sketch) sets `ForeignHandles` and fails `Trustworthy()`.
-- **Staleness:** `MarkStale(source)` ⇒ `Verify().Stale`, the stale lists, and
+- **Staleness:** `MarkStale(source)` ⇒ `Verify(ctx).Stale`, the stale lists, and
   `Trustworthy() == false` even for a fully-constrained solvable sketch; multi-
   point edge items mark coherently; refreshing every item restores trust, while
   refreshing only some leaves the source stale.

@@ -14,7 +14,7 @@ Profile/region engine (`docs/verification-roadmap.md`).
 `geom.Regions` (`geom/arrange.go`) builds the planar arrangement by **sampling**
 every curve to a polyline and detecting crossings with a segment-segment test
 (`segParams`). A near-tangent polyline crossing (`p.sin < 1e-3`) is flagged
-`Degenerate`, which gates `Verify().Trustworthy()` false. Two consequences make
+`Degenerate`, which gates `Verify(ctx).Trustworthy()` false. Two consequences make
 the oracle reject *valid* sketches (false negatives):
 
 - A clean **tangency** (two circles touching at one point, a line tangent to a
