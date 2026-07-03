@@ -280,6 +280,10 @@ var bannerOptions = []sketch.SVGOption{
 	sketch.WithGrid(true),
 	sketch.WithMargin(4),
 	sketch.WithPixelWidth(720),
+	// The masthead is the strongest proof the engine draws its own images: the
+	// wordmark itself is sketch geometry. Stamp the same provenance watermark the
+	// gallery heroes carry (the in-sync test normalizes the commit hash).
+	sketch.WithWatermark(watermark),
 }
 
 func banner() (string, error) {
