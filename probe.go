@@ -212,7 +212,9 @@ func (s *Sketch) ProbeConfigurations(ctx context.Context, options ...ProbeOption
 		}
 		copy(s.vars, baseline)
 		perturb()
-		s.lm(ctx, free, s.residuals, sc.maxIterations, sc.tolerance)
+		if _, err := s.lm(ctx, free, s.residuals, sc.maxIterations, sc.tolerance); err != nil {
+			return false // cancelled mid-solve — stop the caller loop promptly
+		}
 		rr := s.residuals(nil)
 		if math.Sqrt(dot(rr, rr)) > sc.tolerance {
 			return true
