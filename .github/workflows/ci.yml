@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # Tier 1: lint runs first. The heavier tiers below gate on it via `needs`,
+  # so a lint failure short-circuits the pipeline before any tests run.
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.12.2
+          args: --timeout=5m
+
+      - name: Run go vet
+        run: go vet ./...
+
+  # Tier 2: tests, only after lint succeeds. Race detector on Linux; the other
+  # OSes run the same suite without it, purely for cross-platform coverage.
+  test:
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            race: "-race"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test ${{ matrix.race }} -timeout 10m ./...
+
+  # Tier 2: verify the tree is tidy and the generated docs are in sync.
+  verify:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Tidy dependencies
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
+      # Regenerate the embedded README/guide code blocks and confirm they match
+      # what is committed. The annotated SVG heroes under docs/images are NOT
+      # diffed here: their watermark stamps the live commit hash, so a diff
+      # would always trip. Their real drift is covered by the hash-normalized
+      # genimages in-sync test that runs under `go test ./...` in the test job.
+      - name: Verify generated docs are in sync
+        run: |
+          go run ./internal/cmd/genreadme README.md docs/guide/units-and-parameters.md docs/guide/solving.md
+          git diff --exit-code -- README.md docs/guide
+
+  # Tier 2: vulnerability scan of the module and its dependencies.
+  govulncheck:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+
+      # govulncheck v1.4.0 requires Go >= 1.25 to build, but setup-go pins
+      # GOTOOLCHAIN=local at this module's go 1.24. Allow an on-demand toolchain
+      # fetch so the tool builds; it still analyzes this module as authored.
+      - name: Run govulncheck
+        env:
+          GOTOOLCHAIN: auto
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.4.0 ./...

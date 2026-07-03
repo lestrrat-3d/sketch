@@ -1,0 +1,141 @@
+# Adapted from the lestrrat-go house config (helium/jwx): `default: all` with a
+# curated disable list. The block marked "pending cleanup" below holds linters
+# that currently fire on this codebase; they are disabled so the gate is green
+# today and meant to be re-enabled incrementally as the findings are addressed.
+version: "2"
+linters:
+  default: all
+  disable:
+    # --- pending cleanup: re-enable incrementally (see PR discussion) ---
+    - dupword
+    - goconst
+    - godoclint
+    - intrange
+    - modernize
+    - musttag
+    - nilnil
+    - noctx
+    - predeclared
+    - unparam
+    - unused
+    # --- house baseline ---
+    - copyloopvar
+    - cyclop
+    - depguard
+    - dupl
+    - embeddedstructfieldcheck
+    - err113
+    - errorlint
+    - exhaustive
+    # exhaustruct flags every partially-initialized struct literal; disabled
+    # outright (the house config suppresses it via an all-.go exclusion, which
+    # reads as a bug — express the intent directly instead).
+    - exhaustruct
+    - funcorder
+    - funlen
+    - gochecknoglobals
+    - gochecknoinits
+    - gocognit
+    - gocritic
+    - gocyclo
+    - godot
+    - godox
+    - gomodguard
+    - gosec
+    - gosmopolitan
+    - iface
+    - inamedparam
+    - interfacebloat
+    - ireturn
+    - lll
+    - maintidx
+    - makezero
+    - mnd
+    - nakedret
+    - nestif
+    - nlreturn
+    - noinlineerr
+    - nonamedreturns
+    - paralleltest
+    - perfsprint
+    - prealloc
+    - recvcheck
+    - revive
+    - tagliatelle
+    - testifylint
+    - testpackage
+    - thelper
+    - tparallel
+    - varnamelen
+    - wastedassign
+    - wrapcheck
+    - wsl
+    - wsl_v5
+  settings:
+    goconst:
+      min-occurrences: 5
+    govet:
+      disable:
+        - shadow
+        - fieldalignment
+      enable-all: true
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - staticcheck
+        text: 'ST1003: should not use underscores in package names'
+      - linters:
+          - staticcheck
+        text: SA1019
+      # pending cleanup: style-only staticcheck checks currently firing
+      - linters:
+          - staticcheck
+        text: 'ST1023:'
+      - linters:
+          - staticcheck
+        text: 'QF1002:'
+      - linters:
+          - staticcheck
+        text: 'QF1011:'
+      - linters:
+          - errcheck
+        path: /main.go
+      - linters:
+          - errcheck
+          - errchkjson
+          - forcetypeassert
+        path: /*_test.go
+      - linters:
+          - forbidigo
+        path: (^|/)cmd/
+      - linters:
+          - forbidigo
+        path: (^|/)internal/
+      - linters:
+          - forbidigo
+          - errcheck
+        path: /*_test.go
+      - linters:
+          - godoclint
+        path: (^|/)internal/
+    paths:
+      - third_party$
+      - builtin$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
