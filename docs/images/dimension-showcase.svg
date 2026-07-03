@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="483.0534" viewBox="0 0 262 226">
+  <rect width="100%" height="100%" fill="white"/>
+  <line x1="38" y1="34" x2="38" y2="192" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="48" y1="34" x2="48" y2="192" stroke="#cfd8dc" stroke-width="0.75"/>
+  <line x1="58" y1="34" x2="58" y2="192" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="68" y1="34" x2="68" y2="192" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="78" y1="34" x2="78" y2="192" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="88" y1="34" x2="88" y2="192" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="98" y1="34" x2="98" y2="192" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="108" y1="34" x2="108" y2="192" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="118" y1="34" x2="118" y2="192" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="128" y1="34" x2="128" y2="192" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="138" y1="34" x2="138" y2="192" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="148" y1="34" x2="148" y2="192" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="158" y1="34" x2="158" y2="192" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="168" y1="34" x2="168" y2="192" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="178" y1="34" x2="178" y2="192" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="188" y1="34" x2="188" y2="192" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="198" y1="34" x2="198" y2="192" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="208" y1="34" x2="208" y2="192" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="218" y1="34" x2="218" y2="192" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="228" y1="34" x2="228" y2="192" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="190" x2="228" y2="190" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="180" x2="228" y2="180" stroke="#cfd8dc" stroke-width="0.75"/>
+  <line x1="34" y1="170" x2="228" y2="170" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="160" x2="228" y2="160" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="150" x2="228" y2="150" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="140" x2="228" y2="140" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="130" x2="228" y2="130" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="120" x2="228" y2="120" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="110" x2="228" y2="110" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="100" x2="228" y2="100" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="90" x2="228" y2="90" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="80" x2="228" y2="80" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="70" x2="228" y2="70" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="60" x2="228" y2="60" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="50" x2="228" y2="50" stroke="#eceff1" stroke-width="0.5"/>
+  <line x1="34" y1="40" x2="228" y2="40" stroke="#eceff1" stroke-width="0.5"/>
+  <rect x="34" y="34" width="194" height="158" fill="none" stroke="#90a4ae" stroke-width="1"/>
+  <line x1="72" y1="158" x2="162" y2="158" stroke="#1a73e8" stroke-width="1"/>
+  <line x1="72" y1="158" x2="141.9" y2="120" stroke="#1a73e8" stroke-width="1"/>
+  <circle cx="88" cy="88" r="20" fill="none" stroke="#1a73e8" stroke-width="1"/>
+  <circle cx="176" cy="88" r="18" fill="none" stroke="#1a73e8" stroke-width="1"/>
+  <line x1="72" y1="158" x2="72" y2="169.6131" stroke="#5f6368" stroke-width="1"/>
+  <line x1="162" y1="158" x2="162" y2="169.6131" stroke="#5f6368" stroke-width="1"/>
+  <line x1="72" y1="167.2905" x2="162" y2="167.2905" stroke="#5f6368" stroke-width="1"/>
+  <path d="M72 167.2905 L75.0968 166.2066 L75.0968 168.3744 Z" fill="#5f6368"/>
+  <path d="M162 167.2905 L158.9032 168.3744 L158.9032 166.2066 Z" fill="#5f6368"/>
+  <text x="117" y="171.6261" font-size="6.1937" fill="#5f6368" text-anchor="middle" dominant-baseline="central">90 mm</text>
+  <path d="M81.2905 158 L81.286 157.7109 L81.2725 157.4221 L81.25 157.1339 L81.2186 156.8464 L81.1783 156.5602 L81.129 156.2753 L81.0709 155.992 L81.0041 155.7108 L80.9285 155.4317 L80.8442 155.1551 L80.7514 154.8813 L80.6501 154.6105 L80.5405 154.343 L80.4225 154.079 L80.2965 153.8188 L80.1623 153.5627" fill="none" stroke="#5f6368" stroke-width="1"/>
+  <text x="87.0068" y="154.1846" font-size="6.1937" fill="#5f6368" text-anchor="middle" dominant-baseline="central">30°</text>
+  <line x1="88" y1="88" x2="102.1421" y2="73.8579" stroke="#5f6368" stroke-width="1"/>
+  <path d="M102.1421 73.8579 L100.7188 76.8141 L99.1859 75.2812 Z" fill="#5f6368"/>
+  <text x="106.5217" y="69.4783" font-size="6.1937" fill="#5f6368" text-anchor="middle" dominant-baseline="central">R20 mm</text>
+  <line x1="188.7279" y1="75.2721" x2="163.2721" y2="100.7279" stroke="#5f6368" stroke-width="1"/>
+  <path d="M188.7279 75.2721 L187.3046 78.2283 L185.7717 76.6954 Z" fill="#5f6368"/>
+  <path d="M163.2721 100.7279 L164.6954 97.7717 L166.2283 99.3046 Z" fill="#5f6368"/>
+  <text x="176" y="84.9032" font-size="6.1937" fill="#5f6368" text-anchor="middle" dominant-baseline="central">⌀36 mm</text>
+  <text x="228" y="212.4" font-size="4.5036" fill="#b0b3b8" text-anchor="end">github.com/lestrrat-3d/sketch</text>
+</svg>
