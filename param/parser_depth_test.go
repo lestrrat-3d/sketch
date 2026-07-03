@@ -39,4 +39,28 @@ func TestParseNestingDepth(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "too deep")
 	})
+
+	t.Run("deep unary-operator chain is bounded", func(t *testing.T) {
+		// A long "-----…1" recurses through parseUnary directly, never through a
+		// parenthesised parseExpr, so a guard only on parseExpr would miss it.
+		_, err := param.Parse(strings.Repeat("-", 200000) + "1")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "too deep")
+	})
+
+	t.Run("deep exponent chain is bounded", func(t *testing.T) {
+		// "1^1^1^…" recurses right-associatively through parsePower → parseUnary,
+		// again bypassing any parseExpr-only guard.
+		_, err := param.Parse("1" + strings.Repeat("^1", 200000))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "too deep")
+	})
+
+	t.Run("wide flat expression is not falsely rejected", func(t *testing.T) {
+		// Width is not depth: a long sum nests only one level deep, so the guard
+		// (which counts recursion, not operand count) must accept it.
+		e, err := param.Parse("1" + strings.Repeat("+1", 5000))
+		require.NoError(t, err)
+		require.NotNil(t, e)
+	})
 }
