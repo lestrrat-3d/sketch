@@ -30,10 +30,21 @@ func Parse(input string) (Expr, error) {
 	return e, nil
 }
 
+// maxParseDepth bounds the parser's recursion depth. Every recursive descent —
+// a parenthesised group or function argument (through parseExpr), a unary
+// operator chain (parseUnary self-recursion), and a right-associative exponent
+// chain (parsePower → parseUnary) — passes through parseUnary, so the guard
+// lives there and bounds them all. It turns a pathologically nested input (e.g.
+// "((((…))))", "-----…1", or "1^1^1^…", thousands deep and reachable from an
+// untrusted document) into an ordinary [ParseError] rather than an unrecoverable
+// goroutine stack overflow. The limit is far above any hand-written formula.
+const maxParseDepth = 1000
+
 type parser struct {
 	input string
 	toks  []token
 	pos   int
+	depth int // current parseExpr recursion depth, for the nesting guard
 }
 
 // opRune returns the operator's first byte as a rune, used to tag expression
@@ -88,6 +99,15 @@ func (p *parser) parseTerm() (Expr, error) {
 }
 
 func (p *parser) parseUnary() (Expr, error) {
+	// parseUnary sits on every recursive descent path (see maxParseDepth), so the
+	// depth guard here bounds the whole parser. defer keeps the count balanced so
+	// sibling sub-expressions (e.g. many call arguments) don't accumulate depth.
+	p.depth++
+	defer func() { p.depth-- }()
+	if p.depth > maxParseDepth {
+		return nil, p.errf(p.peek().pos, "expression too deeply nested (exceeds depth %d)", maxParseDepth)
+	}
+
 	if k := p.peek().kind; k == tPlus || k == tMinus {
 		op := p.next()
 		x, err := p.parseUnary()
