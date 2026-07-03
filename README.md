@@ -83,10 +83,15 @@ status badge reports the DOF count and constraint state:
 |---|---|
 | ![A rectangle whose top edge and corners are blue and hollow because they still have free degrees of freedom, with a badge reading DOF 3, underconstrained](docs/images/dof-underconstrained.svg) | ![The same rectangle fully constrained: every edge and point is black, with a badge reading DOF 0, fully constrained](docs/images/dof-constrained.svg) |
 
-**Conflicting constraints** — an over-constrained sketch highlights the geometry
-whose constraints fight, in red, and the badge reports it is unsolvable:
+**Conflicting constraints** — the same right triangle, dimensioned two ways. Its
+legs are 400 and 300, so its hypotenuse is 500. Dimension the hypotenuse 500 and
+everything agrees; dimension it 600 and the constraints can no longer all hold —
+the over-specified dimension is flagged in red and the badge reports the sketch
+is unsolvable:
 
-![A single line drawn in red because two contradictory distance constraints are applied to it, with a badge reading DOF 0, overconstrained, solvable false](docs/images/conflict.svg)
+| Consistent (solves) | Conflicting (unsolvable) |
+|---|---|
+| ![A 400 by 300 right triangle with its hypotenuse dimensioned 500 mm, all geometry in normal color, with a badge reading DOF 0, fully constrained, solvable true](docs/images/conflict-valid.svg) | ![The same 400 by 300 right triangle but with its hypotenuse dimensioned 600 mm and drawn in red because that length conflicts with the two legs, with a badge reading DOF 0, overconstrained, solvable false](docs/images/conflict.svg) |
 
 **Parametric** — dimensions are editable values; change one and re-solve and
 everything driven by it follows:
