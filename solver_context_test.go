@@ -1,0 +1,66 @@
+package sketch_test
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/lestrrat-3d/sketch"
+	"github.com/stretchr/testify/require"
+)
+
+// distanceSketch builds a deliberately unsolved two-point sketch: a grounded
+// origin and a free point whose distance to it must reach 10 (it starts at
+// ~7.07), so at least one solver iteration is required to converge.
+func distanceSketch(t *testing.T) (*sketch.Sketch, *sketch.Point) {
+	t.Helper()
+	s := newSketch(t)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(5, 5)
+	a.MoveTo(0, 0)
+	s.Fix(a)
+	s.AddConstraint(sketch.NewDistance(a, b, 10))
+	return s, b
+}
+
+func TestSolveWithContext(t *testing.T) {
+	t.Run("live context converges like the default", func(t *testing.T) {
+		s, _ := distanceSketch(t)
+		res, err := s.Solve(sketch.WithContext(t.Context()))
+		require.NoError(t, err)
+		require.True(t, res.Converged)
+	})
+
+	t.Run("already-cancelled context aborts before solving", func(t *testing.T) {
+		s, b := distanceSketch(t)
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		bx, by := b.X(), b.Y()
+		res, err := s.Solve(sketch.WithContext(ctx))
+		require.ErrorIs(t, err, context.Canceled)
+		require.False(t, res.Converged)
+		// Aborted before any iteration ran, so the geometry never moved.
+		require.Equal(t, 0, res.Iterations)
+		require.Equal(t, bx, b.X())
+		require.Equal(t, by, b.Y())
+	})
+
+	t.Run("expired deadline reports DeadlineExceeded", func(t *testing.T) {
+		s, _ := distanceSketch(t)
+		ctx, cancel := context.WithDeadline(t.Context(), time.Unix(0, 0))
+		defer cancel()
+
+		res, err := s.Solve(sketch.WithContext(ctx))
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.False(t, res.Converged)
+	})
+
+	t.Run("nil-like default still solves", func(t *testing.T) {
+		s, _ := distanceSketch(t)
+		res, err := s.Solve()
+		require.NoError(t, err)
+		require.True(t, res.Converged)
+		require.NotErrorIs(t, err, context.Canceled)
+	})
+}

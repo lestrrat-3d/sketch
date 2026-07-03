@@ -1,6 +1,7 @@
 package sketch
 
 import (
+	"context"
 	"math"
 
 	"github.com/lestrrat-3d/sketch/units"
@@ -46,10 +47,27 @@ type (
 	identMaxIterations struct{}
 	identTolerance     struct{}
 	identGoal          struct{}
+	identContext       struct{}
 )
 
 // WithMaxIterations sets the outer Levenberg–Marquardt iteration budget.
 func WithMaxIterations(v int) SolveOption { return solveOption{option.New(identMaxIterations{}, v)} }
+
+// WithContext binds a context whose cancellation or deadline aborts the solve.
+// [Sketch.Solve] checks it before every outer Levenberg–Marquardt iteration and
+// between its internal phases; when the context is done it stops early and
+// returns the partial [Result] together with a non-nil error that wraps
+// ctx.Err() (so errors.Is(err, context.DeadlineExceeded) or context.Canceled
+// matches). The default is context.Background() — an unbounded solve, matching
+// the prior behaviour.
+//
+// This is the intended bound on solve *time* when a sketch may come from an
+// untrusted source: the iteration budget ([WithMaxIterations]) caps the number
+// of steps, but a context deadline caps wall-clock work regardless of how
+// expensive each iteration is.
+func WithContext(ctx context.Context) SolveOption {
+	return solveOption{option.New(identContext{}, ctx)}
+}
 
 // WithTolerance sets the convergence threshold on the residual norm. It is
 // accepted by both [Sketch.Solve] (where it is the convergence target) and
@@ -91,10 +109,11 @@ type solveConfig struct {
 	maxIterations int
 	tolerance     float64
 	goals         []goalTarget
+	ctx           context.Context
 }
 
 func defaultSolveConfig() solveConfig {
-	return solveConfig{maxIterations: 200, tolerance: 1e-10}
+	return solveConfig{maxIterations: 200, tolerance: 1e-10, ctx: context.Background()}
 }
 
 // Solve runs the constraint solver, moving non-grounded geometry until all
@@ -124,7 +143,16 @@ func (s *Sketch) Solve(options ...SolveOption) (*Result, error) {
 		case identGoal:
 			// Append — repeated WithGoal options accumulate.
 			o.goals = append(o.goals, option.MustGet[goalTarget](opt))
+		case identContext:
+			o.ctx = option.MustGet[context.Context](opt)
 		}
+	}
+
+	ctx := o.ctx
+	// Nothing has been mutated yet, so an already-cancelled context short-
+	// circuits before any work.
+	if err := ctx.Err(); err != nil {
+		return &Result{}, err
 	}
 
 	// Refresh any dimensions driven by parameter expressions before solving.
@@ -146,9 +174,9 @@ func (s *Sketch) Solve(options ...SolveOption) (*Result, error) {
 	var iters int
 	if len(o.goals) > 0 {
 		aug := func(buf []float64) []float64 { return s.goalResiduals(buf, o.goals) }
-		iters += s.lm(free, aug, o.maxIterations, o.tolerance)
+		iters += s.lm(ctx, free, aug, o.maxIterations, o.tolerance)
 	}
-	iters += s.lm(free, s.residuals, o.maxIterations, o.tolerance)
+	iters += s.lm(ctx, free, s.residuals, o.maxIterations, o.tolerance)
 
 	s.refreshDriven()
 
@@ -159,6 +187,13 @@ func (s *Sketch) Solve(options ...SolveOption) (*Result, error) {
 	mh := len(rh)
 	res.Residual = math.Sqrt(dot(rh, rh))
 	res.Converged = res.Residual <= o.tolerance
+
+	// If the context ended mid-solve, report the partial result (iterations +
+	// residual) and skip the expensive DOF/rank pass — it is a Jacobian rebuild
+	// that the caller asked us to stop doing.
+	if err := ctx.Err(); err != nil {
+		return res, err
+	}
 
 	if mh == 0 {
 		res.DOF = n
@@ -185,8 +220,10 @@ func (s *Sketch) Solve(options ...SolveOption) (*Result, error) {
 // eval, mutating the sketch's free variables in place, and reports the outer
 // iterations performed. It terminates when the residual norm reaches the
 // tolerance, when no damped step improves the cost (a minimum — possibly with
-// nonzero residual, e.g. an unreachable goal), or when the budget runs out.
-func (s *Sketch) lm(free []int, eval func([]float64) []float64, maxIterations int, tolerance float64) int {
+// nonzero residual, e.g. an unreachable goal), when ctx is cancelled, or when
+// the budget runs out. ctx is checked once per outer iteration, before the
+// (expensive) Jacobian build; the caller inspects ctx.Err() after lm returns.
+func (s *Sketch) lm(ctx context.Context, free []int, eval func([]float64) []float64, maxIterations int, tolerance float64) int {
 	n := len(free)
 	r := eval(nil)
 	m := len(r)
@@ -198,6 +235,9 @@ func (s *Sketch) lm(free []int, eval func([]float64) []float64, maxIterations in
 	lambda := 1e-3
 	var iter int
 	for iter = 0; iter < maxIterations; iter++ {
+		if ctx.Err() != nil {
+			break
+		}
 		if math.Sqrt(cost) <= tolerance {
 			break
 		}

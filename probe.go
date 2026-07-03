@@ -1,6 +1,7 @@
 package sketch
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -156,7 +157,7 @@ func (s *Sketch) ProbeConfigurations(options ...ProbeOption) (*ProbeResult, erro
 	// directly rather than Solve so that parameter bindings are not
 	// re-evaluated and refreshDriven never writes a probed configuration's
 	// measurements into driven dimensions.
-	s.lm(free, s.residuals, sc.maxIterations, sc.tolerance)
+	s.lm(context.Background(), free, s.residuals, sc.maxIterations, sc.tolerance)
 	r := s.residuals(nil)
 	if math.Sqrt(dot(r, r)) > sc.tolerance {
 		return nil, ErrNotConverged
@@ -193,7 +194,7 @@ func (s *Sketch) ProbeConfigurations(options ...ProbeOption) (*ProbeResult, erro
 	try := func(perturb func()) {
 		copy(s.vars, baseline)
 		perturb()
-		s.lm(free, s.residuals, sc.maxIterations, sc.tolerance)
+		s.lm(context.Background(), free, s.residuals, sc.maxIterations, sc.tolerance)
 		rr := s.residuals(nil)
 		if math.Sqrt(dot(rr, rr)) > sc.tolerance {
 			return
