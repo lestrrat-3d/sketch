@@ -39,6 +39,18 @@
 // Geometry method returns a geom value at the current solved coordinates); it
 // is never committed as sketch input.
 //
+// # Grounding: ground, don't pin
+//
+// Anchor a sketch with exactly one fixed point, placed at the origin
+// (p.MoveTo(0, 0); s.Fix(p)), and remove the remaining rotational freedom with a
+// single orientation constraint (a horizontal or vertical line). Locate every
+// other point with geometric and dimensional constraints — never by fixing its
+// coordinates. A fixed coordinate is outside the parameter model: it cannot be
+// driven by a parameter (see [Sketch.Bind]) and will not reflow when a driving
+// dimension changes, so pinning interior points, non-origin points, or more than
+// the single origin anchor is a non-parametric anti-pattern. (Reference geometry
+// is the deliberate exception: it is externally locked by design.)
+//
 // # Orientation and sign conventions
 //
 // A sketch's coordinates are plane-local (u, v): Y-up and angles
