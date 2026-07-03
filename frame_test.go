@@ -29,7 +29,7 @@ func framedSquare(t *testing.T) *sketch.Sketch {
 		sketch.NewVertical(bc), sketch.NewVertical(da),
 		sketch.NewDistance(a, b, 100), sketch.NewDistance(a, d, 100),
 	)
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 	return s
 }

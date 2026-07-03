@@ -1,6 +1,7 @@
 package examples_test
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/lestrrat-3d/sketch"
@@ -25,7 +26,7 @@ func Example_sketch_conic() {
 	}
 	s.CreateLine(c.End, c.Start) // chord closes the loop
 
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(context.Background()); err != nil {
 		fmt.Println(err)
 		return
 	}

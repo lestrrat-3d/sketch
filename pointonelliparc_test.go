@@ -30,7 +30,7 @@ func TestPointOnEllipticalArc(t *testing.T) {
 	p := s.CreatePoint(4, 2) // near the arc, inside the sweep
 	s.AddConstraint(sketch.NewPointOnEllipticalArc(p, ea))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 1, onEllipse(p, 6, 3), 1e-6, "pulled onto the arc's ellipse")
 	require.GreaterOrEqual(t, p.X(), -1e-6, "first quadrant (within the sweep)")
@@ -45,7 +45,7 @@ func TestPointOnEllipticalArcConfinedToSweep(t *testing.T) {
 	p := s.CreatePoint(4, -2) // below the x-axis: outside the [0, π/2] sweep
 	s.AddConstraint(sketch.NewPointOnEllipticalArc(p, ea))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 1, onEllipse(p, 6, 3), 1e-6, "on the ellipse")
 	require.GreaterOrEqual(t, p.Y(), -1e-6, "confined to the sweep, not left below the axis")
@@ -70,7 +70,7 @@ func TestPointOnEllipticalArcRoundTrip(t *testing.T) {
 	ea := quarterEllipticalArc(s)
 	p := s.CreatePoint(4, 2)
 	s.AddConstraint(sketch.NewPointOnEllipticalArc(p, ea))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -78,6 +78,6 @@ func TestPointOnEllipticalArcRoundTrip(t *testing.T) {
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2))
 	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraint survives reload")
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 }

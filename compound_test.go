@@ -16,7 +16,7 @@ func TestCreateRectangle(t *testing.T) {
 	s.AddConstraint(sketch.NewDistance(r.A, r.B, 20))
 	s.AddConstraint(sketch.NewDistance(r.A, r.D, 12))
 
-	res, err := s.Solve()
+	res, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, 0, res.DOF, "fully constrained")
 	require.InDelta(t, 20, r.C.X(), 1e-6, "c.X")
@@ -35,7 +35,7 @@ func TestCreatePolygon(t *testing.T) {
 	// Knock a far vertex off the circle so the solve does real work.
 	p.Vertices[3].MoveTo(-4.5, 0.8)
 
-	res, err := s.Solve()
+	res, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, 0, res.DOF, "fully constrained")
 	for i, v := range p.Vertices {
@@ -61,7 +61,7 @@ func TestCreateSlot(t *testing.T) {
 	require.Equal(t, 1, s.DOF(), "only the radius is free (contact points pinned)")
 	s.AddConstraint(sketch.NewDistance(sl.L1.Start, sl.C1, 3)) // cap contact point to center == radius
 
-	res, err := s.Solve()
+	res, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, 0, res.DOF, "fully constrained")
 	require.InDelta(t, 3, sl.A1.R(), 1e-6, "cap 1 radius")
@@ -79,7 +79,7 @@ func TestJSONRoundTripSlot(t *testing.T) {
 	s.Fix(sl.C1)
 	s.Fix(sl.C2)
 	s.AddConstraint(sketch.NewDistance(sl.L1.Start, sl.C1, 3))
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -89,7 +89,7 @@ func TestJSONRoundTripSlot(t *testing.T) {
 	require.Len(t, s2.Entities(), len(s.Entities()), "entities survive")
 	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraints survive (internal ones recreated, not doubled)")
 
-	res, err := s2.Solve()
+	res, err := s2.Solve(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, 0, res.DOF, "reloaded DOF")
 }

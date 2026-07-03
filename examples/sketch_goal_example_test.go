@@ -1,6 +1,7 @@
 package examples_test
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/lestrrat-3d/sketch"
@@ -21,7 +22,7 @@ func Example_sketch_goal() {
 
 	// Drag b toward (7, 5). The horizontal constraint pins y to 0; the goal is
 	// free to pull the remaining x degree of freedom to 7.
-	res, err := s.Solve(sketch.WithGoal(b, 7, 5))
+	res, err := s.Solve(context.Background(), sketch.WithGoal(b, 7, 5))
 	if err != nil {
 		fmt.Printf("failed to solve: %s\n", err)
 		return

@@ -8,7 +8,7 @@ import (
 )
 
 // These tests lock in soundness invariants confirmed by an adversarial audit of the
-// World / multi-sketch verification layer: World.Verify().Trustworthy() must be false
+// World / multi-sketch verification layer: World.Verify(ctx).Trustworthy() must be false
 // whenever ANY component is compromised — an individually-untrustworthy sketch, an
 // invalid shared parameter table, or an uncomputable plane frame. (The wrong-kind
 // offset-plane case is covered by TestOffsetPlaneWrongKindRejected.)
@@ -22,9 +22,9 @@ func TestAuditWorldUntrustworthySketchPropagates(t *testing.T) {
 	a, b := s.CreatePoint(0, 0), s.CreatePoint(10, 0)
 	s.AddConstraint(sketch.NewDistance(a, b, 10))
 	s.AddConstraint(sketch.NewDistance(a, b, 20)) // conflict
-	s.Solve()
+	s.Solve(t.Context())
 
-	rep := w.Verify()
+	rep := w.Verify(t.Context())
 	require.False(t, rep.Sketches[0].Trustworthy(), "the conflicted sketch is untrustworthy")
 	require.False(t, rep.Trustworthy(), "a world with an untrustworthy sketch is untrustworthy")
 }
@@ -38,8 +38,8 @@ func TestAuditWorldSelfIntersectingProfilePropagates(t *testing.T) {
 	_, err = s.CreateClosedSpline(
 		s.CreatePoint(-3, -2), s.CreatePoint(3, 2), s.CreatePoint(-3, 2), s.CreatePoint(3, -2))
 	require.NoError(t, err)
-	s.Solve()
-	require.False(t, w.Verify().Trustworthy(), "a world with a self-intersecting profile is untrustworthy")
+	s.Solve(t.Context())
+	require.False(t, w.Verify(t.Context()).Trustworthy(), "a world with a self-intersecting profile is untrustworthy")
 }
 
 func TestAuditWorldCyclicParametersRejected(t *testing.T) {
@@ -47,7 +47,7 @@ func TestAuditWorldCyclicParametersRejected(t *testing.T) {
 	w := sketch.NewWorld()
 	require.NoError(t, w.Params().Set("a", "b + 1"))
 	require.NoError(t, w.Params().Set("b", "a + 1"))
-	rep := w.Verify()
+	rep := w.Verify(t.Context())
 	require.False(t, rep.ParametersValid, "a parameter cycle is invalid")
 	require.False(t, rep.Trustworthy(), "a world with invalid shared parameters is untrustworthy")
 }
@@ -59,7 +59,7 @@ func TestAuditWorldUndefinedOffsetParameterRejected(t *testing.T) {
 	op, err := w.CreateOffsetPlane(w.XY(), 0)
 	require.NoError(t, err)
 	require.NoError(t, w.BindOffsetPlane(op, "nonexistent_param"))
-	rep := w.Verify()
+	rep := w.Verify(t.Context())
 	require.NotEmpty(t, rep.PlaneErrors, "an undefined offset parameter is a plane error")
 	require.False(t, rep.Trustworthy(), "a world with an uncomputable plane frame is untrustworthy")
 }

@@ -27,7 +27,7 @@ func TestRectangleSolves(t *testing.T) {
 	s.AddConstraint(sketch.NewDistance(a, b, 20))
 	s.AddConstraint(sketch.NewDistance(a, d, 12))
 
-	res, err := s.Solve()
+	res, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	require.Equal(t, 0, res.DOF, "DOF (fully constrained)")
@@ -58,11 +58,11 @@ func TestParametricUpdate(t *testing.T) {
 	s.AddConstraint(w)
 	s.AddConstraint(sketch.NewDistance(a, d, 12))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	w.Set(35) // change the driving width dimension
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 35, b.X(), 1e-6, "b.X after edit")
 	require.InDelta(t, 35, c.X(), 1e-6, "c.X after edit")
@@ -85,7 +85,7 @@ func TestSharedPointTopology(t *testing.T) {
 	s.Fix(a)
 	s.Fix(b)
 	s.AddConstraint(sketch.NewHorizontal(l1), sketch.NewVertical(l2))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 10, l1.End.X(), 1e-6)
 	require.InDelta(t, 0, l1.End.Y(), 1e-6)
@@ -118,7 +118,7 @@ func TestTangentLineCircle(t *testing.T) {
 	circ := s.CreateCircle(center, 2) // bad initial radius
 	s.AddConstraint(sketch.NewTangent(line, circ))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 5, circ.R(), 1e-6, "tangent radius")
 }
@@ -136,7 +136,7 @@ func TestPerpendicular(t *testing.T) {
 	s.AddConstraint(sketch.NewDistance(a, b, 10))
 	s.AddConstraint(sketch.NewDistance(a, c, 5))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, math.Pi/2, math.Abs(l1.AngleTo(l2)), 1e-6, "perpendicular")
 	require.InDelta(t, 5, a.DistanceTo(c), 1e-6, "ac length")
@@ -156,7 +156,7 @@ func TestAngleConstraint(t *testing.T) {
 	s.AddConstraint(sketch.NewDistance(a, c, 8))
 	s.AddConstraint(sketch.NewAngle(l1, l2, 45)) // degrees (the sketch's default angle unit)
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, math.Pi/4, l1.AngleTo(l2), 1e-6, "angle")
 }
@@ -171,7 +171,7 @@ func TestArcRadiusConsistency(t *testing.T) {
 	s.Fix(start)
 	arc := s.CreateArc(center, start, end)
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 5, end.DistanceTo(center), 1e-6, "arc radius via end")
 	require.InDelta(t, 5, arc.R(), 1e-6, "arc R()")
@@ -187,7 +187,7 @@ func TestConcentricEqualRadius(t *testing.T) {
 	c2 := s.CreateCircle(o2, 9)
 	s.AddConstraint(sketch.NewConcentric(c1, c2), sketch.NewEqualRadius(c1, c2), sketch.NewRadius(c1, 7))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 0, o2.X(), 1e-6, "c2 center x")
 	require.InDelta(t, 0, o2.Y(), 1e-6, "c2 center y")
@@ -212,7 +212,7 @@ func TestTangentLineArc(t *testing.T) {
 	arc := s.CreateArc(center, start, end)
 	s.AddConstraint(sketch.NewTangent(line, arc))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 5, arc.R(), 1e-6, "arc radius reaches line")
 	require.InDelta(t, start.DistanceTo(center), end.DistanceTo(center), 1e-6, "radius consistency held")
@@ -233,7 +233,7 @@ func TestTangentCircleArc(t *testing.T) {
 		arc := s.CreateArc(center, start, end)
 		s.AddConstraint(sketch.NewTangentCircles(circ, arc, false))
 
-		_, err := s.Solve()
+		_, err := s.Solve(t.Context())
 		require.NoError(t, err)
 		require.InDelta(t, 7, arc.R(), 1e-6, "external: d = r1 + r2")
 	})
@@ -251,7 +251,7 @@ func TestTangentCircleArc(t *testing.T) {
 		arc := s.CreateArc(center, start, end)
 		s.AddConstraint(sketch.NewTangentCircles(circ, arc, true))
 
-		_, err := s.Solve()
+		_, err := s.Solve(t.Context())
 		require.NoError(t, err)
 		require.InDelta(t, 6, arc.R(), 1e-6, "internal: d = |r1 - r2|")
 	})
@@ -273,7 +273,7 @@ func TestTangentArcArc(t *testing.T) {
 	a2 := s.CreateArc(c2, s2, e2)
 	s.AddConstraint(sketch.NewTangentCircles(a1, a2, false))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 3, a1.R(), 1e-6, "pinned arc radius")
 	require.InDelta(t, 7, a2.R(), 1e-6, "external arc-arc tangency")
@@ -293,7 +293,7 @@ func TestEqualRadiusCircleArc(t *testing.T) {
 	arc := s.CreateArc(center, start, end)
 	s.AddConstraint(sketch.NewEqualRadius(circ, arc))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 7, arc.R(), 1e-6, "arc matches circle radius")
 }
@@ -314,7 +314,7 @@ func TestEqualRadiusArcArc(t *testing.T) {
 	a2 := s.CreateArc(c2, s2, e2)
 	s.AddConstraint(sketch.NewEqualRadius(a1, a2))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 5, a2.R(), 1e-6, "arc radii equal")
 }
@@ -330,7 +330,7 @@ func TestDistancePointLine(t *testing.T) {
 	p := s.CreatePoint(3, 2)
 	s.AddConstraint(sketch.NewDistancePointLine(p, line, 5))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 5, p.Y(), 1e-6, "perpendicular distance (stays on starting side)")
 }
@@ -348,7 +348,7 @@ func TestDistanceLines(t *testing.T) {
 	l2 := s.CreateLine(c, d)
 	s.AddConstraint(sketch.NewDistanceLines(l1, l2, 6))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 6, c.Y(), 1e-6, "l2 start offset")
 	require.InDelta(t, 6, d.Y(), 1e-6, "l2 end offset")
@@ -375,7 +375,7 @@ func TestJSONRoundTripDistanceDims(t *testing.T) {
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2), "unmarshal")
 
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 5, s2.Points()[p.ID()].Y(), 1e-6, "reloaded point-line distance")
 	require.InDelta(t, 6, s2.Points()[c.ID()].Y(), 1e-6, "reloaded line-line start offset")
@@ -402,7 +402,7 @@ func TestDrivenDimension(t *testing.T) {
 	diag.SetDriven(true)
 	s.AddConstraint(diag)
 
-	res, err := s.Solve()
+	res, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, 0, res.DOF, "driven dim adds no equation")
 	require.Zero(t, res.Redundant, "driven dim is not redundant")
@@ -412,7 +412,7 @@ func TestDrivenDimension(t *testing.T) {
 	// duplicates the rectangle's width/height dimensions, so the solve still
 	// converges but reports the redundancy.
 	diag.SetDriven(false)
-	res, err = s.Solve()
+	res, err = s.Solve(t.Context())
 	require.NoError(t, err)
 	require.NotZero(t, res.Redundant, "driving duplicate is redundant")
 }
@@ -436,7 +436,7 @@ func TestJSONRoundTripDrivenDimension(t *testing.T) {
 	diag := sketch.NewDistance(a, c, 0)
 	diag.SetDriven(true)
 	s.AddConstraint(diag)
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -444,7 +444,7 @@ func TestJSONRoundTripDrivenDimension(t *testing.T) {
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2), "unmarshal")
 
-	res, err := s2.Solve()
+	res, err := s2.Solve(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, 0, res.DOF, "reloaded DOF")
 	cons := s2.Constraints()
@@ -470,7 +470,7 @@ func TestSymmetric(t *testing.T) {
 	s.Fix(p1)
 	s.AddConstraint(sketch.NewSymmetric(p1, p2, axis))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 3, p2.X(), 1e-6, "mirror x")
 	require.InDelta(t, 4, p2.Y(), 1e-6, "mirror y")
@@ -500,7 +500,7 @@ func TestRedundantConstraint(t *testing.T) {
 
 	// Add a redundant duplicate width dimension.
 	s.AddConstraint(sketch.NewDistance(a, b, 20))
-	res, err := s.Solve()
+	res, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.NotZero(t, res.Redundant, "expected at least one redundant equation")
 }
@@ -521,7 +521,7 @@ func TestRedundantConstraints(t *testing.T) {
 	s.AddConstraint(sketch.NewDistance(a, b, 20))
 	s.AddConstraint(sketch.NewDistance(a, d, 12))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 20, b.X(), 1e-6, "rectangle reached its solved width")
 	require.Empty(t, s.RedundantConstraints(), "clean sketch has no redundancy")
@@ -530,7 +530,7 @@ func TestRedundantConstraints(t *testing.T) {
 	// later-added duplicate is the one identified.
 	dup := sketch.NewDistance(a, b, 20)
 	s.AddConstraint(dup)
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 	red := s.RedundantConstraints()
 	require.Len(t, red, 1, "exactly one redundant constraint")
@@ -555,7 +555,7 @@ func TestJSONRoundTrip(t *testing.T) {
 	s.AddConstraint(sketch.NewDistance(a, b, 20))
 	s.AddConstraint(sketch.NewDistance(a, d, 12))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.MarshalIndent(s, "", "  ")
@@ -565,7 +565,7 @@ func TestJSONRoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &s2), "unmarshal")
 	require.Len(t, s2.Points(), len(s.Points()), "points")
 
-	res, err := s2.Solve()
+	res, err := s2.Solve(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, 0, res.DOF, "reloaded DOF")
 	require.InDelta(t, 20, s2.Points()[b.ID()].X(), 1e-6, "reloaded b.X")
@@ -593,7 +593,7 @@ func TestJSONRoundTripArcTangent(t *testing.T) {
 	circ := s.CreateCircle(o, 2)
 
 	s.AddConstraint(sketch.NewTangent(line, arc), sketch.NewEqualRadius(circ, arc))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 5, arc.R(), 1e-6, "arc radius before round-trip")
 
@@ -606,7 +606,7 @@ func TestJSONRoundTripArcTangent(t *testing.T) {
 	// CreateArc exactly once, not also deserialized.
 	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraint count")
 
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 	reloaded, ok := s2.Entities()[1].(*sketch.Arc)
 	require.True(t, ok, "entity 1 is the arc")
@@ -632,7 +632,7 @@ func TestSVGOutput(t *testing.T) {
 	s.AddConstraint(sketch.NewDistance(a, b, 20))
 	s.AddConstraint(sketch.NewDistance(a, d, 12))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	o := s.CreatePoint(10, 6)
 	s.CreateCircle(o, 3)

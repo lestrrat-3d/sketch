@@ -1,6 +1,7 @@
 package examples_test
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/lestrrat-3d/sketch"
@@ -24,26 +25,26 @@ func Example_sketch_verify() {
 
 	// A rectangle held only by its shape constraints: closed, but its size is
 	// free to move.
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(context.Background()); err != nil {
 		fmt.Println(err)
 		return
 	}
-	report("shape only ", s.Verify())
+	report("shape only ", s.Verify(context.Background()))
 
 	// Dimension the width and height: now nothing can move.
 	s.AddConstraint(sketch.NewDistance(r.A, r.B, 20), sketch.NewDistance(r.A, r.D, 12))
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(context.Background()); err != nil {
 		fmt.Println(err)
 		return
 	}
-	report("dimensioned", s.Verify())
+	report("dimensioned", s.Verify(context.Background()))
 
 	// Add a second width dimension that disagrees with the first. The solver can
 	// no longer converge, and Verify names the conflict and the earlier
 	// dimension it fights.
 	s.AddConstraint(sketch.NewDistance(r.A, r.B, 25))
-	s.Solve() // expected to fail: the dimensions contradict
-	rep := s.Verify()
+	s.Solve(context.Background()) // expected to fail: the dimensions contradict
+	rep := s.Verify(context.Background())
 	report("contradicted", rep)
 	fmt.Printf("the conflicting dimension fights %d earlier constraint(s)\n", len(rep.Conflicts[0].With))
 

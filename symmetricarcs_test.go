@@ -34,9 +34,9 @@ func TestSymmetricArcsSolvedMirror(t *testing.T) {
 	a2 := s.CreateArc(s.CreatePoint(2, -2.8), s.CreatePoint(2.1, -3.9), s.CreatePoint(2.9, -3.1))
 	s.AddConstraint(sketch.NewSymmetricArcs(a1, a2, axis))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
-	require.True(t, s.Verify().Solvable)
+	require.True(t, s.Verify(t.Context()).Solvable)
 
 	require.InDelta(t, 2, a2.Center.X(), 1e-6)
 	require.InDelta(t, -3, a2.Center.Y(), 1e-6)
@@ -62,7 +62,7 @@ func TestSymmetricArcsDOFNoRedundancy(t *testing.T) {
 	a2 := s.CreateArc(s.CreatePoint(2, -3), s.CreatePoint(2, -4), s.CreatePoint(3, -3))
 	s.AddConstraint(sketch.NewSymmetricArcs(a1, a2, axis))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, 5, s.DOF(), "a mirror pair retains exactly a1's 5 DOF")
 	require.Empty(t, s.RedundantConstraints(), "no spurious redundancy against the arcs' radius constraints")
@@ -88,9 +88,9 @@ func TestSymmetricArcsWrongBranchRejected(t *testing.T) {
 	a2 := s.CreateArc(c2, st2, en2)
 	s.AddConstraint(sketch.NewSymmetricArcs(a1, a2, axis))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.ErrorIs(t, err, sketch.ErrNotConverged)
-	require.False(t, s.Verify().Solvable, "the antipodal endpoint is not the mirror image")
+	require.False(t, s.Verify(t.Context()).Solvable, "the antipodal endpoint is not the mirror image")
 }
 
 func TestSymmetricArcsRoundTrip(t *testing.T) {
@@ -105,7 +105,7 @@ func TestSymmetricArcsRoundTrip(t *testing.T) {
 	a1 := s.CreateArc(c1, st1, en1)
 	a2 := s.CreateArc(s.CreatePoint(2, -2.8), s.CreatePoint(2.1, -3.9), s.CreatePoint(2.9, -3.1))
 	s.AddConstraint(sketch.NewSymmetricArcs(a1, a2, axis))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -113,9 +113,9 @@ func TestSymmetricArcsRoundTrip(t *testing.T) {
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2))
 	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraint survives reload, not doubled")
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
-	require.True(t, s2.Verify().Solvable)
+	require.True(t, s2.Verify(t.Context()).Solvable)
 	// the reloaded a2 (entity 2: axis=0, a1=1, a2=2) still lands on the swapped
 	// mirror after reload — the branch slack is recomputed on load, not doubled.
 	a2r := s2.Entities()[2].(*sketch.Arc)

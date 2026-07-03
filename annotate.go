@@ -1,6 +1,7 @@
 package sketch
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"sort"
@@ -804,7 +805,7 @@ func loopMin(loop []BoundaryEdge) (float64, float64) {
 // is the outer frame padding (0 when unframed), so the badge tucks inside the
 // frame's top-left when windowed.
 func (s *Sketch) writeStatusBadge(sb *strings.Builder, cfg svgConfig, pad, w float64) {
-	rep := s.Verify()
+	rep := s.Verify(context.Background())
 	txt := fmt.Sprintf("DOF %d · %s · solvable=%t", rep.DOF, rep.Status, rep.Solvable)
 	size := w * 0.035 * cfg.annScale
 	if size <= 0 {

@@ -1,6 +1,7 @@
 package examples_test
 
 import (
+	"context"
 	"fmt"
 	"math"
 
@@ -20,7 +21,7 @@ func Example_sketch_ellipticalArc() {
 	ea := s.CreateEllipticalArc(c, start, end, 4, 2, 0)
 	s.CreateLine(ea.End, ea.Start) // chord along the major axis
 
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(context.Background()); err != nil {
 		fmt.Println(err)
 		return
 	}

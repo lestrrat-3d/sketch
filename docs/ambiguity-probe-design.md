@@ -37,9 +37,11 @@ implies the complete set, which a heuristic multi-start search cannot deliver.
 
 ## API
 
-- `Sketch.ProbeConfigurations(options ...ProbeOption) (*ProbeResult, error)`,
+- `Sketch.ProbeConfigurations(ctx context.Context, options ...ProbeOption) (*ProbeResult, error)`,
   called after `Solve` like the other diagnostics; analysis is local to the
-  call-time configuration and dimension targets.
+  call-time configuration and dimension targets. `ctx` bounds the multi-start
+  re-solves: cancellation before/during the baseline returns `(nil, ctx.Err())`,
+  and after the baseline is established returns the partial result with `ctx.Err()`.
 - `ProbeResult.Configurations` — baseline (call-time, converged) first, then
   alternatives in deterministic probe order. `Ambiguous()` ⇔ length > 1.
 - `Configuration` — a full variable-vector snapshot. `PointXY(p)` reads

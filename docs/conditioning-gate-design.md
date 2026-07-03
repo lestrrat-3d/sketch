@@ -66,7 +66,7 @@ at `condFDStep = 1e-7`). The `4·√tol` term handles **slack-encoded inequaliti
 their active boundary** (see below): such a slack only resolves to `≈√tol`, so its
 column norm `2w ≤ 2·√tol` upper-bounds `σ_min`; the gate must sit above that floor
 or a slack flat-spot slips through. At the default tolerance `1e-10` the effective
-gate is `4e-5`. A looser `Verify(WithTolerance(…))` raises the gate accordingly, so
+gate is `4e-5`. A looser `Verify(ctx, WithTolerance(…))` raises the gate accordingly, so
 trust is never granted on a tolerance too coarse to resolve the singularity — the
 threshold and the solve tolerance are kept consistent rather than independent.
 

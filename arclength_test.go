@@ -19,7 +19,7 @@ func TestArcLengthQuarter(t *testing.T) {
 	arc := s.CreateArc(c, start, end)
 	s.AddConstraint(sketch.NewArcLength(arc, 3*math.Pi)) // 3π / R(4) = 3π/4 sweep
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 4, arc.R(), 1e-6, "radius held by the fixed start")
 	require.InDelta(t, 3*math.Pi/4, arc.Sweep(), 1e-6, "sweep = length / radius")
@@ -39,7 +39,7 @@ func TestArcLengthBranchBeyondPi(t *testing.T) {
 	arc := s.CreateArc(c, start, end)
 	s.AddConstraint(sketch.NewArcLength(arc, 3*math.Pi)) // 3π / 2 = 3π/2 sweep
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 3*math.Pi/2, arc.Sweep(), 1e-6, "swept past π to 3π/2")
 	require.InDelta(t, 0, end.X(), 1e-6, "end at angle 3π/2")
@@ -61,8 +61,8 @@ func TestArcLengthRejectsWrongBranch(t *testing.T) {
 	arc := s.CreateArc(c, start, end)
 	s.AddConstraint(sketch.NewArcLength(arc, 3*math.Pi)) // wants sweep 3π/2
 
-	s.Solve()
-	require.False(t, s.Verify().Solvable, "the frozen wrong-branch arc is not solvable")
+	s.Solve(t.Context())
+	require.False(t, s.Verify(t.Context()).Solvable, "the frozen wrong-branch arc is not solvable")
 }
 
 func TestArcLengthSemicircle(t *testing.T) {
@@ -77,7 +77,7 @@ func TestArcLengthSemicircle(t *testing.T) {
 	arc := s.CreateArc(c, start, end)
 	s.AddConstraint(sketch.NewArcLength(arc, 3*math.Pi)) // 3π / 3 = π sweep
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, math.Pi, arc.Sweep(), 1e-6, "swept to a half turn")
 	require.InDelta(t, -3, end.X(), 1e-6, "end antipodal to start")
@@ -117,7 +117,7 @@ func TestArcLengthDriven(t *testing.T) {
 	dim.SetDriven(true)
 	s.AddConstraint(dim)
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.True(t, dim.Driven())
 	require.InDelta(t, 2*math.Pi, dim.Target().Mag(), 1e-6, "measures R·Sweep()")
@@ -176,7 +176,7 @@ func TestArcLengthDrivenRoundTrip(t *testing.T) {
 	dim := sketch.NewArcLength(arc, 0)
 	dim.SetDriven(true)
 	s.AddConstraint(dim)
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -186,7 +186,7 @@ func TestArcLengthDrivenRoundTrip(t *testing.T) {
 	d2, ok := s2.Constraints()[len(s2.Constraints())-1].(*sketch.ArcLength)
 	require.True(t, ok, "the reloaded constraint is an ArcLength")
 	require.True(t, d2.Driven(), "driven flag survives the round-trip")
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 2*math.Pi, d2.Target().Mag(), 1e-6, "measured value after reload")
 }
@@ -199,7 +199,7 @@ func TestArcLengthRoundTrip(t *testing.T) {
 	s.Fix(start)
 	arc := s.CreateArc(c, start, s.CreatePoint(0, 4))
 	s.AddConstraint(sketch.NewArcLength(arc, 3*math.Pi))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -208,7 +208,7 @@ func TestArcLengthRoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &s2))
 	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraint survives reload")
 
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 	for i, p := range s.Points() {
 		require.InDeltaf(t, p.X(), s2.Points()[i].X(), 1e-6, "point %d X", i)

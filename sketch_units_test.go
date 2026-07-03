@@ -21,7 +21,7 @@ func TestDimensionTypedValue(t *testing.T) {
 	s.AddConstraint(d)
 	require.NoError(t, d.SetValue(units.Inches(4)))
 	require.Equal(t, units.Inch, d.Target().Unit(), "unit")
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 101.6, b.X(), 1e-6, "4in in mm") // 4 * 25.4
 }
@@ -49,7 +49,7 @@ func TestAngleDefaultUnitDegrees(t *testing.T) {
 	s.AddConstraint(sketch.NewDistance(a, b, 10))
 	s.AddConstraint(sketch.NewDistance(a, c, 8))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	d1x, d1y := l1.End.X()-l1.Start.X(), l1.End.Y()-l1.Start.Y()
 	d2x, d2y := l2.End.X()-l2.Start.X(), l2.End.Y()-l2.Start.Y()
@@ -66,7 +66,7 @@ func TestSetUnitsImperial(t *testing.T) {
 	s.Fix(a)
 	s.AddConstraint(sketch.NewHorizontal(s.CreateLine(a, b)))
 	s.AddConstraint(sketch.NewDistance(a, b, 2)) // 2 inches
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 50.8, b.X(), 1e-6, "2in in mm")
 }
@@ -85,7 +85,7 @@ func TestBindTypedLengthParam(t *testing.T) {
 	lenDim := sketch.NewDistance(a, b, 0)
 	s.AddConstraint(lenDim)
 	require.NoError(t, s.Bind(lenDim, p, "len"))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 1000, b.X(), 1e-6, "1m in mm")
 }
@@ -104,7 +104,7 @@ func TestBindKindMismatch(t *testing.T) {
 	turnDim := sketch.NewDistance(a, b, 0)
 	s.AddConstraint(turnDim)
 	require.NoError(t, s.Bind(turnDim, p, "turn"))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.Error(t, err, "expected kind-mismatch error when a length is driven by an angle")
 }
 
@@ -127,7 +127,7 @@ func TestBindAngleParam(t *testing.T) {
 	theta := sketch.NewAngle(l1, l2, 0)
 	s.AddConstraint(theta)
 	require.NoError(t, s.Bind(theta, p, "theta"))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	d1x, d1y := l1.End.X()-l1.Start.X(), l1.End.Y()-l1.Start.Y()
 	d2x, d2y := l2.End.X()-l2.Start.X(), l2.End.Y()-l2.Start.Y()
@@ -147,7 +147,7 @@ func TestJSONRoundTripUnits(t *testing.T) {
 	d := sketch.NewDistance(a, b, 0)
 	s.AddConstraint(d)
 	require.NoError(t, d.SetValue(units.Inches(3)))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := s.MarshalJSON()
@@ -158,7 +158,7 @@ func TestJSONRoundTripUnits(t *testing.T) {
 	var s2 sketch.Sketch
 	require.NoError(t, s2.UnmarshalJSON(data))
 	require.Equal(t, units.Inch, s2.Units().Length, "reloaded length unit")
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 76.2, s2.Points()[1].X(), 1e-6, "reloaded 3in in mm") // 3 * 25.4
 }

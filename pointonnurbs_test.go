@@ -53,7 +53,7 @@ func TestPointOnNURBS(t *testing.T) {
 	p := s.CreatePoint(4, 1) // below the arch interior; pulled up onto it
 	s.AddConstraint(sketch.NewPointOnNURBS(p, c))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 0, distToNURBS(p, c), 1e-4, "point pulled onto the NURBS")
 	require.Greater(t, p.Y(), 1.0, "moved up onto the interior of the arch")
@@ -67,7 +67,7 @@ func TestPointOnNURBSConfinedToRange(t *testing.T) {
 	p := s.CreatePoint(12, -2) // past the (8,0) end
 	s.AddConstraint(sketch.NewPointOnNURBS(p, c))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 0, distToNURBS(p, c), 1e-4, "still on the curve")
 	require.LessOrEqual(t, p.X(), 8.01, "not extrapolated past the clamped end")
@@ -101,7 +101,7 @@ func TestPointOnNURBSRoundTrip(t *testing.T) {
 	c := archNURBS(s)
 	p := s.CreatePoint(4, 1)
 	s.AddConstraint(sketch.NewPointOnNURBS(p, c))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -109,7 +109,7 @@ func TestPointOnNURBSRoundTrip(t *testing.T) {
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2))
 	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraint survives reload (no doubling)")
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, 1, s2.DOF(), "reloaded sketch keeps one sliding DOF (aux vars re-seeded)")
 }
@@ -137,7 +137,7 @@ func TestTangentToNURBS(t *testing.T) {
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewTangentToNURBS(line, c))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, p1.Y(), p2.Y(), 1e-9, "line stays horizontal")
 
@@ -196,7 +196,7 @@ func TestTangentToNURBSRoundTrip(t *testing.T) {
 	line := s.CreateLine(p1, p2)
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewTangentToNURBS(line, c))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -204,6 +204,6 @@ func TestTangentToNURBSRoundTrip(t *testing.T) {
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2))
 	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraints survive reload (no doubling)")
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 }

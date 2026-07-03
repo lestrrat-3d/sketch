@@ -22,7 +22,7 @@ func TestClosedSplineBoundsProfile(t *testing.T) {
 	require.True(t, profiles[0].Valid)
 	require.Greater(t, profiles[0].Area, 0.0)
 	require.Contains(t, profiles[0].Entities, sketch.Entity(sp))
-	require.True(t, s.Verify().ProfilesValid)
+	require.True(t, s.Verify(t.Context()).ProfilesValid)
 }
 
 func TestClosedSplineFigureEightInvalid(t *testing.T) {
@@ -35,7 +35,7 @@ func TestClosedSplineFigureEightInvalid(t *testing.T) {
 	_, err := s.CreateClosedSpline(a, b, c, d)
 	require.NoError(t, err)
 
-	rep := s.Verify()
+	rep := s.Verify(t.Context())
 	require.False(t, rep.ProfilesValid, "a self-crossing closed spline is not valid")
 	require.NotEmpty(t, rep.InvalidProfiles)
 	var sawSelfX bool
@@ -139,7 +139,7 @@ func TestClosedSplineForeignControlNotTrustworthy(t *testing.T) {
 	_, err := s.CreateClosedSpline(a, b, foreign)
 	require.NoError(t, err)
 
-	rep := s.Verify()
+	rep := s.Verify(t.Context())
 	require.True(t, rep.ForeignHandles, "a foreign control point is reachable and detected")
 	require.False(t, rep.Trustworthy(), "the oracle must not bless geometry built from a foreign handle")
 }

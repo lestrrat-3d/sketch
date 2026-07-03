@@ -43,7 +43,7 @@ func TestTangentLineEllipse(t *testing.T) {
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewTangentEllipse(line, e))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 3, math.Abs(p1.Y()), 1e-6, "tangent to the top: |y| = ry")
 	require.InDelta(t, 0, ellipseTangentGap(p1, p2, e.Center, 6, 3, 0), 1e-6)
@@ -63,7 +63,7 @@ func TestTangentLineEllipseRotated(t *testing.T) {
 	s.AddConstraint(sketch.NewVertical(line))
 	s.AddConstraint(sketch.NewTangentEllipse(line, e))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, want, math.Abs(p1.X()), 1e-6, "vertical tangent distance to the rotated ellipse")
 	require.InDelta(t, 0, ellipseTangentGap(p1, p2, e.Center, 6, 3, rot), 1e-6)
@@ -92,9 +92,9 @@ func TestTangentLineEllipticalArcOutOfSweepRejected(t *testing.T) {
 	s.Fix(b)
 	s.AddConstraint(sketch.NewTangentEllipse(s.CreateLine(a, b), ea))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.ErrorIs(t, err, sketch.ErrNotConverged, "out-of-sweep tangent is unsatisfiable")
-	rep := s.Verify()
+	rep := s.Verify(t.Context())
 	require.False(t, rep.Solvable, "oracle must reject an out-of-sweep elliptical tangent")
 }
 
@@ -109,9 +109,9 @@ func TestTangentLineEllipticalArcInSweepSatisfied(t *testing.T) {
 	s.Fix(b)
 	s.AddConstraint(sketch.NewTangentEllipse(s.CreateLine(a, b), ea))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
-	require.True(t, s.Verify().Solvable)
+	require.True(t, s.Verify(t.Context()).Solvable)
 	require.InDelta(t, 3, ea.Ry(), 1e-9, "the rigid arc is unchanged")
 }
 
@@ -124,7 +124,7 @@ func TestTangentLineEllipticalArcEndpoint(t *testing.T) {
 	free := s.CreatePoint(7, 5)
 	s.AddConstraint(sketch.NewTangentEllipse(s.CreateLine(tip, free), ea))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 6, free.X(), 1e-6, "tangent at (6,0) is the vertical line x = 6")
 }
@@ -175,9 +175,9 @@ func TestTangentEllipseDegenerateRejected(t *testing.T) {
 		s.Fix(p2)
 		s.AddConstraint(sketch.NewTangentEllipse(s.CreateLine(p1, p2), e))
 
-		_, err := s.Solve()
+		_, err := s.Solve(t.Context())
 		require.Error(t, err)
-		require.False(t, s.Verify().Solvable, "degenerate ellipse + zero-length line")
+		require.False(t, s.Verify(t.Context()).Solvable, "degenerate ellipse + zero-length line")
 	})
 	t.Run("real line through center", func(t *testing.T) {
 		s := newSketch(t)
@@ -189,9 +189,9 @@ func TestTangentEllipseDegenerateRejected(t *testing.T) {
 		s.Fix(b)
 		s.AddConstraint(sketch.NewTangentEllipse(s.CreateLine(a, b), e))
 
-		_, err := s.Solve()
+		_, err := s.Solve(t.Context())
 		require.Error(t, err)
-		require.False(t, s.Verify().Solvable, "degenerate ellipse + line through center")
+		require.False(t, s.Verify(t.Context()).Solvable, "degenerate ellipse + line through center")
 	})
 }
 
@@ -203,7 +203,7 @@ func TestTangentEllipseRoundTrip(t *testing.T) {
 	s.Fix(a)
 	s.Fix(b)
 	s.AddConstraint(sketch.NewTangentEllipse(s.CreateLine(a, b), ea))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -211,6 +211,6 @@ func TestTangentEllipseRoundTrip(t *testing.T) {
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2))
 	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraint survives reload")
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 }

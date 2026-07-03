@@ -18,7 +18,7 @@ func TestGoalProjection(t *testing.T) {
 	p := s.CreatePoint(3, 0)
 	s.AddConstraint(sketch.NewPointOnLine(p, line))
 
-	res, err := s.Solve(sketch.WithGoal(p, 4, 5))
+	res, err := s.Solve(t.Context(), sketch.WithGoal(p, 4, 5))
 	require.NoError(t, err, "goal solve")
 	require.True(t, res.Converged, "hard constraints hold")
 	require.InDelta(t, 4, p.X(), 1e-5, "lands at the perpendicular projection")
@@ -40,10 +40,10 @@ func TestGoalConstraintsWin(t *testing.T) {
 	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
 	s.AddConstraint(sketch.NewDistance(a, b, 20))
 	s.AddConstraint(sketch.NewDistance(a, d, 12))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
-	res, err := s.Solve(sketch.WithGoal(c, 30, 30)) // unreachable: w=20, h=12
+	res, err := s.Solve(t.Context(), sketch.WithGoal(c, 30, 30)) // unreachable: w=20, h=12
 	require.NoError(t, err, "unreachable goal is not an error")
 	require.True(t, res.Converged, "hard constraints still hold")
 	require.InDelta(t, 20, c.X(), 1e-6, "corner pinned by width")
@@ -56,7 +56,7 @@ func TestGoalTracking(t *testing.T) {
 	s := newSketch(t)
 	p := s.CreatePoint(0, 0)
 	for _, tgt := range [][2]float64{{2, 1}, {5, 4}, {5, 9}, {-3, 2}} {
-		res, err := s.Solve(sketch.WithGoal(p, tgt[0], tgt[1]))
+		res, err := s.Solve(t.Context(), sketch.WithGoal(p, tgt[0], tgt[1]))
 		require.NoError(t, err, "tracking solve")
 		require.True(t, res.Converged, "no hard constraints to violate")
 		require.InDelta(t, tgt[0], p.X(), 1e-5, "tracks target x")
@@ -72,7 +72,7 @@ func TestGoalMultiple(t *testing.T) {
 	s.CreateLine(a, b)
 	s.AddConstraint(sketch.NewDistance(a, b, 10))
 
-	res, err := s.Solve(sketch.WithGoal(a, 5, 5), sketch.WithGoal(b, 15, 5))
+	res, err := s.Solve(t.Context(), sketch.WithGoal(a, 5, 5), sketch.WithGoal(b, 15, 5))
 	require.NoError(t, err, "two-goal solve")
 	require.True(t, res.Converged, "length constraint holds")
 	require.InDelta(t, 5, a.X(), 1e-5, "a.X")
@@ -87,7 +87,7 @@ func TestGoalFixedPointInert(t *testing.T) {
 	p := s.CreatePoint(2, 3)
 	s.Fix(p)
 
-	res, err := s.Solve(sketch.WithGoal(p, 50, 50))
+	res, err := s.Solve(t.Context(), sketch.WithGoal(p, 50, 50))
 	require.NoError(t, err, "goal on fixed point is legal")
 	require.True(t, res.Converged, "nothing to violate")
 	require.InDelta(t, 2, p.X(), 1e-12, "grounded point does not move")
@@ -109,10 +109,10 @@ func TestGoalLeavesNoResidue(t *testing.T) {
 	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
 	s.AddConstraint(sketch.NewDistance(a, b, 20))
 	s.AddConstraint(sketch.NewDistance(a, d, 12))
-	plain, err := s.Solve()
+	plain, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
-	res, err := s.Solve(sketch.WithGoal(c, 30, 30))
+	res, err := s.Solve(t.Context(), sketch.WithGoal(c, 30, 30))
 	require.NoError(t, err, "goal solve")
 	require.Equal(t, plain.DOF, res.DOF, "DOF unaffected by goal")
 	require.Equal(t, plain.Redundant, res.Redundant, "redundancy unaffected by goal")
@@ -120,7 +120,7 @@ func TestGoalLeavesNoResidue(t *testing.T) {
 
 	// A subsequent plain solve does not move geometry.
 	x, y := c.X(), c.Y()
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, x, c.X(), 1e-9, "plain re-solve stable")
 	require.InDelta(t, y, c.Y(), 1e-9, "plain re-solve stable")

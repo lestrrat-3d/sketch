@@ -18,7 +18,7 @@ func TestHorizontalPoints(t *testing.T) {
 	b := s.CreatePoint(10, -3) // skewed: shares no line with a
 	s.AddConstraint(sketch.NewHorizontalPoints(a, b))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 4, b.Y(), 1e-6, "b pulled to a's y")
 	require.InDelta(t, 10, b.X(), 1e-6, "x unconstrained, stays put")
@@ -31,7 +31,7 @@ func TestVerticalPoints(t *testing.T) {
 	b := s.CreatePoint(-2, 9)
 	s.AddConstraint(sketch.NewVerticalPoints(a, b))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 5, b.X(), 1e-6, "b pulled to a's x")
 	require.InDelta(t, 9, b.Y(), 1e-6, "y unconstrained, stays put")
@@ -46,7 +46,7 @@ func TestMidpointOf(t *testing.T) {
 	mid := s.CreatePoint(1, 1) // arbitrary start
 	s.AddConstraint(sketch.NewMidpointOf(mid, a, b))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 5, mid.X(), 1e-6, "midpoint x")
 	require.InDelta(t, 3, mid.Y(), 1e-6, "midpoint y")
@@ -61,7 +61,7 @@ func TestRadiusOnArc(t *testing.T) {
 	a := s.CreateArc(c, start, end)
 	s.AddConstraint(sketch.NewRadius(a, 5))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 5, a.R(), 1e-6, "arc radius driven to 5")
 	// The internal radius-consistency constraint keeps start/end equidistant.
@@ -77,7 +77,7 @@ func TestDiameterOnArc(t *testing.T) {
 	a := s.CreateArc(c, start, end)
 	s.AddConstraint(sketch.NewDiameter(a, 12))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 6, a.R(), 1e-6, "arc radius is half the diameter")
 }
@@ -97,7 +97,7 @@ func TestConcentricArcs(t *testing.T) {
 
 	s.AddConstraint(sketch.NewConcentric(a1, a2))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 0, c1.DistanceTo(c2), 1e-6, "arc centers coincide")
 }
@@ -116,7 +116,7 @@ func TestConcentricCircleArc(t *testing.T) {
 
 	s.AddConstraint(sketch.NewConcentric(circle, arc))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 0, cc.DistanceTo(ac), 1e-6, "circle and arc share a center")
 }

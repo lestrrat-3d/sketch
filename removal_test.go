@@ -24,14 +24,14 @@ func TestRemoveConstraint(t *testing.T) {
 	w := sketch.NewDistance(a, b, 20)
 	s.AddConstraint(w)
 	s.AddConstraint(sketch.NewDistance(a, d, 12))
-	res, err := s.Solve()
+	res, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, 0, res.DOF, "fully constrained")
 
 	require.True(t, s.RemoveConstraint(w), "width dimension removed")
 	require.False(t, s.RemoveConstraint(w), "second removal is a no-op")
 
-	res, err = s.Solve()
+	res, err = s.Solve(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, 1, res.DOF, "width is free again")
 }
@@ -99,7 +99,7 @@ func TestRemoveKeepsUnrelatedConstraints(t *testing.T) {
 	require.True(t, s.RemoveEntity(line), "line removed")
 	require.Contains(t, s.Constraints(), sketch.Constraint(d), "point dimension survives")
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 10, a.DistanceTo(b), 1e-6, "dimension still drives the points")
 }
@@ -138,7 +138,7 @@ func TestRemovalJSONRoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &s2), "unmarshal")
 	require.Len(t, s2.Entities(), 2, "two circles after removal")
 
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 	// The radius dim must still target the (renumbered) third circle.
 	reloaded, ok := s2.Entities()[1].(*sketch.Circle)

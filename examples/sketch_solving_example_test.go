@@ -1,6 +1,7 @@
 package examples_test
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/lestrrat-3d/sketch"
@@ -20,7 +21,7 @@ func Example_sketch_solving() {
 	s.AddConstraint(sketch.NewHorizontal(l))
 	s.AddConstraint(sketch.NewDistance(a, b, 30))
 
-	res, err := s.Solve(
+	res, err := s.Solve(context.Background(),
 		sketch.WithMaxIterations(200),
 		sketch.WithTolerance(1e-10),
 	)

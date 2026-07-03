@@ -1,6 +1,7 @@
 package examples_test
 
 import (
+	"context"
 	"fmt"
 	"math"
 
@@ -44,7 +45,7 @@ func Example_sketch_hexagon() {
 		s.AddConstraint(sketch.NewAngle(lines[i], lines[i+1], 60)) // degrees
 	}
 
-	res, err := s.Solve()
+	res, err := s.Solve(context.Background())
 	if err != nil {
 		fmt.Printf("failed to solve: %s\n", err)
 		return

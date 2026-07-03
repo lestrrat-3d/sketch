@@ -1,6 +1,7 @@
 package examples_test
 
 import (
+	"context"
 	"fmt"
 	"math"
 
@@ -34,7 +35,7 @@ func Example_sketch_nurbs() {
 	s.CreateLine(p2, o) // (0,1) → origin
 	s.CreateLine(o, p0) // origin → (1,0)
 
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(context.Background()); err != nil {
 		fmt.Println(err)
 		return
 	}

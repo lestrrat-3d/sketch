@@ -1,6 +1,7 @@
 package sketch
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -135,7 +136,16 @@ func (r *ProbeResult) Ambiguous() bool { return len(r.Configurations) > 1 }
 // It returns [ErrNotConverged] if the sketch cannot be solved from its current
 // state, and an error wrapping [ErrUnderconstrained] if degrees of freedom
 // remain (a continuum of configurations has no discrete branches to probe).
-func (s *Sketch) ProbeConfigurations(options ...ProbeOption) (*ProbeResult, error) {
+//
+// The ctx argument bounds the probe's multi-start re-solves: it is checked
+// before the baseline solve and before each restart, so cancellation or a
+// deadline aborts the search, always with an error wrapping ctx.Err().
+// Cancellation before or during the baseline solve returns (nil, ctx.Err());
+// once the baseline configuration is established, later cancellation returns the
+// partial result gathered so far alongside the error. Either way a caller that
+// only adopts the probe on success (notably [Sketch.Verify]) simply discards it.
+// Pass context.Background() for an unbounded probe.
+func (s *Sketch) ProbeConfigurations(ctx context.Context, options ...ProbeOption) (*ProbeResult, error) {
 	cfg := defaultProbeConfig()
 	for _, opt := range options {
 		switch opt.Ident().(type) {
@@ -144,6 +154,10 @@ func (s *Sketch) ProbeConfigurations(options ...ProbeOption) (*ProbeResult, erro
 		case identSeed:
 			cfg.seed = option.MustGet[uint64](opt)
 		}
+	}
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	entry := append([]float64(nil), s.vars...)
@@ -156,7 +170,18 @@ func (s *Sketch) ProbeConfigurations(options ...ProbeOption) (*ProbeResult, erro
 	// directly rather than Solve so that parameter bindings are not
 	// re-evaluated and refreshDriven never writes a probed configuration's
 	// measurements into driven dimensions.
-	s.lm(free, s.residuals, sc.maxIterations, sc.tolerance)
+	if _, err := s.lm(ctx, free, s.residuals, sc.maxIterations, sc.tolerance); err != nil {
+		return nil, err // cancellation returns ctx.Err(), not a spurious ErrNotConverged
+	}
+	// The baseline solve finished, but ctx may have gone done as its last lm
+	// iteration returned. The precondition work below — the convergence check and
+	// then the rank/DOF pass — can return ErrNotConverged or ErrUnderconstrained,
+	// non-context verdicts. Honor the cancellation contract instead: no baseline
+	// configuration has been recorded yet, so return (nil, ctx.Err()) exactly like
+	// a cancellation during the baseline solve.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	r := s.residuals(nil)
 	if math.Sqrt(dot(r, r)) > sc.tolerance {
 		return nil, ErrNotConverged
@@ -167,6 +192,12 @@ func (s *Sketch) ProbeConfigurations(options ...ProbeOption) (*ProbeResult, erro
 	dof := len(free)
 	if m := len(r); m > 0 {
 		dof = len(free) - s.rank(free, m)
+	}
+	// The rank pass is itself a Jacobian rebuild; a deadline expiring during it
+	// must still abort with the context error rather than the ErrUnderconstrained
+	// precondition verdict below.
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	if dof > 0 {
 		return nil, fmt.Errorf("%w (DOF 0 needed, %d remaining)", ErrUnderconstrained, dof)
@@ -189,22 +220,30 @@ func (s *Sketch) ProbeConfigurations(options ...ProbeOption) (*ProbeResult, erro
 
 	// try re-solves from one perturbation of the baseline and keeps the result
 	// if it converged to a configuration not seen before. Acceptance order is
-	// probe order, so the result is deterministic.
-	try := func(perturb func()) {
+	// probe order, so the result is deterministic. It returns false when ctx is
+	// cancelled, so the caller loop can stop promptly (the end-of-function check
+	// then reports ctx.Err()); true otherwise, whether or not a config was added.
+	try := func(perturb func()) bool {
+		if ctx.Err() != nil {
+			return false
+		}
 		copy(s.vars, baseline)
 		perturb()
-		s.lm(free, s.residuals, sc.maxIterations, sc.tolerance)
+		if _, err := s.lm(ctx, free, s.residuals, sc.maxIterations, sc.tolerance); err != nil {
+			return false // cancelled mid-solve — stop the caller loop promptly
+		}
 		rr := s.residuals(nil)
 		if math.Sqrt(dot(rr, rr)) > sc.tolerance {
-			return
+			return true
 		}
 		cand := append([]float64(nil), s.vars...)
 		for _, c := range result.Configurations {
 			if configSep(c.vars, cand, free, kinds, diag) < separationTol {
-				return
+				return true
 			}
 		}
 		result.Configurations = append(result.Configurations, &Configuration{s: s, vars: cand})
+		return true
 	}
 
 	// Structured probes, tier 1: reflect every free point across each
@@ -216,7 +255,7 @@ func (s *Sketch) ProbeConfigurations(options ...ProbeOption) (*ProbeResult, erro
 	// capped so pathological fixed-point counts cannot blow up the probe
 	// budget.
 	for _, axis := range s.probeAxes(baseline) {
-		try(func() {
+		if !try(func() {
 			for _, p := range s.points {
 				m := geom.MirrorPoint(geom.NewPoint(baseline[p.xi], baseline[p.yi]), axis)
 				if !s.fixed[p.xi] {
@@ -226,14 +265,16 @@ func (s *Sketch) ProbeConfigurations(options ...ProbeOption) (*ProbeResult, erro
 					s.vars[p.yi] = m.Y
 				}
 			}
-		})
+		}) {
+			break
+		}
 	}
 
 	// Structured probes, tier 2: global flips of the free point coordinates
 	// about the bounding-box center — catches mirror branches not aligned with
 	// any line entity.
 	for _, f := range [][2]bool{{true, false}, {false, true}, {true, true}} {
-		try(func() {
+		if !try(func() {
 			for _, p := range s.points {
 				if f[0] && !s.fixed[p.xi] {
 					s.vars[p.xi] = 2*cx - baseline[p.xi]
@@ -242,7 +283,9 @@ func (s *Sketch) ProbeConfigurations(options ...ProbeOption) (*ProbeResult, erro
 					s.vars[p.yi] = 2*cy - baseline[p.yi]
 				}
 			}
-		})
+		}) {
+			break
+		}
 	}
 
 	// Pseudo-random restarts: every free variable is offset from its baseline
@@ -253,7 +296,7 @@ func (s *Sketch) ProbeConfigurations(options ...ProbeOption) (*ProbeResult, erro
 	amps := [...]float64{0.25, 0.5, 1.0}
 	for k := 0; k < cfg.restarts; k++ {
 		amp := amps[k%len(amps)] * diag
-		try(func() {
+		if !try(func() {
 			for _, vi := range free {
 				u := probeUnit(cfg.seed, k, vi)
 				switch kinds[vi] {
@@ -277,9 +320,16 @@ func (s *Sketch) ProbeConfigurations(options ...ProbeOption) (*ProbeResult, erro
 					s.vars[vi] = baseline[vi] + amp*(2*u-1)
 				}
 			}
-		})
+		}) {
+			break
+		}
 	}
 
+	// If ctx ended mid-search, report it so a caller can distinguish a bounded
+	// (partial) probe from a completed one — Verify discards a probe that errors.
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
 	return result, nil
 }
 

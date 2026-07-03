@@ -61,12 +61,12 @@ func TestBreakIsParametric(t *testing.T) {
 	// Dimension the first half; the shared split vertex must move to satisfy it.
 	d := sketch.NewDistance(l1.Start, l1.End, 6)
 	s.AddConstraint(d)
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 6, l1.Length(), 1e-6)
 
 	d.Set(3)
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 3, l1.Length(), 1e-6)
 }
@@ -146,7 +146,7 @@ func TestCreateFillet(t *testing.T) {
 	s.Fix(a)
 	s.Fix(b)
 	s.AddConstraint(sketch.NewVertical(f.L1), sketch.NewHorizontal(f.L2))
-	res, err := s.Solve()
+	res, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, 0, res.DOF, "fully constrained after grounding the legs")
 
@@ -160,7 +160,7 @@ func TestCreateFillet(t *testing.T) {
 
 	// Editing the radius keeps tangency: center-to-leg distance stays == R.
 	f.Radius.Set(2)
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 2, f.Arc.R(), 1e-6)
 	require.InDelta(t, 2, f.Arc.Center.X(), 1e-6, "tangent to the vertical leg x=0")
@@ -195,7 +195,7 @@ func TestCreateChamfer(t *testing.T) {
 	s.Fix(a)
 	s.Fix(b)
 	s.AddConstraint(sketch.NewVertical(c.L1), sketch.NewHorizontal(c.L2))
-	res, err := s.Solve()
+	res, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, 0, res.DOF)
 
@@ -207,7 +207,7 @@ func TestCreateChamfer(t *testing.T) {
 
 	// D1 is the far-endpoint setback (A->T1); pulling it to 5 puts T1 at (0,5).
 	c.D1.Set(5)
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 0, c.T1.X(), 1e-6)
 	require.InDelta(t, 5, c.T1.Y(), 1e-6)
@@ -260,7 +260,7 @@ func TestMirrorTracksSource(t *testing.T) {
 	s.Fix(p1)
 	d := sketch.NewHorizontalDistance(p1, p2, 3)
 	s.AddConstraint(d)
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	require.InDelta(t, 5, p2.X(), 1e-6, "source moved")
@@ -337,7 +337,7 @@ func TestPatternRectTracksSeed(t *testing.T) {
 	// Widen the seed; the copy must follow rigidly (offset stays 5).
 	d := sketch.NewHorizontalDistance(a, b, 2)
 	s.AddConstraint(d)
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 2, b.X(), 1e-6)
 	require.InDelta(t, 5, inst.Start.X(), 1e-6)
@@ -360,7 +360,7 @@ func TestPatternCircular(t *testing.T) {
 	p, err := s.CreatePatternCircular([]sketch.Entity{c}, center, 4)
 	require.NoError(t, err)
 	require.Len(t, p.Instances, 3)
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 
 	c1 := p.Instances[0].(*sketch.Circle) // +90°
@@ -406,14 +406,14 @@ func TestOffsetLine(t *testing.T) {
 	g, err := s.CreateOffset([]sketch.Entity{src}, 2)
 	require.NoError(t, err)
 	dst := g.Copies[0].(*sketch.Line)
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 2, dst.Start.Y(), 1e-6)
 	require.InDelta(t, 2, dst.End.Y(), 1e-6)
 
 	// Editing the distance moves the copy.
 	g.Set(5)
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 5, dst.Start.Y(), 1e-6)
 	require.InDelta(t, 5, dst.End.Y(), 1e-6)
@@ -453,7 +453,7 @@ func TestOffsetChainMitresCorner(t *testing.T) {
 
 	g, err := s.CreateOffset([]sketch.Entity{l1, l2}, 2)
 	require.NoError(t, err)
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 
 	d1, d2 := g.Copies[0].(*sketch.Line), g.Copies[1].(*sketch.Line)

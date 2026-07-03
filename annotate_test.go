@@ -36,7 +36,7 @@ func rectWithDistance(t *testing.T) (*sketch.Sketch, *sketch.Distance) {
 	width := sketch.NewDistance(a, b, 20)
 	height := sketch.NewDistance(a, d, 12)
 	s.AddConstraint(width, height)
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 	return s, width
 }
@@ -70,7 +70,7 @@ func TestAnnotationDimensionsDrawn(t *testing.T) {
 func TestAnnotationDrivenParenthesized(t *testing.T) {
 	s, width := rectWithDistance(t)
 	width.SetDriven(true)
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	out, err := s.SVG(sketch.WithDimensions(true))
@@ -94,7 +94,7 @@ func TestAnnotationRadiusDiameterAngle(t *testing.T) {
 	s.AddConstraint(sketch.NewDiameter(circle2, 8))
 
 	require.NoError(t, err)
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 
 	out, err := s.SVG(sketch.WithDimensions(true))
@@ -117,7 +117,7 @@ func TestAnnotationAngleGlyph(t *testing.T) {
 	s.AddConstraint(sketch.NewHorizontal(l1))
 	ang := sketch.NewAngle(l1, l2, 45)
 	s.AddConstraint(ang)
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 
 	out, err := s.SVG(sketch.WithDimensions(true))
@@ -144,7 +144,7 @@ func TestAnnotationAngleParallelNoNaN(t *testing.T) {
 	ang := sketch.NewAngle(l1, l2, 0)
 	ang.SetDriven(true) // measures 0° between the two parallel lines
 	s.AddConstraint(ang)
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 
 	out, err := s.SVG(sketch.WithDimensions(true))
@@ -174,7 +174,7 @@ func fontSize(t *testing.T, scale float64) float64 {
 	s.Fix(a)
 	s.AddConstraint(sketch.NewHorizontal(s.CreateLine(a, b)))
 	s.AddConstraint(sketch.NewDistance(a, b, 20*scale))
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 
 	out, err := s.SVG(sketch.WithDimensions(true))
@@ -228,7 +228,7 @@ func TestGlyphsDrawn(t *testing.T) {
 		sketch.NewPerpendicular(ab, bc),
 		sketch.NewEqual(ab, cd),
 	)
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 
 	out, err := s.SVG(sketch.WithConstraints(true))
@@ -276,7 +276,7 @@ func TestGlyphsStackOnSharedAnchor(t *testing.T) {
 	a.MoveTo(0, 0)
 	s.Fix(a)
 	s.AddConstraint(sketch.NewHorizontal(l), sketch.NewParallel(l, l2))
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 
 	out, err := s.SVG(sketch.WithConstraints(true))
@@ -313,7 +313,7 @@ func TestDOFColoringHollowFreePoint(t *testing.T) {
 	a.MoveTo(0, 0)
 	s.Fix(a)
 	s.CreateLine(a, b)
-	_, _ = s.Solve()
+	_, _ = s.Solve(t.Context())
 	require.Greater(t, s.DOF(), 0)
 
 	out, err := s.SVG(sketch.WithDOFColoring(true))
@@ -359,7 +359,7 @@ func TestConflictHighlight(t *testing.T) {
 	// Two conflicting distances on the same pair.
 	s.AddConstraint(sketch.NewDistance(a, b, 20))
 	s.AddConstraint(sketch.NewDistance(a, b, 30))
-	_, _ = s.Solve()
+	_, _ = s.Solve(t.Context())
 	require.NotEmpty(t, s.Diagnose().Conflicting)
 
 	out, err := s.SVG(sketch.WithConflicts(true))
@@ -405,7 +405,7 @@ func TestEntityIsFullyConstrained(t *testing.T) {
 	o.MoveTo(0, 0)
 	s.Fix(o)
 	c := s.CreateCircle(o, 5)
-	_, _ = s.Solve()
+	_, _ = s.Solve(t.Context())
 
 	// Center pinned but radius free: the point is constrained, the circle is not.
 	require.True(t, o.IsFullyConstrained())
@@ -413,7 +413,7 @@ func TestEntityIsFullyConstrained(t *testing.T) {
 
 	// Pin the radius: now the circle is fully constrained.
 	s.AddConstraint(sketch.NewRadius(c, 5))
-	_, _ = s.Solve()
+	_, _ = s.Solve(t.Context())
 	require.True(t, s.EntityIsFullyConstrained(c))
 }
 
@@ -428,7 +428,7 @@ func TestDOFColoringFreeRadiusCircleBlue(t *testing.T) {
 	o.MoveTo(0, 0)
 	s.Fix(o)
 	c := s.CreateCircle(o, 5)
-	_, _ = s.Solve()
+	_, _ = s.Solve(t.Context())
 	require.False(t, s.EntityIsFullyConstrained(c))
 
 	out, err := s.SVG(sketch.WithDOFColoring(true))
@@ -438,7 +438,7 @@ func TestDOFColoringFreeRadiusCircleBlue(t *testing.T) {
 
 	// With the radius pinned it becomes black.
 	s.AddConstraint(sketch.NewRadius(c, 5))
-	_, _ = s.Solve()
+	_, _ = s.Solve(t.Context())
 	out, err = s.SVG(sketch.WithDOFColoring(true))
 	require.NoError(t, err)
 	require.Regexp(t, `<circle cx="[^"]*" cy="[^"]*" r="[^"]*" fill="none" stroke="#202124"`, out)

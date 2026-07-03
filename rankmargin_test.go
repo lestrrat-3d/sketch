@@ -16,10 +16,10 @@ func TestRankMarginHealthy(t *testing.T) {
 	s.Fix(a)
 	s.AddConstraint(sketch.NewHorizontalDistance(a, b, 10))
 	s.AddConstraint(sketch.NewVerticalDistance(a, b, 5))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
-	rep := s.Verify()
+	rep := s.Verify(t.Context())
 	require.Equal(t, 0, rep.DOF)
 	require.Greater(t, rep.RankMargin, 1e6, "orthogonal constraints decide rank far from the cutoff")
 	require.True(t, rep.Trustworthy())
@@ -46,10 +46,10 @@ func TestRankMarginNearSingularFlagged(t *testing.T) {
 	p := s.CreatePoint(0, 0) // the intersection
 	s.AddConstraint(sketch.NewPointOnLine(p, l1))
 	s.AddConstraint(sketch.NewPointOnLine(p, l2))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
-	rep := s.Verify()
+	rep := s.Verify(t.Context())
 	require.Equal(t, 0, rep.DOF, "the intersection is determined")
 	require.Empty(t, rep.Redundant, "not structurally redundant")
 	require.Empty(t, rep.Conflicts)
@@ -74,10 +74,10 @@ func TestRankMarginExactRedundancyNotRediscovered(t *testing.T) {
 	p := s.CreatePoint(4, 0)
 	s.AddConstraint(sketch.NewPointOnLine(p, l))
 	s.AddConstraint(sketch.NewPointOnLine(p, l)) // exact duplicate
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
-	rep := s.Verify()
+	rep := s.Verify(t.Context())
 	require.NotEmpty(t, rep.Redundant, "the duplicate is caught by redundancy analysis")
 	require.Greater(t, rep.RankMargin, 1e6, "exact redundancy is an O(1) pivot, not a near-threshold one")
 }

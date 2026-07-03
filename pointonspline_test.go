@@ -54,7 +54,7 @@ func TestPointOnSpline(t *testing.T) {
 	p := s.CreatePoint(4, 1) // below the arch's interior; pulled up onto it
 	s.AddConstraint(sketch.NewPointOnSpline(p, sp))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 0, distToSpline(p, sp), 1e-4, "point pulled onto the spline")
 	require.Greater(t, p.Y(), 1.0, "moved up onto the interior of the arch")
@@ -69,7 +69,7 @@ func TestPointOnSplineConfinedToRange(t *testing.T) {
 	p := s.CreatePoint(20, -5) // far past the (8,0) end
 	s.AddConstraint(sketch.NewPointOnSpline(p, sp))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 0, distToSpline(p, sp), 1e-4, "still on the curve")
 	require.LessOrEqual(t, p.X(), 8.01, "not extrapolated past the clamped end")
@@ -113,7 +113,7 @@ func TestPointOnSplineDuplicateIsHarmless(t *testing.T) {
 	s.AddConstraint(sketch.NewPointOnSpline(p, sp))
 	s.AddConstraint(sketch.NewPointOnSpline(p, sp))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err, "the redundant duplicate does not break solvability")
 	require.InDelta(t, 0, distToSpline(p, sp), 1e-4, "point still on the curve")
 	require.Equal(t, 1, s.DOF(), "still one sliding DOF, not mis-counted to zero")
@@ -124,7 +124,7 @@ func TestPointOnSplineRoundTrip(t *testing.T) {
 	sp := archSpline(s)
 	p := s.CreatePoint(4, 1)
 	s.AddConstraint(sketch.NewPointOnSpline(p, sp))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -132,6 +132,6 @@ func TestPointOnSplineRoundTrip(t *testing.T) {
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2))
 	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraint survives reload")
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 }

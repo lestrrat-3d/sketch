@@ -47,7 +47,7 @@ func TestEllipticalArcInternalConstraintsAndDOF(t *testing.T) {
 
 	require.Equal(t, 7, s.DOF(), "free elliptical arc: 9 vars − 2 internal on-ellipse")
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	// The solver may move the ellipse as well as the points, so evaluate the
 	// on-ellipse condition against the SOLVED ellipse (center/axes/rotation).
@@ -82,7 +82,7 @@ func TestEllipticalArcRoundTrip(t *testing.T) {
 	s.Fix(start)
 	s.Fix(end)
 	s.CreateEllipticalArc(c, start, end, 4, 2, 0)
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -93,7 +93,7 @@ func TestEllipticalArcRoundTrip(t *testing.T) {
 	require.Len(t, s2.Constraints(), len(s.Constraints()),
 		"internal on-ellipse constraints are recreated, not doubled")
 
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 	ea, ok := s2.Entities()[0].(*sketch.EllipticalArc)
 	require.True(t, ok)

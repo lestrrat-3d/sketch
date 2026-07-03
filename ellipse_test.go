@@ -17,7 +17,7 @@ func TestEllipseDimensions(t *testing.T) {
 	s.Fix(e.Center)
 	s.AddConstraint(sketch.NewSemiMajor(e, 6), sketch.NewSemiMinor(e, 4), sketch.NewEllipseRotation(e, 30))
 
-	res, err := s.Solve()
+	res, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, 0, res.DOF, "fully constrained")
 	require.InDelta(t, 6, e.Rx(), 1e-6, "semi-major")
@@ -37,7 +37,7 @@ func TestPointOnEllipse(t *testing.T) {
 	p := s.CreatePoint(4, 1)
 	s.AddConstraint(sketch.NewPointOnEllipse(p, e), sketch.NewVerticalDistance(c, p, 0))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 5, p.X(), 1e-6, "on the major vertex")
 	require.InDelta(t, 0, p.Y(), 1e-6, "on the x axis")
@@ -58,7 +58,7 @@ func TestPointOnRotatedEllipse(t *testing.T) {
 	p := s.CreatePoint(0.5, 4)
 	s.AddConstraint(sketch.NewPointOnEllipse(p, e), sketch.NewHorizontalDistance(c, p, 0))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 0, p.X(), 1e-6, "on the y axis")
 	require.InDelta(t, 5, p.Y(), 1e-6, "major vertex now along y")
@@ -75,7 +75,7 @@ func TestEllipseDrivenMeasure(t *testing.T) {
 	d.SetDriven(true)
 	s.AddConstraint(d)
 
-	res, err := s.Solve()
+	res, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.Zero(t, res.Redundant, "driven dim adds no equation")
 	require.InDelta(t, 5, d.Target().Mag(), 1e-6, "measures the semi-major axis")
@@ -89,7 +89,7 @@ func TestEllipseJSONRoundTrip(t *testing.T) {
 	s.AddConstraint(sketch.NewSemiMajor(e, 5), sketch.NewSemiMinor(e, 3), sketch.NewEllipseRotation(e, 30))
 	p := s.CreatePoint(4, 3)
 	s.AddConstraint(sketch.NewPointOnEllipse(p, e))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -99,7 +99,7 @@ func TestEllipseJSONRoundTrip(t *testing.T) {
 	require.Len(t, s2.Entities(), len(s.Entities()), "entities survive")
 	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraints survive")
 
-	res, err := s2.Solve()
+	res, err := s2.Solve(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, 1, res.DOF, "reloaded DOF (point may slide along the ellipse)")
 	e2, ok := s2.Entities()[0].(*sketch.Ellipse)

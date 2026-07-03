@@ -30,10 +30,10 @@ func TestTangentLineArcOutOfSweepRejected(t *testing.T) {
 	s.Fix(end)
 	s.AddConstraint(sketch.NewTangent(s.CreateLine(a, b), arc))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.ErrorIs(t, err, sketch.ErrNotConverged, "out-of-sweep tangent is unsatisfiable")
 
-	rep := s.Verify()
+	rep := s.Verify(t.Context())
 	require.False(t, rep.Solvable, "the oracle must not bless an out-of-sweep tangent")
 	require.Equal(t, sketch.Overconstrained, rep.Status)
 	require.InDelta(t, 5, arc.R(), 1e-9, "the arc itself is unchanged (nothing was free to move)")
@@ -55,10 +55,10 @@ func TestTangentLineArcInSweepSatisfied(t *testing.T) {
 	arc := s.CreateArc(center, start, end)
 	s.AddConstraint(sketch.NewTangent(s.CreateLine(a, b), arc))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 5, arc.R(), 1e-6, "tangent contact lies within the sweep")
-	require.True(t, s.Verify().Solvable)
+	require.True(t, s.Verify(t.Context()).Solvable)
 }
 
 // Arc↔circle tangency where the line of centers gives a contact direction
@@ -80,9 +80,9 @@ func TestTangentCirclesArcOutOfSweepRejected(t *testing.T) {
 	s.Fix(end)
 	s.AddConstraint(sketch.NewTangentCircles(circ, arc, false))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.ErrorIs(t, err, sketch.ErrNotConverged, "distance-tangent but the contact misses the arc")
-	require.False(t, s.Verify().Solvable)
+	require.False(t, s.Verify(t.Context()).Solvable)
 }
 
 // Tangency at an arc endpoint (the contact sits exactly on the sweep boundary,
@@ -104,7 +104,7 @@ func TestTangentLineArcAtEndpointBoundary(t *testing.T) {
 	tc := sketch.NewTangent(line, arc)
 	s.AddConstraint(tc)
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err, "endpoint tangency is satisfiable")
 	require.InDelta(t, 5, top.X(), 1e-6, "the line stays tangent (vertical) at the endpoint")
 	// The boundary contact keeps a nonzero gradient, so the tangent is a genuine
@@ -135,7 +135,7 @@ func TestTangentArcSweepRoundTrip(t *testing.T) {
 	var loaded sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &loaded))
 
-	_, err = loaded.Solve()
+	_, err = loaded.Solve(t.Context())
 	require.ErrorIs(t, err, sketch.ErrNotConverged, "enforcement is preserved across serialization")
 }
 
@@ -157,7 +157,7 @@ func TestTangentLineThroughArcEndpointMustBeTangent(t *testing.T) {
 	s.Fix(far)
 	s.AddConstraint(sketch.NewTangent(s.CreateLine(start, far), arc))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.ErrorIs(t, err, sketch.ErrNotConverged, "a non-perpendicular line through the endpoint is not tangent")
 }
 
@@ -176,7 +176,7 @@ func TestTangentLineAtArcEndpointSolves(t *testing.T) {
 	far := s.CreatePoint(8, 5) // free; pulled onto the vertical tangent at start
 	s.AddConstraint(sketch.NewTangent(s.CreateLine(start, far), arc))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 5, far.X(), 1e-6, "tangent at the endpoint is the vertical line x=5")
 }
@@ -192,7 +192,7 @@ func TestTangentConcentricCirclesRejected(t *testing.T) {
 	s.AddConstraint(sketch.NewRadius(c1, 3), sketch.NewRadius(c2, 5))
 	s.AddConstraint(sketch.NewTangentCircles(c1, c2, false))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.ErrorIs(t, err, sketch.ErrNotConverged, "concentric circles of different radii are not tangent")
 }
 
@@ -210,7 +210,7 @@ func TestTangentArcInteriorRoundTrip(t *testing.T) {
 	end := s.CreatePoint(9, 1)
 	arc := s.CreateArc(center, start, end)
 	s.AddConstraint(sketch.NewTangent(s.CreateLine(a, b), arc))
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(t.Context()); err != nil {
 		t.Fatalf("solve: %v", err)
 	}
 	require.InDelta(t, 5, arc.R(), 1e-6)
@@ -219,9 +219,9 @@ func TestTangentArcInteriorRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	var loaded sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &loaded))
-	_, err = loaded.Solve()
+	_, err = loaded.Solve(t.Context())
 	require.NoError(t, err)
-	require.True(t, loaded.Verify().Solvable)
+	require.True(t, loaded.Verify(t.Context()).Solvable)
 }
 
 // Removing an interior arc tangency retires its sweep slack; the sketch still
@@ -239,13 +239,13 @@ func TestTangentArcSlackRetiredOnRemoval(t *testing.T) {
 	arc := s.CreateArc(center, start, end)
 	tc := sketch.NewTangent(s.CreateLine(a, b), arc)
 	s.AddConstraint(tc)
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(t.Context()); err != nil {
 		t.Fatalf("solve: %v", err)
 	}
 
 	require.True(t, s.RemoveConstraint(tc))
 	require.NotContains(t, s.Constraints(), tc)
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 }
 
@@ -277,7 +277,7 @@ func TestTangentInternalEqualRadiusConcentricRejected(t *testing.T) {
 	c2 := s.CreateCircle(o, 4) // same center, equal radius
 	s.AddConstraint(sketch.NewRadius(c1, 4), sketch.NewRadius(c2, 4))
 	s.AddConstraint(sketch.NewTangentCircles(c1, c2, true))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.ErrorIs(t, err, sketch.ErrNotConverged, "coincident equal circles are not internally tangent")
 }
 
@@ -295,7 +295,7 @@ func TestTangentZeroLengthLineSharedRejected(t *testing.T) {
 	tip := s.CreatePoint(5, 0) // coincident with start: zero-length line
 	s.Fix(tip)
 	s.AddConstraint(sketch.NewTangent(s.CreateLine(start, tip), arc))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.ErrorIs(t, err, sketch.ErrNotConverged, "a zero-length line is not tangent")
 }
 
@@ -312,7 +312,7 @@ func TestTangentArcNearDegenerateLineNoPanic(t *testing.T) {
 	p1 := s.CreatePoint(0, -5)
 	p2 := s.CreatePoint(1e-9, -5) // length at the degeneracy threshold
 	s.AddConstraint(sketch.NewTangent(s.CreateLine(p1, p2), arc))
-	require.NotPanics(t, func() { _, _ = s.Solve() })
+	require.NotPanics(t, func() { _, _ = s.Solve(t.Context()) })
 }
 
 // Committing the same constraint handle twice is a no-op (deduplicated), so it
@@ -333,7 +333,7 @@ func TestTangentArcDoubleAddDeduped(t *testing.T) {
 	s.AddConstraint(tc)
 	s.AddConstraint(tc) // deduped: no second occurrence
 
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(t.Context()); err != nil {
 		t.Fatalf("solve: %v", err)
 	}
 	require.InDelta(t, 5, arc.R(), 1e-6)
@@ -357,7 +357,7 @@ func TestTangentArcRemoveReAdd(t *testing.T) {
 	arc := s.CreateArc(center, start, end)
 	tc := sketch.NewTangent(s.CreateLine(a, b), arc)
 	s.AddConstraint(tc)
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(t.Context()); err != nil {
 		t.Fatalf("solve: %v", err)
 	}
 
@@ -366,7 +366,7 @@ func TestTangentArcRemoveReAdd(t *testing.T) {
 
 	start.MoveTo(2, 2) // move the arc; the fresh slack must track it
 	end.MoveTo(8, 2)
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 5, arc.R(), 1e-6, "re-added tangent enforces in-sweep tangency with a fresh slack")
 }
@@ -387,7 +387,7 @@ func TestTangentSharedArcsRespectInternal(t *testing.T) {
 			s.Fix(pt)
 		}
 		s.AddConstraint(sketch.NewTangentCircles(a1, a2, internal))
-		_, err := s.Solve()
+		_, err := s.Solve(t.Context())
 		return err
 	}
 	require.NoError(t, build(false), "the arcs are externally tangent at the shared point")
@@ -415,8 +415,8 @@ func TestTangentArcFeasibleSeededOutOfSweep(t *testing.T) {
 	arc := s.CreateArc(center, start, end)
 	s.AddConstraint(sketch.NewTangent(s.CreateLine(a, b), arc))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err, "the feasible in-sweep tangent is reachable from the out-of-sweep seed")
 	require.InDelta(t, 5, arc.R(), 1e-6)
-	require.True(t, s.Verify().Solvable)
+	require.True(t, s.Verify(t.Context()).Solvable)
 }

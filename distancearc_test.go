@@ -23,9 +23,9 @@ func TestDistancePointArcInSweep(t *testing.T) {
 	arc := quarterArc(s)
 	p := s.CreatePoint(4.2, 4.2) // ~45°, radius ~5.9
 	s.AddConstraint(sketch.NewDistancePointArc(p, arc, 2))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
-	require.True(t, s.Verify().Solvable)
+	require.True(t, s.Verify(t.Context()).Solvable)
 	require.InDelta(t, 7, radius(p, arc.Center), 1e-6, "radial gap = 2 → |P−C| = R+2")
 	// the radial foot stays inside the [0°,90°] sweep
 	ang := math.Atan2(p.Y()-arc.Center.Y(), p.X()-arc.Center.X())
@@ -39,7 +39,7 @@ func TestDistancePointArcInsideTarget(t *testing.T) {
 	arc := quarterArc(s)
 	p := s.CreatePoint(2.1, 2.1) // ~45°, radius ~3, inside
 	s.AddConstraint(sketch.NewDistancePointArc(p, arc, -2))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 3, radius(p, arc.Center), 1e-6, "radial gap = −2 → |P−C| = R−2")
 }
@@ -53,9 +53,9 @@ func TestDistancePointArcOutOfSweepRejected(t *testing.T) {
 	p := s.CreatePoint(-5, 0) // on the radius-5 circle, angle 180°
 	s.Fix(p)
 	s.AddConstraint(sketch.NewDistancePointArc(p, arc, 0))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.ErrorIs(t, err, sketch.ErrNotConverged)
-	require.False(t, s.Verify().Solvable, "carrier-on but off-sweep is not blessed")
+	require.False(t, s.Verify(t.Context()).Solvable, "carrier-on but off-sweep is not blessed")
 }
 
 func TestDistancePointArcAtCenterRejected(t *testing.T) {
@@ -74,9 +74,9 @@ func TestDistancePointArcAtCenterRejected(t *testing.T) {
 	p := s.CreatePoint(0, 0) // exactly at the center
 	s.Fix(p)
 	s.AddConstraint(sketch.NewDistancePointArc(p, arc, -arc.R()))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.ErrorIs(t, err, sketch.ErrNotConverged)
-	require.False(t, s.Verify().Solvable, "a point at the arc center is degenerate, not blessed")
+	require.False(t, s.Verify(t.Context()).Solvable, "a point at the arc center is degenerate, not blessed")
 }
 
 func TestDistanceLineArcTangentInSweep(t *testing.T) {
@@ -86,9 +86,9 @@ func TestDistanceLineArcTangentInSweep(t *testing.T) {
 	arc := quarterArc(s)
 	l := s.CreateLine(s.CreatePoint(4.7, -2), s.CreatePoint(4.7, 9))
 	s.AddConstraint(sketch.NewDistanceLineArc(l, arc, 0))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
-	require.True(t, s.Verify().Solvable)
+	require.True(t, s.Verify(t.Context()).Solvable)
 	// perpendicular distance from the center to the solved line equals R
 	ax, ay := l.Start.X(), l.Start.Y()
 	abx, aby := l.End.X()-ax, l.End.Y()-ay
@@ -106,9 +106,9 @@ func TestDistanceLineArcOutOfSweepRejected(t *testing.T) {
 	s.Fix(l.Start)
 	s.Fix(l.End)
 	s.AddConstraint(sketch.NewDistanceLineArc(l, arc, 0))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.ErrorIs(t, err, sketch.ErrNotConverged)
-	require.False(t, s.Verify().Solvable)
+	require.False(t, s.Verify(t.Context()).Solvable)
 }
 
 func TestDistancePointArcDOFAndRemoval(t *testing.T) {
@@ -134,7 +134,7 @@ func TestDistancePointArcDriven(t *testing.T) {
 	s.AddConstraint(con)
 	con.SetDriven(true)
 	require.Equal(t, 0, s.DOF(), "all geometry fixed; driven dim contributes no var")
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	want := math.Hypot(7, 7) - arc.R() // |P−C| − R
 	require.InDelta(t, want, con.Target().Base(), 1e-9, "driven dim measures the radial gap")
@@ -179,7 +179,7 @@ func TestDistanceArcRoundTripDriven(t *testing.T) {
 	s.Fix(l.Start)
 	s.Fix(l.End)
 	s.AddConstraint(sketch.NewDistanceLineArc(l, arc, 0))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -187,7 +187,7 @@ func TestDistanceArcRoundTripDriven(t *testing.T) {
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2))
 	require.Len(t, s2.Constraints(), len(s.Constraints()))
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 	// the driven flag survives, and the reloaded dim still measures the gap
 	var drivenSeen bool

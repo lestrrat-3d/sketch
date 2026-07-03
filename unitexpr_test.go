@@ -33,10 +33,10 @@ func TestUnitExprMixedKindRejected(t *testing.T) {
 	// A length dimension driven by a length + angle expression: the oracle must
 	// reject it, not solve against a meaningless retagged magnitude.
 	s, _ := boundWidth(t, "width + theta")
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.ErrorIs(t, err, param.ErrIncompatibleKind, "the bad expression fails the solve")
 
-	rep := s.Verify()
+	rep := s.Verify(t.Context())
 	require.False(t, rep.ParametersValid)
 	require.NotEmpty(t, rep.ParameterErrors)
 	require.ErrorIs(t, rep.ParameterErrors[0], param.ErrIncompatibleKind)
@@ -47,18 +47,18 @@ func TestUnitExprWrongKindRejected(t *testing.T) {
 	// A well-formed ANGLE expression driving a LENGTH dimension is rejected on the
 	// kind mismatch, even though the expression itself is internally consistent.
 	s, _ := boundWidth(t, "theta * 2")
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.Error(t, err)
-	require.False(t, s.Verify().ParametersValid)
+	require.False(t, s.Verify(t.Context()).ParametersValid)
 }
 
 func TestUnitExprValidLengthSolves(t *testing.T) {
 	// A length + length expression drives the length dimension cleanly.
 	s, d := boundWidth(t, "width + pad")
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 100, d.Target().Base(), 1e-9, "80mm + 20mm")
-	rep := s.Verify()
+	rep := s.Verify(t.Context())
 	require.True(t, rep.ParametersValid)
 	require.Empty(t, rep.ParameterErrors)
 }
@@ -67,10 +67,10 @@ func TestUnitExprScalarStillDrives(t *testing.T) {
 	// A purely dimensionless expression still drives a length dimension (tagged
 	// with the dimension's base unit), matching the prior behavior.
 	s, d := boundWidth(t, "40 * 2")
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 80, d.Target().Base(), 1e-9)
-	require.True(t, s.Verify().ParametersValid)
+	require.True(t, s.Verify(t.Context()).ParametersValid)
 }
 
 func TestUnitExprSmuggledAngleRejected(t *testing.T) {
@@ -88,9 +88,9 @@ func TestUnitExprSmuggledAngleRejected(t *testing.T) {
 	require.NoError(t, tbl.SetExpr("w", "theta", units.Millimeter)) // length-declared, angle-defined
 	require.NoError(t, s.Bind(d, tbl, "w"))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.ErrorIs(t, err, param.ErrIncompatibleKind)
-	rep := s.Verify()
+	rep := s.Verify(t.Context())
 	require.False(t, rep.ParametersValid)
 	require.False(t, rep.Trustworthy())
 }
@@ -105,7 +105,7 @@ func TestUnitExprRoundTripPreservesKindError(t *testing.T) {
 
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2))
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.ErrorIs(t, err, param.ErrIncompatibleKind)
-	require.False(t, s2.Verify().ParametersValid)
+	require.False(t, s2.Verify(t.Context()).ParametersValid)
 }

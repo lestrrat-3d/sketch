@@ -25,7 +25,7 @@ func TestTangentEllipseCircleExternal(t *testing.T) {
 	s.AddConstraint(sketch.NewHorizontalPoints(cc, ec)) // keep it on the x-axis
 
 	s.AddConstraint(sketch.NewTangentEllipseCircular(e, c, false))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 7, cc.X(), 1e-4, "external tangent at the ellipse's right vertex")
 	require.InDelta(t, 0, cc.Y(), 1e-6)
@@ -48,7 +48,7 @@ func TestTangentEllipseCircleInternal(t *testing.T) {
 	s.AddConstraint(sketch.NewHorizontalPoints(cc, ec))
 
 	s.AddConstraint(sketch.NewTangentEllipseCircular(e, c, true))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 7, cc.X(), 1e-4, "internal tangent at the ellipse's right vertex")
 }
@@ -67,7 +67,7 @@ func TestTangentEllipses(t *testing.T) {
 	s.AddConstraint(sketch.NewHorizontalPoints(c2, c1))
 
 	s.AddConstraint(sketch.NewTangentEllipses(e1, e2, false))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 7, c2.X(), 1e-4, "external tangent of two ellipses")
 }
@@ -82,9 +82,9 @@ func TestTangentEllipseCircleSeparateRejected(t *testing.T) {
 	s.FixEntity(c)
 	s.AddConstraint(sketch.NewTangentEllipseCircular(e, c, false))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.ErrorIs(t, err, sketch.ErrNotConverged)
-	require.False(t, s.Verify().Solvable, "separate conics are not tangent")
+	require.False(t, s.Verify(t.Context()).Solvable, "separate conics are not tangent")
 }
 
 func TestTangentConicsDegenerateRejected(t *testing.T) {
@@ -100,9 +100,9 @@ func TestTangentConicsDegenerateRejected(t *testing.T) {
 		s.FixEntity(c)
 		s.AddConstraint(sketch.NewTangentEllipseCircular(e, c, false))
 
-		_, err := s.Solve()
+		_, err := s.Solve(t.Context())
 		require.Error(t, err, "rx=%v is degenerate", rx)
-		rep := s.Verify()
+		rep := s.Verify(t.Context())
 		require.False(t, rep.Solvable, "a degenerate ellipse has no tangent (rx=%v)", rx)
 		require.False(t, math.IsNaN(rep.Residual), "residual must stay finite, not NaN (rx=%v)", rx)
 	}
@@ -148,7 +148,7 @@ func TestTangentConicsRoundTrip(t *testing.T) {
 	s.Unfix(cc)
 	s.AddConstraint(sketch.NewHorizontalPoints(cc, ec))
 	s.AddConstraint(sketch.NewTangentEllipseCircular(e, c, false))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 7, cc.X(), 1e-4)
 
@@ -157,7 +157,7 @@ func TestTangentConicsRoundTrip(t *testing.T) {
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2))
 	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraints survive reload")
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 }
 
@@ -176,12 +176,12 @@ func TestTangentConicsInternalExternalDistinct(t *testing.T) {
 		return s
 	}
 	// External: the geometry is already a valid external tangency.
-	_, err := build(false).Solve()
+	_, err := build(false).Solve(t.Context())
 	require.NoError(t, err, "external tangency holds for this rigid geometry")
 	// Internal: same rigid geometry, but the normals are opposed (external), so the
 	// internal branch is infeasible.
 	si := build(true)
-	_, err = si.Solve()
+	_, err = si.Solve(t.Context())
 	require.ErrorIs(t, err, sketch.ErrNotConverged)
-	require.False(t, si.Verify().Solvable, "the wrong internal/external branch is rejected")
+	require.False(t, si.Verify(t.Context()).Solvable, "the wrong internal/external branch is rejected")
 }

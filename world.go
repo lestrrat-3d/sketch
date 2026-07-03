@@ -1,6 +1,8 @@
 package sketch
 
 import (
+	"context"
+
 	"github.com/lestrrat-3d/sketch/param"
 	"github.com/lestrrat-3d/sketch/space"
 )
@@ -214,8 +216,9 @@ func (r *WorldVerificationReport) Trustworthy() bool {
 // Verify aggregates verification across the world: it validates the shared
 // parameter table, computes every plane's frame (catching a bad
 // parameter-driven offset), and verifies every sketch. It is non-mutating. Any
-// [VerifyOption]s are forwarded to each sketch's [Sketch.Verify].
-func (w *World) Verify(options ...VerifyOption) *WorldVerificationReport {
+// [VerifyOption]s are forwarded to each sketch's [Sketch.Verify], and ctx bounds
+// each sketch verification (pass context.Background() when no bound is needed).
+func (w *World) Verify(ctx context.Context, options ...VerifyOption) *WorldVerificationReport {
 	rep := &WorldVerificationReport{ParametersValid: true}
 	if w.params != nil {
 		if err := w.params.Validate(); err != nil {
@@ -232,7 +235,7 @@ func (w *World) Verify(options ...VerifyOption) *WorldVerificationReport {
 		}
 	}
 	for _, s := range w.sketches {
-		rep.Sketches = append(rep.Sketches, s.Verify(options...))
+		rep.Sketches = append(rep.Sketches, s.Verify(ctx, options...))
 	}
 	return rep
 }

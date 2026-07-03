@@ -1,6 +1,7 @@
 package sketch
 
 import (
+	"context"
 	"math"
 
 	"github.com/lestrrat-3d/sketch/units"
@@ -8,12 +9,22 @@ import (
 )
 
 // Result reports the outcome of a [Sketch.Solve] call.
+//
+// When Solve returns a context error (cancellation or deadline), the DOF/rank
+// analysis is skipped, so DOF and Redundant are set to -1 to mark them "not
+// computed" — never trust them as 0 in that case. Iterations, Residual and
+// Converged reflect whatever solving happened before the context ended: a
+// cancellation caught mid-solve carries the partial result, but a context
+// already done on entry (before any iteration ran) leaves them at their zero
+// values — Iterations 0, Residual 0, Converged false. A 0 Residual on that
+// early-exit path means "no residual was measured", not "the sketch is
+// satisfied", so pair it with the returned error before reading it.
 type Result struct {
 	Converged  bool    // every residual is within the tolerance
 	Iterations int     // outer Levenberg–Marquardt iterations performed
 	Residual   float64 // Euclidean norm of the final residual vector
-	DOF        int     // remaining degrees of freedom (0 == fully constrained)
-	Redundant  int     // number of redundant/conflicting constraint equations
+	DOF        int     // remaining degrees of freedom (0 == fully constrained; -1 == not computed, see above)
+	Redundant  int     // number of redundant/conflicting constraint equations (-1 == not computed)
 }
 
 // SolveOption tunes the constraint solver. Construct values with the With…
@@ -113,7 +124,22 @@ func defaultSolveConfig() solveConfig {
 // Solve returns [ErrNotConverged] (along with the partial [Result]) if the
 // residuals cannot be driven below the tolerance within the iteration budget,
 // which usually means the sketch is over-constrained or contradictory.
-func (s *Sketch) Solve(options ...SolveOption) (*Result, error) {
+//
+// The ctx argument bounds the solve: its cancellation or deadline aborts the
+// run. Solve checks it before every outer Levenberg–Marquardt iteration (i.e.
+// before each Jacobian build), before each damping trial, and between its
+// internal phases; when ctx is done it stops early and returns the partial
+// [Result] together with a non-nil error that wraps ctx.Err() (so
+// errors.Is(err, context.DeadlineExceeded) or context.Canceled matches). Pass
+// context.Background() for an unbounded solve.
+//
+// The check is at iteration granularity, not mid-iteration: a Jacobian build or
+// residual evaluation already in progress runs to completion before the next
+// check, so a deadline caps solve time to within one outer iteration's work
+// rather than instantly. Together with the step-count cap ([WithMaxIterations])
+// this is the intended bound on solve *time* when a sketch may come from an
+// untrusted source.
+func (s *Sketch) Solve(ctx context.Context, options ...SolveOption) (*Result, error) {
 	o := defaultSolveConfig()
 	for _, opt := range options {
 		switch opt.Ident().(type) {
@@ -127,9 +153,16 @@ func (s *Sketch) Solve(options ...SolveOption) (*Result, error) {
 		}
 	}
 
+	// Nothing has been mutated yet, so an already-cancelled context short-
+	// circuits before any work. DOF/Redundant are -1 (not computed) per the
+	// Result contract, since no analysis ran.
+	if err := ctx.Err(); err != nil {
+		return &Result{DOF: -1, Redundant: -1}, err
+	}
+
 	// Refresh any dimensions driven by parameter expressions before solving.
 	if err := s.ApplyParameters(); err != nil {
-		return &Result{}, err
+		return &Result{DOF: -1, Redundant: -1}, err
 	}
 
 	free := s.freeVars()
@@ -144,11 +177,18 @@ func (s *Sketch) Solve(options ...SolveOption) (*Result, error) {
 	// correction is tiny relative to the goal motion, so goal attainment is
 	// preserved while constraints end up holding exactly.
 	var iters int
+	var solveErr error
 	if len(o.goals) > 0 {
 		aug := func(buf []float64) []float64 { return s.goalResiduals(buf, o.goals) }
-		iters += s.lm(free, aug, o.maxIterations, o.tolerance)
+		di, err := s.lm(ctx, free, aug, o.maxIterations, o.tolerance)
+		iters += di
+		solveErr = err
 	}
-	iters += s.lm(free, s.residuals, o.maxIterations, o.tolerance)
+	if solveErr == nil {
+		di, err := s.lm(ctx, free, s.residuals, o.maxIterations, o.tolerance)
+		iters += di
+		solveErr = err
+	}
 
 	s.refreshDriven()
 
@@ -160,12 +200,42 @@ func (s *Sketch) Solve(options ...SolveOption) (*Result, error) {
 	res.Residual = math.Sqrt(dot(rh, rh))
 	res.Converged = res.Residual <= o.tolerance
 
+	// Also honor a cancellation that raced the final lm iteration: lm can return
+	// a nil error (it converged or ran out of budget) at the same moment ctx is
+	// cancelled, so re-check ctx here before spending the rank pass.
+	if solveErr == nil {
+		solveErr = ctx.Err()
+	}
+
+	// If the context ended mid-solve, report the partial result (iterations +
+	// residual) and skip the expensive DOF/rank pass — it is a Jacobian rebuild
+	// that the caller asked us to stop doing. DOF/Redundant are marked not
+	// computed (-1) so a cancelled solve never reads as fully constrained.
+	if solveErr != nil {
+		res.DOF = -1
+		res.Redundant = -1
+		return res, solveErr
+	}
+
 	if mh == 0 {
 		res.DOF = n
 		return res, nil
 	}
 
 	rank := s.rank(free, mh)
+
+	// The rank pass is itself a Jacobian rebuild — the one remaining chunk of
+	// bounded work. A deadline that expires while it runs must still surface as a
+	// context error rather than a normal DOF result, or the cancellation contract
+	// leaks at exactly the phase the pre-pass check above meant to guard. The
+	// just-computed rank is discarded so a context error keeps DOF/Redundant == -1,
+	// consistent with the mid-solve cancellation path.
+	if err := ctx.Err(); err != nil {
+		res.DOF = -1
+		res.Redundant = -1
+		return res, err
+	}
+
 	res.DOF = n - rank
 	if res.DOF < 0 {
 		res.DOF = 0
@@ -183,21 +253,32 @@ func (s *Sketch) Solve(options ...SolveOption) (*Result, error) {
 
 // lm runs the Levenberg–Marquardt loop on the residual vector produced by
 // eval, mutating the sketch's free variables in place, and reports the outer
-// iterations performed. It terminates when the residual norm reaches the
-// tolerance, when no damped step improves the cost (a minimum — possibly with
-// nonzero residual, e.g. an unreachable goal), or when the budget runs out.
-func (s *Sketch) lm(free []int, eval func([]float64) []float64, maxIterations int, tolerance float64) int {
+// iterations performed and any context error. It terminates when the residual
+// norm reaches the tolerance, when no damped step improves the cost (a minimum —
+// possibly with nonzero residual, e.g. an unreachable goal), or when the budget
+// runs out (returning a nil error), or early when ctx is cancelled (returning
+// ctx.Err()). ctx is checked before the initial residual evaluation, once per
+// outer iteration before the (expensive) Jacobian build, and at the top of the
+// damping trial loop — always at a point where no unaccepted trial step is
+// applied, so the geometry is left at the last accepted configuration.
+func (s *Sketch) lm(ctx context.Context, free []int, eval func([]float64) []float64, maxIterations int, tolerance float64) (int, error) {
 	n := len(free)
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	r := eval(nil)
 	m := len(r)
 	if m == 0 {
-		return 0
+		return 0, nil
 	}
 
 	cost := dot(r, r) // sum of squared residuals
 	lambda := 1e-3
 	var iter int
 	for iter = 0; iter < maxIterations; iter++ {
+		if err := ctx.Err(); err != nil {
+			return iter, err
+		}
 		if math.Sqrt(cost) <= tolerance {
 			break
 		}
@@ -242,6 +323,13 @@ func (s *Sketch) lm(free []int, eval func([]float64) []float64, maxIterations in
 		// Inner loop: adapt the damping λ until a step reduces the cost.
 		improved := false
 		for try := 0; try < 40; try++ {
+			// Safe cancellation point: no trial step is applied yet this pass
+			// (a rejected step was already reverted below), so the geometry is
+			// at the last accepted configuration. This bounds the damping loop,
+			// whose 40 trials each cost a full residual evaluation.
+			if err := ctx.Err(); err != nil {
+				return iter, err
+			}
 			mu := lambda * maxDiag
 			damped := make([][]float64, n)
 			rhs := make([]float64, n)
@@ -282,7 +370,7 @@ func (s *Sketch) lm(free []int, eval func([]float64) []float64, maxIterations in
 			break
 		}
 	}
-	return iter
+	return iter, nil
 }
 
 // DOF reports the remaining degrees of freedom of the sketch at its current

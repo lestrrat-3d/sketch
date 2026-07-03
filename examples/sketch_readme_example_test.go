@@ -1,6 +1,7 @@
 package examples_test
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/lestrrat-3d/sketch"
@@ -43,7 +44,7 @@ func Example_sketch_quickstart() {
 	height := sketch.NewDistance(a, d, 12)
 	s.AddConstraint(width, height)
 
-	res, err := s.Solve()
+	res, err := s.Solve(context.Background())
 	if err != nil {
 		fmt.Printf("failed to solve: %s\n", err)
 		return
@@ -53,7 +54,7 @@ func Example_sketch_quickstart() {
 
 	// Edit a dimension and re-solve: the rectangle becomes 35 x 12.
 	width.Set(35)
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(context.Background()); err != nil {
 		fmt.Printf("failed to re-solve: %s\n", err)
 		return
 	}

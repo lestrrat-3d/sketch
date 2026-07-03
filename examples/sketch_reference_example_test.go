@@ -1,6 +1,7 @@
 package examples_test
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/lestrrat-3d/sketch"
@@ -28,26 +29,26 @@ func Example_sketch_reference() {
 	// the sketch against the reference.
 	tip := s.CreatePoint(4, 1)
 	s.AddConstraint(sketch.NewCoincident(tip, a))
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(context.Background()); err != nil {
 		fmt.Println(err)
 		return
 	}
 	fmt.Printf("tip pierced to (%.0f, %.0f)\n", tip.X(), tip.Y())
 
-	rep := s.Verify()
+	rep := s.Verify(context.Background())
 	fmt.Printf("trustworthy=%t stale=%t\n", rep.Trustworthy(), rep.Stale)
 
 	// The 3D body changes: the snapshot is now stale, so the verdict is no longer
 	// trustworthy even though the sketch is still fully constrained and solvable.
 	s.MarkStale("body1.edge7")
-	rep = s.Verify()
+	rep = s.Verify(context.Background())
 	fmt.Printf("after change: trustworthy=%t stale=%t stale-references=%d\n",
 		rep.Trustworthy(), rep.Stale, len(rep.StaleReferences))
 
 	// The 3D layer re-feeds the snapshot; trust is restored.
 	s.RefreshReference(a, 0, 0)
 	s.RefreshReference(b, 10, 0)
-	rep = s.Verify()
+	rep = s.Verify(context.Background())
 	fmt.Printf("after refresh: trustworthy=%t stale=%t\n", rep.Trustworthy(), rep.Stale)
 
 	// Output:

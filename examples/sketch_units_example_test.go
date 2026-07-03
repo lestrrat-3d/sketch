@@ -1,6 +1,7 @@
 package examples_test
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/lestrrat-3d/sketch"
@@ -35,7 +36,7 @@ func Example_sketch_units() {
 		fmt.Printf("failed to set value: %s\n", err)
 		return
 	}
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(context.Background()); err != nil {
 		fmt.Printf("failed to solve: %s\n", err)
 		return
 	}

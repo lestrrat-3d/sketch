@@ -40,8 +40,8 @@ rotated/axis-clamped positions itself and issues plain point goals.
 Goals are a `SolveOption`, following the existing option conventions:
 
 ```go
-res, err := s.Solve(sketch.WithGoal(p, x, y))            // one goal
-res, err := s.Solve(sketch.WithGoal(p1, x1, y1),
+res, err := s.Solve(ctx, sketch.WithGoal(p, x, y))       // one goal
+res, err := s.Solve(ctx, sketch.WithGoal(p1, x1, y1),
                     sketch.WithGoal(p2, x2, y2))         // any number
 ```
 
@@ -52,7 +52,7 @@ res, err := s.Solve(sketch.WithGoal(p1, x1, y1),
   invocation. Nothing is stored on the sketch, nothing serializes, and a
   subsequent plain `Solve` is unaffected.
 - Warm-starting needs no API: every solve already starts from the current
-  geometry, so calling `Solve(WithGoal(p, …))` per pointer-move event is the
+  geometry, so calling `Solve(ctx, WithGoal(p, …))` per pointer-move event is the
   incremental re-solve. For interactive cadence the caller can bound work with
   the existing `WithMaxIterations`.
 - A goal on a fixed (grounded) point is legal and inert — the point has no free
@@ -199,7 +199,7 @@ consumer shows it matters. Not public API until then.
 
 Hit-testing, snapping, gesture policy for entity dragging, and any
 `StartDrag`/`To`/`End` session convenience. A future GUI can build that handle
-in its own package purely on `Solve(WithGoal(…))` — if it turns out every UI
+in its own package purely on `Solve(ctx, WithGoal(…))` — if it turns out every UI
 rebuilds the identical thing, promoting a tiny helper into the engine is a
 one-evening, backward-compatible addition. The reverse (removing a
 wrong-shaped session API from the engine) is not.

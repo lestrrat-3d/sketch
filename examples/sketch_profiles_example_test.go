@@ -1,6 +1,7 @@
 package examples_test
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/lestrrat-3d/sketch"
@@ -32,7 +33,7 @@ func Example_sketch_profiles() {
 	fmt.Printf("plate: %d sides, %d hole, area %.1f\n", len(plate.Entities), len(plate.Holes), plate.Area)
 	fmt.Printf("bolt-hole disk area: %.1f\n", disk.Area)
 
-	rep := s.Verify()
+	rep := s.Verify(context.Background())
 	fmt.Printf("profiles valid: %t\n", rep.ProfilesValid)
 
 	// Output:

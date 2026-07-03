@@ -1,6 +1,7 @@
 package examples_test
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/lestrrat-3d/sketch"
@@ -33,7 +34,7 @@ func Example_sketch_fillet() {
 	s.Fix(b)
 	s.AddConstraint(sketch.NewVertical(f.L1), sketch.NewHorizontal(f.L2))
 
-	res, err := s.Solve()
+	res, err := s.Solve(context.Background())
 	if err != nil {
 		fmt.Printf("failed to solve: %s\n", err)
 		return
@@ -42,7 +43,7 @@ func Example_sketch_fillet() {
 
 	// Shrink the radius; the arc re-centres while staying tangent to both legs.
 	f.Radius.Set(2)
-	res, err = s.Solve()
+	res, err = s.Solve(context.Background())
 	if err != nil {
 		fmt.Printf("failed to re-solve: %s\n", err)
 		return

@@ -46,7 +46,7 @@ well-conditioned) is preserved because nothing about them changes. 3D is a
 
 Everything a user authors operates in **plane-local 2D**: `CreatePoint`, the curve
 builders, every constraint and dimension, the modification tools, and
-`Solve(WithGoal(p, x, y))`. World coordinates are read-only. A world-space drag
+`Solve(ctx, WithGoal(p, x, y))`. World coordinates are read-only. A world-space drag
 (projecting a world target onto the plane → a future `WithWorldGoal`) and
 plane-parameter recompute outside `Solve` are *consumer-layer* concerns, not
 solver changes. Free 3D geometry (points gaining a `z` var, 3D-branching

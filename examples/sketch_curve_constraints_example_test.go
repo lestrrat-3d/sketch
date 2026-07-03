@@ -1,6 +1,7 @@
 package examples_test
 
 import (
+	"context"
 	"fmt"
 	"math"
 
@@ -28,7 +29,7 @@ func Example_sketch_point_on_conic() {
 	p := s.CreatePoint(4, 1) // below the arch interior
 	s.AddConstraint(sketch.NewPointOnConic(p, c))
 
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(context.Background()); err != nil {
 		fmt.Println(err)
 		return
 	}
@@ -69,7 +70,7 @@ func Example_sketch_tangent_to_nurbs() {
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewTangentToNURBS(line, c))
 
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(context.Background()); err != nil {
 		fmt.Println(err)
 		return
 	}

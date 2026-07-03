@@ -1,6 +1,7 @@
 package sketch
 
 import (
+	"context"
 	"math"
 
 	"github.com/lestrrat-go/option/v3"
@@ -131,6 +132,12 @@ type VerificationReport struct {
 	// preconditions). It is nil otherwise; a nil Probe is not a uniqueness
 	// claim. See [Sketch.ProbeConfigurations].
 	Probe *ProbeResult
+	// ProbeIncomplete is true when [WithProbe] was requested and the probe's
+	// preconditions held, but the probe could not finish (e.g. ctx was
+	// cancelled), so Probe is nil for lack of a result rather than because no
+	// probe was asked for. It fails [VerificationReport.Trustworthy]: the
+	// requested ambiguity check did not run, so the sketch must not be blessed.
+	ProbeIncomplete bool
 	// StaleReferences and StaleReferencePoints list the reference geometry whose
 	// 3D source has changed since its snapshot was taken (see [Sketch.MarkStale]).
 	// Points are tracked separately because a pierce point is not an [Entity].
@@ -184,6 +191,7 @@ func (r *VerificationReport) Trustworthy() bool {
 		r.ProfilesValid &&
 		r.ParametersValid &&
 		r.Conditioning >= r.condGate &&
+		!r.ProbeIncomplete &&
 		(r.Probe == nil || !r.Probe.Ambiguous())
 }
 
@@ -223,7 +231,11 @@ func WithProbe(opts ...ProbeOption) VerifyOption {
 // the report reflects the solved sketch. It recomputes the constraint Jacobian
 // at the current configuration (never reusing a solve's stale one), so the
 // counts are consistent with the geometry as it stands.
-func (s *Sketch) Verify(options ...VerifyOption) *VerificationReport {
+//
+// The ctx argument bounds any probe run triggered by [WithProbe] (the only
+// potentially expensive, re-solving work Verify performs); pass
+// context.Background() when no bound is needed.
+func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *VerificationReport {
 	var probe bool
 	var probeOpts []ProbeOption
 	tolerance := defaultSolveConfig().tolerance
@@ -307,10 +319,15 @@ func (s *Sketch) Verify(options ...VerifyOption) *VerificationReport {
 	rep.Status = classifyStatus(rep)
 
 	// The probe's preconditions are exactly solvable && DOF 0; guarding here
-	// keeps the (expensive) probe from running when it would only error.
+	// keeps the (expensive) probe from running when it would only error. ctx
+	// bounds it: a cancelled/failed probe leaves Probe nil but marks the report
+	// incomplete, so Trustworthy() does not pass as if the requested ambiguity
+	// check had run and found nothing.
 	if probe && rep.Solvable && rep.DOF == 0 {
-		if pr, err := s.ProbeConfigurations(probeOpts...); err == nil {
+		if pr, err := s.ProbeConfigurations(ctx, probeOpts...); err == nil {
 			rep.Probe = pr
+		} else {
+			rep.ProbeIncomplete = true
 		}
 	}
 

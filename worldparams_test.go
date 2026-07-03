@@ -45,20 +45,20 @@ func TestWorldGlobalParameterDrivesTwoSketches(t *testing.T) {
 	s2, _ := w.CreateSketch(w.XZ())
 	d1, d2 := bind(s1), bind(s2)
 
-	_, err := s1.Solve()
+	_, err := s1.Solve(t.Context())
 	require.NoError(t, err)
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 5, d1.Target().Base(), 1e-9)
 	require.InDelta(t, 5, d2.Target().Base(), 1e-9)
 
 	// Editing the one global parameter reflows both sketches.
 	require.NoError(t, w.Params().SetValue("thickness", units.Millimeters(8)))
-	_, _ = s1.Solve()
-	_, _ = s2.Solve()
+	_, _ = s1.Solve(t.Context())
+	_, _ = s2.Solve(t.Context())
 	require.InDelta(t, 8, d1.Target().Base(), 1e-9)
 	require.InDelta(t, 8, d2.Target().Base(), 1e-9)
-	require.True(t, w.Verify().Trustworthy())
+	require.True(t, w.Verify(t.Context()).Trustworthy())
 }
 
 func TestWorldSketchSharesWorldParams(t *testing.T) {
@@ -107,7 +107,7 @@ func TestOffsetPlaneWrongKindRejected(t *testing.T) {
 	require.ErrorIs(t, err, param.ErrIncompatibleKind, "offset distance must be a length")
 	require.ErrorIs(t, w.ApplyParameters(), param.ErrIncompatibleKind)
 
-	rep := w.Verify()
+	rep := w.Verify(t.Context())
 	require.NotEmpty(t, rep.PlaneErrors)
 	require.False(t, rep.Trustworthy())
 
@@ -144,9 +144,9 @@ func TestWorldParamsRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.InDelta(t, 5, f.Origin().Z, 1e-9)
 	// the bound dimension still solves to thickness
-	_, err = w2.Sketches()[0].Solve()
+	_, err = w2.Sketches()[0].Solve(t.Context())
 	require.NoError(t, err)
-	require.True(t, w2.Verify().Trustworthy())
+	require.True(t, w2.Verify(t.Context()).Trustworthy())
 }
 
 func TestWorldVersionAndLegacyMigration(t *testing.T) {

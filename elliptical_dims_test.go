@@ -22,7 +22,7 @@ func TestEllipticalArcShapeDimensions(t *testing.T) {
 		sketch.NewSemiMinor(ea, 4),
 		sketch.NewEllipseRotation(ea, 0),
 	)
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 8, ea.Rx(), 1e-6, "semi-major driven")
 	require.InDelta(t, 4, ea.Ry(), 1e-6, "semi-minor driven")
@@ -37,7 +37,7 @@ func TestEllipticalArcShapeDimensionsRoundTrip(t *testing.T) {
 	end := s.CreatePoint(0, 2)
 	ea := s.CreateEllipticalArc(c, start, end, 6, 2, 0)
 	s.AddConstraint(sketch.NewSemiMajor(ea, 6), sketch.NewEllipseRotation(ea, 0))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -45,7 +45,7 @@ func TestEllipticalArcShapeDimensionsRoundTrip(t *testing.T) {
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2))
 	require.Len(t, s2.Constraints(), len(s.Constraints()), "dims on the elliptical arc survive reload")
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 }
 
@@ -56,7 +56,7 @@ func TestEllipseShapeDimensionsStillWork(t *testing.T) {
 	s.Fix(o)
 	e := s.CreateEllipse(o, 3, 2, 0)
 	s.AddConstraint(sketch.NewSemiMajor(e, 10), sketch.NewSemiMinor(e, 5))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 10, e.Rx(), 1e-6)
 	require.InDelta(t, 5, e.Ry(), 1e-6)

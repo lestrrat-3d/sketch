@@ -37,7 +37,7 @@ func Example_sketch_units() {
     fmt.Printf("failed to set value: %s\n", err)
     return
   }
-  if _, err := s.Solve(); err != nil {
+  if _, err := s.Solve(context.Background()); err != nil {
     fmt.Printf("failed to solve: %s\n", err)
     return
   }
@@ -71,6 +71,7 @@ Parameters carry units too:
 package examples_test
 
 import (
+  "context"
   "errors"
   "fmt"
 
@@ -139,7 +140,7 @@ func Example_sketch_parametric() {
   }
 
   report := func() error {
-    res, err := s.Solve()
+    res, err := s.Solve(context.Background())
     if err != nil {
       return err
     }

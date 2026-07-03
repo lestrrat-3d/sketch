@@ -28,7 +28,7 @@ func TestEqualLineArc(t *testing.T) {
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewEqualLineArc(line, arc))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 2*math.Pi, arc.R()*arc.Sweep(), 1e-9, "the arc is unchanged")
 	require.InDelta(t, 2*math.Pi, line.Length(), 1e-6, "line length equals the arc's swept length")
@@ -53,7 +53,7 @@ func TestEqualLineArcDrivesArcBeyondPi(t *testing.T) {
 	arc := s.CreateArc(ac, astart, aend)
 	s.AddConstraint(sketch.NewEqualLineArc(line, arc))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 3*math.Pi/2, arc.Sweep(), 1e-6, "sweep driven past π to 3π/2")
 	require.InDelta(t, 3*math.Pi, arc.R()*arc.Sweep(), 1e-6, "swept length equals the line length")
@@ -78,9 +78,9 @@ func TestEqualLineArcOverLengthRejected(t *testing.T) {
 	s.Fix(p2)
 	s.AddConstraint(sketch.NewEqualLineArc(s.CreateLine(p1, p2), arc))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.ErrorIs(t, err, sketch.ErrNotConverged)
-	require.False(t, s.Verify().Solvable, "a line longer than the arc's full circumference is not matchable")
+	require.False(t, s.Verify(t.Context()).Solvable, "a line longer than the arc's full circumference is not matchable")
 }
 
 func TestEqualLineArcDOFAndRemoval(t *testing.T) {
@@ -123,7 +123,7 @@ func TestEqualLineArcRoundTrip(t *testing.T) {
 	line := s.CreateLine(p1, p2)
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewEqualLineArc(line, arc))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -131,7 +131,7 @@ func TestEqualLineArcRoundTrip(t *testing.T) {
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2))
 	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraint survives reload")
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 	for i, p := range s.Points() {
 		require.InDeltaf(t, p.X(), s2.Points()[i].X(), 1e-6, "point %d X", i)
