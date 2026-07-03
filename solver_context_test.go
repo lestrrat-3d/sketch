@@ -59,4 +59,67 @@ func TestSolveContext(t *testing.T) {
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 		require.False(t, res.Converged)
 	})
+
+	t.Run("cancellation during the final rank pass is honored", func(t *testing.T) {
+		// The rank/DOF pass runs after the solve converges. A context that goes
+		// done only once every earlier check has passed exercises the guard that
+		// re-checks ctx after that pass — otherwise a deadline expiring there would
+		// leak through as a normal (non-context) result.
+		//
+		// The sketch is authored already satisfying its constraint so lm converges
+		// at iteration 0 with a fixed, minimal poll cadence: the Solve entry check,
+		// lm's own entry + first-iteration checks, and the post-solve pre-rank
+		// check are the four live polls; the fifth — the guard added after the rank
+		// pass — is the one that trips.
+		s := newSketch(t)
+		a := s.CreatePoint(0, 0)
+		b := s.CreatePoint(10, 0) // already 10 from a, so the distance holds at the seed
+		a.MoveTo(0, 0)
+		s.Fix(a)
+		s.AddConstraint(sketch.NewDistance(a, b, 10))
+		fc := &tripContext{tripAfterN: rankPassTripCount}
+
+		res, err := s.Solve(fc)
+		require.ErrorIs(t, err, context.Canceled)
+		require.True(t, fc.tripped, "context never reached the post-rank check")
+		// Converged is set before the post-rank guard, so its being true proves the
+		// solve finished and the trip landed at the guard — not on an earlier lm
+		// poll (which would leave Converged false).
+		require.True(t, res.Converged, "trip did not reach the post-rank guard")
+		// The post-rank guard still reports the cancellation with the not-computed
+		// sentinels rather than a normal DOF result.
+		require.Equal(t, -1, res.DOF)
+		require.Equal(t, -1, res.Redundant)
+	})
+}
+
+// rankPassTripCount is the number of live ctx.Err() polls an already-converged
+// single-distance solve makes before the post-rank guard: the Solve entry
+// check, lm's entry + first-iteration checks, and the post-solve pre-rank check
+// are the first four; the guard added after the rank pass is the fifth. If the
+// solver's pre-rank check cadence changes this test fails loudly (the trip lands
+// on an earlier poll, leaving Converged false), which is the intended tripwire.
+const rankPassTripCount = 5
+
+// tripContext is a context.Context that stays live until Err() has been polled
+// tripAfterN times, then reports context.Canceled. It lets a test drive
+// cancellation to a specific internal phase of a synchronous Solve without a
+// wall-clock race.
+type tripContext struct {
+	tripAfterN int
+	calls      int
+	tripped    bool
+}
+
+func (c *tripContext) Deadline() (time.Time, bool) { return time.Time{}, false }
+func (c *tripContext) Done() <-chan struct{}       { return nil }
+func (c *tripContext) Value(any) any               { return nil }
+
+func (c *tripContext) Err() error {
+	c.calls++
+	if c.calls >= c.tripAfterN {
+		c.tripped = true
+		return context.Canceled
+	}
+	return nil
 }

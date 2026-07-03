@@ -13,7 +13,12 @@ import (
 // When Solve returns a context error (cancellation or deadline), the DOF/rank
 // analysis is skipped, so DOF and Redundant are set to -1 to mark them "not
 // computed" — never trust them as 0 in that case. Iterations, Residual and
-// Converged are still populated from the partial solve.
+// Converged reflect whatever solving happened before the context ended: a
+// cancellation caught mid-solve carries the partial result, but a context
+// already done on entry (before any iteration ran) leaves them at their zero
+// values — Iterations 0, Residual 0, Converged false. A 0 Residual on that
+// early-exit path means "no residual was measured", not "the sketch is
+// satisfied", so pair it with the returned error before reading it.
 type Result struct {
 	Converged  bool    // every residual is within the tolerance
 	Iterations int     // outer Levenberg–Marquardt iterations performed
@@ -218,6 +223,19 @@ func (s *Sketch) Solve(ctx context.Context, options ...SolveOption) (*Result, er
 	}
 
 	rank := s.rank(free, mh)
+
+	// The rank pass is itself a Jacobian rebuild — the one remaining chunk of
+	// bounded work. A deadline that expires while it runs must still surface as a
+	// context error rather than a normal DOF result, or the cancellation contract
+	// leaks at exactly the phase the pre-pass check above meant to guard. The
+	// just-computed rank is discarded so a context error keeps DOF/Redundant == -1,
+	// consistent with the mid-solve cancellation path.
+	if err := ctx.Err(); err != nil {
+		res.DOF = -1
+		res.Redundant = -1
+		return res, err
+	}
+
 	res.DOF = n - rank
 	if res.DOF < 0 {
 		res.DOF = 0
