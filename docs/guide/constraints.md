@@ -45,6 +45,12 @@ value, while unsigned constraints (`NewTangent`, `NewDistancePointLine`,
 on. See "Orientation and sign conventions" in the
 [package documentation](https://pkg.go.dev/github.com/lestrrat-3d/sketch).
 
+`SVG(WithDimensions(true))` draws each as a CAD dimension — extension lines,
+arrowheads and a unit-tagged value, with `R`/`⌀` prefixes for radius/diameter
+and a swept arc for an angle:
+
+![A linear 90 mm distance and a 30 degree angle on two lines, a circle labelled R20 mm and another labelled diameter 36 mm](../images/dimension-showcase.svg)
+
 ## Driven (reference) dimensions
 
 Any dimension can be flipped to a **driven (reference) dimension** with
@@ -52,6 +58,12 @@ Any dimension can be flipped to a **driven (reference) dimension** with
 measured value — after each `Solve` its `.Target()` holds the measurement in
 the dimension's own unit. `.SetDriven(false)` turns it back into a driving
 dimension, keeping the last measured value as the new target.
+
+Driven dimensions render parenthesized, the CAD convention for a reference
+value. Here the two legs are driving distances (80, 60) and the hypotenuse is
+driven — it measures the geometry rather than shaping it:
+
+![A right triangle with driving 80 mm and 60 mm legs and a lighter parenthesized 100 mm reference dimension on the hypotenuse](../images/driven-dimension.svg)
 
 ## Introspection & naming
 

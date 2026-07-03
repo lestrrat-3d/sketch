@@ -88,6 +88,8 @@ var builders = map[string]func() (string, error){
 	"geometry-primitives":  geometryPrimitives,
 	"compound-shapes":      compoundShapes,
 	"constraint-showcase":  constraintShowcase,
+	"dimension-showcase":   dimensionShowcase,
+	"driven-dimension":     drivenDimension,
 	"goal-drag":            goalDrag,
 }
 
