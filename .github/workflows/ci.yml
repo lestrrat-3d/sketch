@@ -103,5 +103,10 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # govulncheck v1.4.0 requires Go >= 1.25 to build, but setup-go pins
+      # GOTOOLCHAIN=local at this module's go 1.24. Allow an on-demand toolchain
+      # fetch so the tool builds; it still analyzes this module as authored.
       - name: Run govulncheck
+        env:
+          GOTOOLCHAIN: auto
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.4.0 ./...
