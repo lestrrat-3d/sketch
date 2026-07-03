@@ -30,10 +30,19 @@ func Parse(input string) (Expr, error) {
 	return e, nil
 }
 
+// maxParseDepth bounds how deeply expressions may nest — every parenthesised
+// group and function-argument list recurses one level through parseExpr. It
+// exists to turn a pathologically nested input (e.g. "((((…))))" thousands deep,
+// which can reach the parser from an untrusted document) into an ordinary
+// [ParseError] rather than an unrecoverable goroutine stack overflow. The limit
+// is far above any hand-written formula.
+const maxParseDepth = 1000
+
 type parser struct {
 	input string
 	toks  []token
 	pos   int
+	depth int // current parseExpr recursion depth, for the nesting guard
 }
 
 // opRune returns the operator's first byte as a rune, used to tag expression
@@ -48,6 +57,14 @@ func (p *parser) errf(pos int, format string, args ...any) error {
 }
 
 func (p *parser) parseExpr() (Expr, error) {
+	// Every nesting level (a parenthesised group or a function argument)
+	// re-enters here, so bounding parseExpr's depth bounds recursion overall.
+	p.depth++
+	defer func() { p.depth-- }()
+	if p.depth > maxParseDepth {
+		return nil, p.errf(p.peek().pos, "expression nesting too deep (max %d)", maxParseDepth)
+	}
+
 	left, err := p.parseTerm()
 	if err != nil {
 		return nil, err
