@@ -82,10 +82,13 @@ var builders = map[string]func() (string, error){
 	"parametric-before":    func() (string, error) { return parametric(120) },
 	"parametric-after":     func() (string, error) { return parametric(200) },
 	"profiles":             profiles,
+	"profiles-subdivision": profilesSubdivision,
 	"fillet-before":        filletBefore,
 	"fillet-after":         filletAfter,
 	"geometry-primitives":  geometryPrimitives,
 	"compound-shapes":      compoundShapes,
+	"constraint-showcase":  constraintShowcase,
+	"goal-drag":            goalDrag,
 }
 
 // annStyle is the shared styling for the gallery. Geometry is authored at a
