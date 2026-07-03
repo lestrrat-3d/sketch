@@ -270,7 +270,10 @@ func buildBannerSketch() (*sketch.Sketch, error) {
 }
 
 // bannerOptions is the shared render styling for the masthead: blue geometry
-// over a CAD frame and background grid, no point markers or annotations.
+// over a CAD frame and background grid, no point markers or annotations. The
+// masthead is the strongest proof the engine draws its own images — the wordmark
+// itself is sketch geometry — so it carries the same provenance watermark as the
+// gallery heroes.
 var bannerOptions = []sketch.SVGOption{
 	sketch.WithShowPoints(false),
 	sketch.WithBackground("white"),

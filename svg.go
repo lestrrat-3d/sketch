@@ -107,7 +107,6 @@ type svgConfig struct {
 	grid        bool    // draw a background grid inside the frame
 	gridSpacing float64 // grid spacing in sketch units (0 = auto nice step)
 	framePad    float64 // outer padding canvas edge -> frame (0 = auto)
-	watermark   string  // provenance text along the frame's bottom edge
 }
 
 func defaultSVGConfig() svgConfig {
@@ -171,8 +170,6 @@ func applyRenderOption(cfg *svgConfig, o option.Interface) bool {
 		cfg.gridSpacing = option.MustGet[float64](o)
 	case identFramePad:
 		cfg.framePad = option.MustGet[float64](o)
-	case identWatermark:
-		cfg.watermark = option.MustGet[string](o)
 	case identAnnColor:
 		cfg.annColor = option.MustGet[string](o)
 	case identAnnScale:
@@ -469,9 +466,10 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 	if cfg.statusBadge {
 		s.writeStatusBadge(&sb, cfg, pad, w)
 	}
-	// Watermark sits on top, inside the frame's bottom band.
-	if pad > 0 && cfg.watermark != "" {
-		s.writeWatermark(&sb, cfg, pad, w, h)
+	// A framed render always carries the provenance watermark, on top, inside
+	// the frame's bottom band.
+	if pad > 0 {
+		s.writeWatermark(&sb, pad, w, h)
 	}
 
 	sb.WriteString("</svg>\n")

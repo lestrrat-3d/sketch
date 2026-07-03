@@ -65,9 +65,9 @@ Every image below is generated from a compiled builder by
 `internal/cmd/genimages` and kept in sync by a test. Pass the `With…` options
 (`WithDimensions`, `WithConstraints`, `WithDOFColoring`, `WithConflicts`,
 `WithStatusBadge`, `WithProfileFill`) to `SVG`/`PNG`; all default off. The
-gallery also renders "windowed" — `WithFrame` draws a border, `WithGrid` lays a
-coordinate grid behind the sketch, and `WithWatermark` stamps a provenance
-footer.
+gallery also renders "windowed" — `WithFrame` draws a border and `WithGrid` lays
+a coordinate grid behind the sketch; a framed render always carries a small
+`github.com/lestrrat-3d/sketch` provenance footer.
 
 **Constraints and dimensions** — geometric-constraint glyphs (H/V = horizontal
 / vertical, ∥ = parallel, ⊥ = perpendicular) and CAD-style dimensions with
