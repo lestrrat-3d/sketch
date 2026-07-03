@@ -13,6 +13,12 @@ them:
 
 ![A rectangular plate with a circular hole; both detected closed regions are shaded — the plate with the hole cut out, and the inner disk bounded by the circle](../images/profiles.svg)
 
+Boundaries that cross without sharing a point are subdivided: two overlapping
+circles become three faces — the two outer lunes and the central lens (where the
+shading doubles) — each a region in its own right:
+
+![Two overlapping circles whose crossing subdivides them into three shaded faces: a left lune, a central lens, and a right lune](../images/profiles-subdivision.svg)
+
 Region area is exact for every supported curve type — lines, arcs and circles
 (shoelace plus an exact circular-segment correction), ellipses and elliptical
 arcs, splines, conics and NURBS — so a reported `Area` is sampling-independent

@@ -176,6 +176,14 @@ func Example_sketch_parametric() {
 source: [../../examples/sketch_parametric_example_test.go](../../examples/sketch_parametric_example_test.go)
 <!-- END INCLUDE -->
 
+Editing the single driving `width` parameter reflows the whole plate — the
+height, the hole diameter and the hole's centering all follow, because each is
+an expression of `width`:
+
+| `width = 120` | `width = 200` |
+|---|---|
+| ![A plate with a centered circular hole dimensioned at width 120](../images/parametric-before.svg) | ![The same plate re-solved wider, at width 200, the hole still centered and proportional](../images/parametric-after.svg) |
+
 Within an expression, parameters contribute their value in base units and
 numeric literals are dimensionless; the declared unit (the third argument to
 `SetExpr`) tags the result. Binding a length dimension directly to an angle
