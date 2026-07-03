@@ -82,6 +82,7 @@ var builders = map[string]func() (string, error){
 	"parametric-before":    func() (string, error) { return parametric(120) },
 	"parametric-after":     func() (string, error) { return parametric(200) },
 	"profiles":             profiles,
+	"profiles-subdivision": profilesSubdivision,
 	"fillet-before":        filletBefore,
 	"fillet-after":         filletAfter,
 	"geometry-primitives":  geometryPrimitives,
