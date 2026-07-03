@@ -49,6 +49,14 @@ source: [../../examples/sketch_solving_example_test.go](../../examples/sketch_so
 conflicting) at the current configuration — of two duplicates, the later-added
 one is reported.
 
+Annotated SVG makes the DOF verdict visible: not-fully-constrained geometry is
+blue and hollow, fully constrained is black, and the grounded anchor is a green
+square (`SVG(WithDOFColoring(true), WithStatusBadge(true))`):
+
+| A free corner (`DOF 3`) | Fully constrained (`DOF 0`) |
+|---|---|
+| ![A rectangle with a free top-right corner, its free edges and points blue and hollow, badge reading DOF 3 underconstrained](../images/dof-underconstrained.svg) | ![The same rectangle fully constrained, every edge black, badge reading DOF 0 fully constrained](../images/dof-constrained.svg) |
+
 If the solver cannot satisfy the constraints (typically an over-constrained or
 contradictory sketch) `Solve` returns `ErrNotConverged` together with the
 partial result.
@@ -93,6 +101,8 @@ func Example_sketch_goal() {
 ```
 source: [../../examples/sketch_goal_example_test.go](../../examples/sketch_goal_example_test.go)
 <!-- END INCLUDE -->
+
+![A horizontal line grounded at the left; its right end is pinned to the x-axis by a horizontal constraint directly below a dashed goal marker up and to the right, with a dashed leader showing the vertical pull the constraint blocks](../images/goal-drag.svg)
 
 Constraints always win: the geometry settles at the closest feasible
 configuration, and an unreachable target is not an error. Goals are transient
