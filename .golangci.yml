@@ -27,6 +27,10 @@ linters:
     - err113
     - errorlint
     - exhaustive
+    # exhaustruct flags every partially-initialized struct literal; disabled
+    # outright (the house config suppresses it via an all-.go exclusion, which
+    # reads as a bug — express the intent directly instead).
+    - exhaustruct
     - funcorder
     - funlen
     - gochecknoglobals
@@ -99,9 +103,6 @@ linters:
       - linters:
           - staticcheck
         text: 'QF1011:'
-      - linters:
-          - exhaustruct
-        path: /*.go
       - linters:
           - errcheck
         path: /main.go

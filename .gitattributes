@@ -1,0 +1,13 @@
+# Byte-exact reproduction across platforms.
+#
+# The genimages in-sync test (internal/cmd/genimages) reads the committed
+# docs/images/*.svg files and byte-compares them against freshly generated,
+# LF-terminated SVG output. Go example `// Output:` blocks are likewise compared
+# against the source text. Git's autocrlf on the GitHub Windows CI runner would
+# rewrite the LF-committed blobs to CRLF on checkout, so a golden .svg (or an
+# example comment) would gain stray \r bytes and no longer match the library's
+# LF output — a spurious CI failure on an otherwise-correct tree.
+#
+# `-text` disables ALL end-of-line conversion, so every checkout reproduces the
+# committed blob EXACTLY on every platform without rewriting files.
+* -text
