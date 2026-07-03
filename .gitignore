@@ -40,3 +40,4 @@ go.work.sum
 # Scratch output and agent worktrees
 .tmp/
 .worktrees/
+.review-gauntlet/
