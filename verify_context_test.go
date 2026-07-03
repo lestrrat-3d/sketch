@@ -41,7 +41,39 @@ func TestProbeConfigurationsContext(t *testing.T) {
 		require.NoError(t, err)
 		require.GreaterOrEqual(t, len(pr.Configurations), 1)
 	})
+
+	t.Run("cancellation after the baseline solve reports the context error", func(t *testing.T) {
+		// An under-constrained sketch (DOF 1: one free point pinned only by a
+		// distance to the grounded origin, authored already satisfying it) makes
+		// the probe's post-baseline precondition return ErrUnderconstrained — a
+		// non-context verdict. A context that goes done only once every earlier
+		// poll has passed exercises the guard added after the baseline rank/DOF
+		// pass: it must surface the cancellation, not the ErrUnderconstrained
+		// precondition. Without the guard the probe never polls ctx again after
+		// the rank pass, so it returns ErrUnderconstrained and the trip never fires.
+		u := newSketch(t)
+		a := u.CreatePoint(0, 0)
+		b := u.CreatePoint(10, 0) // already 10 from a, so lm converges at iteration 0
+		a.MoveTo(0, 0)
+		u.Fix(a)
+		u.AddConstraint(sketch.NewDistance(a, b, 10))
+		fc := &tripContext{tripAfterN: probeBaselineRankTripCount}
+
+		_, err := u.ProbeConfigurations(fc)
+		require.ErrorIs(t, err, context.Canceled)
+		require.NotErrorIs(t, err, sketch.ErrUnderconstrained)
+		require.True(t, fc.tripped, "context never reached the post-baseline-rank guard")
+	})
 }
+
+// probeBaselineRankTripCount is the number of live ctx.Err() polls the probe of
+// an already-converged, DOF-1 sketch makes before the guard that follows the
+// baseline rank/DOF pass: the entry check, lm's entry + first-iteration checks,
+// and the post-lm check are the first four; the post-rank guard is the fifth. If
+// the probe's pre-DOF poll cadence changes this test fails loudly (the guard is
+// never reached and ErrUnderconstrained leaks through), which is the intended
+// tripwire.
+const probeBaselineRankTripCount = 5
 
 func TestVerifyContext(t *testing.T) {
 	s := horizontalBarSketch(t)

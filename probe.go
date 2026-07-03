@@ -173,6 +173,15 @@ func (s *Sketch) ProbeConfigurations(ctx context.Context, options ...ProbeOption
 	if _, err := s.lm(ctx, free, s.residuals, sc.maxIterations, sc.tolerance); err != nil {
 		return nil, err // cancellation returns ctx.Err(), not a spurious ErrNotConverged
 	}
+	// The baseline solve finished, but ctx may have gone done as its last lm
+	// iteration returned. The precondition work below — the convergence check and
+	// then the rank/DOF pass — can return ErrNotConverged or ErrUnderconstrained,
+	// non-context verdicts. Honor the cancellation contract instead: no baseline
+	// configuration has been recorded yet, so return (nil, ctx.Err()) exactly like
+	// a cancellation during the baseline solve.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	r := s.residuals(nil)
 	if math.Sqrt(dot(r, r)) > sc.tolerance {
 		return nil, ErrNotConverged
@@ -183,6 +192,12 @@ func (s *Sketch) ProbeConfigurations(ctx context.Context, options ...ProbeOption
 	dof := len(free)
 	if m := len(r); m > 0 {
 		dof = len(free) - s.rank(free, m)
+	}
+	// The rank pass is itself a Jacobian rebuild; a deadline expiring during it
+	// must still abort with the context error rather than the ErrUnderconstrained
+	// precondition verdict below.
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	if dof > 0 {
 		return nil, fmt.Errorf("%w (DOF 0 needed, %d remaining)", ErrUnderconstrained, dof)
