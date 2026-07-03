@@ -233,6 +233,7 @@ const (
 	colorFree        = "#1a73e8" // not fully constrained (blue)
 	colorConstrained = "#202124" // fully constrained (black)
 	colorConflict    = "#d93025" // conflicting-constraint geometry (red)
+	colorFixed       = "#188038" // grounded / fixed point (green)
 )
 
 // newAnnCtx resolves the annotation sizes/transforms shared by the dimension

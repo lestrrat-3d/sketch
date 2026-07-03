@@ -76,12 +76,13 @@ arrowheads and units:
 ![A grounded rectangle with horizontal, vertical, parallel and perpendicular constraint glyphs on its sides and width and height dimension lines labelled in millimetres](docs/images/quickstart.svg)
 
 **Degrees of freedom** — the headline verification cue. Geometry that is not
-fully constrained is blue and hollow; fully constrained geometry is black. A
-status badge reports the DOF count and constraint state:
+fully constrained is blue and hollow; fully constrained geometry is black; the
+grounded anchor point is a green square, so the sketch's tie to the origin is
+visible. A status badge reports the DOF count and constraint state:
 
 | Under-constrained (a free corner) | Fully constrained |
 |---|---|
-| ![A rectangle whose top edge and corners are blue and hollow because they still have free degrees of freedom, with a badge reading DOF 3, underconstrained](docs/images/dof-underconstrained.svg) | ![The same rectangle fully constrained: every edge and point is black, with a badge reading DOF 0, fully constrained](docs/images/dof-constrained.svg) |
+| ![A rectangle whose top edge and corners are blue and hollow because they still have free degrees of freedom, with the grounded origin corner shown as a green square, and a badge reading DOF 3, underconstrained](docs/images/dof-underconstrained.svg) | ![The same rectangle fully constrained: every edge black and every corner a black dot except the grounded origin corner, which is a green square, with a badge reading DOF 0, fully constrained](docs/images/dof-constrained.svg) |
 
 **Conflicting constraints** — the same right triangle, dimensioned two ways. Its
 legs are 400 and 300, so its hypotenuse is 500. Dimension the hypotenuse 500 and

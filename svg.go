@@ -257,6 +257,20 @@ func (s *Sketch) renderBounds(margin float64) (bbox, float64, float64) {
 	return b, w, h
 }
 
+// pointRadiusMinFrac floors the point-marker radius at this fraction of the
+// geometry's bounding-box diagonal. A fixed radius (in sketch units) renders too
+// small to read on a large-scale drawing — the same 2-unit marker is legible on a
+// 200-unit sketch but a speck on a 500-unit one — so markers get a scale-relative
+// minimum, matching how the annotation sizes derive from the diagonal.
+const pointRadiusMinFrac = 0.008
+
+// pointRadius returns the point-marker radius to render: the configured radius,
+// floored to a fraction of the bbox diagonal so markers stay visible at any scale.
+// Shared by the SVG and PNG exporters (whose configs both carry a point radius).
+func pointRadius(configured float64, b bbox) float64 {
+	return math.Max(configured, pointRadiusMinFrac*math.Hypot(b.maxX-b.minX, b.maxY-b.minY))
+}
+
 // arcPolyline samples the arc counter-clockwise from start to end.
 // arcPolyline samples an arc for rendering. The sampling math lives in geom
 // (geom/sample.go) so the exporters and the world-space sampler agree exactly.
@@ -409,19 +423,30 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 	}
 
 	if cfg.showPoints {
+		pr := pointRadius(cfg.pointRadius, b) // scale-relative minimum so markers read at any size
 		for _, p := range s.points {
 			if cfg.dofColoring {
-				// Free points render hollow blue, constrained points filled black —
-				// a redundant shape channel so DOF reads without color.
+				// Free points render hollow blue, grounded points a filled green
+				// square, other constrained points a filled black circle — a
+				// redundant shape channel so DOF/grounding reads without color.
 				if _, free := ov.freePt[p]; free {
 					fmt.Fprintf(&sb,
 						`  <circle cx="%s" cy="%s" r="%s" fill="white" stroke="%s" stroke-width="%s"/>`+"\n",
-						f(tx(p.x())), f(ty(p.y())), f(cfg.pointRadius), colorFree, f(cfg.strokeWidth))
+						f(tx(p.x())), f(ty(p.y())), f(pr), colorFree, f(cfg.strokeWidth))
+					continue
+				}
+				if p.IsFixed() {
+					// A square anchor marks the grounded point(s): the sketch's tie to
+					// the origin, distinct from geometry constrained by other relations.
+					side := pr * 2
+					fmt.Fprintf(&sb,
+						`  <rect x="%s" y="%s" width="%s" height="%s" fill="%s"/>`+"\n",
+						f(tx(p.x())-pr), f(ty(p.y())-pr), f(side), f(side), colorFixed)
 					continue
 				}
 				fmt.Fprintf(&sb,
 					`  <circle cx="%s" cy="%s" r="%s" fill="%s"/>`+"\n",
-					f(tx(p.x())), f(ty(p.y())), f(cfg.pointRadius), colorConstrained)
+					f(tx(p.x())), f(ty(p.y())), f(pr), colorConstrained)
 				continue
 			}
 			fill := "#d93025"
@@ -430,7 +455,7 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 			}
 			fmt.Fprintf(&sb,
 				`  <circle cx="%s" cy="%s" r="%s" fill="%s"/>`+"\n",
-				f(tx(p.x())), f(ty(p.y())), f(cfg.pointRadius), fill)
+				f(tx(p.x())), f(ty(p.y())), f(pr), fill)
 		}
 	}
 
