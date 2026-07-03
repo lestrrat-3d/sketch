@@ -1,9 +1,11 @@
 package main
 
-// banner renders the project's masthead: the word "sketch" drawn large with a
-// smaller "A parametric 2D sketch engine" tagline beneath it — every glyph
-// authored as ordinary sketch geometry (straight strokes as lines, curved
-// strokes as fit splines) so the whole image is literally drawn by the engine.
+// banner renders the project's masthead: the word "sketch" drawn large as
+// outlined letters, with a smaller "A parametric 2D sketch engine" tagline
+// beneath it — every glyph authored as ordinary sketch geometry so the whole
+// image is literally drawn by the engine. The wordmark's strokes are rendered as
+// closed outlines (each skeleton stroke offset to both sides into a hollow
+// racetrack); the tagline stays a plain single-stroke run.
 //
 // Glyphs live in a compact single-stroke font (bannerFont) on a font-unit grid:
 // baseline y=0, x-height y=8, cap/ascender y=12, descender y=-3. drawText
@@ -13,6 +15,7 @@ import (
 	"math"
 
 	"github.com/lestrrat-3d/sketch"
+	"github.com/lestrrat-3d/sketch/geom"
 )
 
 // glyphStroke is one pen stroke: a polyline of font-unit points, drawn as a
@@ -150,10 +153,58 @@ type textHandles struct {
 	points []*sketch.Point
 }
 
+// halfWeight is the wordmark's outline half-thickness, in font units: each
+// skeleton stroke is offset ±halfWeight to both sides to become a hollow outline.
+const halfWeight = 0.8
+
+// strokeOutline turns one skeleton stroke into the closed loop of its outline:
+// it (smoothly, for a curved stroke) densifies the centerline, offsets every
+// vertex ±halfWeight along the local normal, and joins the two sides with flat
+// end caps. The returned loop is open-ended (drawText closes it).
+func strokeOutline(st glyphStroke) [][2]float64 {
+	center := st.pts
+	if st.curved && len(center) >= 3 {
+		if s, err := geom.SampleFitSpline(center, 48); err == nil {
+			center = s
+		}
+	}
+	n := len(center)
+	if n < 2 {
+		return nil
+	}
+	left := make([][2]float64, n)
+	right := make([][2]float64, n)
+	for i := range center {
+		var tx, ty float64
+		switch {
+		case i == 0:
+			tx, ty = center[1][0]-center[0][0], center[1][1]-center[0][1]
+		case i == n-1:
+			tx, ty = center[n-1][0]-center[n-2][0], center[n-1][1]-center[n-2][1]
+		default:
+			tx, ty = center[i+1][0]-center[i-1][0], center[i+1][1]-center[i-1][1]
+		}
+		l := math.Hypot(tx, ty)
+		if l < 1e-9 {
+			l = 1
+		}
+		nx, ny := -ty/l*halfWeight, tx/l*halfWeight
+		left[i] = [2]float64{center[i][0] + nx, center[i][1] + ny}
+		right[i] = [2]float64{center[i][0] - nx, center[i][1] - ny}
+	}
+	loop := append([][2]float64{}, left...)
+	for i := n - 1; i >= 0; i-- {
+		loop = append(loop, right[i])
+	}
+	return loop
+}
+
 // drawText authors text into s as geometry, its left edge at x0 and baseline at
-// baseline, scaled by scale with tracking (extra gap) between glyphs, returning
-// handles to everything it created.
-func drawText(s *sketch.Sketch, text string, x0, baseline, scale, tracking float64) (*textHandles, error) {
+// baseline, scaled by scale with tracking (extra gap) between glyphs. When
+// outline is set each stroke is drawn as its closed outline loop (hollow
+// letters); otherwise as a plain single-stroke centerline. Returns handles to
+// everything it created.
+func drawText(s *sketch.Sketch, text string, x0, baseline, scale, tracking float64, outline bool) (*textHandles, error) {
 	h := &textHandles{}
 	x := x0
 	for i, r := range text {
@@ -163,12 +214,27 @@ func drawText(s *sketch.Sketch, text string, x0, baseline, scale, tracking float
 		g := glyphFor(r)
 		gh := make([]strokeHandles, 0, len(g.strokes))
 		for _, st := range g.strokes {
+			var sh strokeHandles
+			if outline {
+				loop := strokeOutline(st)
+				pts := make([]*sketch.Point, len(loop))
+				for j, p := range loop {
+					pts[j] = s.CreatePoint(x+p[0]*scale, baseline+p[1]*scale)
+					h.points = append(h.points, pts[j])
+				}
+				for j := range pts { // closed loop of line segments
+					sh.lines = append(sh.lines, s.CreateLine(pts[j], pts[(j+1)%len(pts)]))
+				}
+				sh.pts = pts
+				gh = append(gh, sh)
+				continue
+			}
 			pts := make([]*sketch.Point, len(st.pts))
 			for j, p := range st.pts {
 				pts[j] = s.CreatePoint(x+p[0]*scale, baseline+p[1]*scale)
 				h.points = append(h.points, pts[j])
 			}
-			sh := strokeHandles{pts: pts}
+			sh.pts = pts
 			if st.curved && len(pts) >= 3 {
 				if _, err := s.CreateFitSpline(pts...); err != nil {
 					return nil, err
@@ -210,43 +276,71 @@ func buildBannerSketch() (*sketch.Sketch, error) {
 	if err != nil {
 		return nil, err
 	}
-	wm, err := drawText(s, word, -textWidth(word, wordScale, wordTrack)/2, wordBase, wordScale, wordTrack)
+	wm, err := drawText(s, word, -textWidth(word, wordScale, wordTrack)/2, wordBase, wordScale, wordTrack, true)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := drawText(s, tag, -textWidth(tag, tagScale, tagTrack)/2, tagBase, tagScale, tagTrack); err != nil {
+	if _, err := drawText(s, tag, -textWidth(tag, tagScale, tagTrack)/2, tagBase, tagScale, tagTrack, false); err != nil {
 		return nil, err
 	}
 	annotateWordmark(s, wm)
 	return s, nil
 }
 
+// longestAxisLine returns the longest near-vertical (vertical=true) or
+// near-horizontal line among a glyph's outline edges, or nil if none qualifies.
+// Outlined stems have long vertical edges and crossbars long horizontal ones, so
+// this recovers a clean edge to hang a constraint glyph on.
+func longestAxisLine(gh []strokeHandles, vertical bool) *sketch.Line {
+	var best *sketch.Line
+	var bestLen float64
+	for _, sh := range gh {
+		for _, l := range sh.lines {
+			dx := l.End.X() - l.Start.X()
+			dy := l.End.Y() - l.Start.Y()
+			var along, across float64
+			if vertical {
+				along, across = math.Abs(dy), math.Abs(dx)
+			} else {
+				along, across = math.Abs(dx), math.Abs(dy)
+			}
+			if across > 0.15*along { // not axis-aligned enough
+				continue
+			}
+			if along > bestLen {
+				best, bestLen = l, along
+			}
+		}
+	}
+	return best
+}
+
 // annotateWordmark attaches the constraints and dimensions that make the "sketch"
 // wordmark read as a constrained CAD sketch. It never solves — the letterforms
 // stay exactly as drawn — so the constraints are the ones already satisfied by
-// construction (vertical stems, horizontal crossbars) and the dimensions carry
-// the measured extents.
-//
-// Glyph strokes (see bannerFont), indexed [glyph][stroke]:
-//
-//	s=0  k=1  e=2  t=3  c=4  h=5
-//	k stroke0 = stem;         h stroke0 = stem
-//	e stroke0 = crossbar;     t stroke0 = stem (seg 0 vertical), t stroke1 = crossbar
+// construction (vertical stem edges, horizontal crossbar edges) and the
+// dimensions carry the measured extents. Glyphs are indexed in string order:
+// s=0 k=1 e=2 t=3 c=4 h=5.
 func annotateWordmark(s *sketch.Sketch, wm *textHandles) {
-	kStem := wm.glyphs[1][0].lines[0]
-	hStem := wm.glyphs[5][0].lines[0]
-	eBar := wm.glyphs[2][0].lines[0]
-	tStem := wm.glyphs[3][0].lines[0] // the vertical first segment
-	tBar := wm.glyphs[3][1].lines[0]
+	kStem := longestAxisLine(wm.glyphs[1], true)
+	hStem := longestAxisLine(wm.glyphs[5], true)
+	tBar := longestAxisLine(wm.glyphs[3], false)
+	eBar := longestAxisLine(wm.glyphs[2], false)
 
-	s.AddConstraint(
-		sketch.NewVertical(kStem),
-		sketch.NewVertical(hStem),
-		sketch.NewVertical(tStem),
-		sketch.NewHorizontal(eBar),
-		sketch.NewHorizontal(tBar),
-		sketch.NewEqual(kStem, hStem), // the two full-height stems match
-	)
+	var cons []sketch.Constraint
+	if kStem != nil {
+		cons = append(cons, sketch.NewVertical(kStem))
+	}
+	if hStem != nil {
+		cons = append(cons, sketch.NewVertical(hStem))
+	}
+	if tBar != nil {
+		cons = append(cons, sketch.NewHorizontal(tBar))
+	}
+	if eBar != nil {
+		cons = append(cons, sketch.NewHorizontal(eBar))
+	}
+	s.AddConstraint(cons...)
 
 	// Overall dimensions across the wordmark's extent. The dimension endpoints
 	// sit at the bounding corners (invisible — point markers are off), so the

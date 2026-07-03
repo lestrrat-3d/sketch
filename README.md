@@ -1,7 +1,7 @@
 # sketch
 
 <p align="center">
-  <img src="docs/images/banner.svg" alt="The word 'sketch' drawn as a constrained CAD sketch — horizontal and vertical constraint glyphs on its strokes and overall width and height dimensions — above the tagline 'A parametric 2D sketch engine'" width="640">
+  <img src="docs/images/banner.svg" alt="The word 'sketch' drawn as a constrained CAD sketch in outlined letters — horizontal and vertical constraint glyphs on its strokes and overall width and height dimensions — above the tagline 'A parametric 2D sketch engine'" width="640">
 </p>
 
 A standalone, fully programmable **parametric 2D sketch engine** for Go, in the
