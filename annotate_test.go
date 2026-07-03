@@ -310,6 +310,22 @@ func TestDOFColoringFullyConstrainedBlack(t *testing.T) {
 	require.Contains(t, out, `stroke="#202124"`, "fully constrained geometry is black")
 }
 
+func TestDOFColoringFixedPointGreenSquare(t *testing.T) {
+	// The grounded anchor renders as a green square, distinct from other
+	// fully-constrained points (black circles). rectWithDistance fixes corner A.
+	s, _ := rectWithDistance(t)
+	out, err := s.SVG(sketch.WithDOFColoring(true))
+	require.NoError(t, err)
+	require.Regexp(t, `<rect [^>]*fill="#188038"`, out, "grounded point is a green square")
+	require.Equal(t, 1, strings.Count(out, "#188038"), "exactly one grounded anchor")
+	require.Regexp(t, `<circle [^>]*fill="#202124"`, out, "other constrained points stay black circles")
+
+	// The green anchor is a DOF-coloring overlay: baseline output has no green.
+	base, err := s.SVG()
+	require.NoError(t, err)
+	require.NotContains(t, base, "#188038")
+}
+
 func TestConflictHighlight(t *testing.T) {
 	w := sketch.NewWorld()
 	s, err := w.CreateSketch(w.XY())

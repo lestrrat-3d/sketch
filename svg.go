@@ -411,12 +411,22 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 	if cfg.showPoints {
 		for _, p := range s.points {
 			if cfg.dofColoring {
-				// Free points render hollow blue, constrained points filled black —
-				// a redundant shape channel so DOF reads without color.
+				// Free points render hollow blue, grounded points a filled green
+				// square, other constrained points a filled black circle — a
+				// redundant shape channel so DOF/grounding reads without color.
 				if _, free := ov.freePt[p]; free {
 					fmt.Fprintf(&sb,
 						`  <circle cx="%s" cy="%s" r="%s" fill="white" stroke="%s" stroke-width="%s"/>`+"\n",
 						f(tx(p.x())), f(ty(p.y())), f(cfg.pointRadius), colorFree, f(cfg.strokeWidth))
+					continue
+				}
+				if p.IsFixed() {
+					// A square anchor marks the grounded point(s): the sketch's tie to
+					// the origin, distinct from geometry constrained by other relations.
+					side := cfg.pointRadius * 2
+					fmt.Fprintf(&sb,
+						`  <rect x="%s" y="%s" width="%s" height="%s" fill="%s"/>`+"\n",
+						f(tx(p.x())-cfg.pointRadius), f(ty(p.y())-cfg.pointRadius), f(side), f(side), colorFixed)
 					continue
 				}
 				fmt.Fprintf(&sb,
