@@ -44,6 +44,10 @@ func TestSolveContext(t *testing.T) {
 		require.Equal(t, 0, res.Iterations)
 		require.Equal(t, bx, b.X())
 		require.Equal(t, by, b.Y())
+		// DOF/rank analysis was skipped; the fields are the "not computed"
+		// sentinel, never a misleading 0 that reads as fully constrained.
+		require.Equal(t, -1, res.DOF)
+		require.Equal(t, -1, res.Redundant)
 	})
 
 	t.Run("expired deadline reports DeadlineExceeded", func(t *testing.T) {

@@ -168,7 +168,9 @@ func (s *Sketch) ProbeConfigurations(ctx context.Context, options ...ProbeOption
 	// directly rather than Solve so that parameter bindings are not
 	// re-evaluated and refreshDriven never writes a probed configuration's
 	// measurements into driven dimensions.
-	s.lm(ctx, free, s.residuals, sc.maxIterations, sc.tolerance)
+	if _, err := s.lm(ctx, free, s.residuals, sc.maxIterations, sc.tolerance); err != nil {
+		return nil, err // cancellation returns ctx.Err(), not a spurious ErrNotConverged
+	}
 	r := s.residuals(nil)
 	if math.Sqrt(dot(r, r)) > sc.tolerance {
 		return nil, ErrNotConverged
@@ -201,25 +203,28 @@ func (s *Sketch) ProbeConfigurations(ctx context.Context, options ...ProbeOption
 
 	// try re-solves from one perturbation of the baseline and keeps the result
 	// if it converged to a configuration not seen before. Acceptance order is
-	// probe order, so the result is deterministic.
-	try := func(perturb func()) {
+	// probe order, so the result is deterministic. It returns false when ctx is
+	// cancelled, so the caller loop can stop promptly (the end-of-function check
+	// then reports ctx.Err()); true otherwise, whether or not a config was added.
+	try := func(perturb func()) bool {
 		if ctx.Err() != nil {
-			return // cancelled — stop exploring; the end-of-function check reports it
+			return false
 		}
 		copy(s.vars, baseline)
 		perturb()
 		s.lm(ctx, free, s.residuals, sc.maxIterations, sc.tolerance)
 		rr := s.residuals(nil)
 		if math.Sqrt(dot(rr, rr)) > sc.tolerance {
-			return
+			return true
 		}
 		cand := append([]float64(nil), s.vars...)
 		for _, c := range result.Configurations {
 			if configSep(c.vars, cand, free, kinds, diag) < separationTol {
-				return
+				return true
 			}
 		}
 		result.Configurations = append(result.Configurations, &Configuration{s: s, vars: cand})
+		return true
 	}
 
 	// Structured probes, tier 1: reflect every free point across each
@@ -231,7 +236,7 @@ func (s *Sketch) ProbeConfigurations(ctx context.Context, options ...ProbeOption
 	// capped so pathological fixed-point counts cannot blow up the probe
 	// budget.
 	for _, axis := range s.probeAxes(baseline) {
-		try(func() {
+		if !try(func() {
 			for _, p := range s.points {
 				m := geom.MirrorPoint(geom.NewPoint(baseline[p.xi], baseline[p.yi]), axis)
 				if !s.fixed[p.xi] {
@@ -241,14 +246,16 @@ func (s *Sketch) ProbeConfigurations(ctx context.Context, options ...ProbeOption
 					s.vars[p.yi] = m.Y
 				}
 			}
-		})
+		}) {
+			break
+		}
 	}
 
 	// Structured probes, tier 2: global flips of the free point coordinates
 	// about the bounding-box center — catches mirror branches not aligned with
 	// any line entity.
 	for _, f := range [][2]bool{{true, false}, {false, true}, {true, true}} {
-		try(func() {
+		if !try(func() {
 			for _, p := range s.points {
 				if f[0] && !s.fixed[p.xi] {
 					s.vars[p.xi] = 2*cx - baseline[p.xi]
@@ -257,7 +264,9 @@ func (s *Sketch) ProbeConfigurations(ctx context.Context, options ...ProbeOption
 					s.vars[p.yi] = 2*cy - baseline[p.yi]
 				}
 			}
-		})
+		}) {
+			break
+		}
 	}
 
 	// Pseudo-random restarts: every free variable is offset from its baseline
@@ -268,7 +277,7 @@ func (s *Sketch) ProbeConfigurations(ctx context.Context, options ...ProbeOption
 	amps := [...]float64{0.25, 0.5, 1.0}
 	for k := 0; k < cfg.restarts; k++ {
 		amp := amps[k%len(amps)] * diag
-		try(func() {
+		if !try(func() {
 			for _, vi := range free {
 				u := probeUnit(cfg.seed, k, vi)
 				switch kinds[vi] {
@@ -292,7 +301,9 @@ func (s *Sketch) ProbeConfigurations(ctx context.Context, options ...ProbeOption
 					s.vars[vi] = baseline[vi] + amp*(2*u-1)
 				}
 			}
-		})
+		}) {
+			break
+		}
 	}
 
 	// If ctx ended mid-search, report it so a caller can distinguish a bounded

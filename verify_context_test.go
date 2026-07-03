@@ -53,10 +53,22 @@ func TestVerifyContext(t *testing.T) {
 		cancel()
 		rep := s.Verify(ctx, sketch.WithProbe())
 		// Verify has no error result: it still returns a populated report, but
-		// the bounded probe contributed nothing.
+		// the requested probe could not run, so it is marked incomplete and must
+		// not be blessed as trustworthy (the ambiguity check never happened).
 		require.Nil(t, rep.Probe)
+		require.True(t, rep.ProbeIncomplete)
+		require.False(t, rep.Trustworthy())
 		require.Equal(t, 0, rep.DOF)
 		require.True(t, rep.Solvable)
+	})
+
+	t.Run("cancelled context without WithProbe is not marked incomplete", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		rep := s.Verify(ctx)
+		// No probe was requested, so cancellation does not make the report
+		// incomplete on the probe axis.
+		require.False(t, rep.ProbeIncomplete)
 	})
 
 	t.Run("live context runs the probe", func(t *testing.T) {
