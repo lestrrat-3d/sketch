@@ -139,10 +139,12 @@ func (r *ProbeResult) Ambiguous() bool { return len(r.Configurations) > 1 }
 //
 // The ctx argument bounds the probe's multi-start re-solves: it is checked
 // before the baseline solve and before each restart, so cancellation or a
-// deadline aborts the search. On cancellation the partial result is returned
-// with a non-nil error wrapping ctx.Err(), so a caller that only adopts the
-// probe on success (notably [Sketch.Verify]) simply discards it. Pass
-// context.Background() for an unbounded probe.
+// deadline aborts the search, always with an error wrapping ctx.Err().
+// Cancellation before or during the baseline solve returns (nil, ctx.Err());
+// once the baseline configuration is established, later cancellation returns the
+// partial result gathered so far alongside the error. Either way a caller that
+// only adopts the probe on success (notably [Sketch.Verify]) simply discards it.
+// Pass context.Background() for an unbounded probe.
 func (s *Sketch) ProbeConfigurations(ctx context.Context, options ...ProbeOption) (*ProbeResult, error) {
 	cfg := defaultProbeConfig()
 	for _, opt := range options {
