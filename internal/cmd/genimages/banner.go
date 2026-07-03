@@ -9,7 +9,11 @@ package main
 // baseline y=0, x-height y=8, cap/ascender y=12, descender y=-3. drawText
 // typesets a string by placing each glyph's strokes at an advancing x.
 
-import "github.com/lestrrat-3d/sketch"
+import (
+	"math"
+
+	"github.com/lestrrat-3d/sketch"
+)
 
 // glyphStroke is one pen stroke: a polyline of font-unit points, drawn as a
 // smooth fit spline when curved (and long enough) else as straight line
@@ -131,37 +135,61 @@ func textWidth(text string, scale, tracking float64) float64 {
 	return w
 }
 
+// strokeHandles are the sketch entities created for one pen stroke: its points
+// in order, and its line segments (nil for a fit-spline stroke). They let the
+// caller attach constraints to specific features (a stem, a crossbar).
+type strokeHandles struct {
+	pts   []*sketch.Point
+	lines []*sketch.Line
+}
+
+// textHandles collects the geometry a drawText call produced: per-glyph strokes
+// (in string order) and every point, so the caller can dimension the whole run.
+type textHandles struct {
+	glyphs [][]strokeHandles
+	points []*sketch.Point
+}
+
 // drawText authors text into s as geometry, its left edge at x0 and baseline at
-// baseline, scaled by scale with tracking (extra gap) between glyphs.
-func drawText(s *sketch.Sketch, text string, x0, baseline, scale, tracking float64) error {
+// baseline, scaled by scale with tracking (extra gap) between glyphs, returning
+// handles to everything it created.
+func drawText(s *sketch.Sketch, text string, x0, baseline, scale, tracking float64) (*textHandles, error) {
+	h := &textHandles{}
 	x := x0
 	for i, r := range text {
 		if i > 0 {
 			x += tracking * scale
 		}
 		g := glyphFor(r)
+		gh := make([]strokeHandles, 0, len(g.strokes))
 		for _, st := range g.strokes {
 			pts := make([]*sketch.Point, len(st.pts))
 			for j, p := range st.pts {
 				pts[j] = s.CreatePoint(x+p[0]*scale, baseline+p[1]*scale)
+				h.points = append(h.points, pts[j])
 			}
+			sh := strokeHandles{pts: pts}
 			if st.curved && len(pts) >= 3 {
 				if _, err := s.CreateFitSpline(pts...); err != nil {
-					return err
+					return nil, err
 				}
-				continue
+			} else {
+				for j := 0; j+1 < len(pts); j++ {
+					sh.lines = append(sh.lines, s.CreateLine(pts[j], pts[j+1]))
+				}
 			}
-			for j := 0; j+1 < len(pts); j++ {
-				s.CreateLine(pts[j], pts[j+1])
-			}
+			gh = append(gh, sh)
 		}
+		h.glyphs = append(h.glyphs, gh)
 		x += g.adv * scale
 	}
-	return nil
+	return h, nil
 }
 
-// buildBannerSketch composes the masthead sketch: the wordmark centered above
-// the smaller tagline, both centered on x=0.
+// buildBannerSketch composes the masthead sketch: the wordmark "sketch" —
+// annotated like a real CAD sketch, with vertical/horizontal constraints on its
+// stems and crossbars and overall width/height dimensions — centered above the
+// smaller plain tagline, both centered on x=0.
 func buildBannerSketch() (*sketch.Sketch, error) {
 	const (
 		wordScale = 1.0
@@ -170,7 +198,7 @@ func buildBannerSketch() (*sketch.Sketch, error) {
 
 		tagScale = 0.28
 		tagTrack = 0.7
-		tagBase  = 0.0
+		tagBase  = -3.5 // clears the wordmark's overall-width dimension below it
 	)
 	const (
 		word = "sketch"
@@ -182,23 +210,72 @@ func buildBannerSketch() (*sketch.Sketch, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := drawText(s, word, -textWidth(word, wordScale, wordTrack)/2, wordBase, wordScale, wordTrack); err != nil {
+	wm, err := drawText(s, word, -textWidth(word, wordScale, wordTrack)/2, wordBase, wordScale, wordTrack)
+	if err != nil {
 		return nil, err
 	}
-	if err := drawText(s, tag, -textWidth(tag, tagScale, tagTrack)/2, tagBase, tagScale, tagTrack); err != nil {
+	if _, err := drawText(s, tag, -textWidth(tag, tagScale, tagTrack)/2, tagBase, tagScale, tagTrack); err != nil {
 		return nil, err
 	}
+	annotateWordmark(s, wm)
 	return s, nil
 }
 
-// bannerOptions is the shared render styling for the masthead: a clean stroke,
-// no point markers, no frame.
+// annotateWordmark attaches the constraints and dimensions that make the "sketch"
+// wordmark read as a constrained CAD sketch. It never solves — the letterforms
+// stay exactly as drawn — so the constraints are the ones already satisfied by
+// construction (vertical stems, horizontal crossbars) and the dimensions carry
+// the measured extents.
+//
+// Glyph strokes (see bannerFont), indexed [glyph][stroke]:
+//
+//	s=0  k=1  e=2  t=3  c=4  h=5
+//	k stroke0 = stem;         h stroke0 = stem
+//	e stroke0 = crossbar;     t stroke0 = stem (seg 0 vertical), t stroke1 = crossbar
+func annotateWordmark(s *sketch.Sketch, wm *textHandles) {
+	kStem := wm.glyphs[1][0].lines[0]
+	hStem := wm.glyphs[5][0].lines[0]
+	eBar := wm.glyphs[2][0].lines[0]
+	tStem := wm.glyphs[3][0].lines[0] // the vertical first segment
+	tBar := wm.glyphs[3][1].lines[0]
+
+	s.AddConstraint(
+		sketch.NewVertical(kStem),
+		sketch.NewVertical(hStem),
+		sketch.NewVertical(tStem),
+		sketch.NewHorizontal(eBar),
+		sketch.NewHorizontal(tBar),
+		sketch.NewEqual(kStem, hStem), // the two full-height stems match
+	)
+
+	// Overall dimensions across the wordmark's extent. The dimension endpoints
+	// sit at the bounding corners (invisible — point markers are off), so the
+	// dimensions read as the classic overall width/height of the "part".
+	minX, minY, maxX, maxY := wm.points[0].X(), wm.points[0].Y(), wm.points[0].X(), wm.points[0].Y()
+	for _, p := range wm.points {
+		minX, maxX = math.Min(minX, p.X()), math.Max(maxX, p.X())
+		minY, maxY = math.Min(minY, p.Y()), math.Max(maxY, p.Y())
+	}
+	bl := s.CreatePoint(minX, minY)
+	br := s.CreatePoint(maxX, minY)
+	tr := s.CreatePoint(maxX, maxY)
+	s.AddConstraint(
+		sketch.NewHorizontalDistance(bl, br, maxX-minX), // overall width, below
+		sketch.NewVerticalDistance(br, tr, maxY-minY),   // overall height, right
+	)
+}
+
+// bannerOptions is the shared render styling for the masthead: blue geometry
+// with grey CAD annotations, no point markers (so the tagline stays clean), no
+// frame.
 var bannerOptions = []sketch.SVGOption{
 	sketch.WithShowPoints(false),
 	sketch.WithBackground("white"),
 	sketch.WithStroke("#1a73e8"),
 	sketch.WithStrokeWidth(0.5),
-	sketch.WithMargin(3),
+	sketch.WithDimensions(true),
+	sketch.WithConstraints(true),
+	sketch.WithMargin(4),
 	sketch.WithPixelWidth(720),
 }
 
