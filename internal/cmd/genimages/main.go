@@ -110,6 +110,7 @@ var builders = map[string]func() (string, error){
 	"hexagon":              hexagon,
 	"dof-underconstrained": dofUnder,
 	"dof-constrained":      dofFull,
+	"conflict-valid":       conflictValid,
 	"conflict":             conflict,
 	"parametric-before":    func() (string, error) { return parametric(120) },
 	"parametric-after":     func() (string, error) { return parametric(200) },
@@ -218,19 +219,73 @@ func dofFull() (string, error) {
 	return s.SVG(withAnn(sketch.WithDOFColoring(true), sketch.WithStatusBadge(true))...)
 }
 
+// triangleOpts is the shared render styling for the works/doesn't-work triangle
+// pair: dimensions, DOF coloring, conflict highlighting and a status badge, with
+// a wide margin so the side dimensions stay inside the frame. DOF coloring is on
+// so the "works" triangle reads as fully constrained (black) rather than the
+// default stroke, which the gallery's color language would misread as free.
+func triangleOpts() []sketch.SVGOption {
+	return withAnn(
+		sketch.WithMargin(64),
+		sketch.WithDimensions(true),
+		sketch.WithDOFColoring(true),
+		sketch.WithConflicts(true),
+		sketch.WithStatusBadge(true),
+	)
+}
+
+// conflictValid is the "works" half of the pair: a 3-4-5 right triangle built
+// from its three side lengths (SSS). The sides are consistent, so it solves and
+// reports fully constrained.
+func conflictValid() (string, error) {
+	world := sketch.NewWorld()
+	s, _ := world.CreateSketch(world.XY())
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(400, 0)
+	c := s.CreatePoint(0, 300)
+	ab := s.CreateLine(a, b)
+	s.CreateLine(b, c)
+	s.CreateLine(c, a)
+	a.MoveTo(0, 0)
+	s.Fix(a)
+	s.AddConstraint(sketch.NewHorizontal(ab))
+	s.AddConstraint(
+		sketch.NewDistance(a, b, 400),
+		sketch.NewDistance(c, a, 300),
+		sketch.NewDistance(b, c, 500), // 3-4-5: consistent
+	)
+	s.Solve()
+	return s.SVG(triangleOpts()...)
+}
+
+// conflict is the "doesn't work" half: the same right triangle, whose legs (400,
+// 300) and right angle force the hypotenuse to 500 — then the hypotenuse is
+// dimensioned 600. We solve the consistent right triangle first (so the geometry
+// is a clean, properly grounded right triangle — one anchor, no pinned interior
+// points), then add the conflicting hypotenuse dimension. Rendering without a
+// re-solve is the verification-oracle view: the intended geometry, with the
+// unsatisfiable dimension flagged red, rather than a shape the solver has warped
+// trying to reconcile the impossible. The badge reports overconstrained /
+// unsolvable.
 func conflict() (string, error) {
 	world := sketch.NewWorld()
 	s, _ := world.CreateSketch(world.XY())
 	a := s.CreatePoint(0, 0)
-	b := s.CreatePoint(200, 0)
+	b := s.CreatePoint(400, 0)
+	c := s.CreatePoint(0, 300)
+	ab := s.CreateLine(a, b)
+	s.CreateLine(b, c)
+	ca := s.CreateLine(c, a)
 	a.MoveTo(0, 0)
-	s.Fix(a)
-	l := s.CreateLine(a, b)
-	s.AddConstraint(sketch.NewHorizontal(l))
-	// Two distances fight over the same span.
-	s.AddConstraint(sketch.NewDistance(a, b, 200), sketch.NewDistance(a, b, 140))
-	s.Solve() // will not converge; render the conflict anyway
-	return s.SVG(withAnn(sketch.WithConflicts(true), sketch.WithStatusBadge(true))...)
+	s.Fix(a) // single grounding anchor + orientation; legs and angle are driven
+	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewPerpendicular(ab, ca))
+	s.AddConstraint(
+		sketch.NewDistance(a, b, 400),
+		sketch.NewDistance(c, a, 300),
+	)
+	s.Solve()                                      // clean 3-4-5 right triangle, hypotenuse = 500
+	s.AddConstraint(sketch.NewDistance(b, c, 600)) // real hypotenuse is 500 → conflict
+	return s.SVG(triangleOpts()...)
 }
 
 // parametric builds a plate with a centered hole at the given width and renders
