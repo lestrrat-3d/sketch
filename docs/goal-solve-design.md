@@ -40,8 +40,8 @@ rotated/axis-clamped positions itself and issues plain point goals.
 Goals are a `SolveOption`, following the existing option conventions:
 
 ```go
-res, err := s.Solve(sketch.WithGoal(p, x, y))            // one goal
-res, err := s.Solve(sketch.WithGoal(p1, x1, y1),
+res, err := s.Solve(ctx, sketch.WithGoal(p, x, y))       // one goal
+res, err := s.Solve(ctx, sketch.WithGoal(p1, x1, y1),
                     sketch.WithGoal(p2, x2, y2))         // any number
 ```
 

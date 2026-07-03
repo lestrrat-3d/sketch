@@ -190,6 +190,13 @@ func (s *Sketch) Solve(ctx context.Context, options ...SolveOption) (*Result, er
 	res.Residual = math.Sqrt(dot(rh, rh))
 	res.Converged = res.Residual <= o.tolerance
 
+	// Also honor a cancellation that raced the final lm iteration: lm can return
+	// a nil error (it converged or ran out of budget) at the same moment ctx is
+	// cancelled, so re-check ctx here before spending the rank pass.
+	if solveErr == nil {
+		solveErr = ctx.Err()
+	}
+
 	// If the context ended mid-solve, report the partial result (iterations +
 	// residual) and skip the expensive DOF/rank pass — it is a Jacobian rebuild
 	// that the caller asked us to stop doing. DOF/Redundant are marked not

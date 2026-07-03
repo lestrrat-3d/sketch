@@ -61,7 +61,7 @@ If the solver cannot satisfy the constraints (typically an over-constrained or
 contradictory sketch) `Solve` returns `ErrNotConverged` together with the
 partial result.
 
-For the headless-oracle use case, `s.Verify()` aggregates solvability, DOF,
+For the headless-oracle use case, `s.Verify(ctx, …)` aggregates solvability, DOF,
 status, redundant constraints, conflict sets, free points, profiles and their
 validity into a single non-mutating `VerificationReport`, with an opt-in
 multi-solution ambiguity probe (`WithProbe`). See the
