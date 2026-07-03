@@ -1,11 +1,11 @@
 # sketch
 
 <p align="center">
-  <img src="docs/images/banner.svg" alt="The word 'sketch' in outlined letters over a CAD grid and frame, above the tagline 'A parametric 2D sketch engine'" width="640">
+  <img src="docs/images/banner.svg" alt="The word 'sketch' in outlined letters over a CAD grid and frame, above the tagline 'A headless parametric 2D sketch engine'" width="640">
 </p>
 
-A standalone, fully programmable **parametric 2D sketch engine** for Go, in the
-spirit of the sketch environment in Autodesk Fusion.
+A standalone, fully programmable **headless parametric 2D sketch engine** for
+Go, in the spirit of the sketch environment in Autodesk Fusion.
 
 You build geometry — points, lines, circles, arcs, ellipses, splines — in code,
 tie it together with geometric and dimensional **constraints**, and a numerical

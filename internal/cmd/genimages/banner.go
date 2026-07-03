@@ -1,7 +1,7 @@
 package main
 
 // banner renders the project's masthead: the word "sketch" drawn large as
-// outlined letters, with a smaller "A parametric 2D sketch engine" tagline
+// outlined letters, with a smaller "A headless parametric 2D sketch engine" tagline
 // beneath it — every glyph authored as ordinary sketch geometry so the whole
 // image is literally drawn by the engine. The wordmark's strokes are rendered as
 // closed outlines (each skeleton stroke offset to both sides into a hollow
@@ -96,6 +96,14 @@ var bannerFont = map[rune]glyph{
 	'g': {adv: 7, strokes: []glyphStroke{
 		curve([2]float64{6.0, 4.8}, [2]float64{4.4, 5.3}, [2]float64{2.3, 5.2}, [2]float64{0.9, 3.5}, [2]float64{0.9, 1.5}, [2]float64{2.3, 0.0}, [2]float64{4.4, 0.0}, [2]float64{6.0, 1.0}),
 		curve([2]float64{6.0, 5.3}, [2]float64{6.0, -1.5}, [2]float64{4.8, -3.0}, [2]float64{2.6, -3.0}, [2]float64{1.4, -2.2}),
+	}},
+	'd': {adv: 7, strokes: []glyphStroke{
+		// A c-shaped bowl in the x-height closed on the right by a full-height stem.
+		poly([2]float64{6.0, 12.0}, [2]float64{6.0, 0.0}),
+		curve([2]float64{6.0, 6.2}, [2]float64{4.5, 8.0}, [2]float64{2.3, 8.0}, [2]float64{0.8, 6.2}, [2]float64{0.8, 1.8}, [2]float64{2.3, 0.0}, [2]float64{4.5, 0.0}, [2]float64{6.0, 1.8}),
+	}},
+	'l': {adv: 3, strokes: []glyphStroke{
+		poly([2]float64{1.3, 12.0}, [2]float64{1.3, 0.0}),
 	}},
 
 	// Uppercase (cap 12).
@@ -244,7 +252,7 @@ func buildBannerSketch() (*sketch.Sketch, error) {
 	)
 	const (
 		word = "sketch"
-		tag  = "A parametric 2D sketch engine"
+		tag  = "A headless parametric 2D sketch engine"
 	)
 
 	world := sketch.NewWorld()
