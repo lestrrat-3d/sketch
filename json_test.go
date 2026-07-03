@@ -319,7 +319,7 @@ func TestJSONRoundTripAllConstraintKinds(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newSketch(t)
 			tc.build(s)
-			_, err := s.Solve()
+			_, err := s.Solve(t.Context())
 			require.NoError(t, err)
 
 			data, err := json.Marshal(s)
@@ -328,7 +328,7 @@ func TestJSONRoundTripAllConstraintKinds(t *testing.T) {
 			require.NoError(t, json.Unmarshal(data, &s2), "unmarshal")
 			require.Len(t, s2.Constraints(), len(s.Constraints()), "constraint count survives")
 
-			_, err = s2.Solve()
+			_, err = s2.Solve(t.Context())
 			require.NoError(t, err)
 			for i, p := range s.Points() {
 				require.InDeltaf(t, p.X(), s2.Points()[i].X(), 1e-6, "point %d X after reload", i)
@@ -357,7 +357,7 @@ func TestJSONFixedPoint(t *testing.T) {
 	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
 	s.AddConstraint(sketch.NewDistance(a, b, 20))
 	s.AddConstraint(sketch.NewDistance(a, d, 12))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data1, err := json.Marshal(s)
@@ -387,7 +387,7 @@ func TestRoundTripPreservesSolvedState(t *testing.T) {
 	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
 	s.AddConstraint(sketch.NewDistance(a, b, 20))
 	s.AddConstraint(sketch.NewDistance(a, d, 12))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -395,7 +395,7 @@ func TestRoundTripPreservesSolvedState(t *testing.T) {
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2), "unmarshal")
 
-	res, err := s2.Solve(sketch.WithMaxIterations(0))
+	res, err := s2.Solve(t.Context(), sketch.WithMaxIterations(0))
 	require.NoError(t, err, "already converged on load")
 	require.True(t, res.Converged, "converged without iterating")
 	require.Equal(t, 0, res.Iterations, "no iterations spent")

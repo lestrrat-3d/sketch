@@ -27,13 +27,13 @@ func TestSolveOptions(t *testing.T) {
 		s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
 		s.AddConstraint(sketch.NewDistance(a, b, 20))
 		s.AddConstraint(sketch.NewDistance(a, d, 12))
-		res, err := s.Solve(sketch.WithMaxIterations(1))
+		res, err := s.Solve(t.Context(), sketch.WithMaxIterations(1))
 		require.ErrorIs(t, err, sketch.ErrNotConverged, "one iteration is not enough")
 		require.False(t, res.Converged, "not converged")
 		require.LessOrEqual(t, res.Iterations, 1, "iteration budget honored")
 
 		// The same sketch solves with the default budget.
-		_, err = s.Solve()
+		_, err = s.Solve(t.Context())
 		require.NoError(t, err)
 	})
 	t.Run("tolerance", func(t *testing.T) {
@@ -53,7 +53,7 @@ func TestSolveOptions(t *testing.T) {
 		s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
 		s.AddConstraint(sketch.NewDistance(a, b, 20))
 		s.AddConstraint(sketch.NewDistance(a, d, 12))
-		res, err := s.Solve(sketch.WithTolerance(1e6))
+		res, err := s.Solve(t.Context(), sketch.WithTolerance(1e6))
 		require.NoError(t, err)
 		require.True(t, res.Converged, "anything is within a 1e6 tolerance")
 		require.Equal(t, 0, res.Iterations, "no iterations needed")
@@ -78,7 +78,7 @@ func TestDragSmoothness(t *testing.T) {
 	c := s.CreatePoint(12, 5)
 	dc := s.CreateLine(d, c)
 	s.AddConstraint(sketch.NewParallel(ab, dc), sketch.NewEqual(ab, dc))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	const steps = 50
@@ -86,7 +86,7 @@ func TestDragSmoothness(t *testing.T) {
 		f := float64(i) / steps
 		tx := 2 + 10*f // d: (2,5) -> (12,15)
 		ty := 5 + 10*f
-		res, err := s.Solve(sketch.WithGoal(d, tx, ty))
+		res, err := s.Solve(t.Context(), sketch.WithGoal(d, tx, ty))
 		require.NoErrorf(t, err, "drag step %d", i)
 		require.Truef(t, res.Converged, "drag step %d converged", i)
 
@@ -126,11 +126,11 @@ func TestMinimalMotionOnEdit(t *testing.T) {
 	c := s.CreatePoint(100, 100)
 	d := s.CreatePoint(108, 100)
 	s.AddConstraint(sketch.NewDistance(c, d, 8))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	w.Set(14)
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 14, a.DistanceTo(b), 1e-6, "edited dimension applied")
 	// The bar stretches along its own axis (the constraint gradient)…
@@ -162,11 +162,11 @@ func TestNoFlipOnLargeEdit(t *testing.T) {
 	w := sketch.NewDistance(a, b, 20)
 	s.AddConstraint(w)
 	s.AddConstraint(sketch.NewDistance(a, d, 12))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	w.Set(500) // 25× in a single step
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 500, b.X(), 1e-6, "width grew in the original direction")
 	require.InDelta(t, 500, c.X(), 1e-6, "c followed")
@@ -193,12 +193,12 @@ func TestNearestSolutionPreserved(t *testing.T) {
 	r := sketch.NewRadius(circ, 3)
 	s.AddConstraint(r, sketch.NewTangent(line, circ))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, -3, o.X(), 1e-6, "circle settles on its starting (left) side")
 
 	r.Set(4) // editing the radius must not teleport it across the line
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, -4, o.X(), 1e-6, "circle stays left after the edit")
 }
@@ -217,7 +217,7 @@ func TestSolverNeverReturnsNaN(t *testing.T) {
 		s.AddConstraint(sketch.NewDistance(a, b, 5))
 		s.AddConstraint(sketch.NewDistance(a, b, 8)) // cannot both hold
 
-		res, err := s.Solve()
+		res, err := s.Solve(t.Context())
 		require.ErrorIs(t, err, sketch.ErrNotConverged, "contradiction reported as an error")
 		require.True(t, finite(res.Residual), "residual stays finite")
 		require.True(t, finite(b.X()), "b.X stays finite")
@@ -242,7 +242,7 @@ func TestSolverNeverReturnsNaN(t *testing.T) {
 		s.AddConstraint(sketch.NewPerpendicular(l1, l2))
 		s.AddConstraint(sketch.NewDistance(a, b, 5))
 
-		_, err := s.Solve() // converging is welcome, NaN is not
+		_, err := s.Solve(t.Context()) // converging is welcome, NaN is not
 		if err != nil {
 			require.ErrorIs(t, err, sketch.ErrNotConverged, "only the documented error")
 		}
@@ -265,7 +265,7 @@ func TestSolveDeterministic(t *testing.T) {
 	s1.Fix(a1)
 	s1.AddConstraint(sketch.NewDistance(a1, b1, 20))
 	s1.AddConstraint(sketch.NewDistance(a1, d1, 12))
-	_, err := s1.Solve()
+	_, err := s1.Solve(t.Context())
 	require.NoError(t, err)
 
 	s2 := newSketch(t)
@@ -278,7 +278,7 @@ func TestSolveDeterministic(t *testing.T) {
 	s2.Fix(a2)
 	s2.AddConstraint(sketch.NewDistance(a2, b2, 20))
 	s2.AddConstraint(sketch.NewDistance(a2, d2, 12))
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 
 	for i, p := range s1.Points() {
@@ -311,7 +311,7 @@ func TestScaleInvariance(t *testing.T) {
 
 	for _, scale := range []float64{0.01, 1, 1000} {
 		s, b, c := build(scale)
-		_, err := s.Solve()
+		_, err := s.Solve(t.Context())
 		require.NoError(t, err)
 		require.InEpsilonf(t, 20*scale, b.X(), 1e-9, "b.X at scale %v", scale)
 		require.InEpsilonf(t, 20*scale, c.X(), 1e-9, "c.X at scale %v", scale)

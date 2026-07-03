@@ -67,7 +67,7 @@ func TestPointOnClosedSpline(t *testing.T) {
 	p := s.CreatePoint(2, 2) // inside the loop; pulled outward onto the curve
 	s.AddConstraint(sketch.NewPointOnClosedSpline(p, sp))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 0, distToPolyline(p.X(), p.Y(), sp.Polyline(600)), 1e-4,
 		"point pulled onto the closed spline")
@@ -85,7 +85,7 @@ func TestPointOnClosedSplineToIntersection(t *testing.T) {
 	s.AddConstraint(sketch.NewPointOnClosedSpline(p, sp))
 	s.AddConstraint(sketch.NewPointOnLine(p, s.CreateLine(a, b)))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 2, p.X(), 1e-6, "on the x=2 line")
 	require.InDelta(t, 0, distToPolyline(p.X(), p.Y(), sp.Polyline(600)), 1e-4, "and on the loop")
@@ -93,7 +93,7 @@ func TestPointOnClosedSplineToIntersection(t *testing.T) {
 	// The membership flows through Verify: a DOF-0 point-on-closed-spline sketch
 	// gets a real (non-NaN, finite) Conditioning and reads trustworthy — the
 	// periodic foot-parameter aux var is correctly classified for the gate.
-	rep := s.Verify()
+	rep := s.Verify(t.Context())
 	require.Equal(t, 0, rep.DOF)
 	require.False(t, math.IsNaN(rep.Conditioning), "row-kinds classified (not the NaN gap sentinel)")
 	require.True(t, rep.Trustworthy())
@@ -125,7 +125,7 @@ func TestPointOnClosedSplineRoundTrip(t *testing.T) {
 	sp := loopSpline(s)
 	p := s.CreatePoint(2, 2)
 	s.AddConstraint(sketch.NewPointOnClosedSpline(p, sp))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -133,7 +133,7 @@ func TestPointOnClosedSplineRoundTrip(t *testing.T) {
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2))
 	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraint survives reload")
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 }
 
@@ -143,7 +143,7 @@ func TestPointOnFitSpline(t *testing.T) {
 	p := s.CreatePoint(4, 1) // below the arch interior; pulled up onto it
 	s.AddConstraint(sketch.NewPointOnFitSpline(p, sp))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 0, distToPolyline(p.X(), p.Y(), sp.Polyline(400)), 1e-4,
 		"point pulled onto the fit spline")
@@ -159,7 +159,7 @@ func TestPointOnFitSplineConfinedToRange(t *testing.T) {
 	p := s.CreatePoint(20, -5) // far past the (8,0) end fit point
 	s.AddConstraint(sketch.NewPointOnFitSpline(p, sp))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 0, distToPolyline(p.X(), p.Y(), sp.Polyline(400)), 1e-4, "still on the curve")
 	require.InDelta(t, 8, p.X(), 0.1, "attached at the end fit point")
@@ -178,12 +178,12 @@ func TestPointOnFitSplineToIntersectionVerify(t *testing.T) {
 	s.AddConstraint(sketch.NewPointOnFitSpline(p, sp))
 	s.AddConstraint(sketch.NewPointOnLine(p, s.CreateLine(a, b)))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 4, p.X(), 1e-6, "on the x=4 line")
 	require.InDelta(t, 0, distToPolyline(p.X(), p.Y(), sp.Polyline(400)), 1e-4, "and on the curve")
 
-	rep := s.Verify()
+	rep := s.Verify(t.Context())
 	require.Equal(t, 0, rep.DOF)
 	require.False(t, math.IsNaN(rep.Conditioning))
 	require.True(t, rep.Trustworthy())
@@ -215,7 +215,7 @@ func TestPointOnFitSplineRoundTrip(t *testing.T) {
 	sp := archFit(s)
 	p := s.CreatePoint(4, 1)
 	s.AddConstraint(sketch.NewPointOnFitSpline(p, sp))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -223,6 +223,6 @@ func TestPointOnFitSplineRoundTrip(t *testing.T) {
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2))
 	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraint survives reload")
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 }

@@ -261,7 +261,7 @@ func TestConicForeignPointNotTrustworthy(t *testing.T) {
 	foreign := other.CreatePoint(3, 4)
 	_, err := s.CreateConic(a, foreign, b, 0.5)
 	require.NoError(t, err)
-	rep := s.Verify()
+	rep := s.Verify(t.Context())
 	require.True(t, rep.ForeignHandles)
 	require.False(t, rep.Trustworthy())
 }

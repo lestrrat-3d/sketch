@@ -20,7 +20,7 @@ func TestReferencePointLockedAndPierce(t *testing.T) {
 
 	free := s.CreatePoint(0, 0)
 	s.AddConstraint(sketch.NewCoincident(free, ref))
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(t.Context()); err != nil {
 		t.Fatalf("solve: %v", err)
 	}
 	require.InDelta(t, 3, free.X(), 1e-9, "free point pierces the reference")
@@ -28,7 +28,7 @@ func TestReferencePointLockedAndPierce(t *testing.T) {
 	require.InDelta(t, 3, ref.X(), 1e-12, "reference did not move")
 	require.InDelta(t, 4, ref.Y(), 1e-12)
 	require.Empty(t, s.FreePoints(), "the reference point is not a free DOF")
-	require.True(t, s.Verify().Trustworthy())
+	require.True(t, s.Verify(t.Context()).Trustworthy())
 }
 
 // Reference coordinates are read-only through the ordinary API; only Refresh*
@@ -81,7 +81,7 @@ func TestReferenceCircleRadiusLocked(t *testing.T) {
 	// A dimension that disagrees with the locked radius cannot be satisfied by
 	// resizing the reference circle.
 	s.AddConstraint(sketch.NewRadius(circ, 8))
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.ErrorIs(t, err, sketch.ErrNotConverged)
 	require.InDelta(t, 5, circ.R(), 1e-9, "the locked radius did not move")
 
@@ -122,7 +122,7 @@ func TestReferenceNilTopologyNoPanic(t *testing.T) {
 	l.Start = nil // corrupt topology
 
 	var rep *sketch.VerificationReport
-	require.NotPanics(t, func() { rep = s.Verify() })
+	require.NotPanics(t, func() { rep = s.Verify(t.Context()) })
 	require.Contains(t, rep.BrokenReferences, sketch.Entity(l))
 	require.False(t, rep.Trustworthy())
 }
@@ -135,17 +135,17 @@ func TestReferenceIntegrityRewire(t *testing.T) {
 	p2 := s.CreateReferencePoint(10, 0, "b")
 	l, err := s.CreateReferenceLine(p1, p2, "edge")
 	require.NoError(t, err)
-	require.Empty(t, s.Verify().BrokenReferences, "a freshly built reference is intact")
+	require.Empty(t, s.Verify(t.Context()).BrokenReferences, "a freshly built reference is intact")
 
 	free := s.CreatePoint(1, 1)
 	l.Start = free // rewire to a free point
-	rep := s.Verify()
+	rep := s.Verify(t.Context())
 	require.Contains(t, rep.BrokenReferences, sketch.Entity(l))
 	require.False(t, rep.Trustworthy())
 
 	p3 := s.CreateReferencePoint(2, 2, "c")
 	l.Start = p3 // rewire to a DIFFERENT reference point: still caught by the seal
-	require.Contains(t, s.Verify().BrokenReferences, sketch.Entity(l))
+	require.Contains(t, s.Verify(t.Context()).BrokenReferences, sketch.Entity(l))
 }
 
 // A constraint reaching a foreign reference point (from another sketch) is
@@ -157,7 +157,7 @@ func TestReferenceForeignHandle(t *testing.T) {
 	foreign := other.CreateReferencePoint(5, 5, "x")
 	s.AddConstraint(sketch.NewCoincident(local, foreign))
 
-	rep := s.Verify()
+	rep := s.Verify(t.Context())
 	require.True(t, rep.ForeignHandles)
 	require.False(t, rep.Trustworthy())
 }
@@ -169,11 +169,11 @@ func TestReferenceStaleness(t *testing.T) {
 	p2 := s.CreateReferencePoint(10, 0, "edge")
 	l, err := s.CreateReferenceLine(p1, p2, "edge")
 	require.NoError(t, err)
-	require.False(t, s.Verify().Stale)
-	require.True(t, s.Verify().Trustworthy())
+	require.False(t, s.Verify(t.Context()).Stale)
+	require.True(t, s.Verify(t.Context()).Trustworthy())
 
 	s.MarkStale("edge")
-	rep := s.Verify()
+	rep := s.Verify(t.Context())
 	require.True(t, rep.Stale)
 	require.True(t, p1.IsStale())
 	require.True(t, l.IsStale(), "line staleness is derived from its points")
@@ -182,9 +182,9 @@ func TestReferenceStaleness(t *testing.T) {
 	require.False(t, rep.Trustworthy(), "a stale sketch is never a clean pass")
 
 	require.NoError(t, s.RefreshReference(p1, 0, 0))
-	require.True(t, s.Verify().Stale, "p2 is still stale (partial refresh)")
+	require.True(t, s.Verify(t.Context()).Stale, "p2 is still stale (partial refresh)")
 	require.NoError(t, s.RefreshReference(p2, 10, 0))
-	require.False(t, s.Verify().Stale, "all units re-fed")
+	require.False(t, s.Verify(t.Context()).Stale, "all units re-fed")
 	require.False(t, l.IsStale())
 }
 
@@ -251,7 +251,7 @@ func TestReferenceRoundTrip(t *testing.T) {
 	require.True(t, lc.IsReference())
 	require.False(t, lc.IsConstruction())
 	require.True(t, lc.IsStale(), "reference circle radius staleness round-trips")
-	require.Empty(t, loaded.Verify().BrokenReferences, "reloaded reference is intact")
+	require.Empty(t, loaded.Verify(t.Context()).BrokenReferences, "reloaded reference is intact")
 }
 
 // A corrupt document — a reference entity on non-reference points — is rejected.
@@ -281,7 +281,7 @@ func TestReferenceRemoval(t *testing.T) {
 	require.True(t, s.RemovePoint(p1))
 	require.True(t, s.RemovePoint(p2))
 	require.Empty(t, s.Entities())
-	require.Empty(t, s.Verify().BrokenReferences)
+	require.Empty(t, s.Verify(t.Context()).BrokenReferences)
 }
 
 // A valid reference arc is trustworthy: it must not be flagged with a redundant
@@ -295,7 +295,7 @@ func TestReferenceArcTrustworthy(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, arc.IsReference())
 
-	rep := s.Verify()
+	rep := s.Verify(t.Context())
 	require.Empty(t, rep.Redundant, "a locked reference arc adds no redundant constraint")
 	require.True(t, rep.Trustworthy())
 
@@ -309,13 +309,13 @@ func TestReferenceVerifyTypedNilOperand(t *testing.T) {
 	s := newSketch(t)
 	s.AddConstraint(sketch.NewHorizontal(nil)) // typed-nil *Line operand
 	var rep *sketch.VerificationReport
-	require.NotPanics(t, func() { rep = s.Verify() })
+	require.NotPanics(t, func() { rep = s.Verify(t.Context()) })
 	require.False(t, rep.Trustworthy())
 
 	// A non-nil but foreign entity with nil endpoints must not panic either.
 	s2 := newSketch(t)
 	s2.AddConstraint(sketch.NewHorizontal(&sketch.Line{}))
-	require.NotPanics(t, func() { rep = s2.Verify() })
+	require.NotPanics(t, func() { rep = s2.Verify(t.Context()) })
 	require.False(t, rep.Trustworthy())
 }
 
@@ -328,10 +328,10 @@ func TestReferenceArcRefreshBreaksInvariant(t *testing.T) {
 	end := s.CreateReferencePoint(0, 5, "arc")
 	arc, err := s.CreateReferenceArc(center, start, end, "arc")
 	require.NoError(t, err)
-	require.True(t, s.Verify().Trustworthy())
+	require.True(t, s.Verify(t.Context()).Trustworthy())
 
 	require.NoError(t, s.RefreshReference(end, 0, 9)) // radius 9 != 5: now inconsistent
-	rep := s.Verify()
+	rep := s.Verify(t.Context())
 	require.Contains(t, rep.BrokenReferences, sketch.Entity(arc))
 	require.False(t, rep.Trustworthy())
 }

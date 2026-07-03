@@ -1,6 +1,7 @@
 package examples_test
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -33,7 +34,7 @@ func Example_sketch_annotate() {
 		sketch.NewVertical(da),
 	)
 	s.AddConstraint(sketch.NewDistance(a, b, 20), sketch.NewDistance(a, d, 12))
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(context.Background()); err != nil {
 		fmt.Printf("failed to solve: %s\n", err)
 		return
 	}

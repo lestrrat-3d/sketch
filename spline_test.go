@@ -20,7 +20,7 @@ func TestSplineSolveReshapesCurve(t *testing.T) {
 		sketch.NewHorizontalDistance(sp.Control[0], sp.Control[3], 10),
 		sketch.NewVerticalDistance(sp.Control[0], sp.Control[3], 0),
 	)
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 
 	x, y := sp.Eval(1)
@@ -37,7 +37,7 @@ func TestSplineControlPointGoal(t *testing.T) {
 	require.NoError(t, err)
 
 	// Drag an interior control point; the curve follows.
-	res, err := s.Solve(sketch.WithGoal(sp.Control[1], 2, 8))
+	res, err := s.Solve(t.Context(), sketch.WithGoal(sp.Control[1], 2, 8))
 	require.NoError(t, err, "goal solve")
 	require.True(t, res.Converged, "no constraints to violate")
 	require.InDelta(t, 8, sp.Control[1].Y(), 1e-5, "control point tracked the goal")

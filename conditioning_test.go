@@ -1,6 +1,7 @@
 package sketch_test
 
 import (
+	"context"
 	"math"
 	"testing"
 
@@ -20,8 +21,8 @@ func orthogonalPinned(k, tx, ty float64) *sketch.VerificationReport {
 	s.Fix(a)
 	s.AddConstraint(sketch.NewHorizontalDistance(a, b, 10*k))
 	s.AddConstraint(sketch.NewVerticalDistance(a, b, 5*k))
-	s.Solve()
-	return s.Verify()
+	s.Solve(context.Background())
+	return s.Verify(context.Background())
 }
 
 // mixedUnitFixture is Codex's mixed-row counterexample: a free point determined by
@@ -42,8 +43,8 @@ func mixedUnitFixture(k float64) *sketch.VerificationReport {
 	s.AddConstraint(sketch.NewCoincident(p2, o))     // 2 length rows
 	s.AddConstraint(sketch.NewDistance(p2, p3, 5*k)) // 1 length row
 	s.AddConstraint(sketch.NewAngle(l1, l2, 30))     // 1 dimensionless row
-	s.Solve()
-	return s.Verify()
+	s.Solve(context.Background())
+	return s.Verify(context.Background())
 }
 
 func TestConditioningScaleInvariantHealthy(t *testing.T) {
@@ -106,8 +107,8 @@ func TestConditioningNearSingularScaleInvariant(t *testing.T) {
 		p := s.CreatePoint(0, 0)
 		s.AddConstraint(sketch.NewPointOnLine(p, l1))
 		s.AddConstraint(sketch.NewPointOnLine(p, l2))
-		s.Solve()
-		return s.Verify()
+		s.Solve(t.Context())
+		return s.Verify(t.Context())
 	}
 	// Healthy separation passes and is scale-invariant.
 	h1, hk := mk(1e-2, 1), mk(1e-2, 1000)
@@ -135,8 +136,8 @@ func TestConditioningHealthyFixtures(t *testing.T) {
 		s.AddConstraint(sketch.NewHorizontalPoints(a, b))
 		s.AddConstraint(sketch.NewDistance(b, c, 5*k))
 		s.AddConstraint(sketch.NewVerticalPoints(b, c))
-		s.Solve()
-		rep := s.Verify()
+		s.Solve(t.Context())
+		rep := s.Verify(t.Context())
 		require.Equal(t, 0, rep.DOF)
 		require.True(t, rep.Trustworthy(), "healthy fixture trustworthy at k=%v", k)
 		require.Greater(t, rep.Conditioning, 1e-3, "comfortably above the gate at k=%v", k)
@@ -151,8 +152,8 @@ func TestConditioningNotApplicableUnderconstrained(t *testing.T) {
 	b := s.CreatePoint(3, 4)
 	s.Fix(a)
 	s.AddConstraint(sketch.NewDistance(a, b, 5)) // b still free on a circle
-	s.Solve()
-	rep := s.Verify()
+	s.Solve(t.Context())
+	rep := s.Verify(t.Context())
 	require.Greater(t, rep.DOF, 0)
 	require.Equal(t, math.Inf(1), rep.Conditioning, "not applicable when under-constrained")
 	require.False(t, rep.Trustworthy(), "under-constrained is untrustworthy on its own")
@@ -208,9 +209,9 @@ func TestConditioningClassifiesAuxConstraints(t *testing.T) {
 	for _, c := range cases {
 		s := newSketch(t)
 		c.build(s)
-		_, err := s.Solve()
+		_, err := s.Solve(t.Context())
 		require.NoErrorf(t, err, "%s solves", c.name)
-		rep := s.Verify()
+		rep := s.Verify(t.Context())
 		require.Falsef(t, math.IsNaN(rep.Conditioning),
 			"%s: Conditioning is not the NaN classification-gap sentinel (rows aligned)", c.name)
 		if rep.DOF == 0 {
@@ -237,8 +238,8 @@ func TestConditioningGateToleranceDerived(t *testing.T) {
 		p := s.CreatePoint(0, 0)
 		s.AddConstraint(sketch.NewPointOnLine(p, s.CreateLine(o1, e1)))
 		s.AddConstraint(sketch.NewPointOnLine(p, s.CreateLine(o2, e2)))
-		s.Solve(sketch.WithTolerance(tol))
-		return s.Verify(sketch.WithTolerance(tol))
+		s.Solve(t.Context(), sketch.WithTolerance(tol))
+		return s.Verify(t.Context(), sketch.WithTolerance(tol))
 	}
 	tight := mk(1e-12) // gate 4e-6 < 1e-4
 	loose := mk(1e-8)  // gate 4e-4 > 1e-4
@@ -280,8 +281,8 @@ func TestConditioningSlackFlatSpotGated(t *testing.T) {
 	// Default tolerance: structurally clean, but the boundary slack is near-singular
 	// and gated. Conditioning sits in the window the old constant gate missed.
 	def := build()
-	def.Solve()
-	rep := def.Verify()
+	def.Solve(t.Context())
+	rep := def.Verify(t.Context())
 	require.True(t, rep.Solvable)
 	require.Equal(t, sketch.FullyConstrained, rep.Status)
 	require.Empty(t, rep.Redundant, "the arc end is genuinely constrained, nothing redundant")
@@ -292,8 +293,8 @@ func TestConditioningSlackFlatSpotGated(t *testing.T) {
 
 	// A looser tolerance lets the slack rest farther out, but the gate rises with it.
 	loose := build()
-	loose.Solve(sketch.WithTolerance(1e-8))
-	lrep := loose.Verify(sketch.WithTolerance(1e-8))
+	loose.Solve(t.Context(), sketch.WithTolerance(1e-8))
+	lrep := loose.Verify(t.Context(), sketch.WithTolerance(1e-8))
 	require.Equal(t, sketch.FullyConstrained, lrep.Status)
 	require.Empty(t, lrep.Redundant)
 	require.False(t, lrep.Trustworthy(), "still gated at a looser tolerance")

@@ -25,7 +25,7 @@ func TestBaselineDimensions(t *testing.T) {
 		sketch.NewHorizontalDistance(o, a, 10), // baseline x of A
 		sketch.NewHorizontalDistance(o, b, 25), // baseline x of B (same datum O)
 	)
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 10, a.X()-o.X(), 1e-9)
 	require.InDelta(t, 25, b.X()-o.X(), 1e-9)
@@ -43,7 +43,7 @@ func TestOrdinateDimensions(t *testing.T) {
 		sketch.NewHorizontalDistance(o, p, 10), // ordinate x
 		sketch.NewVerticalDistance(o, p, 6),    // ordinate y
 	)
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 10, p.X()-o.X(), 1e-9)
 	require.InDelta(t, 6, p.Y()-o.Y(), 1e-9)
@@ -61,7 +61,7 @@ func TestChainedDimensions(t *testing.T) {
 		sketch.NewHorizontalDistance(o, a, 10), // O→A
 		sketch.NewHorizontalDistance(a, b, 15), // A→B (chained from A)
 	)
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 10, a.X()-o.X(), 1e-9)
 	require.InDelta(t, 25, b.X()-o.X(), 1e-9, "a chain O→A→B accumulates to O→B = 25")
@@ -86,9 +86,9 @@ func TestChainPlusBaselineConsistentIsRedundant(t *testing.T) {
 
 	// Commit it anyway: consistent, so still solvable, but reported redundant.
 	s.AddConstraint(baseline)
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
-	require.True(t, s.Verify().Solvable)
+	require.True(t, s.Verify(t.Context()).Solvable)
 	require.Contains(t, s.Diagnose().Redundant, sketch.Constraint(baseline),
 		"the later baseline duplicates the chain")
 	require.Empty(t, s.Diagnose().Conflicting)
@@ -111,9 +111,9 @@ func TestChainPlusBaselineConflicting(t *testing.T) {
 	require.ErrorIs(t, s.CheckConstraint(baseline), sketch.ErrOverconstrained)
 
 	s.AddConstraint(baseline)
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.ErrorIs(t, err, sketch.ErrNotConverged)
-	rep := s.Verify()
+	rep := s.Verify(t.Context())
 	require.False(t, rep.Solvable)
 	require.NotEmpty(t, rep.Conflicts)
 	// the later baseline is the conflicting constraint, blamed against the chain
@@ -145,7 +145,7 @@ func TestDrivenOrdinateReadout(t *testing.T) {
 	readout.SetDriven(true)
 	s.AddConstraint(readout)
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, 0, s.DOF(), "the driven readout adds no constraint rows")
 	require.Empty(t, s.Diagnose().Redundant, "a driven readout is never redundant")

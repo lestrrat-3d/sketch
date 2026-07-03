@@ -1,6 +1,7 @@
 package examples_test
 
 import (
+	"context"
 	"fmt"
 	"math"
 
@@ -24,7 +25,7 @@ func Example_sketch_probeConfigurations() {
 	d2 := sketch.NewDistance(b, apex, 8)
 	s.AddConstraint(d1, d2)
 
-	res, err := s.Solve()
+	res, err := s.Solve(context.Background())
 	if err != nil {
 		fmt.Printf("failed to solve: %s\n", err)
 		return
@@ -32,7 +33,7 @@ func Example_sketch_probeConfigurations() {
 	fmt.Printf("DOF %d\n", res.DOF)
 
 	// DOF 0 looks safe, but the probe proves the branch is seed-dependent.
-	pr, err := s.ProbeConfigurations()
+	pr, err := s.ProbeConfigurations(context.Background())
 	if err != nil {
 		fmt.Printf("failed to probe: %s\n", err)
 		return
@@ -51,11 +52,11 @@ func Example_sketch_probeConfigurations() {
 	s.RemoveConstraint(d2)
 	s.AddConstraint(sketch.NewHorizontalDistance(a, apex, 5))
 	s.AddConstraint(sketch.NewVerticalDistance(a, apex, math.Sqrt(8*8-5*5)))
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(context.Background()); err != nil {
 		fmt.Printf("failed to re-solve: %s\n", err)
 		return
 	}
-	pr, err = s.ProbeConfigurations()
+	pr, err = s.ProbeConfigurations(context.Background())
 	if err != nil {
 		fmt.Printf("failed to probe: %s\n", err)
 		return

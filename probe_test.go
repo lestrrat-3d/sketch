@@ -17,12 +17,12 @@ func TestProbeMirrorTriangle(t *testing.T) {
 	s.AddConstraint(sketch.NewDistance(a, p, 8))
 	s.AddConstraint(sketch.NewDistance(b, p, 8))
 
-	res, err := s.Solve()
+	res, err := s.Solve(t.Context())
 	require.NoError(t, err, "triangle apex must solve")
 	require.Equal(t, 0, res.DOF, "apex is fully constrained")
 	require.Greater(t, p.Y(), 0.0, "seeded above the base, solves above")
 
-	pr, err := s.ProbeConfigurations()
+	pr, err := s.ProbeConfigurations(t.Context())
 	require.NoError(t, err, "probe must succeed on a solved DOF-0 sketch")
 	require.True(t, pr.Ambiguous(), "two distance constraints admit a mirror apex")
 	require.Len(t, pr.Configurations, 2, "exactly the apex-above and apex-below branches")
@@ -48,12 +48,12 @@ func TestProbeTangentSideFlip(t *testing.T) {
 	s.AddConstraint(sketch.NewRadius(c, 2))
 	s.AddConstraint(sketch.NewHorizontalDistance(a, center, 5))
 
-	res, err := s.Solve()
+	res, err := s.Solve(t.Context())
 	require.NoError(t, err, "tangent circle must solve")
 	require.Equal(t, 0, res.DOF, "circle is fully constrained")
 	require.InDelta(t, 2, center.Y(), 1e-8, "seeded above the line, tangent above")
 
-	pr, err := s.ProbeConfigurations()
+	pr, err := s.ProbeConfigurations(t.Context())
 	require.NoError(t, err, "probe must succeed")
 	require.Len(t, pr.Configurations, 2, "tangency is unsigned: above and below the line")
 
@@ -69,10 +69,10 @@ func TestProbeUniquelyPinnedPoint(t *testing.T) {
 	s.AddConstraint(sketch.NewHorizontalDistance(a, p, 3))
 	s.AddConstraint(sketch.NewVerticalDistance(a, p, 4))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err, "signed Δx/Δy must solve")
 
-	pr, err := s.ProbeConfigurations()
+	pr, err := s.ProbeConfigurations(t.Context())
 	require.NoError(t, err, "probe must succeed")
 	require.False(t, pr.Ambiguous(), "signed dimensions pin a single configuration")
 	require.Len(t, pr.Configurations, 1, "only the baseline")
@@ -93,10 +93,10 @@ func TestProbeSignedAngleUnique(t *testing.T) {
 	s.AddConstraint(sketch.NewDistance(o, p, 10))
 	s.AddConstraint(sketch.NewAngle(lref, lp, 30))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err, "angle construction must solve")
 
-	pr, err := s.ProbeConfigurations()
+	pr, err := s.ProbeConfigurations(t.Context())
 	require.NoError(t, err, "probe must succeed")
 	require.False(t, pr.Ambiguous(), "a signed angle pins the branch")
 }
@@ -120,11 +120,11 @@ func TestProbeDistanceRectangleIsAmbiguous(t *testing.T) {
 	s.AddConstraint(sketch.NewPerpendicular(bc, cd))
 	s.AddConstraint(sketch.NewDistance(c, d, 4))
 
-	res, err := s.Solve()
+	res, err := s.Solve(t.Context())
 	require.NoError(t, err, "rectangle must solve")
 	require.Equal(t, 0, res.DOF, "rectangle is fully constrained")
 
-	pr, err := s.ProbeConfigurations()
+	pr, err := s.ProbeConfigurations(t.Context())
 	require.NoError(t, err, "probe must succeed")
 	require.GreaterOrEqual(t, len(pr.Configurations), 2,
 		"unsigned distances leave mirror branches the probe must find")
@@ -140,7 +140,7 @@ func TestProbeDeterministic(t *testing.T) {
 		p := s.CreatePoint(5, 3)
 		s.AddConstraint(sketch.NewDistance(a, p, 8))
 		s.AddConstraint(sketch.NewDistance(b, p, 8))
-		_, err := s.Solve()
+		_, err := s.Solve(t.Context())
 		require.NoError(t, err, "fixture must solve")
 		return s, p
 	}
@@ -148,9 +148,9 @@ func TestProbeDeterministic(t *testing.T) {
 	s1, p1 := build()
 	s2, p2 := build()
 
-	r1, err := s1.ProbeConfigurations()
+	r1, err := s1.ProbeConfigurations(t.Context())
 	require.NoError(t, err, "first probe must succeed")
-	r2, err := s2.ProbeConfigurations()
+	r2, err := s2.ProbeConfigurations(t.Context())
 	require.NoError(t, err, "second probe must succeed")
 	require.Equal(t, len(r1.Configurations), len(r2.Configurations), "identical inputs find identical counts")
 	for i := range r1.Configurations {
@@ -160,9 +160,9 @@ func TestProbeDeterministic(t *testing.T) {
 		require.Equal(t, y1, y2, "configuration %d y is bit-identical across runs", i)
 	}
 
-	r3, err := s1.ProbeConfigurations(sketch.WithSeed(42), sketch.WithRestarts(20))
+	r3, err := s1.ProbeConfigurations(t.Context(), sketch.WithSeed(42), sketch.WithRestarts(20))
 	require.NoError(t, err, "probe with explicit options must succeed")
-	r4, err := s1.ProbeConfigurations(sketch.WithSeed(42), sketch.WithRestarts(20))
+	r4, err := s1.ProbeConfigurations(t.Context(), sketch.WithSeed(42), sketch.WithRestarts(20))
 	require.NoError(t, err, "repeated probe with explicit options must succeed")
 	require.Equal(t, len(r3.Configurations), len(r4.Configurations), "explicit seed is reproducible")
 }
@@ -180,13 +180,13 @@ func TestProbeDoesNotMutateSketch(t *testing.T) {
 	ref.SetDriven(true)
 	s.AddConstraint(ref)
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err, "fixture must solve")
 
 	wantX, wantY := p.X(), p.Y()
 	wantTarget := ref.Target()
 
-	_, err = s.ProbeConfigurations()
+	_, err = s.ProbeConfigurations(t.Context())
 	require.NoError(t, err, "probe must succeed")
 
 	require.Equal(t, wantX, p.X(), "probe restores point x exactly")
@@ -205,10 +205,10 @@ func TestProbeApplySelectsBranch(t *testing.T) {
 	s.AddConstraint(sketch.NewDistance(a, p, 8))
 	s.AddConstraint(sketch.NewDistance(b, p, 8))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err, "fixture must solve")
 
-	pr, err := s.ProbeConfigurations()
+	pr, err := s.ProbeConfigurations(t.Context())
 	require.NoError(t, err, "probe must succeed")
 	require.Len(t, pr.Configurations, 2, "mirror apex expected")
 
@@ -218,7 +218,7 @@ func TestProbeApplySelectsBranch(t *testing.T) {
 	require.Equal(t, wantX, p.X(), "Apply writes the configuration's x")
 	require.Equal(t, wantY, p.Y(), "Apply writes the configuration's y")
 
-	res, err := s.Solve()
+	res, err := s.Solve(t.Context())
 	require.NoError(t, err, "re-solve from the applied configuration succeeds")
 	require.Equal(t, 0, res.DOF, "still fully constrained")
 	require.InDelta(t, wantY, p.Y(), 1e-8, "solver stays in the applied basin")
@@ -231,9 +231,9 @@ func TestProbeRejectsUnderconstrained(t *testing.T) {
 	p := s.CreatePoint(3, 0)
 	s.AddConstraint(sketch.NewDistance(a, p, 5))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err, "underconstrained sketch still solves")
 
-	_, err = s.ProbeConfigurations()
+	_, err = s.ProbeConfigurations(t.Context())
 	require.ErrorIs(t, err, sketch.ErrUnderconstrained, "DOF > 0 has a continuum, not branches")
 }

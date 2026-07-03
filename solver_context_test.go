@@ -23,10 +23,10 @@ func distanceSketch(t *testing.T) (*sketch.Sketch, *sketch.Point) {
 	return s, b
 }
 
-func TestSolveWithContext(t *testing.T) {
-	t.Run("live context converges like the default", func(t *testing.T) {
+func TestSolveContext(t *testing.T) {
+	t.Run("live context converges normally", func(t *testing.T) {
 		s, _ := distanceSketch(t)
-		res, err := s.Solve(sketch.WithContext(t.Context()))
+		res, err := s.Solve(t.Context())
 		require.NoError(t, err)
 		require.True(t, res.Converged)
 	})
@@ -37,7 +37,7 @@ func TestSolveWithContext(t *testing.T) {
 		cancel()
 
 		bx, by := b.X(), b.Y()
-		res, err := s.Solve(sketch.WithContext(ctx))
+		res, err := s.Solve(ctx)
 		require.ErrorIs(t, err, context.Canceled)
 		require.False(t, res.Converged)
 		// Aborted before any iteration ran, so the geometry never moved.
@@ -51,16 +51,8 @@ func TestSolveWithContext(t *testing.T) {
 		ctx, cancel := context.WithDeadline(t.Context(), time.Unix(0, 0))
 		defer cancel()
 
-		res, err := s.Solve(sketch.WithContext(ctx))
+		res, err := s.Solve(ctx)
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 		require.False(t, res.Converged)
-	})
-
-	t.Run("nil-like default still solves", func(t *testing.T) {
-		s, _ := distanceSketch(t)
-		res, err := s.Solve()
-		require.NoError(t, err)
-		require.True(t, res.Converged)
-		require.NotErrorIs(t, err, context.Canceled)
 	})
 }

@@ -62,7 +62,7 @@ func TestSelfIntersectingSplineLoopInvalid(t *testing.T) {
 	require.NoError(t, err)
 	s.CreateLine(p3, p0) // close the loop
 
-	rep := s.Verify()
+	rep := s.Verify(t.Context())
 	require.False(t, rep.ProfilesValid, "a self-intersecting spline loop is not valid")
 	require.NotEmpty(t, rep.InvalidProfiles)
 	var sawSelfX bool

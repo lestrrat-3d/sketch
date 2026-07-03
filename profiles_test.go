@@ -73,7 +73,7 @@ func TestProfilesReflectSolvedGeometry(t *testing.T) {
 	w := sketch.NewDistance(a, b, 20)
 	s.AddConstraint(w)
 	s.AddConstraint(sketch.NewDistance(a, d, 12))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	perimeter := func(p *sketch.Profile) float64 {
@@ -92,7 +92,7 @@ func TestProfilesReflectSolvedGeometry(t *testing.T) {
 	require.InDelta(t, 2*(20+12), perimeter(profiles[0]), 1e-6, "perimeter at width 20")
 
 	w.Set(35)
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 	profiles = s.Profiles()
 	require.Len(t, profiles, 1, "profile survives the edit")

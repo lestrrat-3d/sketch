@@ -1,6 +1,10 @@
 package main
 
-import "github.com/lestrrat-3d/sketch"
+import (
+	"context"
+
+	"github.com/lestrrat-3d/sketch"
+)
 
 // goalDrag illustrates a soft target (the drag primitive): point b is dragged
 // toward a goal up and to the right, but a horizontal constraint pins it to the
@@ -25,7 +29,7 @@ func goalDrag() (string, error) {
 	marker := s.CreateCircle(target, 7)
 	marker.SetConstruction(true)
 
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(context.Background()); err != nil {
 		return "", err
 	}
 	return s.SVG(withAnn(sketch.WithConstraints(true))...)

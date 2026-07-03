@@ -18,7 +18,7 @@ func TestCoincident(t *testing.T) {
 	p := s.CreatePoint(10, -4)
 	s.AddConstraint(sketch.NewCoincident(a, p))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 2, p.X(), 1e-6, "coincident x")
 	require.InDelta(t, 3, p.Y(), 1e-6, "coincident y")
@@ -40,7 +40,7 @@ func TestParallel(t *testing.T) {
 	s.AddConstraint(sketch.NewParallel(l1, l2))
 	s.AddConstraint(sketch.NewDistance(c, d, 8))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	d1x, d1y := l1.End.X()-l1.Start.X(), l1.End.Y()-l1.Start.Y()
 	d2x, d2y := l2.End.X()-l2.Start.X(), l2.End.Y()-l2.Start.Y()
@@ -65,7 +65,7 @@ func TestCollinear(t *testing.T) {
 	s.AddConstraint(sketch.NewCollinear(l1, l2))
 	s.AddConstraint(sketch.NewDistance(c, d, 5))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 0, c.Y(), 1e-6, "c dropped onto l1's infinite line")
 	require.InDelta(t, 0, d.Y(), 1e-6, "d dropped onto l1's infinite line")
@@ -82,7 +82,7 @@ func TestPointOnCircle(t *testing.T) {
 	p := s.CreatePoint(7, 1)
 	s.AddConstraint(sketch.NewPointOnCircle(p, circ))
 
-	res, err := s.Solve()
+	res, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 5, p.DistanceTo(o), 1e-6, "point lands on the circle")
 	require.Equal(t, 1, res.DOF, "point keeps one sliding freedom along the circle")
@@ -102,14 +102,14 @@ func TestMidpoint(t *testing.T) {
 	m := s.CreatePoint(3, 3)
 	s.AddConstraint(sketch.NewMidpoint(m, ab))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 5, m.X(), 1e-6, "midpoint x")
 	require.InDelta(t, 0, m.Y(), 1e-6, "midpoint y")
 
 	// The midpoint is parametric: stretching the line carries it along.
 	w.Set(20)
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 10, m.X(), 1e-6, "midpoint tracks the stretched line")
 }
@@ -128,7 +128,7 @@ func TestEqualLines(t *testing.T) {
 	l2 := s.CreateLine(c, d)
 	s.AddConstraint(sketch.NewEqual(l1, l2))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 8, c.DistanceTo(d), 1e-6, "lengths equalized")
 }
@@ -141,12 +141,12 @@ func TestDiameterDimension(t *testing.T) {
 	dia := sketch.NewDiameter(circ, 14)
 	s.AddConstraint(dia)
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 7, circ.R(), 1e-6, "radius from diameter")
 
 	dia.Set(20) // diameters are editable like any dimension
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 10, circ.R(), 1e-6, "radius after diameter edit")
 }
@@ -161,13 +161,13 @@ func TestUnfix(t *testing.T) {
 	// While p is also grounded the dimension cannot be satisfied: both points
 	// are pinned at distance √5, the constraint demands 5.
 	s.Fix(p)
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.ErrorIs(t, err, sketch.ErrNotConverged, "two grounded points cannot satisfy the dimension")
 
 	// Releasing p restores its freedom and the same sketch solves.
 	s.Unfix(p)
 	require.False(t, p.IsFixed(), "p reports unfixed")
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 5, a.DistanceTo(p), 1e-6, "distance holds once p is released")
 }
@@ -188,7 +188,7 @@ func TestHorizontalVerticalDistance(t *testing.T) {
 	s.AddConstraint(sketch.NewVerticalDistance(a, c, 3))
 	s.AddConstraint(sketch.NewDistance(a, c, 5))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 4, b.X(), 1e-6, "b Δx")
 	require.InDelta(t, 3, b.Y(), 1e-6, "b Δy")

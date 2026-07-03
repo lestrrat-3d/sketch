@@ -28,7 +28,7 @@ func TestDistancePointCircle(t *testing.T) {
 			s.AddConstraint(sketch.NewHorizontalPoints(p, cc)) // p.y = 0
 			s.AddConstraint(sketch.NewDistancePointCircle(p, circle, tc.d))
 
-			_, err := s.Solve()
+			_, err := s.Solve(t.Context())
 			require.NoError(t, err)
 			require.InDelta(t, tc.want, p.X(), 1e-6, "radial gap from the circle edge")
 		})
@@ -57,7 +57,7 @@ func TestDistanceLineCircle(t *testing.T) {
 			s.AddConstraint(sketch.NewHorizontal(line))
 			s.AddConstraint(sketch.NewDistanceLineCircle(line, circle, tc.d))
 
-			_, err := s.Solve()
+			_, err := s.Solve(t.Context())
 			require.NoError(t, err)
 			require.InDelta(t, tc.want, p1.Y(), 1e-6, "line at center-distance r+d above the circle")
 			require.InDelta(t, p1.Y(), p2.Y(), 1e-9, "still horizontal")
@@ -94,7 +94,7 @@ func TestDistancePointCircleDriven(t *testing.T) {
 	dim.SetDriven(true)
 	s.AddConstraint(dim)
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.True(t, dim.Driven())
 	require.InDelta(t, 3, dim.Target().Mag(), 1e-6, "measures |P−C| − r")
@@ -113,7 +113,7 @@ func TestDistanceCircleRoundTrip(t *testing.T) {
 	line := s.CreateLine(p1, p2)
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewDistanceLineCircle(line, circle, 2))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -121,7 +121,7 @@ func TestDistanceCircleRoundTrip(t *testing.T) {
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2))
 	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraints survive reload")
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 	for i, p := range s.Points() {
 		require.InDeltaf(t, p.X(), s2.Points()[i].X(), 1e-6, "point %d X", i)

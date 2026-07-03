@@ -29,9 +29,9 @@ func TestTangentConicsSharedEndpoint(t *testing.T) {
 	s.FixEntity(ca)
 
 	s.AddConstraint(sketch.NewTangentEllipseCircular(ea, ca, false)) // external
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
-	require.True(t, s.Verify().Solvable, "tangent at the shared corner S")
+	require.True(t, s.Verify(t.Context()).Solvable, "tangent at the shared corner S")
 }
 
 func TestTangentConicsSharedEndpointNotTangentRejected(t *testing.T) {
@@ -52,9 +52,9 @@ func TestTangentConicsSharedEndpointNotTangentRejected(t *testing.T) {
 	s.FixEntity(ca)
 
 	s.AddConstraint(sketch.NewTangentEllipseCircular(ea, ca, false))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.ErrorIs(t, err, sketch.ErrNotConverged)
-	require.False(t, s.Verify().Solvable, "curves meeting at S but not tangent there are not blessed")
+	require.False(t, s.Verify(t.Context()).Solvable, "curves meeting at S but not tangent there are not blessed")
 }
 
 func TestTangentConicsSharedEndpointDOFAndRemoval(t *testing.T) {
@@ -94,7 +94,7 @@ func TestTangentConicsSharedEndpointRoundTrip(t *testing.T) {
 	ca := s.CreateArc(cc, shared, caEnd)
 	s.FixEntity(ca)
 	s.AddConstraint(sketch.NewTangentEllipseCircular(ea, ca, false))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -102,7 +102,7 @@ func TestTangentConicsSharedEndpointRoundTrip(t *testing.T) {
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2))
 	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraint survives reload")
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
-	require.True(t, s2.Verify().Solvable, "shared-endpoint branch reconstructed on load")
+	require.True(t, s2.Verify(t.Context()).Solvable, "shared-endpoint branch reconstructed on load")
 }

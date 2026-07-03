@@ -47,27 +47,10 @@ type (
 	identMaxIterations struct{}
 	identTolerance     struct{}
 	identGoal          struct{}
-	identContext       struct{}
 )
 
 // WithMaxIterations sets the outer Levenberg–Marquardt iteration budget.
 func WithMaxIterations(v int) SolveOption { return solveOption{option.New(identMaxIterations{}, v)} }
-
-// WithContext binds a context whose cancellation or deadline aborts the solve.
-// [Sketch.Solve] checks it before every outer Levenberg–Marquardt iteration and
-// between its internal phases; when the context is done it stops early and
-// returns the partial [Result] together with a non-nil error that wraps
-// ctx.Err() (so errors.Is(err, context.DeadlineExceeded) or context.Canceled
-// matches). The default is context.Background() — an unbounded solve, matching
-// the prior behaviour.
-//
-// This is the intended bound on solve *time* when a sketch may come from an
-// untrusted source: the iteration budget ([WithMaxIterations]) caps the number
-// of steps, but a context deadline caps wall-clock work regardless of how
-// expensive each iteration is.
-func WithContext(ctx context.Context) SolveOption {
-	return solveOption{option.New(identContext{}, ctx)}
-}
 
 // WithTolerance sets the convergence threshold on the residual norm. It is
 // accepted by both [Sketch.Solve] (where it is the convergence target) and
@@ -109,11 +92,10 @@ type solveConfig struct {
 	maxIterations int
 	tolerance     float64
 	goals         []goalTarget
-	ctx           context.Context
 }
 
 func defaultSolveConfig() solveConfig {
-	return solveConfig{maxIterations: 200, tolerance: 1e-10, ctx: context.Background()}
+	return solveConfig{maxIterations: 200, tolerance: 1e-10}
 }
 
 // Solve runs the constraint solver, moving non-grounded geometry until all
@@ -132,7 +114,17 @@ func defaultSolveConfig() solveConfig {
 // Solve returns [ErrNotConverged] (along with the partial [Result]) if the
 // residuals cannot be driven below the tolerance within the iteration budget,
 // which usually means the sketch is over-constrained or contradictory.
-func (s *Sketch) Solve(options ...SolveOption) (*Result, error) {
+//
+// The ctx argument bounds the solve: its cancellation or deadline aborts the
+// run. Solve checks it before every outer Levenberg–Marquardt iteration and
+// between its internal phases; when ctx is done it stops early and returns the
+// partial [Result] together with a non-nil error that wraps ctx.Err() (so
+// errors.Is(err, context.DeadlineExceeded) or context.Canceled matches). Pass
+// context.Background() for an unbounded solve. This is the intended bound on
+// solve *time* when a sketch may come from an untrusted source: the iteration
+// budget ([WithMaxIterations]) caps the number of steps, but a context deadline
+// caps wall-clock work regardless of how expensive each iteration is.
+func (s *Sketch) Solve(ctx context.Context, options ...SolveOption) (*Result, error) {
 	o := defaultSolveConfig()
 	for _, opt := range options {
 		switch opt.Ident().(type) {
@@ -143,12 +135,9 @@ func (s *Sketch) Solve(options ...SolveOption) (*Result, error) {
 		case identGoal:
 			// Append — repeated WithGoal options accumulate.
 			o.goals = append(o.goals, option.MustGet[goalTarget](opt))
-		case identContext:
-			o.ctx = option.MustGet[context.Context](opt)
 		}
 	}
 
-	ctx := o.ctx
 	// Nothing has been mutated yet, so an already-cancelled context short-
 	// circuits before any work.
 	if err := ctx.Err(); err != nil {

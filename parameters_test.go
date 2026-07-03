@@ -31,7 +31,7 @@ func TestBoundDimensionsSolve(t *testing.T) {
 	require.NoError(t, s.Bind(wDim, p, "w"))
 	require.NoError(t, s.Bind(hDim, p, "h"))
 
-	res, err := s.Solve()
+	res, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, 0, res.DOF, "DOF")
 	require.InDelta(t, 20, b.X(), 1e-6, "b.X")
@@ -60,12 +60,12 @@ func TestParameterEditPropagates(t *testing.T) {
 	require.NoError(t, s.Bind(wDim, p, "w"))
 	require.NoError(t, s.Bind(hDim, p, "h"))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	// Change the width parameter; height ("w/2") follows automatically.
 	require.NoError(t, s.Params().Set("w", "30"))
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 30, b.X(), 1e-6, "b.X after edit")
 	require.InDelta(t, 15, d.Y(), 1e-6, "d.Y after edit")
@@ -91,19 +91,19 @@ func TestManualSetUnbinds(t *testing.T) {
 	require.NoError(t, s.Bind(wDim, p, "w"))
 	require.NoError(t, s.Bind(hDim, p, "h"))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	// Override the width dimension literally; this clears its binding.
 	wDim.Set(42)
 	require.Empty(t, sketch.DriverExpr(wDim), "Set should clear the binding")
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 42, b.X(), 1e-6, "b.X after manual set")
 
 	// Changing the parameter no longer affects the now-literal dimension.
 	require.NoError(t, s.Params().Set("w", "99"))
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 42, b.X(), 1e-6, "b.X still literal")
 }
@@ -120,7 +120,7 @@ func TestBindExpressionInline(t *testing.T) {
 	s.AddConstraint(dim)
 	// Expression combining a parameter, a function and a constant.
 	require.NoError(t, s.Bind(dim, p, "gap * 2 + sqrt(16)"))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 20, b.X(), 1e-6, "b.X") // 8*2 + 4
 }
@@ -164,7 +164,7 @@ func TestUndefinedParameterFailsSolve(t *testing.T) {
 	dim := sketch.NewDistance(a, b, 1)
 	s.AddConstraint(dim)
 	require.NoError(t, s.Bind(dim, s.Params(), "nope * 2"))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.Error(t, err, "expected solve to fail on undefined parameter")
 }
 
@@ -188,7 +188,7 @@ func TestUnbind(t *testing.T) {
 	require.NoError(t, s.Bind(wDim, p, "w"))
 	require.NoError(t, s.Bind(hDim, p, "h"))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	s.Unbind(wDim)
@@ -198,7 +198,7 @@ func TestUnbind(t *testing.T) {
 	// edits no longer reach the unbound dimension (height, still bound to
 	// "w/2", does follow).
 	require.NoError(t, s.Params().Set("w", "70"))
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 20, b.X(), 1e-6, "unbound width keeps its literal value")
 	require.InDelta(t, 35, d.Y(), 1e-6, "bound height still follows the parameter")
@@ -253,13 +253,13 @@ func TestDeleteParameterInUse(t *testing.T) {
 	require.NoError(t, s.Bind(wDim, p, "w"))
 	require.NoError(t, s.Bind(hDim, p, "h"))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	// Deleting a parameter a bound dimension references leaves the binding
 	// dangling; the next solve must fail cleanly, naming the parameter.
 	s.Params().Delete("w")
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.Error(t, err, "solve must fail once the parameter is gone")
 	require.Contains(t, err.Error(), "w", "error names the missing parameter")
 }
@@ -284,7 +284,7 @@ func TestJSONRoundTripWithParameters(t *testing.T) {
 	require.NoError(t, s.Bind(wDim, p, "w"))
 	require.NoError(t, s.Bind(hDim, p, "h"))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.MarshalIndent(s, "", "  ")
@@ -296,7 +296,7 @@ func TestJSONRoundTripWithParameters(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &s2))
 	// The reloaded sketch must still be parametric: edit and re-solve.
 	require.NoError(t, s2.Params().Set("w", "50"))
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 50, s2.Points()[1].X(), 1e-6, "reloaded b.X")
 	require.InDelta(t, 25, s2.Points()[3].Y(), 1e-6, "reloaded d.Y")

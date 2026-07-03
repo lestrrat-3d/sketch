@@ -1,6 +1,7 @@
 package sketch
 
 import (
+	"context"
 	"math"
 
 	"github.com/lestrrat-go/option/v3"
@@ -223,7 +224,11 @@ func WithProbe(opts ...ProbeOption) VerifyOption {
 // the report reflects the solved sketch. It recomputes the constraint Jacobian
 // at the current configuration (never reusing a solve's stale one), so the
 // counts are consistent with the geometry as it stands.
-func (s *Sketch) Verify(options ...VerifyOption) *VerificationReport {
+//
+// The ctx argument bounds any probe run triggered by [WithProbe] (the only
+// potentially expensive, re-solving work Verify performs); pass
+// context.Background() when no bound is needed.
+func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *VerificationReport {
 	var probe bool
 	var probeOpts []ProbeOption
 	tolerance := defaultSolveConfig().tolerance
@@ -309,7 +314,7 @@ func (s *Sketch) Verify(options ...VerifyOption) *VerificationReport {
 	// The probe's preconditions are exactly solvable && DOF 0; guarding here
 	// keeps the (expensive) probe from running when it would only error.
 	if probe && rep.Solvable && rep.DOF == 0 {
-		if pr, err := s.ProbeConfigurations(probeOpts...); err == nil {
+		if pr, err := s.ProbeConfigurations(ctx, probeOpts...); err == nil {
 			rep.Probe = pr
 		}
 	}

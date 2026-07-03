@@ -38,8 +38,8 @@ func TestAuditTangentToSplineImpossibleRejected(t *testing.T) {
 	s.Fix(b)
 	l := s.CreateLine(a, b)
 	s.AddConstraint(sketch.NewTangentToSpline(l, sp))
-	s.Solve()
-	require.False(t, s.Verify().Solvable, "an impossible line/spline tangency must not be blessed Solvable")
+	s.Solve(t.Context())
+	require.False(t, s.Verify(t.Context()).Solvable, "an impossible line/spline tangency must not be blessed Solvable")
 }
 
 func TestAuditTangentToSplineFeasibleReallyTouches(t *testing.T) {
@@ -50,8 +50,8 @@ func TestAuditTangentToSplineFeasibleReallyTouches(t *testing.T) {
 	a, b := s.CreatePoint(-2, 0.5), s.CreatePoint(5, 0.5)
 	l := s.CreateLine(a, b)
 	s.AddConstraint(sketch.NewTangentToSpline(l, sp))
-	s.Solve()
-	require.True(t, s.Verify().Solvable, "a feasible tangency must be solvable")
+	s.Solve(t.Context())
+	require.True(t, s.Verify(t.Context()).Solvable, "a feasible tangency must be solvable")
 
 	poly := sp.Polyline(3000)
 	ax, ay := l.Start.X(), l.Start.Y()
@@ -80,9 +80,9 @@ func TestAuditPointOnSplinePulledOffDomainRejected(t *testing.T) {
 	anchor := s.CreatePoint(20, 0)
 	s.Fix(anchor)
 	s.AddConstraint(sketch.NewDistance(p, anchor, 0))
-	s.Solve()
+	s.Solve(t.Context())
 
-	rep := s.Verify()
+	rep := s.Verify(t.Context())
 	poly := sp.Polyline(3000)
 	onSpline := math.Inf(1)
 	for _, q := range poly {
@@ -109,8 +109,8 @@ func TestAuditConicTangencyImpossibleRejected(t *testing.T) {
 	s.Fix(cc)
 	c := s.CreateCircle(cc, 1.0)
 	s.AddConstraint(sketch.NewTangentEllipseCircular(e, c, true))
-	s.Solve()
-	require.False(t, s.Verify().Solvable, "an impossible internal conic tangency must not be blessed Solvable")
+	s.Solve(t.Context())
+	require.False(t, s.Verify(t.Context()).Solvable, "an impossible internal conic tangency must not be blessed Solvable")
 }
 
 func TestAuditGoalSolveDoesNotCorruptVerify(t *testing.T) {
@@ -122,8 +122,8 @@ func TestAuditGoalSolveDoesNotCorruptVerify(t *testing.T) {
 	s.Fix(a)
 	b := s.CreatePoint(10, 0)
 	s.AddConstraint(sketch.NewDistance(a, b, 10))
-	s.Solve(sketch.WithGoal(b, 1000, 0))
+	s.Solve(t.Context(), sketch.WithGoal(b, 1000, 0))
 
 	require.InDelta(t, 10.0, math.Hypot(b.X()-a.X(), b.Y()-a.Y()), 1e-6, "the hard distance must win over the goal")
-	require.True(t, s.Verify().Solvable, "Verify must reflect only the hard constraints, which hold")
+	require.True(t, s.Verify(t.Context()).Solvable, "Verify must reflect only the hard constraints, which hold")
 }

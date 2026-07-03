@@ -13,6 +13,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -123,7 +124,7 @@ func groundedRect(w, h float64) (*sketch.Sketch, *sketch.Rectangle) {
 
 func quickstart() (string, error) {
 	s, _ := groundedRect(200, 120)
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(context.Background()); err != nil {
 		return "", err
 	}
 	return s.SVG(withAnn(
@@ -151,7 +152,7 @@ func hexagon() (string, error) {
 	diagonal.SetConstruction(true)
 	s.AddConstraint(sketch.NewHorizontal(diagonal))
 	s.AddConstraint(sketch.NewDistance(poly.Center, poly.Vertices[0], 110))
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(context.Background()); err != nil {
 		return "", err
 	}
 	return s.SVG(withAnn(
@@ -176,7 +177,7 @@ func underRect() *sketch.Sketch {
 	a.MoveTo(0, 0)
 	s.Fix(a)
 	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewVertical(da), sketch.NewDistance(a, b, 200))
-	s.Solve()
+	s.Solve(context.Background())
 	return s
 }
 
@@ -186,7 +187,7 @@ func dofUnder() (string, error) {
 
 func dofFull() (string, error) {
 	s, _ := groundedRect(200, 120)
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(context.Background()); err != nil {
 		return "", err
 	}
 	return s.SVG(withAnn(sketch.WithDOFColoring(true), sketch.WithStatusBadge(true))...)
@@ -227,7 +228,7 @@ func conflictValid() (string, error) {
 		sketch.NewDistance(c, a, 300),
 		sketch.NewDistance(b, c, 500), // 3-4-5: consistent
 	)
-	s.Solve()
+	s.Solve(context.Background())
 	return s.SVG(triangleOpts()...)
 }
 
@@ -256,7 +257,7 @@ func conflict() (string, error) {
 		sketch.NewDistance(a, b, 400),
 		sketch.NewDistance(c, a, 300),
 	)
-	s.Solve()                                      // clean 3-4-5 right triangle, hypotenuse = 500
+	s.Solve(context.Background())                  // clean 3-4-5 right triangle, hypotenuse = 500
 	s.AddConstraint(sketch.NewDistance(b, c, 600)) // real hypotenuse is 500 → conflict
 	return s.SVG(triangleOpts()...)
 }
@@ -279,7 +280,7 @@ func parametric(width float64) (string, error) {
 		sketch.NewVerticalDistance(r.A, o, height/2),
 		sketch.NewRadius(hole, width/8),
 	)
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(context.Background()); err != nil {
 		return "", err
 	}
 	return s.SVG(withAnn(sketch.WithDimensions(true))...)
@@ -300,7 +301,7 @@ func profiles() (string, error) {
 		sketch.NewVerticalDistance(r.A, o, 60),
 		sketch.NewRadius(hole, 32),
 	)
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(context.Background()); err != nil {
 		return "", err
 	}
 	return s.SVG(withAnn(
@@ -312,7 +313,7 @@ func profiles() (string, error) {
 
 func filletBefore() (string, error) {
 	s, _ := groundedRect(200, 120)
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(context.Background()); err != nil {
 		return "", err
 	}
 	return s.SVG(withAnn(sketch.WithDOFColoring(true), sketch.WithStatusBadge(true))...)
@@ -320,7 +321,7 @@ func filletBefore() (string, error) {
 
 func filletAfter() (string, error) {
 	s, r := groundedRect(200, 120)
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(context.Background()); err != nil {
 		return "", err
 	}
 	// The fillet removes edges BC (vertical) and CD (horizontal) with their
@@ -331,7 +332,7 @@ func filletAfter() (string, error) {
 		return "", err
 	}
 	s.AddConstraint(sketch.NewVertical(f.L1), sketch.NewHorizontal(f.L2))
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(context.Background()); err != nil {
 		return "", err
 	}
 	return s.SVG(withAnn(sketch.WithDOFColoring(true), sketch.WithStatusBadge(true))...)

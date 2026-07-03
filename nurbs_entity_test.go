@@ -149,7 +149,7 @@ func TestNURBSSelfIntersectingFlagged(t *testing.T) {
 	require.NoError(t, err)
 	s.CreateLine(p3, p0)
 
-	rep := s.Verify()
+	rep := s.Verify(t.Context())
 	require.False(t, rep.ProfilesValid, "a self-intersecting NURBS loop is not valid")
 	require.NotEmpty(t, rep.InvalidProfiles)
 	var sawSelfX bool

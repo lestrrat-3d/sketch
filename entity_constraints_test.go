@@ -17,7 +17,7 @@ func TestFixEntityCircle(t *testing.T) {
 	// A point made coincident with the center must move TO it, not drag it.
 	p := s.CreatePoint(0, 0)
 	s.AddConstraint(sketch.NewCoincident(p, o))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 3, o.X(), 1e-6, "fixed center held")
 	require.InDelta(t, 4, o.Y(), 1e-6, "fixed center held")
@@ -37,7 +37,7 @@ func TestUnfixEntity(t *testing.T) {
 
 	// Now a radius dimension can drive it again.
 	s.AddConstraint(sketch.NewRadius(c, 9))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 9, c.R(), 1e-6, "radius moved after unfix")
 }
@@ -74,7 +74,7 @@ func TestSymmetricLines(t *testing.T) {
 	l2 := s.CreateLine(c, d)
 	s.AddConstraint(sketch.NewSymmetricLines(l1, l2, axis))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, -2, c.X(), 1e-6, "mirror of a across x=0")
 	require.InDelta(t, 1, c.Y(), 1e-6)
@@ -98,7 +98,7 @@ func TestSymmetricCircles(t *testing.T) {
 	c2 := s.CreateCircle(o2, 1)
 	s.AddConstraint(sketch.NewSymmetricCircles(c1, c2, axis))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, -3, o2.X(), 1e-6, "center mirrored across x=0")
 	require.InDelta(t, 2, o2.Y(), 1e-6)

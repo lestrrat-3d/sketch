@@ -1,6 +1,7 @@
 package examples_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -69,7 +70,7 @@ func Example_sketch_parametric() {
 	}
 
 	report := func() error {
-		res, err := s.Solve()
+		res, err := s.Solve(context.Background())
 		if err != nil {
 			return err
 		}

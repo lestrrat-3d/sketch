@@ -26,7 +26,7 @@ func TestPointOnArc(t *testing.T) {
 	p := s.CreatePoint(3, 3) // near the arc, inside the sweep
 	s.AddConstraint(sketch.NewPointOnArc(p, arc))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 5, math.Hypot(p.X(), p.Y()), 1e-6, "pulled onto the arc's circle")
 	ang := math.Atan2(p.Y(), p.X())
@@ -42,7 +42,7 @@ func TestPointOnArcConfinedToSweep(t *testing.T) {
 	p := s.CreatePoint(3, -3) // angle −π/4, outside the [0, π/2] sweep
 	s.AddConstraint(sketch.NewPointOnArc(p, arc))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 5, math.Hypot(p.X(), p.Y()), 1e-6, "on the circle")
 	ang := math.Atan2(p.Y(), p.X())

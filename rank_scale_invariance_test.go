@@ -39,8 +39,8 @@ func TestRankScaleInvariantRedundant(t *testing.T) {
 		s.AddConstraint(sketch.NewHorizontalPoints(a, b))
 		s.AddConstraint(sketch.NewDistance(a, b, 10*k))
 		s.AddConstraint(sketch.NewDistance(a, b, 10*k)) // exact duplicate → redundant
-		s.Solve()
-		return s.Verify()
+		s.Solve(t.Context())
+		return s.Verify(t.Context())
 	}
 	for _, k := range rankScales {
 		rep := build(k)
@@ -61,8 +61,8 @@ func TestRankScaleInvariantConflicting(t *testing.T) {
 		s.AddConstraint(sketch.NewHorizontalPoints(a, b))
 		s.AddConstraint(sketch.NewDistance(a, b, 10*k))
 		s.AddConstraint(sketch.NewDistance(a, b, 7*k)) // contradicts the first
-		s.Solve()
-		return s.Verify()
+		s.Solve(t.Context())
+		return s.Verify(t.Context())
 	}
 	for _, k := range rankScales {
 		rep := build(k)
@@ -80,8 +80,8 @@ func TestRankScaleInvariantUnderconstrained(t *testing.T) {
 		s.Fix(o)
 		p := s.CreatePoint(3*k, 4*k)
 		s.AddConstraint(sketch.NewDistance(o, p, 5*k))
-		s.Solve()
-		return s.Verify(), p.ID()
+		s.Solve(t.Context())
+		return s.Verify(t.Context()), p.ID()
 	}
 	for _, k := range rankScales {
 		rep, pid := build(k)
@@ -108,8 +108,8 @@ func TestRankScaleInvariantAuxHeavy(t *testing.T) {
 		s.Fix(diag)
 		s.AddConstraint(sketch.NewPointOnArc(p, arc))
 		s.AddConstraint(sketch.NewPointOnLine(p, s.CreateLine(o, diag)))
-		s.Solve()
-		return s.Verify()
+		s.Solve(t.Context())
+		return s.Verify(t.Context())
 	}
 	base := build(1)
 	require.Equal(t, 0, base.DOF)
@@ -135,7 +135,7 @@ func TestCheckConstraintScaleInvariant(t *testing.T) {
 		first := sketch.NewDistance(o, p, 5*k)
 		require.NoErrorf(t, s.CheckConstraint(first), "first distance accepted at k=%v", k)
 		s.AddConstraint(first)
-		s.Solve()
+		s.Solve(t.Context())
 		// A second, independent distance from a different fixed point is fine.
 		q := s.CreatePoint(10*k, 0)
 		s.Fix(q)
@@ -165,7 +165,7 @@ func TestCheckConstraintConicTranslationInvariant(t *testing.T) {
 			sketch.NewEllipseRotation(e, 0), sketch.NewRadius(ci, 2),
 		)
 		s.AddConstraint(sketch.NewTangentEllipseCircular(e, ci, false))
-		s.Solve()
+		s.Solve(t.Context())
 		return s.CheckConstraint(sketch.NewTangentEllipseCircular(e, ci, false))
 	}
 	for _, off := range []float64{0, 1000} {

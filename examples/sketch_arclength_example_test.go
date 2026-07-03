@@ -1,6 +1,7 @@
 package examples_test
 
 import (
+	"context"
 	"fmt"
 	"math"
 
@@ -21,7 +22,7 @@ func Example_sketch_arcLength() {
 
 	// Drive the swept length to 3π — at radius 4 that is a 135° sweep.
 	s.AddConstraint(sketch.NewArcLength(arc, 3*math.Pi))
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(context.Background()); err != nil {
 		fmt.Println(err)
 		return
 	}

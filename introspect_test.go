@@ -168,7 +168,7 @@ func TestConstraintResiduals(t *testing.T) {
 	require.Len(t, res, 1)
 	require.InDelta(t, -4, res[0], 1e-12)
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	res = sketch.ConstraintResiduals(d)
 	require.Len(t, res, 1)

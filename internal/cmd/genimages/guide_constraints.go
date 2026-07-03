@@ -1,6 +1,10 @@
 package main
 
-import "github.com/lestrrat-3d/sketch"
+import (
+	"context"
+
+	"github.com/lestrrat-3d/sketch"
+)
 
 // constraintShowcase draws a small figure carrying several geometric constraints
 // so their glyphs are visible: two concentric circles (◎), a point on the outer
@@ -29,7 +33,7 @@ func constraintShowcase() (string, error) {
 		sketch.NewPerpendicular(top, right),
 	)
 
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(context.Background()); err != nil {
 		return "", err
 	}
 	return s.SVG(withAnn(
@@ -88,7 +92,7 @@ func drivenDimension() (string, error) {
 	hyp.SetDriven(true) // reference: measures 100, rendered parenthesized
 	s.AddConstraint(hyp)
 
-	if _, err := s.Solve(); err != nil {
+	if _, err := s.Solve(context.Background()); err != nil {
 		return "", err
 	}
 	return s.SVG(withAnn(

@@ -32,7 +32,7 @@ func TestTangentToSpline(t *testing.T) {
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewTangentToSpline(line, sp))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, p1.Y(), p2.Y(), 1e-9, "line stays horizontal")
 	require.InDelta(t, splineMaxY(sp), p1.Y(), 1e-3, "tangent at the peak (horizontal tangent)")
@@ -67,9 +67,9 @@ func TestTangentToSplineTransverseRejected(t *testing.T) {
 	s.Fix(b) // a rigid vertical line x=5
 	s.AddConstraint(sketch.NewTangentToSpline(s.CreateLine(a, b), sp))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.ErrorIs(t, err, sketch.ErrNotConverged)
-	require.False(t, s.Verify().Solvable, "a transverse crossing is not a tangent")
+	require.False(t, s.Verify(t.Context()).Solvable, "a transverse crossing is not a tangent")
 }
 
 func TestTangentToSplineDOFAndRemoval(t *testing.T) {
@@ -125,9 +125,9 @@ func TestTangentToSplineScaleIsCurrentNotSnapshot(t *testing.T) {
 	s.AddConstraint(sketch.NewDistance(c1, c2, 1000))
 	s.AddConstraint(sketch.NewDistance(c2, c3, 1000))
 
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.ErrorIs(t, err, sketch.ErrNotConverged)
-	require.False(t, s.Verify().Solvable, "a degenerate-length line is not a tangent at the enlarged scale")
+	require.False(t, s.Verify(t.Context()).Solvable, "a degenerate-length line is not a tangent at the enlarged scale")
 }
 
 func TestTangentToSplineRoundTrip(t *testing.T) {
@@ -138,7 +138,7 @@ func TestTangentToSplineRoundTrip(t *testing.T) {
 	line := s.CreateLine(p1, p2)
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewTangentToSpline(line, sp))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -146,6 +146,6 @@ func TestTangentToSplineRoundTrip(t *testing.T) {
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2))
 	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraints survive reload")
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 }

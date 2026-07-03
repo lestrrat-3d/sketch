@@ -51,7 +51,7 @@ func TestFitSplineInterpolatesAfterSolve(t *testing.T) {
 	sp, err := s.CreateFitSpline(p0, p1, p2)
 	require.NoError(t, err)
 	s.AddConstraint(sketch.NewVerticalDistance(p0, p1, 5)) // pull p1 up to y=5
-	_, err = s.Solve()
+	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 5, p1.Y(), 1e-6, "the solver moved p1")
 
@@ -89,7 +89,7 @@ func TestFitSplineSelfCrossingInvalid(t *testing.T) {
 	require.NoError(t, err)
 	s.CreateLine(m3, a)
 
-	rep := s.Verify()
+	rep := s.Verify(t.Context())
 	require.False(t, rep.ProfilesValid)
 	require.NotEmpty(t, rep.InvalidProfiles)
 	var sawSelfX bool
@@ -202,7 +202,7 @@ func TestFitSplineForeignPointNotTrustworthy(t *testing.T) {
 	foreign := other.CreatePoint(2, 3)
 	_, err := s.CreateFitSpline(a, foreign, b)
 	require.NoError(t, err)
-	rep := s.Verify()
+	rep := s.Verify(t.Context())
 	require.True(t, rep.ForeignHandles)
 	require.False(t, rep.Trustworthy())
 }

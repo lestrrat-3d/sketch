@@ -45,7 +45,7 @@ func TestTangentToClosedSpline(t *testing.T) {
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewTangentToClosedSpline(line, sp))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, p1.Y(), p2.Y(), 1e-9, "line stays horizontal")
 	require.InDelta(t, polyMaxY(sp.Polyline(600)), p1.Y(), 1e-3, "tangent at the loop's top")
@@ -81,7 +81,7 @@ func TestTangentToClosedSplineRoundTrip(t *testing.T) {
 	line := s.CreateLine(s.CreatePoint(-4, 4.8), s.CreatePoint(8, 4.8))
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewTangentToClosedSpline(line, sp))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -89,7 +89,7 @@ func TestTangentToClosedSplineRoundTrip(t *testing.T) {
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2))
 	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraints survive reload")
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 }
 
@@ -103,7 +103,7 @@ func TestTangentToFitSpline(t *testing.T) {
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewTangentToFitSpline(line, sp))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, p1.Y(), p2.Y(), 1e-9, "line stays horizontal")
 	require.InDelta(t, polyMaxY(sp.Polyline(400)), p1.Y(), 1e-3, "tangent at the arch's peak")
@@ -139,7 +139,7 @@ func TestTangentToFitSplineRoundTrip(t *testing.T) {
 	line := s.CreateLine(s.CreatePoint(-2, 3.5), s.CreatePoint(10, 3.5))
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewTangentToFitSpline(line, sp))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -147,7 +147,7 @@ func TestTangentToFitSplineRoundTrip(t *testing.T) {
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2))
 	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraints survive reload")
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 }
 
@@ -163,9 +163,9 @@ func TestTangentToFitSplineTransverseRejected(t *testing.T) {
 	s.Fix(b) // a rigid vertical line x=4
 	s.AddConstraint(sketch.NewTangentToFitSpline(s.CreateLine(a, b), sp))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.ErrorIs(t, err, sketch.ErrNotConverged)
-	require.False(t, s.Verify().Solvable, "a transverse crossing is not a tangent")
+	require.False(t, s.Verify(t.Context()).Solvable, "a transverse crossing is not a tangent")
 }
 
 func TestTangentToClosedSplineNonTouchingRejected(t *testing.T) {
@@ -180,9 +180,9 @@ func TestTangentToClosedSplineNonTouchingRejected(t *testing.T) {
 	s.Fix(b) // rigid line x=100, far from the loop near the origin
 	s.AddConstraint(sketch.NewTangentToClosedSpline(s.CreateLine(a, b), sp))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.ErrorIs(t, err, sketch.ErrNotConverged)
-	require.False(t, s.Verify().Solvable, "a line that cannot reach the loop is not tangent")
+	require.False(t, s.Verify(t.Context()).Solvable, "a line that cannot reach the loop is not tangent")
 }
 
 func TestTangentToClosedSplineDOF0Verify(t *testing.T) {
@@ -196,9 +196,9 @@ func TestTangentToClosedSplineDOF0Verify(t *testing.T) {
 	s.AddConstraint(sketch.NewTangentToClosedSpline(s.CreateLine(e, f), sp))
 	s.AddConstraint(sketch.NewDistance(e, f, 9))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
-	rep := s.Verify()
+	rep := s.Verify(t.Context())
 	require.Equal(t, 0, rep.DOF)
 	require.False(t, math.IsNaN(rep.Conditioning), "row-kinds classified (not the NaN gap sentinel)")
 	require.True(t, rep.Trustworthy())
@@ -219,9 +219,9 @@ func TestTangentToFitSplineDOF0Verify(t *testing.T) {
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewTangentToFitSpline(line, sp))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
-	rep := s.Verify()
+	rep := s.Verify(t.Context())
 	require.Equal(t, 0, rep.DOF)
 	require.False(t, math.IsNaN(rep.Conditioning))
 	require.True(t, rep.Trustworthy())

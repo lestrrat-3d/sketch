@@ -40,9 +40,9 @@ func TestTangentEllipseArcInSweep(t *testing.T) {
 	arc := arcStraddlingContact(s)
 	s.AddConstraint(sketch.NewTangentEllipseCircular(e, arc, false))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
-	require.True(t, s.Verify().Solvable, "the contact (4,0) lies within the arc's sweep")
+	require.True(t, s.Verify(t.Context()).Solvable, "the contact (4,0) lies within the arc's sweep")
 }
 
 func TestTangentEllipseArcOffSweepRejected(t *testing.T) {
@@ -54,9 +54,9 @@ func TestTangentEllipseArcOffSweepRejected(t *testing.T) {
 	arc := arcAwayFromContact(s)
 	s.AddConstraint(sketch.NewTangentEllipseCircular(e, arc, false))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.ErrorIs(t, err, sketch.ErrNotConverged)
-	require.False(t, s.Verify().Solvable, "a tangent to the full circle off the arc is not blessed")
+	require.False(t, s.Verify(t.Context()).Solvable, "a tangent to the full circle off the arc is not blessed")
 }
 
 func TestTangentEllipticalArcCircle(t *testing.T) {
@@ -74,9 +74,9 @@ func TestTangentEllipticalArcCircle(t *testing.T) {
 	s.FixEntity(c)
 	s.AddConstraint(sketch.NewTangentEllipseCircular(ea, c, false))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
-	require.True(t, s.Verify().Solvable, "elliptical arc externally tangent to the circle at (6,0)")
+	require.True(t, s.Verify(t.Context()).Solvable, "elliptical arc externally tangent to the circle at (6,0)")
 }
 
 func TestTangentConicsArcDOFAndRemoval(t *testing.T) {
@@ -101,7 +101,7 @@ func TestTangentConicsArcRoundTrip(t *testing.T) {
 	s.FixEntity(e)
 	arc := arcStraddlingContact(s)
 	s.AddConstraint(sketch.NewTangentEllipseCircular(e, arc, false))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -109,7 +109,7 @@ func TestTangentConicsArcRoundTrip(t *testing.T) {
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2))
 	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraint survives reload")
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
-	require.True(t, s2.Verify().Solvable)
+	require.True(t, s2.Verify(t.Context()).Solvable)
 }

@@ -22,7 +22,7 @@ func TestDiagnoseClean(t *testing.T) {
 	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
 	s.AddConstraint(sketch.NewDistance(a, b, 20))
 	s.AddConstraint(sketch.NewDistance(a, dd, 12))
-	res, err := s.Solve()
+	res, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, 0, res.DOF, "fully constrained")
 	require.InDelta(t, 20, b.X(), 1e-6, "rectangle reached its solved width")
@@ -49,7 +49,7 @@ func TestDiagnoseRedundant(t *testing.T) {
 
 	dup := sketch.NewDistance(a, b, 20) // consistent duplicate of the width dimension
 	s.AddConstraint(dup)
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	d := s.Diagnose()
@@ -77,7 +77,7 @@ func TestDiagnoseConflicting(t *testing.T) {
 	conflict := sketch.NewDistance(a, b, 25) // fights the width-20 dimension
 	s.AddConstraint(conflict)
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.ErrorIs(t, err, sketch.ErrNotConverged, "contradictory dimensions cannot converge")
 
 	d := s.Diagnose()
@@ -102,7 +102,7 @@ func TestCheckConstraint(t *testing.T) {
 		s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
 		s.AddConstraint(sketch.NewDistance(a, b, 20))
 		s.AddConstraint(sketch.NewDistance(a, dd, 12))
-		_, err := s.Solve()
+		_, err := s.Solve(t.Context())
 		require.NoError(t, err)
 		nCons := len(s.Constraints())
 
@@ -125,13 +125,13 @@ func TestCheckConstraint(t *testing.T) {
 		s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
 		s.AddConstraint(sketch.NewDistance(a, b, 20))
 		s.AddConstraint(sketch.NewDistance(a, dd, 12))
-		_, err := s.Solve()
+		_, err := s.Solve(t.Context())
 		require.NoError(t, err)
 
 		err = s.CheckConstraint(sketch.NewDistance(a, b, 25))
 		require.ErrorIs(t, err, sketch.ErrOverconstrained, "contradiction rejected")
 		// The sketch is untouched and still solves to its dimensions.
-		_, err = s.Solve()
+		_, err = s.Solve(t.Context())
 		require.NoError(t, err)
 		require.InDelta(t, 20, b.X(), 1e-6, "geometry unaffected by the check")
 	})
@@ -166,7 +166,7 @@ func TestCheckConstraint(t *testing.T) {
 		s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
 		s.AddConstraint(sketch.NewDistance(a, b, 20))
 		s.AddConstraint(sketch.NewDistance(a, dd, 12))
-		_, err := s.Solve()
+		_, err := s.Solve(t.Context())
 		require.NoError(t, err)
 		diag := sketch.NewDistance(a, c, 0)
 		diag.SetDriven(true)
@@ -190,7 +190,7 @@ func TestFreePoints(t *testing.T) {
 	w := sketch.NewDistance(a, b, 20)
 	s.AddConstraint(w)
 	s.AddConstraint(sketch.NewDistance(a, d, 12))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	require.Empty(t, s.FreePoints(), "fully constrained sketch has no free points")

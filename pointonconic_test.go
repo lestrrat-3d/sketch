@@ -53,7 +53,7 @@ func TestPointOnConic(t *testing.T) {
 	p := s.CreatePoint(4, 1) // below the arch interior; pulled up onto it
 	s.AddConstraint(sketch.NewPointOnConic(p, c))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 0, distToConic(p, c), 1e-4, "point pulled onto the conic")
 	require.Greater(t, p.Y(), 1.0, "moved up onto the interior of the arch")
@@ -67,7 +67,7 @@ func TestPointOnConicConfinedToRange(t *testing.T) {
 	p := s.CreatePoint(20, -5) // far past the (8,0) end
 	s.AddConstraint(sketch.NewPointOnConic(p, c))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 0, distToConic(p, c), 1e-4, "still on the curve")
 	require.LessOrEqual(t, p.X(), 8.01, "not extrapolated past the end")
@@ -104,7 +104,7 @@ func TestPointOnConicRoundTrip(t *testing.T) {
 	c := archConic(s)
 	p := s.CreatePoint(4, 1)
 	s.AddConstraint(sketch.NewPointOnConic(p, c))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -112,7 +112,7 @@ func TestPointOnConicRoundTrip(t *testing.T) {
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2))
 	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraint survives reload (no doubling)")
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, 2, s2.DOF(), "reloaded sketch keeps the sliding DOF + free rho (aux vars re-seeded)")
 }
@@ -167,7 +167,7 @@ func TestTangentToConic(t *testing.T) {
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewTangentToConic(line, c))
 
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, p1.Y(), p2.Y(), 1e-9, "line stays horizontal")
 
@@ -231,7 +231,7 @@ func TestTangentToConicRoundTrip(t *testing.T) {
 	line := s.CreateLine(p1, p2)
 	s.AddConstraint(sketch.NewHorizontal(line))
 	s.AddConstraint(sketch.NewTangentToConic(line, c))
-	_, err := s.Solve()
+	_, err := s.Solve(t.Context())
 	require.NoError(t, err)
 
 	data, err := json.Marshal(s)
@@ -239,6 +239,6 @@ func TestTangentToConicRoundTrip(t *testing.T) {
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2))
 	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraints survive reload (no doubling)")
-	_, err = s2.Solve()
+	_, err = s2.Solve(t.Context())
 	require.NoError(t, err)
 }

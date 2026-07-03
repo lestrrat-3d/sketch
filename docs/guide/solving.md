@@ -18,7 +18,7 @@ func Example_sketch_solving() {
   s.AddConstraint(sketch.NewHorizontal(l))
   s.AddConstraint(sketch.NewDistance(a, b, 30))
 
-  res, err := s.Solve(
+  res, err := s.Solve(context.Background(),
     sketch.WithMaxIterations(200),
     sketch.WithTolerance(1e-10),
   )
@@ -88,7 +88,7 @@ func Example_sketch_goal() {
 
   // Drag b toward (7, 5). The horizontal constraint pins y to 0; the goal is
   // free to pull the remaining x degree of freedom to 7.
-  res, err := s.Solve(sketch.WithGoal(b, 7, 5))
+  res, err := s.Solve(context.Background(), sketch.WithGoal(b, 7, 5))
   if err != nil {
     fmt.Printf("failed to solve: %s\n", err)
     return

@@ -136,7 +136,14 @@ func (r *ProbeResult) Ambiguous() bool { return len(r.Configurations) > 1 }
 // It returns [ErrNotConverged] if the sketch cannot be solved from its current
 // state, and an error wrapping [ErrUnderconstrained] if degrees of freedom
 // remain (a continuum of configurations has no discrete branches to probe).
-func (s *Sketch) ProbeConfigurations(options ...ProbeOption) (*ProbeResult, error) {
+//
+// The ctx argument bounds the probe's multi-start re-solves: it is checked
+// before the baseline solve and before each restart, so cancellation or a
+// deadline aborts the search. On cancellation the partial result is returned
+// with a non-nil error wrapping ctx.Err(), so a caller that only adopts the
+// probe on success (notably [Sketch.Verify]) simply discards it. Pass
+// context.Background() for an unbounded probe.
+func (s *Sketch) ProbeConfigurations(ctx context.Context, options ...ProbeOption) (*ProbeResult, error) {
 	cfg := defaultProbeConfig()
 	for _, opt := range options {
 		switch opt.Ident().(type) {
@@ -145,6 +152,10 @@ func (s *Sketch) ProbeConfigurations(options ...ProbeOption) (*ProbeResult, erro
 		case identSeed:
 			cfg.seed = option.MustGet[uint64](opt)
 		}
+	}
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	entry := append([]float64(nil), s.vars...)
@@ -157,7 +168,7 @@ func (s *Sketch) ProbeConfigurations(options ...ProbeOption) (*ProbeResult, erro
 	// directly rather than Solve so that parameter bindings are not
 	// re-evaluated and refreshDriven never writes a probed configuration's
 	// measurements into driven dimensions.
-	s.lm(context.Background(), free, s.residuals, sc.maxIterations, sc.tolerance)
+	s.lm(ctx, free, s.residuals, sc.maxIterations, sc.tolerance)
 	r := s.residuals(nil)
 	if math.Sqrt(dot(r, r)) > sc.tolerance {
 		return nil, ErrNotConverged
@@ -192,9 +203,12 @@ func (s *Sketch) ProbeConfigurations(options ...ProbeOption) (*ProbeResult, erro
 	// if it converged to a configuration not seen before. Acceptance order is
 	// probe order, so the result is deterministic.
 	try := func(perturb func()) {
+		if ctx.Err() != nil {
+			return // cancelled — stop exploring; the end-of-function check reports it
+		}
 		copy(s.vars, baseline)
 		perturb()
-		s.lm(context.Background(), free, s.residuals, sc.maxIterations, sc.tolerance)
+		s.lm(ctx, free, s.residuals, sc.maxIterations, sc.tolerance)
 		rr := s.residuals(nil)
 		if math.Sqrt(dot(rr, rr)) > sc.tolerance {
 			return
@@ -281,6 +295,11 @@ func (s *Sketch) ProbeConfigurations(options ...ProbeOption) (*ProbeResult, erro
 		})
 	}
 
+	// If ctx ended mid-search, report it so a caller can distinguish a bounded
+	// (partial) probe from a completed one — Verify discards a probe that errors.
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
 	return result, nil
 }
 
