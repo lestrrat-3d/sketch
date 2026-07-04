@@ -1,0 +1,14 @@
+version: 2
+
+# sketch is a library, not a CLI: there is no shippable binary (the only main
+# packages are internal doc-generation tooling under internal/cmd). So builds
+# are skipped and the release is a source archive plus the GitHub-native
+# changelog — goreleaser is used purely to cut a consistent, tagged release.
+builds:
+  - skip: true
+
+source:
+  enabled: true
+
+changelog:
+  use: github-native
