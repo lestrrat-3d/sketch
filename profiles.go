@@ -31,6 +31,46 @@ type Profile struct {
 	// SelfIntersecting marks the specific invalidity that the boundary the
 	// region derives from crosses or touches itself.
 	SelfIntersecting bool
+
+	// sketch is the sketch this profile was built from, and revision that
+	// sketch's [Sketch.Revision] at build time. Together they let a consumer ask
+	// whether the profile still describes its sketch — see [Profile.IsStale].
+	sketch   *Sketch
+	revision uint64
+}
+
+// Sketch returns the sketch this profile was built from.
+//
+// A [Profile] is a snapshot, freshly allocated by every [Sketch.Profiles] call,
+// so pointer identity can never establish provenance; this can.
+func (p *Profile) Sketch() *Sketch { return p.sketch }
+
+// Revision is the value of [Sketch.Revision] at the moment this profile was
+// built. Compare it against the sketch's current revision to detect staleness —
+// or just call [Profile.IsStale].
+func (p *Profile) Revision() uint64 { return p.revision }
+
+// IsStale reports whether the sketch has changed since this profile was built,
+// so the profile no longer describes it.
+//
+// A profile is a snapshot of geometry at one instant. Solving the sketch, editing
+// a driving parameter, or adding/removing geometry moves that geometry — but the
+// profile still holds the OLD boundary, and its entities still belong to the
+// sketch, so nothing about the handle looks wrong:
+//
+//	prof := s.Profiles()[0]
+//	s.Params().SetValue("height", units.Millimeters(60))
+//	s.Solve(ctx)          // geometry moves; prof now describes the old shape
+//	prof.IsStale()        // true — rebuild with s.Profiles() before using it
+//
+// A consumer that turns a profile into a solid (extrude, revolve) or records it
+// must check this first: extruding a stale profile silently builds the wrong
+// part, with no error anywhere to catch it.
+func (p *Profile) IsStale() bool {
+	if p.sketch == nil {
+		return false // a zero-value Profile was never built from a sketch
+	}
+	return p.sketch.Revision() != p.revision
 }
 
 // BoundaryEdge is one directed edge of a region boundary: a whole sketch entity,
@@ -219,11 +259,16 @@ func (s *Sketch) buildProfiles() ([]*Profile, bool, [][2]float64) {
 	}
 
 	arr := geom.Regions(curves, closed)
+	// Stamp every profile with the state it was built from, so a later mutation
+	// makes it detectably stale (Profile.IsStale) instead of silently wrong.
+	rev := s.Revision()
 	profiles := make([]*Profile, 0, len(arr.Regions))
 	for _, r := range arr.Regions {
 		p := &Profile{
 			Area:             r.Area,
 			SelfIntersecting: r.SelfIntersecting,
+			sketch:           s,
+			revision:         rev,
 		}
 		seen := map[Entity]struct{}{}
 		for _, ge := range r.Outer {

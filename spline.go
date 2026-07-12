@@ -88,7 +88,7 @@ func (s *Sketch) CreateSpline(control ...*Point) (*Spline, error) {
 		}
 	}
 	sp := &Spline{s: s, Control: append([]*Point(nil), control...), id: len(s.ents)}
-	s.ents = append(s.ents, sp)
+	s.addEntity(sp)
 	return sp, nil
 }
 
@@ -172,7 +172,7 @@ func (s *Sketch) CreateClosedSpline(control ...*Point) (*ClosedSpline, error) {
 		}
 	}
 	sp := &ClosedSpline{s: s, Control: append([]*Point(nil), control...), id: len(s.ents)}
-	s.ents = append(s.ents, sp)
+	s.addEntity(sp)
 	return sp, nil
 }
 
@@ -257,6 +257,6 @@ func (s *Sketch) CreateFitSpline(fit ...*Point) (*FitSpline, error) {
 		}
 	}
 	sp := &FitSpline{s: s, Fit: append([]*Point(nil), fit...), id: len(s.ents)}
-	s.ents = append(s.ents, sp)
+	s.addEntity(sp)
 	return sp, nil
 }

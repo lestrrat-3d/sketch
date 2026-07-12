@@ -544,7 +544,16 @@ func (s *Sketch) UnmarshalJSON(data []byte) error {
 		plane = w.XY()
 	}
 
-	*s = Sketch{world: w, params: w.params, sys: units.Metric(), pl: plane}
+	// The entity uid counter is carried ACROSS the in-place reset. It is not
+	// document content (never serialized), but it must never rewind: the rebuild
+	// replaces every entity instance, so every handle a previously built Profile
+	// holds is now dead. Restamping the rebuilt entities from 1 would reproduce
+	// the pre-rebuild uids — and, for a reload of the very same bytes, the whole
+	// pre-rebuild revision — so a Profile left dangling by the load would read
+	// FRESH. Continuing the counter upward makes the rebuilt sketch's revision
+	// differ and Profile.IsStale() report true, which is the honest answer.
+	nextEntID := s.nextEntID
+	*s = Sketch{world: w, params: w.params, sys: units.Metric(), pl: plane, nextEntID: nextEntID}
 	w.sketches = append(w.sketches, s)
 	if err := s.buildFromBody(doc.jsonSketchBody); err != nil {
 		return err
