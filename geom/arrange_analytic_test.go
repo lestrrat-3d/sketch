@@ -28,11 +28,10 @@ func TestAnalyticCircleChordSamplingStable(t *testing.T) {
 	// exact disk area, INDEPENDENT of sampling density — analytic cuts land the split
 	// vertices on the exact intersection points.
 	for _, spt := range []int{8, 64, 256} {
-		arr := geom.Regions(
-			[]geom.Curve{geom.NewLine(geom.NewPoint(-8, 2), geom.NewPoint(8, 2))},
-			[]geom.ClosedCurve{&geom.Circle{Center: geom.NewPoint(0, 0), Radius: 5}},
-			geom.WithSegmentsPerTurn(spt),
-		)
+		curves := []geom.Curve{geom.NewLine(geom.NewPoint(-8, 2), geom.NewPoint(8, 2))}
+		closed := []geom.ClosedCurve{&geom.Circle{Center: geom.NewPoint(0, 0), Radius: 5}}
+		arr := geom.Regions(curves, closed, geom.WithSegmentsPerTurn(spt))
+		requireExactBoundsReproduce(t, curves, closed, arr)
 		require.Falsef(t, arr.Degenerate, "spt=%d", spt)
 		require.Lenf(t, arr.Regions, 2, "cap + major region at spt=%d", spt)
 		var total float64
@@ -221,10 +220,12 @@ func TestAnalyticMergedExternalTangentBlessed(t *testing.T) {
 	// separates the two loops by opposite curvature sign, so this is now blessed as
 	// two clean disks at every sampling density — not conservatively degenerate.
 	for _, spt := range []int{8, 16, 32, 64, 128} {
-		arr := geom.Regions(nil, []geom.ClosedCurve{
+		closed := []geom.ClosedCurve{
 			geom.NewCircle(geom.NewPoint(0, 0), 3),
 			geom.NewCircle(geom.NewPoint(6, 0), 3),
-		}, geom.WithSegmentsPerTurn(spt))
+		}
+		arr := geom.Regions(nil, closed, geom.WithSegmentsPerTurn(spt))
+		requireExactBoundsReproduce(t, nil, closed, arr)
 		require.Falsef(t, arr.Degenerate, "merged external tangency is certified clean at spt=%d", spt)
 		require.Lenf(t, arr.Regions, 2, "two disks at spt=%d", spt)
 		var total float64
@@ -244,10 +245,12 @@ func TestAnalyticInternalTangentBlessed(t *testing.T) {
 	// poke-out used to defeat the sampled containment).
 	const R, r = 6.0, 3.0
 	for _, spt := range []int{8, 16, 32, 64, 128} {
-		arr := geom.Regions(nil, []geom.ClosedCurve{
+		closed := []geom.ClosedCurve{
 			geom.NewCircle(geom.NewPoint(0, 0), R),
 			geom.NewCircle(geom.NewPoint(R-r, 0), r), // internally tangent at (R,0), a shared cardinal vertex
-		}, geom.WithSegmentsPerTurn(spt))
+		}
+		arr := geom.Regions(nil, closed, geom.WithSegmentsPerTurn(spt))
+		requireExactBoundsReproduce(t, nil, closed, arr)
 		require.Falsef(t, arr.Degenerate, "merged internal tangency is certified clean at spt=%d", spt)
 		require.Lenf(t, arr.Regions, 2, "annulus + inner disk at spt=%d", spt)
 		var total float64
@@ -356,11 +359,10 @@ func TestAnalyticUnexplainedWeldIsInexact(t *testing.T) {
 	a := 1.5 * merge
 	y := math.Sqrt(1 - a*a)
 
-	arr := geom.Regions(
-		[]geom.Curve{geom.NewLine(geom.NewPoint(0, y), geom.NewPoint(0.5, y))},
-		[]geom.ClosedCurve{geom.NewCircle(geom.NewPoint(0, 0), 1)},
-		geom.WithVertexMerge(merge),
-	)
+	curves := []geom.Curve{geom.NewLine(geom.NewPoint(0, y), geom.NewPoint(0.5, y))}
+	closed := []geom.ClosedCurve{geom.NewCircle(geom.NewPoint(0, 0), 1)}
+	arr := geom.Regions(curves, closed, geom.WithVertexMerge(merge))
+	requireExactBoundsReproduce(t, curves, closed, arr)
 
 	const weldT = 0.25
 	welded := 0
@@ -383,28 +385,47 @@ func TestAnalyticUnexplainedWeldIsInexact(t *testing.T) {
 
 func TestAnalyticExplainedWeldStaysExact(t *testing.T) {
 	// The other direction: a weld the kernel DOES account for must keep its honest
-	// exactness — an exact analytic cut is never laundered into a sampled one. The
-	// line starts exactly at the circle's top sample vertex (0,1) and cuts a chord to
-	// (0.8,0.6): the weld there is at the pair's own analytic crossing, which
-	// canonicalizes to that very vertex, so every emitted circle fragment (bounded by
-	// the weld at t=0.25 and by the exact analytic cut at the chord's other end) stays
-	// TExact.
-	arr := geom.Regions(
-		[]geom.Curve{geom.NewLine(geom.NewPoint(0, 1), geom.NewPoint(2, 0))},
-		[]geom.ClosedCurve{geom.NewCircle(geom.NewPoint(0, 0), 1)},
-		geom.WithVertexMerge(0.01),
-	)
+	// exactness — an exact analytic cut is never laundered into a sampled one. The line
+	// starts exactly at the circle's top sample vertex (0,1) and cuts a chord to the
+	// EXACT on-circle point (0.8,0.6). Both crossings are certified contacts.
+	//
+	// Exactness is decided per emitted bound by whether its reported parameter evaluates
+	// to the emitted polyline endpoint (the universal invariant), NOT by whether the
+	// vertex merely happens to sit at some contact. The genuinely explained bounds — the
+	// (0,1) crossing (t=0.25, a sample vertex) and the analytic cut at (0.8,0.6)
+	// (t≈0.1024, a recorded cut whose point IS the vertex) — reproduce their polyline
+	// endpoints and stay TExact; the fix does not over-taint them. The single seam-split
+	// edge that reaches the (0.8,0.6) vertex via a nearby circle SAMPLE vertex (t=0.1016,
+	// welded ~0.005 onto the contact) reports that sample parameter, which evaluates
+	// ~0.005 off the vertex — so it is correctly inexact (blessing it would certify a
+	// range a distance weld produced).
+	curves := []geom.Curve{geom.NewLine(geom.NewPoint(0, 1), geom.NewPoint(2, 0))}
+	closed := []geom.ClosedCurve{geom.NewCircle(geom.NewPoint(0, 0), 1)}
+	arr := geom.Regions(curves, closed, geom.WithVertexMerge(0.01))
 
-	edges := 0
+	// Every TExact bound reproduces its polyline endpoints (no false certification), and
+	// the genuinely explained crossings are NOT over-tainted: a fragment bounded by the
+	// analytic cut at (0.8,0.6) stays exact.
+	requireExactBoundsReproduce(t, curves, closed, arr)
+
+	exactCut := 0
 	for _, r := range arr.Regions {
 		for _, e := range append(append([]geom.BoundaryEdge{}, r.Outer...), flattenHoles(r)...) {
-			edges++
-			require.Truef(t, e.TExact,
-				"an analytically explained weld keeps its exactness: src=%d t=[%v %v]",
-				e.SourceIndex, e.TStart, e.TEnd)
+			if e.SourceIndex != 1 { // the circle
+				continue
+			}
+			// The bound at the analytic cut (0.8,0.6) is at circle param ≈0.10242 — a
+			// non-sample value; a fragment carrying it must stay exact.
+			onCut := math.Abs(e.TStart-0.10242) < 1e-4 || math.Abs(e.TEnd-0.10242) < 1e-4
+			if onCut {
+				require.Truef(t, e.TExact,
+					"a fragment bounded by the exact analytic cut must stay exact (no over-taint): t=[%v %v]",
+					e.TStart, e.TEnd)
+				exactCut++
+			}
 		}
 	}
-	require.NotZero(t, edges, "the chord splits the disk")
+	require.NotZero(t, exactCut, "the analytic cut at (0.8,0.6) must bound an emitted fragment")
 }
 
 func TestAnalyticChainedWeldEndpointIsInexact(t *testing.T) {
@@ -425,14 +446,13 @@ func TestAnalyticChainedWeldEndpointIsInexact(t *testing.T) {
 	// a join and is never cut, and its weld partner is a source endpoint too) — only
 	// the vertex the bound actually landed on tells the truth.
 	merge := 0.01
-	arr := geom.Regions(
-		[]geom.Curve{
-			geom.NewLine(geom.NewPoint(0, 0.991), geom.NewPoint(-0.5, 0.5)), // the stub
-			geom.NewLine(geom.NewPoint(0, 0.982), geom.NewPoint(1.5, 0.2)),  // the chord
-		},
-		[]geom.ClosedCurve{geom.NewCircle(geom.NewPoint(0, 0), 1)},
-		geom.WithVertexMerge(merge),
-	)
+	curves := []geom.Curve{
+		geom.NewLine(geom.NewPoint(0, 0.991), geom.NewPoint(-0.5, 0.5)), // the stub
+		geom.NewLine(geom.NewPoint(0, 0.982), geom.NewPoint(1.5, 0.2)),  // the chord
+	}
+	closed := []geom.ClosedCurve{geom.NewCircle(geom.NewPoint(0, 0), 1)}
+	arr := geom.Regions(curves, closed, geom.WithVertexMerge(merge))
+	requireExactBoundsReproduce(t, curves, closed, arr)
 
 	chords := 0
 	for _, r := range arr.Regions {
