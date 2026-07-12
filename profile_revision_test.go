@@ -405,3 +405,66 @@ func TestProfileStalenessEntityRecreated(t *testing.T) {
 	require.False(t, owns(after[0].Entities, old))
 	require.InDelta(t, before[0].Area, after[0].Area, 1e-9, "the geometry is unchanged")
 }
+
+// TestProfileStalenessInPlaceReload covers the load path the primary consumer
+// uses: UnmarshalJSON rebuilds the sketch IN PLACE, so every entity instance is
+// replaced while the *Sketch pointer a previously built Profile holds stays the
+// same. Reloading the SAME bytes reproduces the document exactly — identical
+// points, coordinates, ids, types and shapes — so nothing but the entities'
+// instance identity distinguishes the rebuilt sketch from the old one. If the
+// uid counter were restamped from 1 by the reset, the revision would come back
+// to its pre-reload value and the old profile — whose entity handles are now
+// dangling — would read FRESH.
+func TestProfileStalenessInPlaceReload(t *testing.T) {
+	s, _ := squareSketch(t)
+
+	before := s.Profiles()
+	require.Len(t, before, 1)
+	p := before[0]
+	rev := s.Revision()
+	require.False(t, p.IsStale())
+	require.NotEmpty(t, p.Entities)
+
+	data, err := json.Marshal(s)
+	require.NoError(t, err)
+
+	// The same bytes back into the same sketch.
+	require.NoError(t, s.UnmarshalJSON(data))
+	require.Same(t, s, p.Sketch(), "the profile's origin sketch is the very one that was rebuilt")
+
+	require.NotEqual(t, rev, s.Revision(),
+		"the rebuild replaced every entity instance, so the revision must change")
+	require.True(t, p.IsStale(),
+		"the profile's entity handles point at pre-rebuild instances")
+
+	// Identity, not deep equality: the rebuilt entities are field-for-field
+	// identical to the originals, so require.Contains (which compares deeply)
+	// cannot tell them apart — the whole point of the defect.
+	owns := func(ents []sketch.Entity, e sketch.Entity) bool {
+		for _, ee := range ents {
+			if ee == e {
+				return true
+			}
+		}
+		return false
+	}
+	live := s.Entities()
+	require.Len(t, live, len(p.Entities), "the document round-tripped to the same entity count")
+	for _, e := range p.Entities {
+		require.False(t, owns(live, e),
+			"the rebuilt sketch no longer owns the instance the stale profile hands out")
+	}
+	for _, be := range p.Outer {
+		require.False(t, owns(live, be.Entity),
+			"a stale BoundaryEdge references a pre-rebuild instance")
+	}
+
+	// A freshly built profile is up to date and holds the live instances.
+	after := s.Profiles()
+	require.Len(t, after, 1)
+	require.False(t, after[0].IsStale())
+	for _, e := range after[0].Entities {
+		require.True(t, owns(live, e))
+	}
+	require.InDelta(t, before[0].Area, after[0].Area, 1e-9, "the geometry round-tripped unchanged")
+}

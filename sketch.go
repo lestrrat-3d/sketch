@@ -58,9 +58,12 @@ type Sketch struct {
 // fresh. Hashing the uid in [Sketch.Revision] makes that swap visible.
 //
 // uids are never reused: the counter only ever increases, and removal deletes
-// the map entry without rewinding it. The uid is in-memory state, not document
-// content — it is not serialized, and a sketch rebuilt by UnmarshalJSON gets
-// fresh uids (that path already invalidates any profile held across it).
+// the map entry without rewinding it. That holds ACROSS an in-place rebuild too
+// — [Sketch.UnmarshalJSON] resets the sketch struct but carries the counter over,
+// so the rebuilt entities get fresh uids above the retired ones. The uid is
+// in-memory state, not document content: it is never serialized (a loaded
+// document's uids are assigned, not read), which is exactly why the counter must
+// survive the reset rather than be restored from the document.
 func (s *Sketch) addEntity(e Entity) {
 	if s.entUIDs == nil {
 		s.entUIDs = map[Entity]uint64{}
