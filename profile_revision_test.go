@@ -126,6 +126,38 @@ func TestProfileStaleness(t *testing.T) {
 		require.Empty(t, s.Profiles(), "and indeed there is no region any more")
 	})
 
+	t.Run("changing an entity's shape value makes a profile stale", func(t *testing.T) {
+		// A circle's radius, an ellipse's semi-axes/rotation and a conic's rho are
+		// read off the ENTITY (c.r(), e.rx(), c.rho()), not off its points, so they
+		// are hashed per entity — see entityStructuralState. This is the
+		// consumer-visible half of that contract: a driven radius change reshapes
+		// the disk and the profile built before it must read stale.
+		//
+		// (The var-vector hash would catch this one too, since a radius edit moves
+		// the var it is bound to. What it does NOT catch is the entity->var
+		// BINDING changing under an unchanged vector; that needs unexported access
+		// and is covered in revision_internal_test.go.)
+		w := sketch.NewWorld()
+		s, err := w.CreateSketch(w.XY())
+		require.NoError(t, err)
+		c := s.CreateCircle(s.CreatePoint(0, 0), 5)
+		s.Fix(c.Center)
+		rad := sketch.NewRadius(c, 5)
+		s.AddConstraint(rad)
+
+		p := s.Profiles()[0]
+		require.False(t, p.IsStale())
+		areaBefore := p.Area
+
+		rad.Set(9)
+		_, err = s.Solve(t.Context())
+		require.NoError(t, err)
+
+		require.True(t, p.IsStale(), "the disk was resized under the profile")
+		require.InDelta(t, math.Pi*25, areaBefore, 1e-6)
+		require.InDelta(t, math.Pi*81, s.Profiles()[0].Area, 1e-6)
+	})
+
 	t.Run("changing NURBS structural data makes a profile stale", func(t *testing.T) {
 		// The adversarial case for a var-vector-only fingerprint: a NURBS' degree,
 		// knots and weights are STRUCTURAL data, not solver vars, yet Profiles()

@@ -8,13 +8,14 @@ import (
 )
 
 // Revision returns a fingerprint of the sketch state that [Sketch.Profiles]
-// depends on: every solver variable (point coordinates, circle radii, ellipse
-// axes/rotation, conic rho), plus the entity set, each entity's type, its
-// construction flag, its defining points — their sharing structure, ids AND the
-// coordinates those point pointers actually resolve to, which is what
-// buildProfiles reads and need not live in this sketch's var vector — and any
-// structural state the entity stores outside the solver's variable vector (a
-// NURBS' degree, knots and weights) — see entityStructuralState.
+// depends on: every solver variable, plus the entity set, each entity's type,
+// its construction flag, its defining points — their sharing structure, ids AND
+// the coordinates those point pointers actually resolve to, which is what
+// buildProfiles reads and need not live in this sketch's var vector — and each
+// entity's own shape state, resolved through the same accessors buildProfiles
+// uses: a circle's radius, an ellipse's / elliptical arc's semi-axes and
+// rotation, a conic's rho, a NURBS' degree, knots and weights — see
+// entityStructuralState.
 //
 // It is a FINGERPRINT, not a counter: compare it for EQUALITY only, never for
 // order. Equal revisions mean the sketch is geometrically unchanged; a different
@@ -38,8 +39,13 @@ func (s *Sketch) Revision() uint64 {
 		_, _ = h.Write(buf[:])
 	}
 
-	// Every geometric unknown lives in the flat var vector, so hashing it covers
-	// every coordinate and shape variable the solver can move.
+	// The flat var vector: every unknown the solver owns, including the aux vars
+	// constraints allocate. It is hashed for what it is — a cheap catch-all over
+	// solver state — NOT as a stand-in for what any entity reads out of it: an
+	// entity resolves its shape through its own selector (c.ri, e.rxi, …) and its
+	// own sketch pointer, so a rebound selector changes the shape while this
+	// vector stays identical. Each entity's resolved shape value is hashed
+	// separately below, in entityStructuralState.
 	write(uint64(len(s.vars)))
 	for _, v := range s.vars {
 		write(math.Float64bits(v))
@@ -110,20 +116,42 @@ func (s *Sketch) Revision() uint64 {
 	return h.Sum64()
 }
 
-// entityStructuralState feeds an entity's STRUCTURAL state into the revision
-// hash: data [Sketch.buildProfiles] reads that is neither a solver variable
-// (s.vars) nor a defining point nor the construction flag — the three things
-// [Sketch.Revision] already covers wholesale.
+// entityStructuralState feeds an entity's own SHAPE state into the revision
+// hash: everything [Sketch.buildProfiles] reads off the entity itself, as
+// opposed to the defining points and the construction flag that [Sketch.Revision]
+// already covers per entity.
 //
-// A NEW ENTITY TYPE CARRYING NON-VARIABLE STRUCTURAL DATA MUST BE ADDED HERE.
-// The var vector is the solver's currency, so anything the solver cannot move is
-// invisible to it: change such a field and, without a case below, the revision —
-// and every [Profile] built from it — would stay identical, so a stale profile
-// would read fresh and a consumer would extrude the wrong shape. Every entity
-// type is listed explicitly, including the ones with nothing to hash, so the
-// audit is readable rather than a silent default.
+// It hashes the RESOLVED SHAPE VALUE for every entity that has one — a circle's
+// radius, an ellipse's / elliptical arc's semi-axes and rotation, a conic's rho,
+// a NURBS' degree/knots/weights — reading each through the very accessor
+// buildProfiles reads it through (t.r(), t.rx(), t.rho(), …). It does NOT hash
+// the selector INDEX (c.ri, e.rxi, …) as a stand-in for the value: an index is a
+// proxy, and hashing the var VECTOR wholesale is a proxy too — the vector covers
+// the var VALUES but not the entity→var BINDING, so swapping two circles'
+// radius selectors leaves both the vector and the index multiset identical while
+// the profiles swap shape. Hashing the value the consumer resolves closes that
+// whole class: whatever the binding, the fingerprint sees what buildProfiles saw.
+//
+// A NEW ENTITY TYPE MUST BE ADDED HERE if buildProfiles reads anything off it
+// besides its defining points — a solver-var shape value or stored data the
+// solver cannot move alike. Without a case below such a change leaves the
+// revision identical, so a stale [Profile] reads fresh and a consumer extrudes
+// the wrong shape. Every entity type is listed explicitly, including the ones
+// with nothing to hash, so the audit is readable rather than a silent default.
 func entityStructuralState(e Entity, write func(uint64), writeFloats func([]float64)) {
 	switch t := e.(type) {
+	case *Circle:
+		// geom.Circle{Center, Radius}: buildProfiles reads the radius via t.r().
+		writeFloats([]float64{t.r()})
+	case *Ellipse:
+		// geom.Ellipse{Center, Rx, Ry, Rotation}.
+		writeFloats([]float64{t.rx(), t.ry(), t.rot()})
+	case *EllipticalArc:
+		// geom.NewEllipticalArc(center, start, end, rx, ry, rot).
+		writeFloats([]float64{t.rx(), t.ry(), t.rot()})
+	case *Conic:
+		// geom.NewConic(start, apex, end, rho).
+		writeFloats([]float64{t.rho()})
 	case *NURBS:
 		// Degree, knots and weights are stored structural data, NOT solver vars
 		// (see docs/nurbs-design.md), yet buildProfiles hands all three to the
@@ -134,10 +162,10 @@ func entityStructuralState(e Entity, write func(uint64), writeFloats func([]floa
 		write(uint64(t.degree))
 		writeFloats(t.knots)
 		writeFloats(t.weights)
-	case *Line, *Circle, *Arc, *Ellipse, *EllipticalArc, *Conic,
-		*Spline, *ClosedSpline, *FitSpline:
-		// Nothing to hash: these are defined entirely by their points and their
-		// solver variables — a circle's radius, an ellipse's semi-axes/rotation
-		// and a conic's rho all live in s.vars (see Sketch.entitySizeVars).
+	case *Line, *Arc, *Spline, *ClosedSpline, *FitSpline:
+		// Nothing to hash: buildProfiles reads NOTHING off these entities but their
+		// defining points — a line is its two endpoints, an arc its center/start/end
+		// (its radius is the derived dist(Center, Start), not a stored value), and
+		// the spline family is its control/fit points over a fixed uniform basis.
 	}
 }
