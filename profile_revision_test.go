@@ -327,3 +327,81 @@ func TestProfileStalenessPointRewire(t *testing.T) {
 		require.Empty(t, s.Profiles(), "the corner moved to (50,50), so the square is open")
 	})
 }
+
+// TestProfileStalenessEntityRecreated covers the entity INSTANCE identity a
+// Profile hands out. A Profile stores LIVE entity handles (Profile.Entities and
+// BoundaryEdge.Entity), and a consumer that records a profile structurally — by
+// entity handle, checked against Sketch.Entities() — depends on those handles
+// still being owned by the sketch.
+//
+// Removing an entity and re-creating an identical one leaves every proxy for it
+// unchanged: same type, same defining points, same coordinates, same
+// construction flag, same positional id (removal renumbers, so the replacement
+// lands where the original was), and — for a Line, which owns no scalar var — an
+// identical var vector, since nothing was retired. Only the never-reused uid
+// separates the dead instance from the live one, so a revision hashing anything
+// short of it would bless a profile whose handles the sketch no longer owns.
+func TestProfileStalenessEntityRecreated(t *testing.T) {
+	s, pts := squareSketch(t)
+
+	before := s.Profiles()
+	require.Len(t, before, 1)
+	p := before[0]
+	rev := s.Revision()
+	require.Equal(t, rev, p.Revision())
+	require.False(t, p.IsStale())
+
+	// The last of the square's four lines, tl -> bl.
+	old, ok := s.Entities()[3].(*sketch.Line)
+	require.True(t, ok)
+	require.Same(t, pts[3], old.Start)
+	require.Same(t, pts[0], old.End)
+	// Identity, not value: the replacement is field-for-field identical to the
+	// original, so require.Contains (which compares deeply) cannot tell them
+	// apart — the whole point of the defect.
+	owns := func(ents []sketch.Entity, e sketch.Entity) bool {
+		for _, ee := range ents {
+			if ee == e {
+				return true
+			}
+		}
+		return false
+	}
+	require.True(t, owns(p.Entities, old), "the profile holds the live entity handle")
+
+	dof := s.DOF()
+	require.True(t, s.RemoveEntity(old))
+	// Re-create the identical line over the very same points: same geometry,
+	// same endpoints, and it lands back at the same positional id.
+	fresh := s.CreateLine(pts[3], pts[0])
+	require.Same(t, fresh, s.Entities()[3], "the replacement lands at the original's position/id")
+	require.Equal(t, dof, s.DOF(), "a Line owns no scalar var, so nothing was retired or added")
+
+	require.NotEqual(t, rev, s.Revision(),
+		"the sketch owns a different entity instance, so the revision must change")
+	require.True(t, p.IsStale(),
+		"the profile's entity handles point at a removed instance")
+
+	// The concrete harm: the old profile's provenance is a dangling handle — the
+	// sketch no longer owns the entity the profile hands out.
+	require.True(t, owns(p.Entities, old))
+	require.False(t, owns(s.Entities(), old),
+		"the removed instance is no longer owned by the sketch")
+	edges := 0
+	for _, be := range p.Outer {
+		if be.Entity == sketch.Entity(old) {
+			edges++
+			require.False(t, owns(s.Entities(), be.Entity),
+				"a stale BoundaryEdge references the dead instance")
+		}
+	}
+	require.Positive(t, edges, "the dead instance is on the stale profile's boundary")
+
+	// A freshly built profile is up to date and references the live instance.
+	after := s.Profiles()
+	require.Len(t, after, 1)
+	require.False(t, after[0].IsStale())
+	require.True(t, owns(after[0].Entities, fresh))
+	require.False(t, owns(after[0].Entities, old))
+	require.InDelta(t, before[0].Area, after[0].Area, 1e-9, "the geometry is unchanged")
+}

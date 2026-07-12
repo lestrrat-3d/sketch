@@ -163,6 +163,6 @@ func (s *Sketch) CreateNURBS(degree int, control []*Point, weights, knots []floa
 		weights: w,
 		id:      len(s.ents),
 	}
-	s.ents = append(s.ents, c)
+	s.addEntity(c)
 	return c, nil
 }

@@ -40,7 +40,40 @@ type Sketch struct {
 	pl       *Plane                // placement; nil reads as the world XY datum
 	refSeals map[Entity][]*Point   // reference entity -> its construction-time defining points (topology seal)
 	conNames map[Constraint]string // optional constraint labels (see names.go); not on the constraint itself
+
+	entUIDs   map[Entity]uint64 // entity -> its instance identity (see addEntity); in-memory only, never serialized
+	nextEntID uint64            // monotonically increasing uid source; never rewound, never reused
 }
+
+// addEntity commits a freshly built entity: it stamps the entity with a stable
+// INSTANCE IDENTITY (its uid) and appends it to the entity slice. Every entity
+// builder goes through here.
+//
+// The uid exists because an entity's positional id is NOT an identity: removal
+// splices and renumbers (see removal.go), so removing an entity and creating an
+// identical one puts a DIFFERENT instance at the same id with the same type,
+// points and shape. A [Profile] hands out LIVE entity handles (Profile.Entities,
+// BoundaryEdge.Entity), so a consumer that records a profile structurally would
+// then hold a handle the sketch no longer owns while [Profile.IsStale] reported
+// fresh. Hashing the uid in [Sketch.Revision] makes that swap visible.
+//
+// uids are never reused: the counter only ever increases, and removal deletes
+// the map entry without rewinding it. The uid is in-memory state, not document
+// content — it is not serialized, and a sketch rebuilt by UnmarshalJSON gets
+// fresh uids (that path already invalidates any profile held across it).
+func (s *Sketch) addEntity(e Entity) {
+	if s.entUIDs == nil {
+		s.entUIDs = map[Entity]uint64{}
+	}
+	s.nextEntID++
+	s.entUIDs[e] = s.nextEntID
+	s.ents = append(s.ents, e)
+}
+
+// entityUID returns the instance identity assigned by [Sketch.addEntity], or 0
+// for an entity this sketch does not own (a foreign or removed handle). Real
+// uids start at 1, so 0 is a distinguishable sentinel.
+func (s *Sketch) entityUID(e Entity) uint64 { return s.entUIDs[e] }
 
 // newSketch is the shared constructor used by [World.CreateSketch] and the
 // document loaders. Every sketch belongs to a world; obtain one with
@@ -461,7 +494,7 @@ func (l *Line) AngleTo(other *Line) float64 { return l.Geometry().AngleTo(other.
 // CreateLine adds a line between two points and returns its handle.
 func (s *Sketch) CreateLine(start, end *Point) *Line {
 	l := &Line{s: s, Start: start, End: end, id: len(s.ents)}
-	s.ents = append(s.ents, l)
+	s.addEntity(l)
 	return l
 }
 
@@ -503,7 +536,7 @@ func (c *Circle) centerPt() *Point { return c.Center }
 // radius variable, and returns its handle.
 func (s *Sketch) CreateCircle(center *Point, r float64) *Circle {
 	c := &Circle{s: s, Center: center, ri: s.newVar(r), id: len(s.ents)}
-	s.ents = append(s.ents, c)
+	s.addEntity(c)
 	return c
 }
 
@@ -564,7 +597,7 @@ func (a *Arc) Sweep() float64 {
 // the internal radius-consistency constraint. Returns its handle.
 func (s *Sketch) CreateArc(center, start, end *Point) *Arc {
 	a := &Arc{s: s, Center: center, Start: start, End: end, id: len(s.ents)}
-	s.ents = append(s.ents, a)
+	s.addEntity(a)
 	s.cons = append(s.cons, &arcRadius{a})
 	return a
 }
@@ -625,7 +658,7 @@ func (s *Sketch) CreateEllipse(center *Point, rx, ry, rotation float64) *Ellipse
 		rxi: s.newVar(rx), ryi: s.newVar(ry), roti: s.newVar(rotation),
 		id: len(s.ents),
 	}
-	s.ents = append(s.ents, e)
+	s.addEntity(e)
 	return e
 }
 
@@ -692,7 +725,7 @@ func (s *Sketch) CreateEllipticalArc(center, start, end *Point, rx, ry, rotation
 		rxi: s.newVar(rx), ryi: s.newVar(ry), roti: s.newVar(rotation),
 		id: len(s.ents),
 	}
-	s.ents = append(s.ents, e)
+	s.addEntity(e)
 	s.cons = append(s.cons, &ellipticalArcOn{e, start}, &ellipticalArcOn{e, end})
 	return e
 }
@@ -761,7 +794,7 @@ func (s *Sketch) CreateConic(start, apex, end *Point, rho float64) (*Conic, erro
 		rhoi: s.newVar(rho),
 		id:   len(s.ents),
 	}
-	s.ents = append(s.ents, c)
+	s.addEntity(c)
 	return c, nil
 }
 

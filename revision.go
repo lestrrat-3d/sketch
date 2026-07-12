@@ -8,7 +8,10 @@ import (
 )
 
 // Revision returns a fingerprint of the sketch state that [Sketch.Profiles]
-// depends on: every solver variable, plus the entity set, each entity's type,
+// depends on: every solver variable, plus the entity set, each entity's INSTANCE
+// IDENTITY — a never-reused uid, so a removed-and-recreated entity is a new
+// instance even at the same id with the same shape, because a [Profile] holds
+// LIVE entity handles — its type,
 // its construction flag, its defining points — their sharing structure, ids AND
 // the coordinates those point pointers actually resolve to, which is what
 // buildProfiles reads and need not live in this sketch's var vector — and each
@@ -85,6 +88,15 @@ func (s *Sketch) Revision() uint64 {
 	seq := make(map[*Point]uint64)
 	write(uint64(len(s.ents)))
 	for _, e := range s.ents {
+		// The entity's INSTANCE IDENTITY, not its positional id: a Profile hands
+		// out live entity handles (Profile.Entities, BoundaryEdge.Entity), so the
+		// revision must cover WHICH INSTANCES those handles are, not merely what
+		// they look like. Removal renumbers ids, and a Line owns no scalar var to
+		// retire, so removing a line and creating an identical one leaves type,
+		// points, shape, id and the var vector all identical — only the uid (never
+		// reused; see Sketch.addEntity) reveals that the old handle is now dead and
+		// the sketch owns a different instance.
+		write(s.entityUID(e))
 		_, _ = fmt.Fprintf(h, "%T", e)
 		if e.IsConstruction() {
 			write(1)
