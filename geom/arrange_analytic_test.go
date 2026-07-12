@@ -407,6 +407,48 @@ func TestAnalyticExplainedWeldStaysExact(t *testing.T) {
 	require.NotZero(t, edges, "the chord splits the disk")
 }
 
+func TestAnalyticChainedWeldEndpointIsInexact(t *testing.T) {
+	// The vertex table welds a point onto the FIRST vertex within the merge tolerance
+	// of it and keeps that vertex's coordinates, so the relation is not transitive:
+	// three sources here chain into ONE graph vertex even though two of them are
+	// farther apart than merge.
+	//
+	//	stub endpoint   (0, 0.991)  — inserted first, so it IS the vertex
+	//	chord endpoint  (0, 0.982)  — 0.009 from the stub: welds
+	//	circle sample   (0, 1)      — 0.009 from the stub: welds
+	//
+	// The chord's endpoint and the circle's sample are 0.018 apart — MORE than merge —
+	// yet both canonicalize through the stub's representative. So the emitted chord
+	// fragment starts at (0, 0.991), not at its own t=0 point (0, 0.982): the reported
+	// range does not describe the emitted geometry and must not read exact. Nothing
+	// pairwise can catch this (the chord's bound is the curve's own endpoint, which is
+	// a join and is never cut, and its weld partner is a source endpoint too) — only
+	// the vertex the bound actually landed on tells the truth.
+	merge := 0.01
+	arr := geom.Regions(
+		[]geom.Curve{
+			geom.NewLine(geom.NewPoint(0, 0.991), geom.NewPoint(-0.5, 0.5)), // the stub
+			geom.NewLine(geom.NewPoint(0, 0.982), geom.NewPoint(1.5, 0.2)),  // the chord
+		},
+		[]geom.ClosedCurve{geom.NewCircle(geom.NewPoint(0, 0), 1)},
+		geom.WithVertexMerge(merge),
+	)
+
+	chords := 0
+	for _, r := range arr.Regions {
+		for _, e := range append(append([]geom.BoundaryEdge{}, r.Outer...), flattenHoles(r)...) {
+			if e.SourceIndex != 1 { // the chord
+				continue
+			}
+			chords++
+			require.Falsef(t, e.TExact,
+				"a chord fragment bounded by the chained weld must not read exact: t=[%v %v] whole=%v",
+				e.TStart, e.TEnd, e.Whole)
+		}
+	}
+	require.NotZero(t, chords, "the chord must bound an emitted region")
+}
+
 func flattenHoles(r *geom.Region) []geom.BoundaryEdge {
 	var out []geom.BoundaryEdge
 	for _, h := range r.Holes {

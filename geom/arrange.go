@@ -233,6 +233,14 @@ type arranger struct {
 	events     map[[2]int][]xEvent
 	sourceSegs [][]int
 
+	// contacts holds, per source, the points of every analytic event the kernel found
+	// on it (a handled pair's crossings and tangencies). They are the ONLY points a
+	// graph vertex may sit at, other than the boundary's own coordinates, without
+	// costing that boundary its exactness: the kernel located them in closed form, so
+	// a bound welded onto one is welded onto a certified contact of its own curve.
+	// See vertexCertifies.
+	contacts [][][2]float64
+
 	// Certified analytic tangency contacts (increment 3): the exact points where
 	// the rotation system must order coincident-tangent ports by curvature instead
 	// of by chord direction. Used ONLY at these vertices — at a sampled crossing the
@@ -249,7 +257,9 @@ type arrEdge struct {
 	pu, pv float64
 	// exactU/exactV report whether the param at that end is the true source
 	// parameter (an analytic cut, a sample vertex, or the curve's own endpoint)
-	// rather than a sampled crossing's interpolated one. See cut.exact.
+	// rather than a sampled crossing's interpolated one. See cut.exact — and note
+	// split ANDs in vertexIsAt, so a bound whose graph vertex is not where the bound
+	// says it is (a distance weld, however it was chained) is never exact.
 	exactU, exactV bool
 	// endU/endV report whether that end is the source curve's own domain end (or a
 	// closed curve's seam) rather than a cut/weld. See cut.srcEnd.
@@ -938,6 +948,7 @@ func (a *arranger) intersect() {
 func (a *arranger) analyticPrepass() {
 	a.handled = make(map[[2]int]struct{})
 	a.events = make(map[[2]int][]xEvent)
+	a.contacts = make([][][2]float64, len(a.sources))
 	a.sourceSegs = make([][]int, len(a.sources))
 	for i := range a.segs {
 		a.sourceSegs[a.segs[i].src] = append(a.sourceSegs[a.segs[i].src], i)
@@ -995,6 +1006,17 @@ func (a *arranger) analyticPrepass() {
 			}
 			a.handled[[2]int{i, j}] = struct{}{}
 			a.events[[2]int{i, j}] = events
+			// Record each event as a certified contact of BOTH sources: a vertex the
+			// kernel located this way is an exact point of either curve, so a bound of
+			// either that canonicalizes onto it keeps its exactness (see vertexCertifies).
+			// An evOverlap flags degeneracy anyway, so it certifies nothing.
+			for _, e := range events {
+				if e.kind == evOverlap {
+					continue
+				}
+				a.contacts[i] = append(a.contacts[i], [2]float64{e.x, e.y})
+				a.contacts[j] = append(a.contacts[j], [2]float64{e.x, e.y})
+			}
 			// Consistency gate (curved pairs only): the sampled polyline must host
 			// the analytic crossings faithfully, or injecting exact cuts would warp
 			// the planar map (a vanished disk, a tangled face) while reading clean.
@@ -1327,7 +1349,14 @@ func (a *arranger) forEachMergedEnd(si, sj *tinySeg, fn func(mergedEnd)) {
 // cannot leave a phantom Partial behind.
 //
 // A contact at the source's OWN endpoint is a join, not a split — the same rule
-// applyAnalyticCut applies — so it is left alone.
+// applyAnalyticCut applies — so no marker is pushed there: a marker at an endpoint
+// would AND away that bound's source-end PROVENANCE (cut.srcEnd) in split's dedup and
+// falsely demote a whole curve to a fragment. Endpoint EXACTNESS is a separate
+// question, and it is NOT decided here: split audits every bound — endpoints included
+// — against the vertex it actually canonicalized to (vertexIsAt), which is the only
+// place that can see a weld chained through a third vertex. So an endpoint dragged
+// onto another curve's vertex loses its exactness there while keeping its provenance,
+// and one this pass cannot even see (canon is not transitive) is caught all the same.
 func (a *arranger) taintSampledVertex(src int, t float64) {
 	s := &a.sources[src]
 	if atSourceEnd(s, t) {
@@ -1552,13 +1581,68 @@ func (a *arranger) split() {
 			if u == v {
 				continue // collapsed to a point
 			}
+			// Exactness is decided HERE, against the vertex the boundary actually
+			// canonicalized to — see vertexCertifies. A bound whose graph vertex sits
+			// somewhere else, with nothing exact to explain the move, cannot carry an
+			// exact parameter, whatever its own record says. Provenance (srcEnd) is NOT
+			// audited: it is a fact about the source's parameterization ("this bound IS
+			// the curve's domain end"), which a weld does not change, and Whole must not
+			// be lost to one.
 			a.edges = append(a.edges, arrEdge{u: u, v: v, src: s.src,
 				pu: s.param(b0.t), pv: s.param(b1.t),
-				exactU: b0.exact, exactV: b1.exact,
-				endU: b0.srcEnd, endV: b1.srcEnd})
+				exactU: b0.exact && a.vertexCertifies(s.src, u, b0.px, b0.py),
+				exactV: b1.exact && a.vertexCertifies(s.src, v, b1.px, b1.py),
+				endU:   b0.srcEnd, endV: b1.srcEnd})
 		}
 	}
 }
+
+// vertexCertifies reports whether the canonical vertex v that boundary point (px,py)
+// of source src landed on is one the bound's parameter may be certified against —
+// either the vertex IS that point (coordinate identity), or it is an analytic contact
+// the closed-form kernel found on src (the kernel located the vertex, so the split
+// there is exact by construction, and the reported sample/cut parameter is the true
+// parameter of a contact the kernel certified).
+//
+// This is the exactness audit against what the vertex table ACTUALLY did, and it is
+// needed because vertexTable.canon is NOT transitive: it welds a point onto the first
+// vertex within a.merge of it and keeps THAT vertex's coordinates, so two points
+// farther apart than merge can still land on one vertex through a third one inserted
+// first. No pairwise reasoning over the cuts — which endpoints are within merge of
+// which, which analytic event explains which weld (eventExplains) — can see that
+// chain; only the vertex table knows where the vertex ended up. So the last word on
+// exactness is taken here, after canonicalization: an unexplained move of the vertex
+// away from the bound's own point means the reported parameter does not describe the
+// emitted geometry, and the bound is not exact. This is also what covers the one bound
+// the taint passes deliberately leave alone — a source's OWN endpoint, which is never
+// cut (an end-to-end contact is a join, not a split) yet can still be dragged onto
+// another curve's vertex by a weld, chained or not.
+//
+// Identity is tested at round-off, NOT at the merge tolerance: a genuine shared
+// endpoint (the only way this engine expresses topology — two curves holding the same
+// Point) reaches the arrangement through each curve's own evaluation of that
+// coordinate, so the two agree to within evaluation round-off (a line reproduces the
+// point exactly; an arc/ellipse/spline rebuilds it through trig or basis functions, a
+// few ulps out). weldIdentEps·scale is ~1e4 ulps of the scene — comfortably above that
+// round-off, and five orders of magnitude BELOW the default merge (1e-7·scale), so no
+// distance weld (a gap the caller's TOLERANCE forgave, not a coincidence) can pass as
+// identity. A weld tighter than round-off is identity.
+func (a *arranger) vertexCertifies(src, v int, px, py float64) bool {
+	vx, vy := a.verts.coord(v)
+	if math.Hypot(vx-px, vy-py) <= weldIdentEps*a.scale {
+		return true
+	}
+	for _, c := range a.contacts[src] {
+		if math.Hypot(c[0]-vx, c[1]-vy) <= a.merge {
+			return true
+		}
+	}
+	return false
+}
+
+// weldIdentEps is the round-off band, relative to the scene scale, within which two
+// coordinates are the SAME point rather than two points a tolerance welded together.
+const weldIdentEps = 1e-12
 
 // prune iteratively drops arrangement edges that have a degree-1 endpoint, so
 // dangling spurs and open trees (which bound no region) never enter a face
