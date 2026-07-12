@@ -2,6 +2,7 @@ package sketch_test
 
 import (
 	"math"
+	"sort"
 	"testing"
 
 	"github.com/lestrrat-3d/sketch"
@@ -45,11 +46,29 @@ func evalEntityAt(t *testing.T, e sketch.Entity, u float64) [2]float64 {
 // one edge: the range is a monotone sub-interval of [0,1], and evaluating the
 // entity at those parameters reproduces the fragment's own polyline endpoints
 // (swapped when the walk is reversed).
-func requireEdgeParamsConsistent(t *testing.T, e sketch.BoundaryEdge) {
+//
+// analytic says whether EVERY crossing in the fixture is one the closed-form kernel
+// solves (line vs line/circle/arc). It gates the exactness half of the invariant:
+// a fragment whose range is a strict sub-interval of [0,1] was bounded by a
+// crossing, so it MUST report Partial, and it may only report TExact when that
+// crossing was analytic — a sampled crossing wearing an exact flag is precisely the
+// false certification this API exists to prevent.
+func requireEdgeParamsConsistent(t *testing.T, e sketch.BoundaryEdge, analytic bool) {
 	t.Helper()
 	require.Less(t, e.TStart, e.TEnd, "TStart must precede TEnd in the natural direction")
 	require.GreaterOrEqual(t, e.TStart, -1e-12)
 	require.LessOrEqual(t, e.TEnd, 1+1e-12)
+
+	if e.TStart > 1e-9 || e.TEnd < 1-1e-9 {
+		require.True(t, e.Partial,
+			"a strict sub-range [%v, %v] of %T means the entity was cut — it cannot be whole",
+			e.TStart, e.TEnd, e.Entity)
+		if !analytic {
+			require.False(t, e.TExact,
+				"the sub-range [%v, %v] of %T came from a SAMPLED crossing — it must not claim to be exact",
+				e.TStart, e.TEnd, e.Entity)
+		}
+	}
 
 	walkStart := e.Polyline[0]
 	walkEnd := e.Polyline[len(e.Polyline)-1]
@@ -89,7 +108,7 @@ func TestBoundaryEdgeParams(t *testing.T) {
 		require.Equal(t, 0.0, e.TStart)
 		require.Equal(t, 1.0, e.TEnd)
 		require.True(t, e.TExact, "an uncut curve's full domain is exactly known")
-		requireEdgeParamsConsistent(t, e)
+		requireEdgeParamsConsistent(t, e, true)
 	})
 
 	t.Run("line-line split is exact and lands on the closed-form parameter", func(t *testing.T) {
@@ -115,7 +134,7 @@ func TestBoundaryEdgeParams(t *testing.T) {
 		var checked int
 		for _, p := range profiles {
 			for _, e := range p.Outer {
-				requireEdgeParamsConsistent(t, e)
+				requireEdgeParamsConsistent(t, e, true)
 				require.True(t, e.TExact, "every crossing here is line/line — all exact")
 
 				if e.Entity == sketch.Entity(left) || e.Entity == sketch.Entity(right) {
@@ -149,7 +168,7 @@ func TestBoundaryEdgeParams(t *testing.T) {
 		var partials int
 		for _, p := range profiles {
 			for _, e := range p.Outer {
-				requireEdgeParamsConsistent(t, e)
+				requireEdgeParamsConsistent(t, e, false)
 				if e.Partial {
 					partials++
 					require.False(t, e.TExact,
@@ -163,8 +182,14 @@ func TestBoundaryEdgeParams(t *testing.T) {
 	t.Run("a line crossing a spline is sampled, not exact", func(t *testing.T) {
 		// The analytic kernel admits only line/circle/arc operands, so even a plain
 		// LINE crossing a spline falls to the sampled path. Both the spline's and
-		// the line's fragments must therefore report TExact = false — this is the
-		// case decad rejects, and it must be machine-detectable.
+		// the line's fragments must therefore report Partial and TExact = false.
+		//
+		// This fixture is also the sample-vertex regression: the spline meets the
+		// chord at its own t = 0.5, which IS one of the densified sample vertices, so
+		// the crossing produces no interior cut on the spline. The split still exists
+		// in the arrangement graph, so the spline's fragments must still be reported
+		// as cut, with sampled parameters — never as a whole curve carrying an exact
+		// half-range.
 		w := sketch.NewWorld()
 		s, err := w.CreateSketch(w.XY())
 		require.NoError(t, err)
@@ -173,28 +198,43 @@ func TestBoundaryEdgeParams(t *testing.T) {
 			s.CreatePoint(7, -8), s.CreatePoint(10, 0),
 		)
 		require.NoError(t, err)
-		// A chord back from the spline's end to its start closes a region, and a
-		// line through the middle cuts both.
-		s.CreateLine(s.CreatePoint(10, 0), s.CreatePoint(0, 0))
+		// A chord back from the spline's end to its start closes a region, and the
+		// spline crosses it in the middle, cutting both curves in two.
+		ln := s.CreateLine(s.CreatePoint(10, 0), s.CreatePoint(0, 0))
 
 		profiles := s.Profiles()
-		require.NotEmpty(t, profiles)
+		require.Len(t, profiles, 2, "the crossing cuts the shape into two lobes")
 
-		var sawSplineFragment bool
+		var splineFrags, lineFrags [][2]float64
 		for _, p := range profiles {
 			for _, e := range p.Outer {
-				requireEdgeParamsConsistent(t, e)
-				if e.Entity == sketch.Entity(sp) && e.Partial {
-					sawSplineFragment = true
-					require.False(t, e.TExact,
-						"a spline crossing is sampled — its range must not claim to be exact")
+				requireEdgeParamsConsistent(t, e, false)
+				require.True(t, e.Partial,
+					"both curves are cut by the crossing, so no fragment is whole")
+				require.False(t, e.TExact,
+					"a spline crossing is sampled — no fragment's range may claim to be exact")
+				switch e.Entity {
+				case sketch.Entity(sp):
+					splineFrags = append(splineFrags, [2]float64{e.TStart, e.TEnd})
+				case sketch.Entity(ln):
+					lineFrags = append(lineFrags, [2]float64{e.TStart, e.TEnd})
+				default:
+					t.Fatalf("unexpected boundary entity %T", e.Entity)
 				}
 			}
 		}
-		// The spline self-crosses the chord; if the arrangement produced a fragment
-		// of it, that fragment must be honest about its provenance.
-		if !sawSplineFragment {
-			t.Log("no partial spline fragment in this configuration; exactness contract untested here")
+		require.Len(t, splineFrags, 2, "the spline is split into two fragments")
+		require.Len(t, lineFrags, 2, "the chord is split into two fragments")
+
+		// Each curve's two fragments meet at the crossing and together cover its
+		// whole domain: the halves are strict sub-ranges, not [0,1].
+		for _, frags := range [][][2]float64{splineFrags, lineFrags} {
+			sort.Slice(frags, func(i, j int) bool { return frags[i][0] < frags[j][0] })
+			require.InDelta(t, 0, frags[0][0], 1e-9)
+			require.InDelta(t, 1, frags[1][1], 1e-9)
+			require.InDelta(t, frags[0][1], frags[1][0], 1e-9, "the halves meet at the crossing")
+			require.Greater(t, frags[0][1], 0.1, "neither half is degenerate")
+			require.Less(t, frags[0][1], 0.9)
 		}
 	})
 
@@ -213,7 +253,7 @@ func TestBoundaryEdgeParams(t *testing.T) {
 		profiles := s.Profiles()
 		require.Len(t, profiles, 1)
 		for _, e := range profiles[0].Outer {
-			requireEdgeParamsConsistent(t, e)
+			requireEdgeParamsConsistent(t, e, true)
 			if e.Entity == sketch.Entity(a) {
 				require.False(t, e.Partial)
 				require.Equal(t, 0.0, e.TStart)

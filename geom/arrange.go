@@ -860,13 +860,22 @@ func (a *arranger) intersect() {
 			}
 			// exact:false — a sampled chord-chord crossing. Both the parameter and
 			// the point are approximations that converge with sampling density.
+			//
+			// A crossing that lands ON a sample vertex (a tiny-segment boundary) needs
+			// no new cut record — the vertex already exists — but the source is split
+			// there all the same, so it must still be marked cut and the boundary's
+			// parameter must still read as sampled (see taintSampledVertex).
 			if interiorI {
 				si.cuts = append(si.cuts, cut{t: p.ti, px: p.x, py: p.y, exact: false})
 				a.srcCut[si.src] = true
+			} else {
+				a.taintSampledVertex(si.src, si.pa+p.ti*(si.pb-si.pa))
 			}
 			if interiorJ {
 				sj.cuts = append(sj.cuts, cut{t: p.tj, px: p.x, py: p.y, exact: false})
 				a.srcCut[sj.src] = true
+			} else {
+				a.taintSampledVertex(sj.src, sj.pa+p.tj*(sj.pb-sj.pa))
 			}
 			// Self-intersection: a single simple closed loop (its core vertices
 			// all degree 2) crossing or touching itself away from those vertices.
@@ -1175,11 +1184,70 @@ func (a *arranger) applyAnalyticCut(src int, t, x, y float64) {
 	}
 }
 
+// taintSampledVertex records a SAMPLED crossing that landed ON an existing sample
+// vertex of source src (a tiny-segment boundary at source parameter t) rather than
+// interior to a segment. No cut record is needed there — the vertex already exists —
+// but the source IS split by it in the arrangement graph, so it must be marked cut
+// (or the fragments would report Whole) and the boundary parameter at that vertex
+// must read as SAMPLED, not exact (or a fragment bounded by a sampled crossing would
+// report TExact, blessing an approximate range as certified).
+//
+// A contact at the source's OWN endpoint is a join, not a split — the same rule
+// applyAnalyticCut applies — so it is left alone.
+func (a *arranger) taintSampledVertex(src int, t float64) {
+	s := &a.sources[src]
+	if atSourceEnd(s, t) {
+		return
+	}
+	a.srcCut[src] = true
+	a.taintSegBoundary(src, t)
+	// A closed source's seam is a single vertex reachable as both t≈0 and t≈1, so
+	// taint both incident segments: a fragment ending there from either side must
+	// read as sampled.
+	if s.closed {
+		switch {
+		case t <= segEps:
+			a.taintSegBoundary(src, 1)
+		case t >= 1-segEps:
+			a.taintSegBoundary(src, 0)
+		}
+	}
+}
+
+// taintSegBoundary marks the sample vertex at source parameter t inexact on every
+// tiny segment of src incident to it (the two segments meeting there, or the one at
+// a closed source's seam end).
+//
+// The marker is a cut at that segment's own boundary (local param exactly 0 or 1)
+// carrying the SEGMENT ENDPOINT's coordinates, so split's dedup collapses it into
+// that endpoint: no new vertex, no extra or zero-length edge, identical edge
+// parameters. The only thing that moves is the ANDed exactness of the surviving
+// boundary.
+func (a *arranger) taintSegBoundary(src int, t float64) {
+	for _, si := range a.sourceSegs[src] {
+		s := &a.segs[si]
+		lo, hi := s.pa, s.pb
+		if hi < lo {
+			lo, hi = hi, lo
+		}
+		if t < lo-segEps || t > hi+segEps {
+			continue
+		}
+		switch local := (t - s.pa) / (s.pb - s.pa); {
+		case local <= segEps:
+			s.cuts = append(s.cuts, cut{t: 0, px: s.ax, py: s.ay, exact: false})
+		case local >= 1-segEps:
+			s.cuts = append(s.cuts, cut{t: 1, px: s.bx, py: s.by, exact: false})
+		}
+	}
+}
+
 // atSourceEnd reports whether a natural source parameter is at a curve endpoint
-// (t≈0 or t≈1). A full circle is closed — its seam (t≈0/1) is a topologically
-// interior point, not an endpoint — so a crossing there still splits it.
+// (t≈0 or t≈1). A closed source (circle, ellipse, closed spline) has no endpoint —
+// its seam (t≈0/1) is a topologically interior point — so a crossing there still
+// splits it.
 func atSourceEnd(s *source, t float64) bool {
-	if s.kind == srcCircle {
+	if s.closed {
 		return false
 	}
 	return t <= sourceEndEps || t >= 1-sourceEndEps
