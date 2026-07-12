@@ -18,12 +18,24 @@ type BoundaryEdge struct {
 	// SourceIndex is the position of the originating curve in the Regions
 	// input — its index in curves, or len(curves)+k for the k-th closed curve.
 	SourceIndex int
-	// Whole is true when this edge spans the entire source curve — i.e. its
-	// [TStart, TEnd] covers the curve's full domain; false when it is a fragment
-	// covering a strict sub-range. It is derived from the edge's own surviving
-	// range, so a curve whose only contact was pruned away (or run straight
-	// through) reads Whole again, and a closed curve cut once — one edge leaving
-	// the contact and returning to it — is Whole, as it should be.
+	// Whole is true when this edge spans the entire source curve; false when it is
+	// a fragment covering a strict sub-range.
+	//
+	// It is decided by each bound's PROVENANCE, not by comparing [TStart, TEnd]
+	// against [0,1]: a bound is either the curve's own domain end (an open curve's
+	// endpoint, or a closed curve's seam) or a cut/weld, and the edge is Whole iff
+	// BOTH of its bounds are the curve's own ends. No float compare could make that
+	// call — it cannot tell a bound that IS the curve's endpoint from a crossing
+	// that landed 1e-10 away from it, and answering "whole" there is the unsafe way
+	// to be wrong.
+	//
+	// It is read off the surviving edge after pruning and coalescing, so a curve
+	// whose only contact was pruned away (or run straight through) reads Whole
+	// again, and a closed curve cut once — one edge leaving the contact and coming
+	// back to it, bounded by its own seam — is Whole. The single conservative corner
+	// is a closed curve whose one cut lands ON the seam: both bounds are then cuts,
+	// so it reads as a fragment spanning [0,1]. That errs toward reporting a
+	// fragment, never toward a false Whole.
 	Whole bool
 	// Reversed is true when the boundary walks the source curve against its
 	// natural Start→End (or CCW, for a closed curve) direction.
@@ -60,13 +72,15 @@ type BoundaryEdge struct {
 	// chord sagitta. A false value does not mean the topology is wrong; it means
 	// the parameter converges with sampling density rather than being exact.
 	//
-	// Only line-vs-{line,circle,arc} crossings are analytic today. Every crossing
-	// involving an ellipse, elliptical arc, conic, spline, closed spline, fit
-	// spline or NURBS — even against a plain line — is sampled, as is every
-	// curve/curve crossing. So a partial fragment of a free-form curve reports
-	// TExact = false. A consumer that must be exact (e.g. one recording the region
-	// structurally, or emitting CAD code from it) MUST check this flag and reject
-	// rather than trust the range.
+	// The closed-form kernel runs only when BOTH curves of a pair are a Line, Circle
+	// or Arc — it is a rule about the PAIR, not about "a line was involved", and not
+	// about the contact being a tangency. So every contact involving an Ellipse,
+	// EllipticalArc, Conic, Spline, ClosedSpline, FitSpline or NURBS is sampled,
+	// INCLUDING a plain line crossing one and a plain line TANGENT to one; so is
+	// every curve/curve crossing (two circles/arcs are deferred to the sampled path).
+	// A fragment of a free-form curve therefore reports TExact = false. A consumer
+	// that must be exact (e.g. one recording the region structurally, or emitting CAD
+	// code from it) MUST check this flag and reject rather than trust the range.
 	TExact bool
 }
 

@@ -54,26 +54,36 @@ func evalEntityAt(t *testing.T, e sketch.Entity, u float64) [2]float64 {
 // (swapped when the walk is reversed).
 //
 // analytic says whether EVERY crossing in the fixture is one the closed-form kernel
-// solves (line vs line/circle/arc). It gates the exactness half of the invariant:
-// a fragment whose range is a strict sub-interval of [0,1] was bounded by a
-// crossing, so it MUST report Partial, and it may only report TExact when that
-// crossing was analytic — a sampled crossing wearing an exact flag is precisely the
-// false certification this API exists to prevent.
+// solves (BOTH curves a line, circle or arc). It gates the exactness half of the
+// invariant: a fragment bounded by a crossing MUST report Partial, and it may only
+// report TExact when that crossing was analytic — a sampled crossing wearing an exact
+// flag is precisely the false certification this API exists to prevent.
 func requireEdgeParamsConsistent(t *testing.T, e sketch.BoundaryEdge, analytic bool) {
 	t.Helper()
 	require.Less(t, e.TStart, e.TEnd, "TStart must precede TEnd in the natural direction")
 	require.GreaterOrEqual(t, e.TStart, -1e-12)
 	require.LessOrEqual(t, e.TEnd, 1+1e-12)
 
-	if e.TStart > 1e-9 || e.TEnd < 1-1e-9 {
-		require.True(t, e.Partial,
-			"a strict sub-range [%v, %v] of %T means the entity was cut — it cannot be whole",
-			e.TStart, e.TEnd, e.Entity)
+	if e.Partial {
 		if !analytic {
 			require.False(t, e.TExact,
-				"the sub-range [%v, %v] of %T came from a SAMPLED crossing — it must not claim to be exact",
+				"the fragment [%v, %v] of %T was bounded by a SAMPLED crossing — it must not claim to be exact",
 				e.TStart, e.TEnd, e.Entity)
 		}
+	} else {
+		// A NON-partial edge claims to be the whole entity, so it must report the
+		// entity's full domain EXACTLY — no epsilon on either side. The engine decides
+		// Whole structurally (both bounds are the entity's own domain ends, a fact it
+		// knows when it builds the boundary), so a whole edge's range is the domain's
+		// own parameters bit-for-bit. Asserting that with zero tolerance is what makes
+		// this test independent of the implementation: a helper that re-used the
+		// engine's own numeric gate could not catch the engine's gate being wrong, and
+		// an edge bounded by a crossing at t = 5e-10 reporting Partial = false is
+		// exactly the false certification we are hunting.
+		require.Equal(t, 0.0, e.TStart,
+			"a whole edge of %T must start at the entity's own domain start", e.Entity)
+		require.Equal(t, 1.0, e.TEnd,
+			"a whole edge of %T must end at the entity's own domain end", e.Entity)
 	}
 
 	walkStart := e.Polyline[0]
@@ -341,6 +351,87 @@ func TestBoundaryEdgeParams(t *testing.T) {
 		require.InDelta(t, 0.0, e.TStart, 1e-12)
 		require.InDelta(t, 1.0, e.TEnd, 1e-12)
 		require.InDelta(t, math.Pi*5*3, profiles[0].Area, 1e-3, "the whole ellipse's area")
+	})
+
+	t.Run("a crossing just inside the seam still cuts the curve", func(t *testing.T) {
+		// A near-vertical line grazing the ellipse's right vertex — its seam, t = 0.
+		// The two sampled crossings land a hair either side of it, at t ~ 5e-10 and
+		// t ~ 1 - 5e-10, so the surviving fragment covers all but two invisible slivers
+		// of the domain.
+		//
+		// It is STILL a fragment: both its bounds are sampled crossings, not the
+		// curve's own ends. Whole must be decided by that provenance, never by asking
+		// whether the range comes numerically close to [0,1] — no float compare can
+		// tell "this bound IS the seam" from "this bound is a crossing that landed
+		// 5e-10 away from it", and answering "whole" is the unsafe way to be wrong: the
+		// consumer would record a sampled-bounded fragment as a certified whole curve.
+		w := sketch.NewWorld()
+		s, err := w.CreateSketch(w.XY())
+		require.NoError(t, err)
+		el := s.CreateEllipse(s.CreatePoint(0, 0), 5, 3, 0)
+		s.CreateLine(s.CreatePoint(5-2e-10, -2), s.CreatePoint(5-2e-10, 2))
+
+		profiles := s.Profiles()
+		require.NotEmpty(t, profiles)
+
+		var ellipseEdges int
+		for _, p := range profiles {
+			for _, e := range p.Outer {
+				requireEdgeParamsConsistent(t, e, false)
+				if e.Entity != sketch.Entity(el) {
+					continue
+				}
+				ellipseEdges++
+				require.True(t, e.Partial,
+					"the ellipse is cut at t=[%v, %v] — sampled crossings, so it is NOT whole",
+					e.TStart, e.TEnd)
+				require.False(t, e.TExact, "a sampled crossing's range is not exact")
+			}
+		}
+		require.NotZero(t, ellipseEdges, "the ellipse must bound a region")
+	})
+
+	t.Run("a line tangent to an ellipse is sampled, not exact", func(t *testing.T) {
+		// The closed-form kernel runs only when BOTH curves are a line, circle or arc —
+		// it is a rule about the PAIR, not about "a line was involved" and not about
+		// the contact being a tangency. A line TANGENT to an ellipse is therefore
+		// resolved on the sampled polyline like any other ellipse contact.
+		//
+		// Here a box's top edge is tangent to the ellipse at its top vertex (0,3),
+		// which is one of the ellipse's own sample vertices. The contact splits both
+		// curves in the graph (the box-with-a-hole region is bounded by two ellipse
+		// fragments and two halves of the top edge). Neither may claim exactness: the
+		// tangency was found by chords, not solved in closed form.
+		w := sketch.NewWorld()
+		s, err := w.CreateSketch(w.XY())
+		require.NoError(t, err)
+		el := s.CreateEllipse(s.CreatePoint(0, 0), 5, 3, 0)
+		tl, tr := s.CreatePoint(-8, 3), s.CreatePoint(8, 3)
+		br, bl := s.CreatePoint(8, -6), s.CreatePoint(-8, -6)
+		top := s.CreateLine(tl, tr) // tangent to the ellipse at (0, 3)
+		s.CreateLine(tr, br)
+		s.CreateLine(br, bl)
+		s.CreateLine(bl, tl)
+
+		profiles := s.Profiles()
+		require.NotEmpty(t, profiles)
+
+		var tangentFrags int
+		for _, p := range profiles {
+			for _, e := range p.Outer {
+				requireEdgeParamsConsistent(t, e, false)
+				if !e.Partial {
+					continue
+				}
+				require.Contains(t, []sketch.Entity{el, top}, e.Entity,
+					"only the tangent pair is cut")
+				require.False(t, e.TExact,
+					"a line/ellipse TANGENCY is sampled, not analytic — the fragment [%v, %v] of %T must not claim to be exact",
+					e.TStart, e.TEnd, e.Entity)
+				tangentFrags++
+			}
+		}
+		require.NotZero(t, tangentFrags, "the tangency must cut the ellipse and the top edge")
 	})
 
 	t.Run("an arc fragment's range is in sweep fraction, not absolute angle", func(t *testing.T) {

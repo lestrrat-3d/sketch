@@ -193,6 +193,16 @@ type cut struct {
 	// curve by the chord sagitta. It propagates to BoundaryEdge.TExact so a consumer
 	// can tell a trustworthy parameter range from a sampling-accurate one.
 	exact bool
+	// srcEnd is the boundary's PROVENANCE: true only for a bound that IS the source
+	// curve's own domain end (an open curve's endpoint, or a closed curve's seam),
+	// false for a bound a cut or a distance weld put there. It propagates to
+	// BoundaryEdge.Whole, which is exactly "both of my bounds are the curve's own
+	// ends" — a structural fact known when the boundary is built, never re-derived by
+	// comparing a parameter against 0/1 afterwards (no float compare can tell "this
+	// bound IS the endpoint" from "this bound is a crossing that landed very near
+	// it"). Only split's two synthetic segment-endpoint bounds can carry it; every
+	// real cut leaves it false.
+	srcEnd bool
 }
 
 // arranger holds the working state of one Regions call.
@@ -241,6 +251,9 @@ type arrEdge struct {
 	// parameter (an analytic cut, a sample vertex, or the curve's own endpoint)
 	// rather than a sampled crossing's interpolated one. See cut.exact.
 	exactU, exactV bool
+	// endU/endV report whether that end is the source curve's own domain end (or a
+	// closed curve's seam) rather than a cut/weld. See cut.srcEnd.
+	endU, endV bool
 }
 
 func newArranger(curves []Curve, closed []ClosedCurve, cfg arrangeConfig) *arranger {
@@ -1395,12 +1408,30 @@ func sourceRep(s *source) (float64, float64) {
 
 const segEps = 1e-9
 
-// wholeParamEps is how close a fragment's surviving parameter range must come to the
-// source's full domain [0,1] for the edge to count as the WHOLE curve. It is the
-// parametric noise floor of a coalesced run of sample params (exact fractions summed
-// through the same arithmetic), not a geometric tolerance: a real crossing that leaves
-// a genuine fragment is orders of magnitude further inside the domain than this.
-const wholeParamEps = 1e-9
+// atDomainEnd reports whether a SAMPLE parameter — a tiny segment's own endpoint,
+// never a cut's — sits at the source's domain boundary: an open curve's endpoint, or
+// a closed curve's seam (which is a domain end of the PARAMETERIZATION even though it
+// is topologically interior, so a fragment bounded by it on both sides still covers
+// the whole curve). Sample params are the exact fractions i/n (see sampleParams), so
+// only the first and last can be within an epsilon of 0/1 — this is a structural test
+// on the sampling grid, NOT a numeric tolerance applied to a crossing parameter.
+func atDomainEnd(t float64) bool {
+	return t <= segEps || t >= 1-segEps
+}
+
+// param maps a tiny segment's local chord parameter to its source's natural
+// parameter. At the segment's own endpoints the answer IS the sample param, returned
+// verbatim: interpolating there would only add rounding, and a whole curve's reported
+// range must be its exact domain [0,1], not [0, 1-1ulp].
+func (s *tinySeg) param(t float64) float64 {
+	switch t {
+	case 0:
+		return s.pa
+	case 1:
+		return s.pb
+	}
+	return s.pa + t*(s.pb-s.pa)
+}
 
 type segHit struct {
 	x, y   float64
@@ -1467,23 +1498,30 @@ func (a *arranger) split() {
 		// Boundaries along the segment: the two endpoints (chord positions) plus
 		// every cut, each carrying the EXACT point to canonicalize the vertex at.
 		// The two segment endpoints are exact: they are sample params, evaluated ON
-		// the true curve by densify. Only a SAMPLED cut is inexact.
-		bs := []cut{{t: 0, px: s.ax, py: s.ay, exact: true}, {t: 1, px: s.bx, py: s.by, exact: true}}
+		// the true curve by densify. Only a SAMPLED cut is inexact. They also carry
+		// the source-end PROVENANCE (cut.srcEnd) when the segment endpoint is the
+		// source's own domain end — the fact Whole is read from.
+		bs := []cut{
+			{t: 0, px: s.ax, py: s.ay, exact: true, srcEnd: atDomainEnd(s.pa)},
+			{t: 1, px: s.bx, py: s.by, exact: true, srcEnd: atDomainEnd(s.pb)},
+		}
 		bs = append(bs, s.cuts...)
 		sort.Slice(bs, func(i, j int) bool { return bs[i].t < bs[j].t })
 		// dedup near-equal local params (keep the first, which for an analytic cut at
-		// a seg boundary keeps the endpoint's exact point). Exactness is ANDed into
-		// the survivor: a boundary coincident with a sampled cut is only as
-		// trustworthy as that cut, so the merge never launders inexact into exact.
+		// a seg boundary keeps the endpoint's exact point). Exactness and source-end
+		// provenance are ANDed into the survivor: a boundary coincident with a sampled
+		// cut is only as trustworthy as that cut, and a domain end a cut lands on is a
+		// cut — so the merge never launders inexact into exact, nor a cut into a
+		// curve's own end.
 		uniq := bs[:0:0]
 		for _, b := range bs {
 			if len(uniq) == 0 || b.t-uniq[len(uniq)-1].t > segEps {
 				uniq = append(uniq, b)
 				continue
 			}
-			if !b.exact {
-				uniq[len(uniq)-1].exact = false
-			}
+			last := &uniq[len(uniq)-1]
+			last.exact = last.exact && b.exact
+			last.srcEnd = last.srcEnd && b.srcEnd
 		}
 		for k := 1; k < len(uniq); k++ {
 			b0, b1 := uniq[k-1], uniq[k]
@@ -1492,10 +1530,10 @@ func (a *arranger) split() {
 			if u == v {
 				continue // collapsed to a point
 			}
-			p0 := s.pa + b0.t*(s.pb-s.pa)
-			p1 := s.pa + b1.t*(s.pb-s.pa)
-			a.edges = append(a.edges, arrEdge{u: u, v: v, src: s.src, pu: p0, pv: p1,
-				exactU: b0.exact, exactV: b1.exact})
+			a.edges = append(a.edges, arrEdge{u: u, v: v, src: s.src,
+				pu: s.param(b0.t), pv: s.param(b1.t),
+				exactU: b0.exact, exactV: b1.exact,
+				endU: b0.srcEnd, endV: b1.srcEnd})
 		}
 	}
 }
@@ -1855,10 +1893,12 @@ func (a *arranger) makeCycle(hs []int) cycle {
 		pEnd     float64
 		dense    [][2]float64
 		reversed bool
-		// exactStart/exactEnd track the trustworthiness of pStart/pEnd. Only the
-		// fragment's two OUTER bounds matter: an interior boundary coalesced away
-		// is not reported, so its exactness is irrelevant.
+		// exactStart/exactEnd track the trustworthiness of pStart/pEnd, and
+		// endStart/endEnd their source-end provenance. Only the fragment's two OUTER
+		// bounds matter: an interior boundary coalesced away is not reported, so
+		// neither its exactness nor its provenance is folded in.
 		exactStart, exactEnd bool
+		endStart, endEnd     bool
 	}
 	var frags []frag
 	for _, hi := range hs {
@@ -1866,22 +1906,27 @@ func (a *arranger) makeCycle(hs []int) cycle {
 		e := a.edges[h.edge]
 		var pStart, pEnd float64
 		var exStart, exEnd bool
+		var enStart, enEnd bool
 		if h.forward {
 			pStart, pEnd = e.pu, e.pv
 			exStart, exEnd = e.exactU, e.exactV
+			enStart, enEnd = e.endU, e.endV
 		} else {
 			pStart, pEnd = e.pv, e.pu
 			exStart, exEnd = e.exactV, e.exactU
+			enStart, enEnd = e.endV, e.endU
 		}
 		fx, fy := a.verts.coord(h.from)
 		tx, ty := a.verts.coord(h.to)
 		if n := len(frags); n > 0 && frags[n-1].src == e.src && approx(frags[n-1].pEnd, pStart, 1e-9) {
 			frags[n-1].pEnd = pEnd
 			frags[n-1].exactEnd = exEnd
+			frags[n-1].endEnd = enEnd
 			frags[n-1].dense = append(frags[n-1].dense, [2]float64{tx, ty})
 		} else {
 			frags = append(frags, frag{src: e.src, pStart: pStart, pEnd: pEnd,
 				exactStart: exStart, exactEnd: exEnd,
+				endStart: enStart, endEnd: enEnd,
 				dense: [][2]float64{{fx, fy}, {tx, ty}}})
 		}
 		if cm := a.comp[e.src]; cm >= 0 {
@@ -1894,6 +1939,7 @@ func (a *arranger) makeCycle(hs []int) cycle {
 	if n := len(frags); n > 1 && frags[0].src == frags[n-1].src && approx(frags[n-1].pEnd, frags[0].pStart, 1e-9) {
 		frags[n-1].pEnd = frags[0].pEnd
 		frags[n-1].exactEnd = frags[0].exactEnd
+		frags[n-1].endEnd = frags[0].endEnd
 		frags[n-1].dense = append(frags[n-1].dense, frags[0].dense[1:]...)
 		frags = frags[1:]
 	}
@@ -1912,17 +1958,30 @@ func (a *arranger) makeCycle(hs []int) cycle {
 			tStart, tEnd = tEnd, tStart
 			exStart, exEnd = exEnd, exStart
 		}
-		// Whole is read off the fragment's OWN surviving range — the one thing that
-		// is actually true of the edge being emitted — not off a per-source "was it
-		// cut anywhere" flag. An edge covering the source's full domain IS the whole
-		// curve; a strict sub-interval IS a fragment. Deciding here (after pruning and
-		// after the coalescing above) is what makes the two agree: a contact whose
-		// partner was pruned away, or a split vertex the walk runs straight through,
-		// leaves a degree-2 vertex the fragments coalesce back across, so the curve is
-		// whole again and must say so. A CLOSED source cut exactly once coalesces the
-		// same way (the walk leaves the contact and returns to it), spanning [0,1] —
-		// genuinely the whole curve.
-		whole := tStart <= wholeParamEps && tEnd >= 1-wholeParamEps
+		// Whole is read off the fragment's OWN surviving bounds — the one thing that
+		// is actually true of the edge being emitted — not off a per-source "was it cut
+		// anywhere" flag (which outlives pruning and reports a phantom fragment on a
+		// whole curve), and NOT off a numeric comparison of the range against [0,1]
+		// (which cannot tell a bound that IS the curve's end from a crossing that
+		// landed 1e-10 away from it, and so would bless a sampled-bounded fragment as
+		// the whole curve — the unsafe direction).
+		//
+		// Instead each bound carries its PROVENANCE (cut.srcEnd → arrEdge.endU/endV):
+		// it is either the source curve's own domain end, or a cut/weld. The edge is
+		// the whole curve exactly when BOTH of its bounds are the curve's own ends.
+		// Deciding here — after pruning and after the coalescing above — is what makes
+		// that agree with the emitted geometry: a contact whose partner was pruned
+		// away, or a split vertex the walk runs straight through, leaves a degree-2
+		// vertex the fragments coalesce back across, so the curve's own ends are the
+		// surviving bounds again and it correctly reads whole. A CLOSED source cut once
+		// coalesces the same way (the walk leaves the contact and returns to it), and
+		// the surviving bounds are its seam — the curve's own domain ends — so it too
+		// reads whole. The lone conservative corner is a closed source whose single cut
+		// lands ON the seam: both bounds are then cuts, so it reads as a fragment
+		// spanning [0,1]. That errs toward Partial (a consumer re-derives the same
+		// curve from the range either way) and never toward a false Whole, which is the
+		// only direction that can mislead.
+		whole := f.endStart && f.endEnd
 		c.boundary = append(c.boundary, BoundaryEdge{
 			SourceIndex: f.src, Whole: whole, Reversed: reversed, Polyline: f.dense,
 			TStart: tStart, TEnd: tEnd, TExact: exStart && exEnd,

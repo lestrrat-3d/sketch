@@ -39,11 +39,18 @@ type BoundaryEdge struct {
 	// Entity is the source sketch entity this edge lies on (*Line/*Arc/*Circle/
 	// *Ellipse).
 	Entity Entity
-	// Partial is true when this edge covers only a sub-range of Entity — i.e.
-	// [TStart, TEnd] is a strict sub-interval of the entity's full domain; false
-	// when it spans the whole entity. It says exactly what the edge's own range
-	// says: an entity whose only crossing bounds nothing (the crossing partner
-	// dangles and is pruned) is still covered whole, and reads Partial = false.
+	// Partial is true when this edge covers only a sub-range of Entity; false when
+	// it spans the whole entity.
+	//
+	// It is decided by each bound's provenance — the edge is whole exactly when BOTH
+	// of its bounds are the entity's own domain ends (an open curve's endpoint, or a
+	// closed curve's seam) rather than a crossing — and never by asking whether
+	// [TStart, TEnd] comes numerically close to [0,1], which cannot distinguish a
+	// bound that IS the entity's end from a crossing that landed 1e-10 from it. So an
+	// entity whose only crossing bounds nothing (the partner dangles and is pruned) is
+	// covered whole and reads Partial = false, while an entity grazed by a crossing a
+	// hair from its seam reads Partial = true — it is a fragment, however little of it
+	// is missing. See [geom.BoundaryEdge.Whole].
 	Partial bool
 	// Reversed is true when the boundary walks Entity against its natural
 	// Start→End (or counter-clockwise, for a closed entity) direction.
@@ -66,12 +73,13 @@ type BoundaryEdge struct {
 	// TExact reports whether TStart/TEnd are the TRUE parameters on Entity rather
 	// than sampling-accurate approximations.
 	//
-	// It is false whenever either bound came from a sampled crossing. Only
-	// line-vs-{line,circle,arc} crossings are solved in closed form today; every
-	// crossing involving an *Ellipse, *EllipticalArc, *Conic, *Spline,
-	// *ClosedSpline, *FitSpline or *NURBS — even against a plain *Line — is
-	// sampled, as is every curve/curve crossing. So a partial fragment of a
-	// free-form curve reports TExact = false.
+	// It is false whenever either bound came from a sampled crossing. The closed-form
+	// kernel runs only when BOTH entities of a pair are a *Line, *Circle or *Arc — a
+	// rule about the PAIR, not about "a *Line was involved", and not about the contact
+	// being a tangency. So every contact involving an *Ellipse, *EllipticalArc,
+	// *Conic, *Spline, *ClosedSpline, *FitSpline or *NURBS is sampled, INCLUDING a
+	// plain *Line crossing one and a plain *Line TANGENT to one; so is every
+	// curve/curve crossing. A fragment of a free-form curve reports TExact = false.
 	//
 	// The topology is still correct when this is false; only the parameter (and
 	// the Polyline, equally) converges with sampling rather than being exact. A
