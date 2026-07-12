@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/lestrrat-3d/r3"
 	"github.com/lestrrat-3d/sketch"
-	"github.com/lestrrat-3d/sketch/space"
 	"github.com/stretchr/testify/require"
 )
 
@@ -30,8 +30,8 @@ func TestWorldJSONRoundTrip(t *testing.T) {
 	require.Len(t, w2.Planes(), 4) // 3 datums + offset
 	require.Len(t, w2.Sketches(), 2)
 
-	worldVecEqual(t, space.NewVec3(3, 4, 5), w2.Sketches()[0].Points()[0].World())
-	worldVecEqual(t, space.NewVec3(1, 0, 1), w2.Sketches()[1].Points()[0].World())
+	worldVecEqual(t, r3.NewVec(3, 4, 5), w2.Sketches()[0].Points()[0].World())
+	worldVecEqual(t, r3.NewVec(1, 0, 1), w2.Sketches()[1].Points()[0].World())
 }
 
 func TestWorldJSONFixedPoint(t *testing.T) {
@@ -63,7 +63,7 @@ func TestStandaloneSketchPlaneRoundTrip(t *testing.T) {
 
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s2))
-	worldVecEqual(t, space.NewVec3(1, 0, 1), s2.Points()[0].World())
+	worldVecEqual(t, r3.NewVec(1, 0, 1), s2.Points()[0].World())
 }
 
 func TestSketchUnmarshalRejectsWorldDocument(t *testing.T) {
@@ -134,7 +134,7 @@ func TestLegacyDocumentLoadsAsWorldXY(t *testing.T) {
 	require.NoError(t, err)
 	var s sketch.Sketch
 	require.NoError(t, json.Unmarshal(data, &s))
-	worldVecEqual(t, space.NewVec3(3, 4, 0), s.Points()[0].World())
+	worldVecEqual(t, r3.NewVec(3, 4, 0), s.Points()[0].World())
 }
 
 func TestStandaloneDerivedPlaneRejected(t *testing.T) {

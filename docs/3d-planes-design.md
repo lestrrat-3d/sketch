@@ -1,10 +1,11 @@
 # 3D World & Construction Planes — Design
 
-Status: **implemented** — `space/` (`Vec3`/`Frame`), `plane.go` (`Plane` +
+Status: **implemented** — the `github.com/lestrrat-3d/r3` module (`Vec`/`Frame`),
+`plane.go` (`Plane` +
 definitions), `world.go` (`World`, placement, `RemovePlane`), sketch placement
 and `Point.World`/`Sketch.WorldPolyline` in `sketch.go`, serialization v2 in
-`json.go`/`json_world.go`; tests in `space/frame_test.go`, `world_test.go`,
-`world_json_test.go`. Puts the 2D sketch engine inside a real 3D world: a world
+`json.go`/`json_world.go`; tests in the `r3` repo, plus `world_test.go` and
+`world_json_test.go` here. Puts the 2D sketch engine inside a real 3D world: a world
 coordinate system, construction planes positioned/oriented in it, 2D sketches
 drawn on those planes, and a first-class bidirectional local↔world transform.
 
@@ -32,7 +33,7 @@ World                      ── canonical document root; owns the world frame
   spatial owner and the serialization root.
 
 This mirrors Fusion's normal-sketch model exactly and is purely additive to the
-solver. Dependency arrows: `sketch → space` (new) and the existing
+solver. Dependency arrows: `sketch → r3` and the existing
 `sketch → geom`, `sketch → param`, `sketch → units`. The 3D layer is a consumer
 of the engine and never leaks back into it (north-star principle #1).
 
@@ -54,35 +55,37 @@ residuals) is a separate future design, deliberately not folded in.
 
 ## Package layout
 
-One new self-contained math package, following the `geom`/`param`/`units`
-precedent (stdlib-only production code, `testify/require` in tests, intended to
-be independently extractable).
+The 3D math lives in a self-contained module of its own, following the
+`geom`/`param`/`units` precedent (stdlib-only production code,
+`testify/require` in tests).
 
 | Package | Holds | Imports |
 |---|---|---|
-| `space/` (new) | 3D vector math (`Vec3`) and the orthonormal coordinate `Frame`; the local↔world transform lives here and nowhere else. | stdlib only |
-| `sketch` (root) | `World`, `Plane` (datum = frame + definition), sketch placement, `Point.World()`. | `→ space` |
+| `github.com/lestrrat-3d/r3` (external module) | 3D vector math (`Vec`) and the orthonormal coordinate `Frame`; the local↔world transform lives here and nowhere else. | stdlib only |
+| `sketch` (root) | `World`, `Plane` (datum = frame + definition), sketch placement, `Point.World()`. | `→ r3` |
 
-`space` is to 3D what `geom` is to 2D: pure coordinate math, no document state.
+`r3` is to 3D what `geom` is to 2D: pure coordinate math, no document state.
 `World` and `Plane` live in the root `sketch` package because they are
 document-level concepts and `Sketch` holds a `*Plane` directly — keeping them
-together avoids an import cycle (`World → Sketch → Plane → space`, all
-one-directional). No new `go.mod` entries; everything is hand-rolled.
+together avoids an import cycle (`World → Sketch → Plane → r3`, all
+one-directional).
 
-(Naming: `space` is the working name; alternatives `r3`/`geom3`. `geom` is the
-*2D* transient layer slated for extraction, so 3D math must not be folded into
-it — see "Why two math layers".)
+(Naming: the module is `github.com/lestrrat-3d/r3`, named for Euclidean 3-space
+(ℝ³). Its scope rule follows from the name: **if it lives in ℝ³ it belongs; 3D
+*shapes* do not** — those belong to a geometry layer above that imports `r3`.
+`geom` is the *2D* transient layer slated for extraction, so 3D math must not be
+folded into it — see "Why two math layers".)
 
-## The `space` package
+## The `r3` module
 
-**`Vec3`** — the 3D analog of `geom.Point`:
+**`Vec`** — the 3D analog of `geom.Point`:
 
 ```go
-type Vec3 struct{ X, Y, Z float64 }
+type Vec struct{ X, Y, Z float64 }
 ```
 
 with stdlib-only helpers: `Add`, `Sub`, `Scale`, `Dot`, `Cross`, `Len`,
-`Normalize`. `Normalize` returns `(Vec3, bool)` — `false` for a (near-)zero
+`Normalize`. `Normalize` returns `(Vec, bool)` — `false` for a (near-)zero
 vector — so callers cannot silently fabricate a non-unit axis (the solver's
 `norm()` floors against divide-by-zero, which is **not** the same as producing a
 unit vector; do not conflate them).
@@ -92,23 +95,23 @@ are unexported** so a `Frame` value cannot be built or mutated into an invalid
 state; it is constructor-only:
 
 ```go
-type Frame struct { origin, u, v Vec3 } // invariant: u,v orthonormal; n = u×v
-func (f Frame) Origin() Vec3 { return f.origin }
-func (f Frame) U() Vec3 { return f.u }
-func (f Frame) V() Vec3 { return f.v }
-func (f Frame) N() Vec3 { return f.u.Cross(f.v) } // normal, derived — never stored
+type Frame struct { origin, u, v Vec } // invariant: u,v orthonormal; n = u×v
+func (f Frame) Origin() Vec { return f.origin }
+func (f Frame) U() Vec { return f.u }
+func (f Frame) V() Vec { return f.v }
+func (f Frame) N() Vec { return f.u.Cross(f.v) } // normal, derived — never stored
 ```
 
 - Store **only** `origin, u, v`; `N` is derived (`u × v`). Single source of
   truth — there is no field that can disagree with the normal.
-- `NewFrame(origin, u, v Vec3) (Frame, error)` orthonormalizes via Gram–Schmidt
+- `NewFrame(origin, u, v Vec) (Frame, error)` orthonormalizes via Gram–Schmidt
   (keep `u`; make `v ⟂ u`; normalize) and returns `ErrDegenerateFrame` when `u`
   is zero or `u,v` are collinear (the projection leaves nothing to normalize).
   It is the only constructor — there is no panicking `Must` variant; even the
   compile-time-known standard datums go through `NewFrame` and propagate the
   (never-hit) error.
 - **The zero value `Frame{}` is invalid, not bypassable-into-use.** Go always
-  permits `var f space.Frame` / `space.Frame{}` (all-zero axes), so the
+  permits `var f r3.Frame` / `r3.Frame{}` (all-zero axes), so the
   invariant cannot be "no invalid value exists" — it is "no invalid value is
   ever *accepted*". `Frame` exposes `IsValid() bool` (axes unit and orthogonal),
   and **every public boundary that consumes a caller-supplied frame validates
@@ -117,12 +120,12 @@ func (f Frame) N() Vec3 { return f.u.Cross(f.v) } // normal, derived — never s
   method on a `nil` map is — they are not a way to smuggle a bad frame into a
   `Plane`.
 - Transforms:
-  - `ToWorld(local Vec3) Vec3` = `origin + u·U + v·V + w·N()`
-  - `ToWorldUV(u, v float64) Vec3` = the 2D-point convenience (`w = 0`)
-  - `ToLocal(world Vec3) Vec3` = dot `(world − origin)` with `u, v, N()`; the
+  - `ToWorld(local Vec) Vec` = `origin + u·U + v·V + w·N()`
+  - `ToWorldUV(u, v float64) Vec` = the 2D-point convenience (`w = 0`)
+  - `ToLocal(world Vec) Vec` = dot `(world − origin)` with `u, v, N()`; the
     third component is the **signed distance off the plane**.
 
-**Frame invariants** (the `space`-layer analog of the solver invariants —
+**Frame invariants** (the `r3`-layer analog of the solver invariants —
 load-bearing):
 
 - **No invalid frame is ever accepted into a `Plane`** — enforced at the
@@ -142,7 +145,7 @@ load-bearing):
 
 ## Construction planes
 
-A `Plane` is a datum entity: a `space.Frame` plus a **definition** recording how
+A `Plane` is a datum entity: a `r3.Frame` plus a **definition** recording how
 the frame is derived. The definition is the **single source of truth**; the
 frame is computed from it on demand. There is no independently-settable frame
 field, so a plane can never disagree with its own provenance.
@@ -155,7 +158,7 @@ type Plane struct {
     removed bool     // tombstone set by RemovePlane; a dead handle
     name    string
 }
-func (p *Plane) Frame() (space.Frame, error) { /* compute from def, recursively through base */ }
+func (p *Plane) Frame() (r3.Frame, error) { /* compute from def, recursively through base */ }
 ```
 
 `Frame()` **recomputes** every call (recursing into a base plane for derived
@@ -177,8 +180,8 @@ base plane:
 | Constructor | Definition | Frame |
 |---|---|---|
 | `WorldXY()` / `WorldXZ()` / `WorldYZ()` | standard datum | origin `(0,0,0)`; axes per table below |
-| `PlaneFromFrame(f space.Frame)` | explicit frame | `f` verbatim; errors on `!f.IsValid()` |
-| `PlaneFromPoints(a, b, c space.Vec3)` | three **world** points | origin `a`, `U` along `a→b`, `N` from `(a→b)×(a→c)`, `V = N×U`; errors on collinear points |
+| `PlaneFromFrame(f r3.Frame)` | explicit frame | `f` verbatim; errors on `!f.IsValid()` |
+| `PlaneFromPoints(a, b, c r3.Vec)` | three **world** points | origin `a`, `U` along `a→b`, `N` from `(a→b)×(a→c)`, `V = N×U`; errors on collinear points |
 
 Standard datum axes (all right-handed):
 
@@ -229,8 +232,8 @@ func NewWorld() *World                                  // seeded with XY/XZ/YZ 
 func (w *World) XY() *Plane                              // the seeded standard datums
 func (w *World) XZ() *Plane
 func (w *World) YZ() *Plane
-func (w *World) PlaneFromFrame(f space.Frame) (*Plane, error) // world-owned; errors on invalid f
-func (w *World) PlaneFromPoints(a, b, c space.Vec3) (*Plane, error)
+func (w *World) PlaneFromFrame(f r3.Frame) (*Plane, error) // world-owned; errors on invalid f
+func (w *World) PlaneFromPoints(a, b, c r3.Vec) (*Plane, error)
 func (w *World) OffsetPlane(base *Plane, dist float64) (*Plane, error) // base must be owned by w
 func (w *World) Sketch(plane *Plane) (*Sketch, error)    // plane must be owned by w (else ErrForeignPlane)
 func (w *World) RemovePlane(p *Plane) error
@@ -306,7 +309,7 @@ plane's definition into an owner-less plane for engine-only reuse; not v1.)
   `New`/`NewOn`/`World.Sketch` always set the plane explicitly. The world-XY
   default is a real plane, not a sentinel.
 - `Point.X()`, `Point.Y()` — unchanged: the **local** `(u, v)` the solver owns.
-- `Point.World() space.Vec3` = lift `(p.X(), p.Y())` through `s.plane().Frame()`.
+- `Point.World() r3.Vec` = lift `(p.X(), p.Y())` through `s.plane().Frame()`.
   (If `Frame()` errors — only possible for a degenerate derived plane — `World()`
   returns the origin and the error surfaces via a sibling `WorldErr` accessor;
   well-formed planes never error.)
@@ -319,10 +322,10 @@ entity in 3D. This requires a **uniform 2D sampler covering every entity type**
 exposes a public `Polyline`, while curves are sampled by *private* helpers spread
 across the exporters (arcs in `svg.go`, circles/ellipses in `png.go`). v1 adds
 one entity-agnostic read path for **3D consumers only** —
-`Sketch.WorldPolyline(e Entity) ([]space.Vec3, error)`, backed by a local
+`Sketch.WorldPolyline(e Entity) ([]r3.Vec, error)`, backed by a local
 `[]geom.Point` sampler — that maps each sample through the frame and returns the
 `Frame()` error for a degenerate plane (mirroring `Point.World`/`WorldErr`).
-`space` never imports `geom`; the lift bridge lives in `sketch`. The shared
+`r3` never imports `geom`; the lift bridge lives in `sketch`. The shared
 sampling math is centralized in `geom` (extending the existing polyline helpers)
 so the exporters' private samplers and the world sampler compute identically.
 This does **not** change exporter output (see "Export & rendering").
@@ -337,14 +340,14 @@ to avoid reworking the parameter-binding model.) Consistent with the current rea
 surface, `Point.World()` returns raw base-unit millimetres; making reads
 unit-carrying stays the CLAUDE.md all-or-nothing decision.
 
-## Why two math layers (`geom` 2D + `space` 3D)
+## Why two math layers (`geom` 2D + `r3` 3D)
 
 They are **disjoint** and meet at exactly one seam: `Frame.ToWorldUV(u, v)`
-consumes two bare floats (the solved local coordinates) and returns a `Vec3`.
-`space` imports nothing but stdlib — not even `geom`. Modelling 2D as a special
+consumes two bare floats (the solved local coordinates) and returns a `Vec`.
+`r3` imports nothing but stdlib — not even `geom`. Modelling 2D as a special
 case of 3D (z = 0 everywhere) is **rejected**: it would force a risky rewrite of
 the entire 2D solver/constraint set for no near-term benefit and would
-compromise `geom`'s standalone extraction. The engine stays 2D; `space` is the
+compromise `geom`'s standalone extraction. The engine stays 2D; `r3` is the
 placement math beside it.
 
 ## Serialization (correct-first, version 2)
@@ -462,7 +465,7 @@ this work:
 One coherent design, built in dependency order (each step independently testable;
 steps 1–3 touch no existing solver/constraint code beyond the naming clean-up):
 
-1. **`space`** — `Vec3` (`Normalize` → `(Vec3,bool)`), `Frame` (unexported
+1. **`r3`** — `Vec` (`Normalize` → `(Vec,bool)`), `Frame` (unexported
    fields, `NewFrame` error path — no `Must` variant), transforms + orthonormality/
    round-trip/degenerate-rejection tests.
 2. **`Plane`** — world-frame datums (`WorldXY/XZ/YZ`, `PlaneFromFrame` with
@@ -492,16 +495,15 @@ steps 1–3 touch no existing solver/constraint code beyond the naming clean-up)
 - **World drag.** `WithWorldGoal` (project a world target onto the plane) is a
   later consumer-layer addition; the solver stays plane-local.
 - **3D rendering / camera model & world DXF (OCS vs 3D entities).**
-- **Package naming:** `space` vs `r3` vs `geom3`.
 - **Free 3D-sketch mode** (points gain a `z` var, reduced 3D constraint set):
   a separate, more invasive future design.
 
 ## Testing plan (correctness observable)
 
-- **`space`:** `ToLocal(ToWorld(p))` round-trips to tolerance; `NewFrame` from
+- **`r3`:** `ToLocal(ToWorld(p))` round-trips to tolerance; `NewFrame` from
   skew inputs returns an orthonormal/right-handed frame (`N == U×V`, unit axes);
   `NewFrame` with zero/collinear axes returns `ErrDegenerateFrame`;
-  `Frame{}.IsValid()` is false and `PlaneFromFrame(space.Frame{})` errors; known
+  `Frame{}.IsValid()` is false and `PlaneFromFrame(r3.Frame{})` errors; known
   maps — on `WorldXZ()`, local `(1,0)→(1,0,0)` and `(0,1)→(0,0,1)`.
 - **`Plane`:** an offset plane composes its base's frame — its origin shifts
   along `base.N()` by `dist` (so `OffsetPlane(WorldXY(), d)` shifts world `z` by

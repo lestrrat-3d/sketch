@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/lestrrat-3d/r3"
 	"github.com/lestrrat-3d/sketch/param"
-	"github.com/lestrrat-3d/sketch/space"
 )
 
 // jsonWorldVersion is the world document schema version. It is ahead of the
@@ -94,8 +94,8 @@ const (
 	defOffset = "offset"
 )
 
-func vec3Arr(v space.Vec3) [3]float64 { return [3]float64{v.X, v.Y, v.Z} }
-func arrVec3(a [3]float64) space.Vec3 { return space.NewVec3(a[0], a[1], a[2]) }
+func vecArr(v r3.Vec) [3]float64 { return [3]float64{v.X, v.Y, v.Z} }
+func arrVec(a [3]float64) r3.Vec { return r3.NewVec(a[0], a[1], a[2]) }
 
 // planeToJSON serializes a plane's definition.
 func planeToJSON(p *Plane) (jsonPlane, error) {
@@ -109,11 +109,11 @@ func planeToJSON(p *Plane) (jsonPlane, error) {
 		jp.Kind = defYZ
 	case planeFrame:
 		jp.Kind = defFrame
-		o, u, v := vec3Arr(p.def.frame.Origin()), vec3Arr(p.def.frame.U()), vec3Arr(p.def.frame.V())
+		o, u, v := vecArr(p.def.frame.Origin()), vecArr(p.def.frame.U()), vecArr(p.def.frame.V())
 		jp.Origin, jp.U, jp.V = &o, &u, &v
 	case planePoints:
 		jp.Kind = defPoints
-		a, b, c := vec3Arr(p.def.a), vec3Arr(p.def.b), vec3Arr(p.def.c)
+		a, b, c := vecArr(p.def.a), vecArr(p.def.b), vecArr(p.def.c)
 		jp.A, jp.B, jp.C = &a, &b, &c
 	case planeOffset:
 		jp.Kind = defOffset
@@ -157,7 +157,7 @@ func planeDefFromJSON(jp jsonPlane, base func(int) (*Plane, error)) (planeDef, e
 		if jp.Origin == nil || jp.U == nil || jp.V == nil {
 			return planeDef{}, fmt.Errorf("sketch: frame plane needs origin, u and v")
 		}
-		f, err := space.NewFrame(arrVec3(*jp.Origin), arrVec3(*jp.U), arrVec3(*jp.V))
+		f, err := r3.NewFrame(arrVec(*jp.Origin), arrVec(*jp.U), arrVec(*jp.V))
 		if err != nil {
 			return planeDef{}, err
 		}
@@ -166,7 +166,7 @@ func planeDefFromJSON(jp jsonPlane, base func(int) (*Plane, error)) (planeDef, e
 		if jp.A == nil || jp.B == nil || jp.C == nil {
 			return planeDef{}, fmt.Errorf("sketch: points plane needs a, b and c")
 		}
-		a, b, c := arrVec3(*jp.A), arrVec3(*jp.B), arrVec3(*jp.C)
+		a, b, c := arrVec(*jp.A), arrVec(*jp.B), arrVec(*jp.C)
 		if _, err := frameFromPoints(a, b, c); err != nil {
 			return planeDef{}, err
 		}

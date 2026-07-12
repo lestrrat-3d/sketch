@@ -36,13 +36,14 @@ from a solid — the seam is first-class reference geometry), live in
      root `sketch` package only (`Sketch.SVG`, `Sketch.Solve`). The `geom`,
      `param` and `units` packages keep their **production** code standard-
      library-only so they stay independently extractable.
+   - `github.com/lestrrat-3d/r3` — the 3D coordinate-math layer (`r3.Vec`,
+     `r3.Frame`), a standalone module of its own. Used by the root `sketch`
+     package only (`plane.go`, `world.go`, `sketch.go`, the exporters); see
+     "The `r3` module" below.
    - `github.com/stretchr/testify/require` — test assertions, **test code only**
      (all packages). Never imported by production code.
 
    Keeping the runtime surface this small keeps the engine embeddable anywhere.
-   (Historical note: the project started zero-dependency; the two entries above
-   were adopted deliberately to follow house style — typed functional options
-   and `require`-based tests.)
 3. **Programmability over UI.** The API is the primary interface. Anything a
    user can do interactively should be expressible in code first.
 4. **Correctness is observable.** Every capability ships with a test that
@@ -64,12 +65,11 @@ from a solid — the seam is first-class reference geometry), live in
 | `verify.go` | `Sketch.Verify(ctx context.Context, ...VerifyOption) *VerificationReport`: the headless-oracle aggregation layer — one non-mutating call gathering solvability, DOF, `Status`, redundant constraints, conflict sets, free points, profiles + their validity (`ProfilesValid`/`InvalidProfiles` — self-intersecting/degenerate regions gate `Trustworthy()`), stale/broken/foreign reference signals, parameter unit-kind validity (`ParametersValid`), the **advisory** `RankMargin` (how far the STRUCTURAL rank/DOF decision sits from the rank-zero cutoff — a fragility hint; now scale-invariant, computed on the nondimensional Jacobian, but still does NOT gate `Trustworthy()` — it measures a coarser, different question than conditioning), the **scale-invariant** `Conditioning` (`conditioning.go`: the reciprocal condition number of the nondimensionalized Jacobian — this one DOES gate `Trustworthy()`, below a tolerance-derived `max(1e-6, 4·√tol)` threshold), `Trustworthy()`, and (opt-in via `WithProbe`) discrete ambiguity. A pure consumer of the diagnostic building blocks. |
 | `reference.go` | Reference geometry — the sketch/3D separation keystone: read-only, externally-locked 2D snapshots of 3D-derived geometry (`CreateReferencePoint`/`CreateReferenceLine`/`CreateReferenceArc`/`CreateReferenceCircle`) carrying a `source` id + staleness; locked via `fixed[]`, a topology seal (`refSeals`), `RefreshReference`/`RefreshReferenceCircle`/`MarkStale`, and the Verify integrity/staleness/reachability scan. Design in `docs/reference-geometry-design.md`. |
 | `probe.go` | `Sketch.ProbeConfigurations`: multi-solution ambiguity probe — deterministic multi-start search (structured mirrors + splitmix64 restarts) for the discrete configurations a DOF-0 sketch admits. A falsifier: ≥2 found proves ambiguity, 1 never proves uniqueness. Design in `docs/ambiguity-probe-design.md`. |
-| `plane.go` / `world.go` | 3D world & construction planes. `Plane` (datum = `space.Frame` derived from a stored definition), `World` (the mandatory document root: owns planes + sketches, datum accessors `XY`/`XZ`/`YZ`, plane builders `CreatePlaneFromFrame`/`CreatePlaneFromPoints`/`CreateOffsetPlane`, `CreateSketch`, `RemovePlane`). Design in `docs/3d-planes-design.md`. |
+| `plane.go` / `world.go` | 3D world & construction planes. `Plane` (datum = `r3.Frame` derived from a stored definition), `World` (the mandatory document root: owns planes + sketches, datum accessors `XY`/`XZ`/`YZ`, plane builders `CreatePlaneFromFrame`/`CreatePlaneFromPoints`/`CreateOffsetPlane`, `CreateSketch`, `RemovePlane`). Design in `docs/3d-planes-design.md`. |
 | `annotate.go` | Annotation-rendering overlay for `Sketch.SVG` (in-package so it can type-switch the unexported constraint types). Opt-in `SVGPNGOption`s, all **default off** so baseline output stays byte-identical: `WithDimensions` (CAD dimension lines + arrowheads + unit label via `dimText`, driven ones parenthesized), `WithConstraints` (geometric-constraint glyph badges, per-anchor slice-order stacking — no `map[Entity]`), `WithDOFColoring` (free = blue+hollow circle, grounded/`IsFixed` = green filled square (`colorFixed`) so the origin anchor reads distinctly, other constrained = black filled circle; points via `movableVars`, entities via `entityMovable` so a circle with a free radius reads blue — the per-entity `Sketch.EntityIsFullyConstrained`), `WithPixelWidth` (display px, viewBox unchanged), `WithConflicts` (conflicting geometry red via `Diagnose` + `constraintRefs`; conflict-red > DOF-blue), `WithStatusBadge` (`Verify` DOF/Status/Solvable card), `WithProfileFill` (valid `Profiles()` regions only, canonical sort for determinism), `WithAnnotationColor`/`WithAnnotationScale`. **Load-bearing rule:** all annotation geometry computes key points in sketch coords, maps through `tx`/`ty`, and derives every screen direction/arrowhead/arc from the mapped points — no per-case y-flip sign negation (only the `<ellipse>` `rotate()` still negates). Design in `docs/constraint-visualization-design.md`. Consumed by `internal/cmd/genimages` (regenerates the committed `docs/images/*.svg` README gallery heroes; an in-sync test byte-compares a regeneration). |
 | `frame.go` | Windowed framing for `Sketch.SVG` (opt-in, default off → byte-identical baseline): `WithFrame` (outer padding + border rect; the sketch's `margin` becomes the frame→geometry gap), `WithGrid` (origin-aligned background grid, `niceStep` auto spacing 1/2/5×10ⁿ, emphasized x=0/y=0 axes; implies a frame), `WithGridSpacing`, `WithFramePadding`. A framed render **always** carries the fixed provenance watermark `WatermarkText` (= `github.com/lestrrat-3d/sketch`) in the bottom outer padding — not an option, and no commit hash, so output is fully deterministic and the in-sync test is a plain byte compare (a new commit no longer churns the gallery). `SVG` adds an outer `pad` (shifts `tx`/`ty`, grows the viewBox); grid+frame draw before geometry, watermark on top. |
 | `svg.go` / `png.go` / `dxf.go` / `json.go` / `json_world.go` | Exporters / serialization. `png.go` is a stdlib-only rasterizer (`image/png`) so agents/tools that read raster images can sanity-check sketches; visually equivalent to the SVG output (PNG annotation is a follow-up — SVG is the annotated target). `dxf.go` emits length fields in the sketch's **display length unit** (via the `units` library — angles/ratios/knots stay raw) with a matching `$INSUNITS`/`$MEASUREMENT` + `$EXTMIN`/`$EXTMAX` header, so a CAD importer reads the drawing at the right scale (metric output is unchanged). Coordinates are plane-**local** by default; `DXF(WithWorldSpace(true))` places geometry in 3D world coordinates via the plane frame — LINE/SPLINE/ELLIPSE in WCS, CIRCLE/ARC/LWPOLYLINE in the entity OCS (arbitrary-axis algorithm from the plane normal) + extrusion, arc angles recomputed in the OCS. `json_world.go` is the v2 `World`/`Plane` serialization + the `kind`-discriminator preflight. |
 | `geom/` | **Self-contained** context-agnostic 2D geometry (own package). |
-| `space/` | **Self-contained** 3D coordinate math (own package): `Vec3` + orthonormal `Frame` with the local↔world transform. |
 | `param/` | **Self-contained** parameter & expression engine (own package). |
 | `units/` | **Self-contained** units-of-measure library (own package). |
 | `examples/` | Executable Go examples (`Example_sketch_…` in `package examples_test`, `go test`-verified `// Output:` blocks) that double as living documentation. Never `package main` programs. |
@@ -166,27 +166,34 @@ conservatively `Degenerate`/deferred. Ellipse/spline pairs keep the sampled fall
 (exact containment falls back to the chord polygon for them). `Sketch.Profiles()` is
 its consumer.
 
-### The `space` package (slated for extraction)
+### The `r3` module (an external dependency)
 
-`space/` is the 3D analog of `geom`: a self-contained coordinate-math layer with
-no document state. It holds `Vec3` and the orthonormal right-handed `Frame`
+`github.com/lestrrat-3d/r3` is the 3D analog of `geom`: a coordinate-math layer
+for Euclidean 3-space with no document state, living in **its own module/repo**
+(not in this tree). It holds `Vec` and the orthonormal right-handed `Frame`
 (origin + unit axes `U`,`V`; normal `N()` = `U`×`V`, derived not stored). The
-local↔world transform lives **only** here (`Frame.ToWorldUV`/`ToWorld`/`ToLocal`,
+local↔world transform lives **only** there (`Frame.ToWorldUV`/`ToWorld`/`ToLocal`,
 the inverse being the transpose — never a matrix solve). It imports nothing but
-stdlib (not even `geom`); the arrow is `sketch -> space`, never the reverse.
+stdlib; the arrow is `sketch -> r3`, never the reverse.
 
+- **`r3`'s scope is coordinates, not shapes.** Vectors, frames and the
+  transforms between them belong there; 3D *shapes* (spheres, boxes, surfaces,
+  solids) do not — they belong to a geometry layer above, which would import
+  `r3`. Don't push shape types down into it to avoid a new package.
 - **Frames are ALWAYS orthonormal**, enforced at the boundary: `NewFrame`
   orthonormalizes and returns `ErrDegenerateFrame` on zero/collinear axes; the
   zero value `Frame{}` is invalid (`IsValid` is false) and every public consumer
-  of a caller-supplied frame rejects it (`PlaneFromFrame`). Don't add a path that
-  stores an unvalidated frame.
-- `Vec3.Normalize` returns `(Vec3, bool)` — it never fabricates a unit vector
+  of a caller-supplied frame rejects it (`World.CreatePlaneFromFrame`). Don't add
+  a path that stores an unvalidated frame.
+- `Vec.Normalize` returns `(Vec, bool)` — it never fabricates a unit vector
   from zero. This is **not** the solver's `norm()` floor; don't conflate them.
+- A change spanning both repos needs a release of `r3` before this module can
+  require it; a local `go.work` (gitignored) is the development seam.
 
 ### The world & planes (`plane.go`/`world.go`)
 
 The 2D solver is **untouched**: a `Sketch` still solves in plane-local 2D. A
-`Plane` carries a `space.Frame` *computed from a stored definition* (its
+`Plane` carries an `r3.Frame` *computed from a stored definition* (its
 provenance — the single source of truth; `Frame()` recomputes, no memoization).
 A `World` is the **mandatory document root**: it owns planes (datums at ids
 0/1/2) + sketches + **one shared `param.Table`** (`World.Params()`) and is the
@@ -445,7 +452,7 @@ when `allocVars` re-runs on load. This is the deliberate, narrow exception to
   `CreatePatternRect`/`CreatePatternCircular` → `ErrInvalidShape`),
   `World.CreateSketch`/`CreateOffsetPlane` (`ErrForeignPlane`), and the plane/frame
   constructors (`World.CreatePlaneFromFrame`/`CreatePlaneFromPoints`,
-  `space.ErrDegenerateFrame`, `geom.ErrTooFewControlPoints`) all return
+  `r3.ErrDegenerateFrame`, `geom.ErrTooFewControlPoints`) all return
   `(…, error)`. **Production code contains no explicit panics.** Even the pure
   spline-family math kernels (`geom.EvalCubicBSpline`/`SampleCubicBSpline`/
   `EvalCubicBSplineDeriv`/`NearestParamCubicBSpline` and the periodic/fit-point
@@ -743,7 +750,7 @@ These are unsettled. If you resolve one, record the decision here.
   `"version": 1`; legacy (unversioned) documents load, newer-versioned ones
   are rejected. Still open: an actual migration story when version 2 arrives,
   and schema compatibility guarantees.
-- **2D → 3D.** *Partially resolved* (`plane.go`/`world.go`/`space/`; design in
+- **2D → 3D.** *Partially resolved* (`plane.go`/`world.go`/the `r3` module; design in
   `docs/3d-planes-design.md`). 2D sketches now live on construction planes inside
   a 3D `World`, with a bidirectional local↔world transform (`Point.World`,
   `Sketch.WorldPolyline`). The 2D solver is unchanged — 3D is a placement layer.
@@ -763,8 +770,9 @@ These are unsettled. If you resolve one, record the decision here.
 Core engine + constraint set + solver (with DOF/redundancy analysis) +
 SVG/DXF/JSON export + sketch-modification tools (`tools.go`:
 trim/extend/break/fillet/chamfer/mirror/pattern/offset on committed geometry) +
-3D world & construction planes (`space/`, `plane.go`, `world.go`: 2D sketches
-placed on planes in a 3D world, local↔world transform, v2 serialization) +
+3D world & construction planes (the `r3` module, `plane.go`, `world.go`: 2D
+sketches placed on planes in a 3D world, local↔world transform, v2
+serialization) +
 unified verification (`verify.go`: `Sketch.Verify` aggregating solvability,
 DOF/status, conflict sets, free points, profiles + profile validity, opt-in
 ambiguity) +

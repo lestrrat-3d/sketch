@@ -3,8 +3,8 @@ package sketch
 import (
 	"context"
 
+	"github.com/lestrrat-3d/r3"
 	"github.com/lestrrat-3d/sketch/param"
-	"github.com/lestrrat-3d/sketch/space"
 )
 
 // World is the 3D document root: it owns the construction planes positioned in
@@ -72,18 +72,18 @@ func (w *World) addPlane(def planeDef, name string) *Plane {
 }
 
 // CreatePlaneFromFrame adds a world-owned plane positioned by an explicit frame.
-// It returns [space.ErrDegenerateFrame] when f is invalid.
-func (w *World) CreatePlaneFromFrame(f space.Frame) (*Plane, error) {
+// It returns [r3.ErrDegenerateFrame] when f is invalid.
+func (w *World) CreatePlaneFromFrame(f r3.Frame) (*Plane, error) {
 	if !f.IsValid() {
-		return nil, space.ErrDegenerateFrame
+		return nil, r3.ErrDegenerateFrame
 	}
 	return w.addPlane(planeDef{kind: planeFrame, frame: f}, ""), nil
 }
 
 // CreatePlaneFromPoints adds a world-owned plane through three world points:
 // origin a, U along a→b, N along (a→b)×(a→c), V = N×U. It returns
-// [space.ErrDegenerateFrame] for collinear points.
-func (w *World) CreatePlaneFromPoints(a, b, c space.Vec3) (*Plane, error) {
+// [r3.ErrDegenerateFrame] for collinear points.
+func (w *World) CreatePlaneFromPoints(a, b, c r3.Vec) (*Plane, error) {
 	if _, err := frameFromPoints(a, b, c); err != nil {
 		return nil, err
 	}
