@@ -44,9 +44,6 @@ from a solid — the seam is first-class reference geometry), live in
      (all packages). Never imported by production code.
 
    Keeping the runtime surface this small keeps the engine embeddable anywhere.
-   (Historical note: the project started zero-dependency; the two entries above
-   were adopted deliberately to follow house style — typed functional options
-   and `require`-based tests.)
 3. **Programmability over UI.** The API is the primary interface. Anything a
    user can do interactively should be expressible in code first.
 4. **Correctness is observable.** Every capability ships with a test that
