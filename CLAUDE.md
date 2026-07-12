@@ -37,9 +37,9 @@ from a solid — the seam is first-class reference geometry), live in
      `param` and `units` packages keep their **production** code standard-
      library-only so they stay independently extractable.
    - `github.com/lestrrat-3d/r3` — the 3D coordinate-math layer (`r3.Vec`,
-     `r3.Frame`), extracted from this repo into its own module. Used by the root
-     `sketch` package only (`plane.go`, `world.go`, `sketch.go`, the exporters);
-     see "The `r3` module" below.
+     `r3.Frame`), a standalone module of its own. Used by the root `sketch`
+     package only (`plane.go`, `world.go`, `sketch.go`, the exporters); see
+     "The `r3` module" below.
    - `github.com/stretchr/testify/require` — test assertions, **test code only**
      (all packages). Never imported by production code.
 
