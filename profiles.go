@@ -49,6 +49,33 @@ type BoundaryEdge struct {
 	// point its start, the last its end. A whole line is two points; an arc or
 	// fragment is more.
 	Polyline [][2]float64
+	// TStart and TEnd are this edge's parameter range on Entity, in the entity's
+	// NATURAL parameter direction — so TStart < TEnd always, and Reversed (not
+	// their order) says the walk runs backwards. A whole edge spans the entity's
+	// full domain; the range never wraps. Partial alone cannot tell you WHICH
+	// sub-range an edge covers — this is what can.
+	//
+	// The parameter is normalized t in [0,1], not the entity's own angle/knot
+	// parameter; see [geom.BoundaryEdge] for the per-type mapping (an *Arc's t
+	// is the fraction of its sweep, a *Circle's is the angle from +x over 2π, a
+	// *NURBS's maps linearly onto its knot domain, and so on).
+	TStart, TEnd float64
+	// TExact reports whether TStart/TEnd are the TRUE parameters on Entity rather
+	// than sampling-accurate approximations.
+	//
+	// It is false whenever either bound came from a sampled crossing. Only
+	// line-vs-{line,circle,arc} crossings are solved in closed form today; every
+	// crossing involving an *Ellipse, *EllipticalArc, *Conic, *Spline,
+	// *ClosedSpline, *FitSpline or *NURBS — even against a plain *Line — is
+	// sampled, as is every curve/curve crossing. So a partial fragment of a
+	// free-form curve reports TExact = false.
+	//
+	// The topology is still correct when this is false; only the parameter (and
+	// the Polyline, equally) converges with sampling rather than being exact. A
+	// consumer that records the profile structurally or emits CAD code from it
+	// must check this and reject, not round-trip an approximate range as if it
+	// were the real one.
+	TExact bool
 }
 
 // Profiles detects the closed planar regions formed by the sketch's
@@ -218,5 +245,8 @@ func mapBoundaryEdge(ge geom.BoundaryEdge, entityFor func(int) Entity) BoundaryE
 		Partial:  !ge.Whole,
 		Reversed: ge.Reversed,
 		Polyline: ge.Polyline,
+		TStart:   ge.TStart,
+		TEnd:     ge.TEnd,
+		TExact:   ge.TExact,
 	}
 }

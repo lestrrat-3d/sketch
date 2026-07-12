@@ -186,6 +186,13 @@ type tinySeg struct {
 type cut struct {
 	t      float64
 	px, py float64
+	// exact is true when this cut came from the closed-form kernel (an analytic
+	// crossing), so t is the true source parameter and px,py the true intersection
+	// point. It is false for a SAMPLED cut, whose t is interpolated between two
+	// sample params and whose point is the chord-chord intersection — off the true
+	// curve by the chord sagitta. It propagates to BoundaryEdge.TExact so a consumer
+	// can tell a trustworthy parameter range from a sampling-accurate one.
+	exact bool
 }
 
 // arranger holds the working state of one Regions call.
@@ -229,6 +236,10 @@ type arrEdge struct {
 	u, v   int
 	src    int
 	pu, pv float64
+	// exactU/exactV report whether the param at that end is the true source
+	// parameter (an analytic cut, a sample vertex, or the curve's own endpoint)
+	// rather than a sampled crossing's interpolated one. See cut.exact.
+	exactU, exactV bool
 }
 
 func newArranger(curves []Curve, closed []ClosedCurve, cfg arrangeConfig) *arranger {
@@ -847,12 +858,14 @@ func (a *arranger) intersect() {
 			if p.sin < 1e-3 {
 				a.flagDegenerate(p.x, p.y)
 			}
+			// exact:false — a sampled chord-chord crossing. Both the parameter and
+			// the point are approximations that converge with sampling density.
 			if interiorI {
-				si.cuts = append(si.cuts, cut{t: p.ti, px: p.x, py: p.y})
+				si.cuts = append(si.cuts, cut{t: p.ti, px: p.x, py: p.y, exact: false})
 				a.srcCut[si.src] = true
 			}
 			if interiorJ {
-				sj.cuts = append(sj.cuts, cut{t: p.tj, px: p.x, py: p.y})
+				sj.cuts = append(sj.cuts, cut{t: p.tj, px: p.x, py: p.y, exact: false})
 				a.srcCut[sj.src] = true
 			}
 			// Self-intersection: a single simple closed loop (its core vertices
@@ -1157,7 +1170,7 @@ func (a *arranger) applyAnalyticCut(src int, t, x, y float64) {
 		if local <= segEps || local >= 1-segEps {
 			return // interior split, but at an existing sample vertex
 		}
-		s.cuts = append(s.cuts, cut{t: local, px: x, py: y})
+		s.cuts = append(s.cuts, cut{t: local, px: x, py: y, exact: true})
 		return
 	}
 }
@@ -1280,15 +1293,23 @@ func (a *arranger) split() {
 		s := &a.segs[i]
 		// Boundaries along the segment: the two endpoints (chord positions) plus
 		// every cut, each carrying the EXACT point to canonicalize the vertex at.
-		bs := []cut{{t: 0, px: s.ax, py: s.ay}, {t: 1, px: s.bx, py: s.by}}
+		// The two segment endpoints are exact: they are sample params, evaluated ON
+		// the true curve by densify. Only a SAMPLED cut is inexact.
+		bs := []cut{{t: 0, px: s.ax, py: s.ay, exact: true}, {t: 1, px: s.bx, py: s.by, exact: true}}
 		bs = append(bs, s.cuts...)
 		sort.Slice(bs, func(i, j int) bool { return bs[i].t < bs[j].t })
 		// dedup near-equal local params (keep the first, which for an analytic cut at
-		// a seg boundary keeps the endpoint's exact point)
+		// a seg boundary keeps the endpoint's exact point). Exactness is ANDed into
+		// the survivor: a boundary coincident with a sampled cut is only as
+		// trustworthy as that cut, so the merge never launders inexact into exact.
 		uniq := bs[:0:0]
 		for _, b := range bs {
 			if len(uniq) == 0 || b.t-uniq[len(uniq)-1].t > segEps {
 				uniq = append(uniq, b)
+				continue
+			}
+			if !b.exact {
+				uniq[len(uniq)-1].exact = false
 			}
 		}
 		for k := 1; k < len(uniq); k++ {
@@ -1300,7 +1321,8 @@ func (a *arranger) split() {
 			}
 			p0 := s.pa + b0.t*(s.pb-s.pa)
 			p1 := s.pa + b1.t*(s.pb-s.pa)
-			a.edges = append(a.edges, arrEdge{u: u, v: v, src: s.src, pu: p0, pv: p1})
+			a.edges = append(a.edges, arrEdge{u: u, v: v, src: s.src, pu: p0, pv: p1,
+				exactU: b0.exact, exactV: b1.exact})
 		}
 	}
 }
@@ -1660,24 +1682,33 @@ func (a *arranger) makeCycle(hs []int) cycle {
 		pEnd     float64
 		dense    [][2]float64
 		reversed bool
+		// exactStart/exactEnd track the trustworthiness of pStart/pEnd. Only the
+		// fragment's two OUTER bounds matter: an interior boundary coalesced away
+		// is not reported, so its exactness is irrelevant.
+		exactStart, exactEnd bool
 	}
 	var frags []frag
 	for _, hi := range hs {
 		h := a.halfs[hi]
 		e := a.edges[h.edge]
 		var pStart, pEnd float64
+		var exStart, exEnd bool
 		if h.forward {
 			pStart, pEnd = e.pu, e.pv
+			exStart, exEnd = e.exactU, e.exactV
 		} else {
 			pStart, pEnd = e.pv, e.pu
+			exStart, exEnd = e.exactV, e.exactU
 		}
 		fx, fy := a.verts.coord(h.from)
 		tx, ty := a.verts.coord(h.to)
 		if n := len(frags); n > 0 && frags[n-1].src == e.src && approx(frags[n-1].pEnd, pStart, 1e-9) {
 			frags[n-1].pEnd = pEnd
+			frags[n-1].exactEnd = exEnd
 			frags[n-1].dense = append(frags[n-1].dense, [2]float64{tx, ty})
 		} else {
 			frags = append(frags, frag{src: e.src, pStart: pStart, pEnd: pEnd,
+				exactStart: exStart, exactEnd: exEnd,
 				dense: [][2]float64{{fx, fy}, {tx, ty}}})
 		}
 		if cm := a.comp[e.src]; cm >= 0 {
@@ -1689,6 +1720,7 @@ func (a *arranger) makeCycle(hs []int) cycle {
 	// A closed loop's first and last fragment may share a source; merge them.
 	if n := len(frags); n > 1 && frags[0].src == frags[n-1].src && approx(frags[n-1].pEnd, frags[0].pStart, 1e-9) {
 		frags[n-1].pEnd = frags[0].pEnd
+		frags[n-1].exactEnd = frags[0].exactEnd
 		frags[n-1].dense = append(frags[n-1].dense, frags[0].dense[1:]...)
 		frags = frags[1:]
 	}
@@ -1701,8 +1733,18 @@ func (a *arranger) makeCycle(hs []int) cycle {
 		// Whole means the source curve was never split by a crossing — so this
 		// edge represents the entire curve (a closed curve's seam is not a split).
 		whole := !a.srcCut[f.src]
+		// TStart/TEnd are reported in the source's NATURAL parameter direction, so
+		// TStart < TEnd always; Reversed (above) is what says the walk traverses the
+		// fragment backwards. Both bounds must be trustworthy for TExact.
+		tStart, tEnd := f.pStart, f.pEnd
+		exStart, exEnd := f.exactStart, f.exactEnd
+		if reversed {
+			tStart, tEnd = tEnd, tStart
+			exStart, exEnd = exEnd, exStart
+		}
 		c.boundary = append(c.boundary, BoundaryEdge{
 			SourceIndex: f.src, Whole: whole, Reversed: reversed, Polyline: f.dense,
+			TStart: tStart, TEnd: tEnd, TExact: exStart && exEnd,
 		})
 		c.frags = append(c.frags, cycFrag{src: f.src, pStart: f.pStart, pEnd: f.pEnd})
 		c.dense = append(c.dense, f.dense[:len(f.dense)-1]...)

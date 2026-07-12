@@ -28,6 +28,42 @@ type BoundaryEdge struct {
 	// point the edge's start vertex and the last its end vertex. A line edge is
 	// two points; an arc/closed-curve fragment is more.
 	Polyline [][2]float64
+	// TStart and TEnd are the fragment's parameter range on the source curve, in
+	// the curve's NATURAL parameter direction — so TStart < TEnd always, and
+	// Reversed (not the order of these two) is what says the walk runs backwards.
+	// A whole edge spans the curve's full domain. The range never wraps: a
+	// fragment of a closed curve straddling the seam is emitted as two edges.
+	//
+	// The parameter is the arrangement's normalized t in [0,1], which is NOT the
+	// curve's own angle/knot parameter:
+	//
+	//	Line              lerp Start→End
+	//	Arc               angle = StartAngle + t·Sweep
+	//	Circle            angle = 2π·t, from the absolute +x axis (a circle has no start)
+	//	Ellipse           eccentric angle 2π·t in the rotated local frame
+	//	EllipticalArc     eccentric angle = StartParam + t·Sweep
+	//	Conic             the rational quadratic Bézier parameter
+	//	Spline/FitSpline  the curve's own t (interior knots at j/(n-3))
+	//	ClosedSpline      the periodic parameter, span boundaries at i/n
+	//	NURBS             normalized: knot u = lo + (hi-lo)·t over Domain()
+	TStart, TEnd float64
+	// TExact reports whether TStart and TEnd are the TRUE source parameters.
+	//
+	// It is true when both bounds come from the closed-form kernel (an analytic
+	// crossing), a sample vertex, or the curve's own endpoint — and false when
+	// either bound comes from a SAMPLED crossing, whose parameter is interpolated
+	// between two sample params and whose point lies off the true curve by the
+	// chord sagitta. A false value does not mean the topology is wrong; it means
+	// the parameter converges with sampling density rather than being exact.
+	//
+	// Only line-vs-{line,circle,arc} crossings are analytic today. Every crossing
+	// involving an ellipse, elliptical arc, conic, spline, closed spline, fit
+	// spline or NURBS — even against a plain line — is sampled, as is every
+	// curve/curve crossing. So a partial fragment of a free-form curve reports
+	// TExact = false. A consumer that must be exact (e.g. one recording the region
+	// structurally, or emitting CAD code from it) MUST check this flag and reject
+	// rather than trust the range.
+	TExact bool
 }
 
 // Region is a minimal bounded area extracted from the arrangement: an outer
