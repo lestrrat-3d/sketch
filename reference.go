@@ -94,7 +94,7 @@ func (s *Sketch) CreateReferenceLine(p1, p2 *Point, source string) (*Line, error
 	l := &Line{s: s, Start: p1, End: p2, id: len(s.ents)}
 	l.reference = true
 	l.source = source
-	s.ents = append(s.ents, l)
+	s.addEntity(l)
 	s.sealReference(l, p1, p2)
 	return l, nil
 }
@@ -119,7 +119,7 @@ func (s *Sketch) CreateReferenceArc(center, start, end *Point, source string) (*
 	a := &Arc{s: s, Center: center, Start: start, End: end, id: len(s.ents)}
 	a.reference = true
 	a.source = source
-	s.ents = append(s.ents, a)
+	s.addEntity(a)
 	// No arcRadius constraint: the points are locked, so radius consistency is a
 	// property of the supplied snapshot (validated above), not something for the
 	// solver to enforce — and a row touching no free variable would read as a
@@ -140,7 +140,7 @@ func (s *Sketch) CreateReferenceCircle(center *Point, r float64, source string) 
 	c.reference = true
 	c.source = source
 	s.fixed[c.ri] = true
-	s.ents = append(s.ents, c)
+	s.addEntity(c)
 	s.sealReference(c, center)
 	return c, nil
 }

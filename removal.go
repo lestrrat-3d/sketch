@@ -64,6 +64,11 @@ func (s *Sketch) RemoveEntity(e Entity) bool {
 	}
 	s.removeConstraintsReferencing(nil, e)
 	delete(s.refSeals, e) // drop any reference topology seal
+	// Drop the entity's instance identity. The uid counter is NOT rewound, so a
+	// re-created identical entity lands at the same position and id but gets a
+	// FRESH uid — which is what makes the revision (and any Profile holding the
+	// dead handle) change. See Sketch.addEntity.
+	delete(s.entUIDs, e)
 	// Retire scalar variables owned by the entity itself. Line/Arc/Spline own
 	// none — their coordinates belong to their points, which survive.
 	switch t := e.(type) {

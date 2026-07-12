@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 
 	"github.com/lestrrat-3d/r3"
 	"github.com/lestrrat-3d/sketch/geom"
@@ -40,6 +41,41 @@ type Sketch struct {
 	pl       *Plane                // placement; nil reads as the world XY datum
 	refSeals map[Entity][]*Point   // reference entity -> its construction-time defining points (topology seal)
 	conNames map[Constraint]string // optional constraint labels (see names.go); not on the constraint itself
+
+	entUIDs   map[Entity]uint64 // entity -> its instance identity (see addEntity); in-memory only, never serialized
+	nextEntID uint64            // monotonically increasing uid source; never rewound, never reused
+}
+
+// addEntity commits a freshly built entity: it stamps the entity with a stable
+// INSTANCE IDENTITY (its uid) and appends it to the entity slice. Every entity
+// builder goes through here, and it is the ONLY place a uid is ever stamped —
+// so "every entity in s.ents carries a nonzero uid" is an invariant established
+// at entry, never repaired later. [Sketch.Revision] only READS the uid (see
+// Sketch.entUID): fingerprinting a sketch must not mutate it, or a read-looking
+// call would race with itself.
+//
+// The uid exists because an entity's positional id is NOT an identity: removal
+// splices and renumbers (see removal.go), so removing an entity and creating an
+// identical one puts a DIFFERENT instance at the same id with the same type,
+// points and shape. A [Profile] hands out LIVE entity handles (Profile.Entities,
+// BoundaryEdge.Entity), so a consumer that records a profile structurally would
+// then hold a handle the sketch no longer owns while [Profile.IsStale] reported
+// fresh. Hashing the uid in [Sketch.Revision] makes that swap visible.
+//
+// uids are never reused: the counter only ever increases, and removal deletes
+// the map entry without rewinding it. That holds ACROSS an in-place rebuild too
+// — [Sketch.UnmarshalJSON] resets the sketch struct but carries the counter over,
+// so the rebuilt entities get fresh uids above the retired ones. The uid is
+// in-memory state, not document content: it is never serialized (a loaded
+// document's uids are assigned, not read), which is exactly why the counter must
+// survive the reset rather than be restored from the document.
+func (s *Sketch) addEntity(e Entity) {
+	if s.entUIDs == nil {
+		s.entUIDs = map[Entity]uint64{}
+	}
+	s.nextEntID++
+	s.entUIDs[e] = s.nextEntID
+	s.ents = append(s.ents, e)
 }
 
 // newSketch is the shared constructor used by [World.CreateSketch] and the
@@ -78,16 +114,40 @@ func (s *Sketch) newVar(v float64) int {
 	return len(s.vars) - 1
 }
 
-// Points returns the points in creation order. The slice must not be modified.
-func (s *Sketch) Points() []*Point { return s.points }
+// Points returns the points in creation order.
+//
+// The returned slice is a COPY: the elements are the sketch's live *Point
+// handles (mutate a point through its own API — MoveTo, Fix — as usual), but
+// writing to a SLOT of the returned slice does not reach the sketch. See
+// [Sketch.Entities] for why the copy is load-bearing.
+func (s *Sketch) Points() []*Point { return slices.Clone(s.points) }
 
 // Entities returns the lines, circles, arcs and ellipses in creation order.
-// The slice must not be modified.
-func (s *Sketch) Entities() []Entity { return s.ents }
+//
+// The returned slice is a COPY: the elements are the sketch's live [Entity]
+// handles, but writing to a SLOT of the returned slice does not reach the
+// sketch. That copy is load-bearing, not politeness. Handing out the backing
+// array would let a caller do
+//
+//	s.Entities()[i] = &sketch.Line{Start: a, End: b}
+//
+// — the entity types are exported with exported fields — and splice an entity
+// into the sketch that never passed through the addEntity funnel, so it carries
+// no instance identity (uid), no allocated solver vars, and no id matching its
+// slot. Every invariant the engine rests on (id == slice position, entity-owned
+// vars, the [Sketch.Revision] fingerprint that makes [Profile.IsStale] work) is
+// bypassed at once. Entities enter the sketch only through the builders.
+func (s *Sketch) Entities() []Entity { return slices.Clone(s.ents) }
 
-// Constraints returns the constraints in creation order. The slice must not be
-// modified.
-func (s *Sketch) Constraints() []Constraint { return s.cons }
+// Constraints returns the constraints in creation order.
+//
+// The returned slice is a COPY: the elements are the sketch's live [Constraint]
+// values, but writing to a SLOT of the returned slice does not reach the sketch.
+// Reordering or duplicating the backing slice would silently shift the
+// row->constraint attribution every diagnostic (RedundantConstraints, Diagnose,
+// ConflictSet) derives from residuals(); constraints enter and leave through
+// [Sketch.AddConstraint] / [Sketch.RemoveConstraint] only.
+func (s *Sketch) Constraints() []Constraint { return slices.Clone(s.cons) }
 
 // worldPolylineSegments is the per-curve sampling density of [Sketch.WorldPolyline].
 const worldPolylineSegments = 32
@@ -461,7 +521,7 @@ func (l *Line) AngleTo(other *Line) float64 { return l.Geometry().AngleTo(other.
 // CreateLine adds a line between two points and returns its handle.
 func (s *Sketch) CreateLine(start, end *Point) *Line {
 	l := &Line{s: s, Start: start, End: end, id: len(s.ents)}
-	s.ents = append(s.ents, l)
+	s.addEntity(l)
 	return l
 }
 
@@ -503,7 +563,7 @@ func (c *Circle) centerPt() *Point { return c.Center }
 // radius variable, and returns its handle.
 func (s *Sketch) CreateCircle(center *Point, r float64) *Circle {
 	c := &Circle{s: s, Center: center, ri: s.newVar(r), id: len(s.ents)}
-	s.ents = append(s.ents, c)
+	s.addEntity(c)
 	return c
 }
 
@@ -564,7 +624,7 @@ func (a *Arc) Sweep() float64 {
 // the internal radius-consistency constraint. Returns its handle.
 func (s *Sketch) CreateArc(center, start, end *Point) *Arc {
 	a := &Arc{s: s, Center: center, Start: start, End: end, id: len(s.ents)}
-	s.ents = append(s.ents, a)
+	s.addEntity(a)
 	s.cons = append(s.cons, &arcRadius{a})
 	return a
 }
@@ -625,7 +685,7 @@ func (s *Sketch) CreateEllipse(center *Point, rx, ry, rotation float64) *Ellipse
 		rxi: s.newVar(rx), ryi: s.newVar(ry), roti: s.newVar(rotation),
 		id: len(s.ents),
 	}
-	s.ents = append(s.ents, e)
+	s.addEntity(e)
 	return e
 }
 
@@ -692,7 +752,7 @@ func (s *Sketch) CreateEllipticalArc(center, start, end *Point, rx, ry, rotation
 		rxi: s.newVar(rx), ryi: s.newVar(ry), roti: s.newVar(rotation),
 		id: len(s.ents),
 	}
-	s.ents = append(s.ents, e)
+	s.addEntity(e)
 	s.cons = append(s.cons, &ellipticalArcOn{e, start}, &ellipticalArcOn{e, end})
 	return e
 }
@@ -761,7 +821,7 @@ func (s *Sketch) CreateConic(start, apex, end *Point, rho float64) (*Conic, erro
 		rhoi: s.newVar(rho),
 		id:   len(s.ents),
 	}
-	s.ents = append(s.ents, c)
+	s.addEntity(c)
 	return c, nil
 }
 
