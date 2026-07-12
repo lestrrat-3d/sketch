@@ -1,6 +1,8 @@
 package sketch_test
 
 import (
+	"encoding/json"
+	"math"
 	"testing"
 
 	"github.com/lestrrat-3d/sketch"
@@ -20,6 +22,29 @@ func squareSketch(t *testing.T) (*sketch.Sketch, []*sketch.Point) {
 	s.CreateLine(tr, tl)
 	s.CreateLine(tl, bl)
 	return s, []*sketch.Point{bl, br, tr, tl}
+}
+
+// nurbsCapSketch is a region closed by a NURBS arc over four control points and
+// a line joining its endpoints. The control points are identical for every
+// (degree, weights, knots) triple it is called with, so two sketches it builds
+// differ ONLY in the NURBS' structural data — the state that lives on the entity
+// rather than in the solver's var vector.
+func nurbsCapSketch(t *testing.T, degree int, weights, knots []float64) *sketch.Sketch {
+	t.Helper()
+	w := sketch.NewWorld()
+	s, err := w.CreateSketch(w.XY())
+	require.NoError(t, err)
+	// Deliberately asymmetric: a control polygon symmetric about its mid-line
+	// makes the swept area insensitive to the interior knot, hiding a real shape
+	// change behind an unchanged number.
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(2, 12)
+	c := s.CreatePoint(15, 9)
+	d := s.CreatePoint(20, 0)
+	_, err = s.CreateNURBS(degree, []*sketch.Point{a, b, c, d}, weights, knots)
+	require.NoError(t, err)
+	s.CreateLine(d, a) // close the region back to the curve's start
+	return s
 }
 
 func TestProfileStaleness(t *testing.T) {
@@ -99,6 +124,67 @@ func TestProfileStaleness(t *testing.T) {
 
 		require.True(t, p.IsStale(), "the square no longer closes; the profile is a ghost")
 		require.Empty(t, s.Profiles(), "and indeed there is no region any more")
+	})
+
+	t.Run("changing NURBS structural data makes a profile stale", func(t *testing.T) {
+		// The adversarial case for a var-vector-only fingerprint: a NURBS' degree,
+		// knots and weights are STRUCTURAL data, not solver vars, yet Profiles()
+		// reads all three. Changing them reshapes the curve — and the profile's
+		// area — without moving a single point, so a revision that hashed only
+		// s.vars plus the topology would call the old profile fresh.
+		//
+		// Sketch.UnmarshalJSON rebuilds a sketch IN PLACE, so it is the public API
+		// path that mutates structural data on a live sketch: loading a document
+		// whose points match but whose NURBS differs is exactly the bug's trigger.
+		// Every variant keeps the SAME four control points; only the structural
+		// data differs from the baseline (degree 2, unit weights, mid-knot 0.5).
+		for _, tc := range []struct {
+			name    string
+			degree  int
+			weights []float64
+			knots   []float64
+		}{
+			{
+				name: "weights", degree: 2,
+				weights: []float64{1, 8, 8, 1},
+				knots:   []float64{0, 0, 0, 0.5, 1, 1, 1},
+			},
+			{
+				name: "knots", degree: 2,
+				weights: []float64{1, 1, 1, 1},
+				knots:   []float64{0, 0, 0, 0.9, 1, 1, 1},
+			},
+			{
+				name: "degree", degree: 3,
+				weights: []float64{1, 1, 1, 1},
+				knots:   []float64{0, 0, 0, 0, 1, 1, 1, 1},
+			},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				// The baseline and the variant differ ONLY in the NURBS' structural
+				// data: same points, same topology, same construction flags.
+				base := nurbsCapSketch(t, 2, []float64{1, 1, 1, 1}, []float64{0, 0, 0, 0.5, 1, 1, 1})
+				variant := nurbsCapSketch(t, tc.degree, tc.weights, tc.knots)
+
+				require.NotEqual(t, base.Revision(), variant.Revision(),
+					"a NURBS structural change must change the fingerprint")
+
+				p := base.Profiles()[0]
+				require.False(t, p.IsStale())
+				areaBefore := p.Area
+
+				doc, err := json.Marshal(variant)
+				require.NoError(t, err)
+				require.NoError(t, base.UnmarshalJSON(doc)) // rebuilds base in place
+
+				require.True(t, p.IsStale(), "the curve was reshaped under the profile")
+				rebuilt := base.Profiles()
+				require.Len(t, rebuilt, 1)
+				require.False(t, rebuilt[0].IsStale())
+				require.Greater(t, math.Abs(rebuilt[0].Area-areaBefore), 1e-6,
+					"the region really did change shape")
+			})
+		}
 	})
 
 	t.Run("a profile of another sketch is not confused for this one", func(t *testing.T) {
