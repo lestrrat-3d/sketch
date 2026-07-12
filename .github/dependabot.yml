@@ -6,6 +6,12 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      # init/autobuild/analyze are separate Dependabot dependencies that share
+      # one SHA and must move together, or CodeQL fails with a version mismatch.
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"
 
   - package-ecosystem: gomod
     directory: /
