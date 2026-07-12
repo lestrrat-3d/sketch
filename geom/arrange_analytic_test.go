@@ -341,3 +341,76 @@ func TestAnalyticInternalTangentTinyInnerBlessed(t *testing.T) {
 		}
 	}
 }
+
+func TestAnalyticUnexplainedWeldIsInexact(t *testing.T) {
+	// The vertex table welds by DISTANCE while the analytic kernel decides in exact
+	// closed form, so a handled (line/circle) pair can still be split by a weld the
+	// kernel never accounted for. Here the line's start (0,y) sits just inside the
+	// circle's top sample vertex (0,1) — 1-y < merge — so the two weld and the circle
+	// is split at t=0.25 by nothing but that distance rule. The pair's real analytic
+	// crossing is elsewhere, at (1.5·merge, y): farther than merge from BOTH welded
+	// endpoints, so it canonicalizes to a graph vertex of its own and cannot explain
+	// the weld. A fragment bounded by the weld must therefore report TExact = false —
+	// blessing it would certify a range that only a sampling tolerance produced.
+	merge := 0.01
+	a := 1.5 * merge
+	y := math.Sqrt(1 - a*a)
+
+	arr := geom.Regions(
+		[]geom.Curve{geom.NewLine(geom.NewPoint(0, y), geom.NewPoint(0.5, y))},
+		[]geom.ClosedCurve{geom.NewCircle(geom.NewPoint(0, 0), 1)},
+		geom.WithVertexMerge(merge),
+	)
+
+	const weldT = 0.25
+	welded := 0
+	for _, r := range arr.Regions {
+		for _, e := range append(append([]geom.BoundaryEdge{}, r.Outer...), flattenHoles(r)...) {
+			if e.SourceIndex != 1 { // the circle
+				continue
+			}
+			if math.Abs(e.TStart-weldT) > 1e-9 && math.Abs(e.TEnd-weldT) > 1e-9 {
+				continue
+			}
+			welded++
+			require.Falsef(t, e.TExact,
+				"a circle fragment bounded by the unexplained distance weld must not read exact: t=[%v %v]",
+				e.TStart, e.TEnd)
+		}
+	}
+	require.NotZero(t, welded, "the weld at t=0.25 must bound at least one emitted fragment")
+}
+
+func TestAnalyticExplainedWeldStaysExact(t *testing.T) {
+	// The other direction: a weld the kernel DOES account for must keep its honest
+	// exactness — an exact analytic cut is never laundered into a sampled one. The
+	// line starts exactly at the circle's top sample vertex (0,1) and cuts a chord to
+	// (0.8,0.6): the weld there is at the pair's own analytic crossing, which
+	// canonicalizes to that very vertex, so every emitted circle fragment (bounded by
+	// the weld at t=0.25 and by the exact analytic cut at the chord's other end) stays
+	// TExact.
+	arr := geom.Regions(
+		[]geom.Curve{geom.NewLine(geom.NewPoint(0, 1), geom.NewPoint(2, 0))},
+		[]geom.ClosedCurve{geom.NewCircle(geom.NewPoint(0, 0), 1)},
+		geom.WithVertexMerge(0.01),
+	)
+
+	edges := 0
+	for _, r := range arr.Regions {
+		for _, e := range append(append([]geom.BoundaryEdge{}, r.Outer...), flattenHoles(r)...) {
+			edges++
+			require.Truef(t, e.TExact,
+				"an analytically explained weld keeps its exactness: src=%d t=[%v %v]",
+				e.SourceIndex, e.TStart, e.TEnd)
+		}
+	}
+	require.NotZero(t, edges, "the chord splits the disk")
+}
+
+func flattenHoles(r *geom.Region) []geom.BoundaryEdge {
+	var out []geom.BoundaryEdge
+	for _, h := range r.Holes {
+		out = append(out, h...)
+	}
+	return out
+}

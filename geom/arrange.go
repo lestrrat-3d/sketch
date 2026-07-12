@@ -1228,9 +1228,9 @@ func (a *arranger) applyAnalyticCut(src int, t, x, y float64) {
 // for. taintSampledVertex no-ops at a source's own endpoint, so an ordinary
 // end-to-end join between two curves stays a join.
 func (a *arranger) taintMergedEndpoints(si, sj *tinySeg) {
-	a.forEachMergedEnd(si, sj, func(ti, tj, _, _ float64) {
-		a.taintSampledVertex(si.src, ti)
-		a.taintSampledVertex(sj.src, tj)
+	a.forEachMergedEnd(si, sj, func(e mergedEnd) {
+		a.taintSampledVertex(si.src, e.ti)
+		a.taintSampledVertex(sj.src, e.tj)
 	})
 }
 
@@ -1250,35 +1250,57 @@ func (a *arranger) taintMergedEndpoints(si, sj *tinySeg) {
 // evidence of an analytic contact.
 func (a *arranger) auditMergedEndpoints(si, sj *tinySeg) {
 	events := a.events[pairKey(si.src, sj.src)]
-	a.forEachMergedEnd(si, sj, func(ti, tj, x, y float64) {
-		if a.eventExplains(events, x, y) {
+	a.forEachMergedEnd(si, sj, func(e mergedEnd) {
+		if a.eventExplains(events, e) {
 			return
 		}
-		a.taintSampledVertex(si.src, ti)
-		a.taintSampledVertex(sj.src, tj)
+		a.taintSampledVertex(si.src, e.ti)
+		a.taintSampledVertex(sj.src, e.tj)
 	})
 }
 
-// eventExplains reports whether some analytic event of the pair sits at the welded
-// contact (x,y) — the midpoint of the two welded sample vertices, which are within
-// a.merge of each other and both lie exactly on their own true curve. The window is
-// a small multiple of the merge tolerance: an event that genuinely produced the weld
-// lies on both curves within it, while an event elsewhere on the pair (a crossing on
-// the far side, say) cannot excuse a weld here.
-func (a *arranger) eventExplains(events []xEvent, x, y float64) bool {
+// eventExplains reports whether some analytic event of the pair IS the vertex the two
+// sample endpoints welded at — i.e. whether the event canonicalizes to that same graph
+// vertex.
+//
+// The predicate mirrors vertexTable.canon, which decides identity by DISTANCE to an
+// existing vertex's stored coordinates (<= a.merge), and stores the coordinates of
+// whichever point reached the table first. The welded vertex is therefore located at
+// ONE of the two endpoints — which one depends on insertion order, which is not known
+// here — so an event canonicalizes to it only if it lies within a.merge of that
+// representative. Since either endpoint may be the representative, requiring the event
+// to be within a.merge of BOTH is the sound rule: it holds exactly when canon(event)
+// would return that vertex whichever endpoint happens to represent it.
+//
+// A looser window (a multiple of a.merge, or a distance to the endpoints' midpoint)
+// approximates canonicalization rather than mirroring it, and would let an unrelated
+// analytic event merely NEAR the weld — but a separate graph vertex of its own —
+// suppress the taint, leaving a bound that really came from a distance weld wearing
+// exact:true. The failure of that direction is a false certification, so the predicate
+// must be the canonicalization rule itself.
+func (a *arranger) eventExplains(events []xEvent, m mergedEnd) bool {
 	for _, e := range events {
-		if math.Hypot(e.x-x, e.y-y) <= 2*a.merge {
+		if math.Hypot(e.x-m.xi, e.y-m.yi) <= a.merge && math.Hypot(e.x-m.xj, e.y-m.yj) <= a.merge {
 			return true
 		}
 	}
 	return false
 }
 
+// mergedEnd is one weld: the tiny-segment endpoints of two DIFFERENT sources that the
+// vertex table canonicalizes into a single graph vertex, with each side's natural
+// source parameter (ti, tj) and its own coordinates (xi,yi / xj,yj). The two
+// coordinates are kept separate — not averaged — because vertex identity is decided by
+// distance to one of them, never to their midpoint.
+type mergedEnd struct {
+	ti, tj         float64
+	xi, yi, xj, yj float64
+}
+
 // forEachMergedEnd calls fn for every pair of tiny-segment endpoints — one from each
 // of two DIFFERENT sources — that the vertex table would canonicalize into a single
-// graph vertex (they lie within the merge tolerance). fn receives the two sources'
-// natural parameters there plus the contact's midpoint.
-func (a *arranger) forEachMergedEnd(si, sj *tinySeg, fn func(ti, tj, x, y float64)) {
+// graph vertex (they lie within the merge tolerance).
+func (a *arranger) forEachMergedEnd(si, sj *tinySeg, fn func(mergedEnd)) {
 	type end struct{ x, y, t float64 }
 	iEnds := [2]end{{si.ax, si.ay, si.pa}, {si.bx, si.by, si.pb}}
 	jEnds := [2]end{{sj.ax, sj.ay, sj.pa}, {sj.bx, sj.by, sj.pb}}
@@ -1287,7 +1309,7 @@ func (a *arranger) forEachMergedEnd(si, sj *tinySeg, fn func(ti, tj, x, y float6
 			if math.Hypot(ei.x-ej.x, ei.y-ej.y) > a.merge {
 				continue
 			}
-			fn(ei.t, ej.t, (ei.x+ej.x)/2, (ei.y+ej.y)/2)
+			fn(mergedEnd{ti: ei.t, tj: ej.t, xi: ei.x, yi: ei.y, xj: ej.x, yj: ej.y})
 		}
 	}
 }
