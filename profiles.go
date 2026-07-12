@@ -39,8 +39,11 @@ type BoundaryEdge struct {
 	// Entity is the source sketch entity this edge lies on (*Line/*Arc/*Circle/
 	// *Ellipse).
 	Entity Entity
-	// Partial is true when this edge covers only a sub-range of Entity (the
-	// entity was split at a crossing); false when it spans the whole entity.
+	// Partial is true when this edge covers only a sub-range of Entity — i.e.
+	// [TStart, TEnd] is a strict sub-interval of the entity's full domain; false
+	// when it spans the whole entity. It says exactly what the edge's own range
+	// says: an entity whose only crossing bounds nothing (the crossing partner
+	// dangles and is pruned) is still covered whole, and reads Partial = false.
 	Partial bool
 	// Reversed is true when the boundary walks Entity against its natural
 	// Start→End (or counter-clockwise, for a closed entity) direction.

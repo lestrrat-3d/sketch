@@ -211,15 +211,16 @@ type arranger struct {
 	notSimple map[int]struct{} // core components that are NOT a simple closed loop (some vertex degree != 2)
 	core      []bool           // per source: part of the cycle-bearing core (not a dangling spur)
 	comp      []int            // per source: core component id, or -1 if not core
-	srcCut    []bool           // per source: split by at least one crossing (so its edges are fragments)
 	degen     [][2]float64     // points of degenerate (collinear-overlap / unresolvable) conditions
 	degenSet  bool
 
 	// Analytic-arrangement state (increment 2): which line/circle/arc source pairs
-	// were classified analytically (so the sampled segment loop skips them), and a
-	// per-source segment index for mapping an analytic event's source parameter to
-	// the tiny segment it cuts.
+	// were classified analytically (so the sampled segment loop skips them), the
+	// events that classification found (so a distance-weld between the pair's sample
+	// vertices can be audited against them), and a per-source segment index for
+	// mapping an analytic event's source parameter to the tiny segment it cuts.
 	handled    map[[2]int]struct{}
+	events     map[[2]int][]xEvent
 	sourceSegs [][]int
 
 	// Certified analytic tangency contacts (increment 3): the exact points where
@@ -796,20 +797,11 @@ func (a *arranger) sampleParams(s *source) []float64 {
 // split parameters, classifying same-component interior crossings as
 // self-intersections.
 func (a *arranger) intersect() {
-	a.srcCut = make([]bool, len(a.sources))
 	a.analyticPrepass()
 	n := len(a.segs)
 	for i := 0; i < n; i++ {
 		for j := i + 1; j < n; j++ {
 			si, sj := &a.segs[i], &a.segs[j]
-			// Supported source pairs (line/circle/arc) were classified analytically
-			// in the pre-pass; their crossings are authoritative, so the sampled
-			// segment test must not add contradictory ones.
-			if si.src != sj.src {
-				if _, h := a.handled[pairKey(si.src, sj.src)]; h {
-					continue
-				}
-			}
 			if si.src != sj.src {
 				// The planar map canonicalizes vertices by DISTANCE (a.merge), while the
 				// crossing test below accepts a contact only inside a parametric window
@@ -817,9 +809,18 @@ func (a *arranger) intersect() {
 				// graph vertex therefore split both sources even when the segment test
 				// declines the pair — a near-miss just outside the window, or a parallel
 				// pair that never reaches the test at all. Taint on the map's own merge
-				// rule so no split can hide in that gap. Analytic pairs are skipped
-				// above: their cuts are exact and authoritative, and downgrading them
-				// here would launder exact parameters into sampled ones.
+				// rule so no split can hide in that gap.
+				if _, h := a.handled[pairKey(si.src, sj.src)]; h {
+					// Supported source pairs (line/circle/arc) were classified analytically
+					// in the pre-pass; their crossings are authoritative, so the sampled
+					// segment test must not add contradictory ones. But the vertex table
+					// still welds their sample vertices by DISTANCE, and a weld the kernel
+					// found no event for is a split nothing exact explains — so audit the
+					// welds against the pair's events instead of trusting the pair
+					// wholesale (see auditMergedEndpoints).
+					a.auditMergedEndpoints(si, sj)
+					continue
+				}
 				a.taintMergedEndpoints(si, sj)
 			}
 			sameSpline := false
@@ -882,18 +883,15 @@ func (a *arranger) intersect() {
 			// the point are approximations that converge with sampling density.
 			//
 			// A crossing that lands ON a sample vertex (a tiny-segment boundary) needs
-			// no new cut record — the vertex already exists — but the source is split
-			// there all the same, so it must still be marked cut and the boundary's
-			// parameter must still read as sampled (see taintSampledVertex).
+			// no new cut record — the vertex already exists — but the boundary's
+			// parameter there must still read as sampled (see taintSampledVertex).
 			if interiorI {
 				si.cuts = append(si.cuts, cut{t: p.ti, px: p.x, py: p.y, exact: false})
-				a.srcCut[si.src] = true
 			} else {
 				a.taintSampledVertex(si.src, si.pa+p.ti*(si.pb-si.pa))
 			}
 			if interiorJ {
 				sj.cuts = append(sj.cuts, cut{t: p.tj, px: p.x, py: p.y, exact: false})
-				a.srcCut[sj.src] = true
 			} else {
 				a.taintSampledVertex(sj.src, sj.pa+p.tj*(sj.pb-sj.pa))
 			}
@@ -926,6 +924,7 @@ func (a *arranger) intersect() {
 // the sampled segment loop skips them.
 func (a *arranger) analyticPrepass() {
 	a.handled = make(map[[2]int]struct{})
+	a.events = make(map[[2]int][]xEvent)
 	a.sourceSegs = make([][]int, len(a.sources))
 	for i := range a.segs {
 		a.sourceSegs[a.segs[i].src] = append(a.sourceSegs[a.segs[i].src], i)
@@ -982,6 +981,7 @@ func (a *arranger) analyticPrepass() {
 				continue
 			}
 			a.handled[[2]int{i, j}] = struct{}{}
+			a.events[[2]int{i, j}] = events
 			// Consistency gate (curved pairs only): the sampled polyline must host
 			// the analytic crossings faithfully, or injecting exact cuts would warp
 			// the planar map (a vanished disk, a tangled face) while reading clean.
@@ -1179,13 +1179,12 @@ func cornerJoin(si, sj *source, e xEvent) bool {
 
 // applyAnalyticCut records an exact cut at source-parameter t (event point x,y) on
 // the tiny segment of source src that contains t. A cut at a segment boundary or a
-// source endpoint reuses the existing vertex (no new record) but still marks the
-// source topologically split.
+// source endpoint reuses the existing vertex and records nothing — the vertex is
+// already there, at the true parameter, so the fragment bounds it yields stay exact.
 func (a *arranger) applyAnalyticCut(src int, t, x, y float64) {
 	if atSourceEnd(&a.sources[src], t) {
 		return // a contact at the source's own endpoint does not split it (a join)
 	}
-	a.srcCut[src] = true
 	for _, si := range a.sourceSegs[src] {
 		s := &a.segs[si]
 		lo, hi := s.pa, s.pb
@@ -1216,6 +1215,57 @@ func (a *arranger) applyAnalyticCut(src int, t, x, y float64) {
 // for. taintSampledVertex no-ops at a source's own endpoint, so an ordinary
 // end-to-end join between two curves stays a join.
 func (a *arranger) taintMergedEndpoints(si, sj *tinySeg) {
+	a.forEachMergedEnd(si, sj, func(ti, tj, _, _ float64) {
+		a.taintSampledVertex(si.src, ti)
+		a.taintSampledVertex(sj.src, tj)
+	})
+}
+
+// auditMergedEndpoints is taintMergedEndpoints for a pair the analytic pre-pass
+// HANDLED. Being handled means the closed-form kernel is authoritative about where
+// the two sources meet — but the vertex table still welds sample vertices by
+// DISTANCE, and the two rules do not agree: a line whose true circle intersections
+// sit just OUTSIDE its segment produces no analytic event at all, yet its endpoint
+// can still land within the merge tolerance of a circle sample vertex and weld. The
+// weld splits the circle in the graph all the same, and nothing exact explains where.
+//
+// So each weld is audited against the pair's own events: a weld an analytic event
+// sits at keeps its honest exactness (the kernel found a real contact there, and the
+// parameter at that vertex is the true one — an exact cut must not be laundered into
+// a sampled one), while a weld NO event explains is a distance-only split and is
+// tainted, exactly like the sampled path. Never the reverse: a distance weld is not
+// evidence of an analytic contact.
+func (a *arranger) auditMergedEndpoints(si, sj *tinySeg) {
+	events := a.events[pairKey(si.src, sj.src)]
+	a.forEachMergedEnd(si, sj, func(ti, tj, x, y float64) {
+		if a.eventExplains(events, x, y) {
+			return
+		}
+		a.taintSampledVertex(si.src, ti)
+		a.taintSampledVertex(sj.src, tj)
+	})
+}
+
+// eventExplains reports whether some analytic event of the pair sits at the welded
+// contact (x,y) — the midpoint of the two welded sample vertices, which are within
+// a.merge of each other and both lie exactly on their own true curve. The window is
+// a small multiple of the merge tolerance: an event that genuinely produced the weld
+// lies on both curves within it, while an event elsewhere on the pair (a crossing on
+// the far side, say) cannot excuse a weld here.
+func (a *arranger) eventExplains(events []xEvent, x, y float64) bool {
+	for _, e := range events {
+		if math.Hypot(e.x-x, e.y-y) <= 2*a.merge {
+			return true
+		}
+	}
+	return false
+}
+
+// forEachMergedEnd calls fn for every pair of tiny-segment endpoints — one from each
+// of two DIFFERENT sources — that the vertex table would canonicalize into a single
+// graph vertex (they lie within the merge tolerance). fn receives the two sources'
+// natural parameters there plus the contact's midpoint.
+func (a *arranger) forEachMergedEnd(si, sj *tinySeg, fn func(ti, tj, x, y float64)) {
 	type end struct{ x, y, t float64 }
 	iEnds := [2]end{{si.ax, si.ay, si.pa}, {si.bx, si.by, si.pb}}
 	jEnds := [2]end{{sj.ax, sj.ay, sj.pa}, {sj.bx, sj.by, sj.pb}}
@@ -1224,19 +1274,22 @@ func (a *arranger) taintMergedEndpoints(si, sj *tinySeg) {
 			if math.Hypot(ei.x-ej.x, ei.y-ej.y) > a.merge {
 				continue
 			}
-			a.taintSampledVertex(si.src, ei.t)
-			a.taintSampledVertex(sj.src, ej.t)
+			fn(ei.t, ej.t, (ei.x+ej.x)/2, (ei.y+ej.y)/2)
 		}
 	}
 }
 
-// taintSampledVertex records a SAMPLED crossing that landed ON an existing sample
-// vertex of source src (a tiny-segment boundary at source parameter t) rather than
-// interior to a segment. No cut record is needed there — the vertex already exists —
-// but the source IS split by it in the arrangement graph, so it must be marked cut
-// (or the fragments would report Whole) and the boundary parameter at that vertex
-// must read as SAMPLED, not exact (or a fragment bounded by a sampled crossing would
-// report TExact, blessing an approximate range as certified).
+// taintSampledVertex records a contact that landed ON an existing sample vertex of
+// source src (a tiny-segment boundary at source parameter t) rather than interior to
+// a segment, and that NO closed-form event certifies — a sampled crossing, or a
+// distance-weld the vertex table made on its own. No cut record is needed there (the
+// vertex already exists), but the boundary parameter at that vertex must read as
+// SAMPLED, not exact: a fragment bounded by it would otherwise report TExact,
+// blessing an approximate range as certified.
+//
+// It says nothing about whether the source is split — that is read off each emitted
+// fragment's own range in makeCycle, so a contact whose partner is later pruned away
+// cannot leave a phantom Partial behind.
 //
 // A contact at the source's OWN endpoint is a join, not a split — the same rule
 // applyAnalyticCut applies — so it is left alone.
@@ -1245,7 +1298,6 @@ func (a *arranger) taintSampledVertex(src int, t float64) {
 	if atSourceEnd(s, t) {
 		return
 	}
-	a.srcCut[src] = true
 	a.taintSegBoundary(src, t)
 	// A closed source's seam is a single vertex reachable as both t≈0 and t≈1, so
 	// taint both incident segments: a fragment ending there from either side must
@@ -1342,6 +1394,13 @@ func sourceRep(s *source) (float64, float64) {
 }
 
 const segEps = 1e-9
+
+// wholeParamEps is how close a fragment's surviving parameter range must come to the
+// source's full domain [0,1] for the edge to count as the WHOLE curve. It is the
+// parametric noise floor of a coalesced run of sample params (exact fractions summed
+// through the same arithmetic), not a geometric tolerance: a real crossing that leaves
+// a genuine fragment is orders of magnitude further inside the domain than this.
+const wholeParamEps = 1e-9
 
 type segHit struct {
 	x, y   float64
@@ -1844,9 +1903,6 @@ func (a *arranger) makeCycle(hs []int) cycle {
 	for _, f := range frags {
 		s := &a.sources[f.src]
 		reversed := f.pEnd < f.pStart
-		// Whole means the source curve was never split by a crossing — so this
-		// edge represents the entire curve (a closed curve's seam is not a split).
-		whole := !a.srcCut[f.src]
 		// TStart/TEnd are reported in the source's NATURAL parameter direction, so
 		// TStart < TEnd always; Reversed (above) is what says the walk traverses the
 		// fragment backwards. Both bounds must be trustworthy for TExact.
@@ -1856,6 +1912,17 @@ func (a *arranger) makeCycle(hs []int) cycle {
 			tStart, tEnd = tEnd, tStart
 			exStart, exEnd = exEnd, exStart
 		}
+		// Whole is read off the fragment's OWN surviving range — the one thing that
+		// is actually true of the edge being emitted — not off a per-source "was it
+		// cut anywhere" flag. An edge covering the source's full domain IS the whole
+		// curve; a strict sub-interval IS a fragment. Deciding here (after pruning and
+		// after the coalescing above) is what makes the two agree: a contact whose
+		// partner was pruned away, or a split vertex the walk runs straight through,
+		// leaves a degree-2 vertex the fragments coalesce back across, so the curve is
+		// whole again and must say so. A CLOSED source cut exactly once coalesces the
+		// same way (the walk leaves the contact and returns to it), spanning [0,1] —
+		// genuinely the whole curve.
+		whole := tStart <= wholeParamEps && tEnd >= 1-wholeParamEps
 		c.boundary = append(c.boundary, BoundaryEdge{
 			SourceIndex: f.src, Whole: whole, Reversed: reversed, Polyline: f.dense,
 			TStart: tStart, TEnd: tEnd, TExact: exStart && exEnd,

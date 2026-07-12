@@ -34,6 +34,12 @@ func evalEntityAt(t *testing.T, e sketch.Entity, u float64) [2]float64 {
 		a := g.StartAngle() + u*g.Sweep()
 		r := g.Radius()
 		return [2]float64{g.Center.X + r*math.Cos(a), g.Center.Y + r*math.Sin(a)}
+	case *sketch.Ellipse:
+		g := c.Geometry()
+		a := 2 * math.Pi * u // eccentric angle in the rotated local frame
+		lx, ly := g.Rx*math.Cos(a), g.Ry*math.Sin(a)
+		cos, sin := math.Cos(g.Rotation), math.Sin(g.Rotation)
+		return [2]float64{g.Center.X + lx*cos - ly*sin, g.Center.Y + lx*sin + ly*cos}
 	case *sketch.Spline:
 		x, y := c.Eval(u)
 		return [2]float64{x, y}
@@ -278,6 +284,63 @@ func TestBoundaryEdgeParams(t *testing.T) {
 			require.InDelta(t, 0.5, e.TEnd, 1e-9)
 		}
 		require.Equal(t, 1, splineEdges, "the lobe is bounded by one spline fragment")
+	})
+
+	t.Run("a distance-weld with no analytic event is not exact", func(t *testing.T) {
+		// A line whose endpoints sit 5e-7 INSIDE a circle of radius 5. The true
+		// line/circle intersections are at (0, ±5) — just outside the segment — so the
+		// analytic kernel, which is authoritative for a line/circle pair, finds no
+		// crossing and records no cut. But the vertex table welds by DISTANCE (the
+		// merge tolerance is scale·1e-7 = 1e-6 here), so each line endpoint still
+		// canonicalizes onto the circle's sample vertex at (0, ±5) and the circle IS
+		// split there in the graph.
+		//
+		// That split is a distance weld nothing exact explains. Its fragments may be
+		// reported — the topology is what it is — but they must never wear TExact over
+		// a strict sub-range: an "exact" fragment of a circle bounded by a weld is the
+		// false certification this flag exists to prevent.
+		w := sketch.NewWorld()
+		s, err := w.CreateSketch(w.XY())
+		require.NoError(t, err)
+		s.CreateCircle(s.CreatePoint(0, 0), 5)
+		s.CreateLine(s.CreatePoint(0, 5-5e-7), s.CreatePoint(0, -5+5e-7))
+
+		profiles := s.Profiles()
+		require.NotEmpty(t, profiles)
+		for _, p := range profiles {
+			for _, e := range p.Outer {
+				// analytic=false: the weld is NOT an analytic event, so no fragment it
+				// bounds may claim exactness.
+				requireEdgeParamsConsistent(t, e, false)
+			}
+		}
+	})
+
+	t.Run("a pruned contact leaves the curve whole", func(t *testing.T) {
+		// An ellipse plus a DANGLING line: one endpoint sits exactly on the ellipse's
+		// sample vertex at (0,3), the other floats free. The line bounds nothing, so
+		// pruning drops it and the ellipse is left as a single, complete boundary.
+		//
+		// Partial must follow the edge that actually survives: the ellipse is covered
+		// whole, over [0,1]. A per-source "was this curve touched anywhere" flag would
+		// outlive the pruned contact and report a phantom Partial on a whole curve.
+		w := sketch.NewWorld()
+		s, err := w.CreateSketch(w.XY())
+		require.NoError(t, err)
+		el := s.CreateEllipse(s.CreatePoint(0, 0), 5, 3, 0)
+		s.CreateLine(s.CreatePoint(0, 3), s.CreatePoint(0, 8))
+
+		profiles := s.Profiles()
+		require.Len(t, profiles, 1, "only the ellipse bounds a region; the spur is pruned")
+		require.Len(t, profiles[0].Outer, 1, "the ellipse is one boundary edge")
+
+		e := profiles[0].Outer[0]
+		requireEdgeParamsConsistent(t, e, false)
+		require.Equal(t, sketch.Entity(el), e.Entity)
+		require.False(t, e.Partial, "the ellipse is covered whole — its contact was pruned away")
+		require.InDelta(t, 0.0, e.TStart, 1e-12)
+		require.InDelta(t, 1.0, e.TEnd, 1e-12)
+		require.InDelta(t, math.Pi*5*3, profiles[0].Area, 1e-3, "the whole ellipse's area")
 	})
 
 	t.Run("an arc fragment's range is in sweep fraction, not absolute angle", func(t *testing.T) {

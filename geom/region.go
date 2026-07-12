@@ -18,8 +18,12 @@ type BoundaryEdge struct {
 	// SourceIndex is the position of the originating curve in the Regions
 	// input — its index in curves, or len(curves)+k for the k-th closed curve.
 	SourceIndex int
-	// Whole is true when this edge spans the entire source curve (the curve was
-	// not split by any crossing); false when it is a fragment.
+	// Whole is true when this edge spans the entire source curve — i.e. its
+	// [TStart, TEnd] covers the curve's full domain; false when it is a fragment
+	// covering a strict sub-range. It is derived from the edge's own surviving
+	// range, so a curve whose only contact was pruned away (or run straight
+	// through) reads Whole again, and a closed curve cut once — one edge leaving
+	// the contact and returning to it — is Whole, as it should be.
 	Whole bool
 	// Reversed is true when the boundary walks the source curve against its
 	// natural Start→End (or CCW, for a closed curve) direction.
