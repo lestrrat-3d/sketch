@@ -3,6 +3,7 @@ package sketch_test
 import (
 	"encoding/json"
 	"math"
+	"sync"
 	"testing"
 
 	"github.com/lestrrat-3d/sketch"
@@ -467,4 +468,56 @@ func TestProfileStalenessInPlaceReload(t *testing.T) {
 		require.True(t, owns(live, e))
 	}
 	require.InDelta(t, before[0].Area, after[0].Area, 1e-9, "the geometry round-tripped unchanged")
+}
+
+// TestRevisionIsPure asserts that OBSERVING a sketch never changes it: Revision
+// is a read, so calling it (or Profiles, which calls it) leaves the fingerprint
+// where it was and cannot make an already-built Profile go stale. Revision once
+// STAMPED a uid on the way past, which made a read a mutation.
+func TestRevisionIsPure(t *testing.T) {
+	s, _ := squareSketch(t)
+	p := s.Profiles()[0]
+
+	rev := s.Revision()
+	for range 5 {
+		require.Equal(t, rev, s.Revision(), "an untouched sketch keeps its revision across reads")
+		require.Equal(t, rev, s.Profiles()[0].Revision(), "building a profile does not move the revision")
+		require.False(t, p.IsStale(), "observing a sketch must never invalidate a profile of it")
+	}
+}
+
+// TestRevisionConcurrent runs Revision and Profiles from several goroutines on
+// ONE sketch. Under -race this is the regression test for the read-mutator bug:
+// a Revision that writes (stamping a uid, growing the counter, lazily allocating
+// the map) races with itself here and the race detector reports it — a
+// concurrent map read/write, which can also be an outright fatal crash.
+//
+// Concurrent READS of one sketch are in the house contract; the receiver is not
+// a mutex-guarded object, so a read path that writes is a bug in the read path.
+func TestRevisionConcurrent(t *testing.T) {
+	s, _ := squareSketch(t)
+	want := s.Revision()
+	p := s.Profiles()[0]
+
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 25 {
+				if i%2 == 0 {
+					require.Equal(t, want, s.Revision())
+				} else {
+					got := s.Profiles()
+					require.Len(t, got, 1)
+					require.Equal(t, want, got[0].Revision())
+					require.False(t, p.IsStale())
+				}
+			}
+		}()
+	}
+	wg.Wait()
+
+	require.Equal(t, want, s.Revision(), "concurrent reads left the fingerprint untouched")
+	require.False(t, p.IsStale())
 }

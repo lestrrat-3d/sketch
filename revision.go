@@ -34,6 +34,11 @@ import (
 // It is derived from state rather than bumped by each mutating method on
 // purpose: there is no list of bump sites to forget, so a new mutation path
 // cannot silently leave the revision stale.
+//
+// It is a PURE READ: it writes nothing — no map, no counter, no lazy
+// initialisation — so it is safe to call concurrently with itself and with
+// [Sketch.Profiles] on the same sketch, and observing a sketch never invalidates
+// a [Profile] built from it.
 func (s *Sketch) Revision() uint64 {
 	h := fnv.New64a()
 	var buf [8]byte
@@ -97,11 +102,10 @@ func (s *Sketch) Revision() uint64 {
 		// reused; see Sketch.addEntity) reveals that the old handle is now dead and
 		// the sketch owns a different instance.
 		//
-		// The uid is READ THROUGH adoptUID, which stamps an entity that reached
-		// s.ents without one rather than letting it hash as 0: 0 would make two
-		// different unstamped instances fingerprint alike — a stale Profile reading
-		// fresh, the very bug the uid closes. See Sketch.adoptUID.
-		write(s.adoptUID(e))
+		// The uid is READ, never stamped: Revision is a pure read (see
+		// Sketch.entUID for what an entity with no uid — an unreachable state —
+		// hashes as).
+		write(s.entUID(e))
 		_, _ = fmt.Fprintf(h, "%T", e)
 		if e.IsConstruction() {
 			write(1)
@@ -131,6 +135,37 @@ func (s *Sketch) Revision() uint64 {
 		entityStructuralState(e, write, writeFloats)
 	}
 	return h.Sum64()
+}
+
+// unstampedUID is hashed for an entity found in s.ents with no instance
+// identity. Real uids come from a counter that starts at 1 and only increments
+// (see Sketch.addEntity), so this value is not one any entity can ever legitimately
+// carry — an unstamped entity therefore cannot fingerprint like a stamped one.
+const unstampedUID = math.MaxUint64
+
+// entUID returns e's instance identity. It is a PURE READ — a map lookup and
+// nothing else — because its only caller is [Sketch.Revision], and a
+// fingerprinting call that wrote (stamped a uid, grew the counter, allocated the
+// map) would mutate the sketch it claims to observe and race with a concurrent
+// Revision/Profiles on the same receiver.
+//
+// Every entity in s.ents carries a uid: addEntity is the sole funnel into the
+// slice, and Sketch.Entities hands out a slices.Clone copy, so no caller can
+// splice an unstamped entity in behind it. An entity with no uid is therefore an
+// INVARIANT VIOLATION, not a condition to repair on read (it is unreachable
+// through the public API; revision_internal_test.go asserts the invariant across
+// every creation path). It is not repaired here — the fallback is benign and
+// deterministic instead: unstampedUID, a value disjoint from every real uid, so
+// the fingerprint is never SILENTLY wrong. Two DISTINCT unstamped entities would
+// collide under it, but reaching that state already requires bypassing the
+// funnel twice via unexported state, and buying instance discrimination there
+// would cost either a write (racy) or a hashed pointer address (not
+// reproducible) on every honest read.
+func (s *Sketch) entUID(e Entity) uint64 {
+	if uid := s.entUIDs[e]; uid != 0 {
+		return uid
+	}
+	return unstampedUID
 }
 
 // entityStructuralState feeds an entity's own SHAPE state into the revision

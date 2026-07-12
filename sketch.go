@@ -48,7 +48,11 @@ type Sketch struct {
 
 // addEntity commits a freshly built entity: it stamps the entity with a stable
 // INSTANCE IDENTITY (its uid) and appends it to the entity slice. Every entity
-// builder goes through here.
+// builder goes through here, and it is the ONLY place a uid is ever stamped —
+// so "every entity in s.ents carries a nonzero uid" is an invariant established
+// at entry, never repaired later. [Sketch.Revision] only READS the uid (see
+// Sketch.entUID): fingerprinting a sketch must not mutate it, or a read-looking
+// call would race with itself.
 //
 // The uid exists because an entity's positional id is NOT an identity: removal
 // splices and renumbers (see removal.go), so removing an entity and creating an
@@ -72,37 +76,6 @@ func (s *Sketch) addEntity(e Entity) {
 	s.nextEntID++
 	s.entUIDs[e] = s.nextEntID
 	s.ents = append(s.ents, e)
-}
-
-// adoptUID returns e's instance identity, STAMPING a fresh one if e carries
-// none. It is what [Sketch.Revision] hashes, and it exists as defense in depth
-// behind the copy [Sketch.Entities] returns.
-//
-// addEntity is the only funnel an entity is supposed to enter s.ents through, so
-// every member should already carry a uid. If one ever does not — a future
-// internal path that appends directly, or a caller who reaches the backing slice
-// some other way — the honest reading is NOT uid 0. Hashing 0 makes uid 0 a
-// silent "same instance" signal: two DIFFERENT unstamped entities of the same
-// type over the same points hash identically, so swapping one for the other
-// leaves [Sketch.Revision] unchanged and a [Profile] holding the discarded
-// instance reports fresh. That is precisely the class of bug the uid was
-// introduced to close, so 0 must never survive to the hash.
-//
-// Stamping instead of hashing a sentinel is what makes the swap VISIBLE rather
-// than merely non-colliding: the counter never rewinds, so the intruder gets a
-// uid no other instance has ever had and the revision moves. It stays a
-// fingerprint — re-reading an unchanged sketch re-reads the same stamped uid, so
-// two consecutive Revision calls with no mutation in between still agree.
-func (s *Sketch) adoptUID(e Entity) uint64 {
-	if uid := s.entUIDs[e]; uid != 0 {
-		return uid
-	}
-	if s.entUIDs == nil {
-		s.entUIDs = map[Entity]uint64{}
-	}
-	s.nextEntID++
-	s.entUIDs[e] = s.nextEntID
-	return s.nextEntID
 }
 
 // newSketch is the shared constructor used by [World.CreateSketch] and the
