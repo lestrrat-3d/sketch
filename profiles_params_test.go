@@ -238,6 +238,48 @@ func TestBoundaryEdgeParams(t *testing.T) {
 		}
 	})
 
+	t.Run("a T-junction on a sample vertex is sampled, not exact", func(t *testing.T) {
+		// A chord whose ENDPOINT lands on the spline's interior — at t = 0.5, which is
+		// one of the densified sample vertices. Both tiny segments meet at their own
+		// endpoints there, so the arrangement takes its join/corner branch — but it is
+		// a join only for the line (that is the line's own endpoint); for the spline it
+		// is an interior sample vertex, and the spline IS split there in the graph.
+		// The split came from a SAMPLED contact, so the spline's fragment must report
+		// Partial with a non-exact range, never a whole curve wearing an exact
+		// half-range.
+		w := sketch.NewWorld()
+		s, err := w.CreateSketch(w.XY())
+		require.NoError(t, err)
+		sp, err := s.CreateSpline(
+			s.CreatePoint(0, 0), s.CreatePoint(3, 8),
+			s.CreatePoint(7, -8), s.CreatePoint(10, 0),
+		)
+		require.NoError(t, err)
+		mx, my := sp.Eval(0.5)
+		// From the spline's midpoint back to its start: closes the first lobe. The
+		// spline's second half is a dangling spur and gets pruned.
+		s.CreateLine(s.CreatePoint(mx, my), s.CreatePoint(0, 0))
+
+		profiles := s.Profiles()
+		require.Len(t, profiles, 1, "the chord closes the spline's first lobe")
+
+		var splineEdges int
+		for _, e := range profiles[0].Outer {
+			requireEdgeParamsConsistent(t, e, false)
+			if e.Entity != sketch.Entity(sp) {
+				continue
+			}
+			splineEdges++
+			require.True(t, e.Partial,
+				"the spline is split at the T-junction — its fragment is not whole")
+			require.False(t, e.TExact,
+				"the T-junction is a SAMPLED contact — the fragment's range must not claim to be exact")
+			require.InDelta(t, 0, e.TStart, 1e-9)
+			require.InDelta(t, 0.5, e.TEnd, 1e-9)
+		}
+		require.Equal(t, 1, splineEdges, "the lobe is bounded by one spline fragment")
+	})
+
 	t.Run("an arc fragment's range is in sweep fraction, not absolute angle", func(t *testing.T) {
 		// Guards the parameter-domain contract: an arc's t is the fraction of its
 		// own sweep (StartAngle + t*Sweep), NOT an absolute angle and NOT a chord

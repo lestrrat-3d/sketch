@@ -810,6 +810,18 @@ func (a *arranger) intersect() {
 					continue
 				}
 			}
+			if si.src != sj.src {
+				// The planar map canonicalizes vertices by DISTANCE (a.merge), while the
+				// crossing test below accepts a contact only inside a parametric window
+				// (segEps). Two sample vertices of different sources that merge into one
+				// graph vertex therefore split both sources even when the segment test
+				// declines the pair — a near-miss just outside the window, or a parallel
+				// pair that never reaches the test at all. Taint on the map's own merge
+				// rule so no split can hide in that gap. Analytic pairs are skipped
+				// above: their cuts are exact and authoritative, and downgrading them
+				// here would launder exact parameters into sampled ones.
+				a.taintMergedEndpoints(si, sj)
+			}
 			sameSpline := false
 			if si.src == sj.src {
 				// A simple source's own polyline never self-crosses. A spline (open
@@ -841,6 +853,14 @@ func (a *arranger) intersect() {
 				// flag, since the exact crossing can land on a sample vertex. No cut
 				// is recorded (the shared point is already a sample vertex).
 				if !sameSpline {
+					// Between two DIFFERENT sources this is a join only where each side
+					// sits at its SOURCE curve's own endpoint. A T-junction — one side at
+					// its curve's endpoint, the other at an interior SAMPLE VERTEX of a
+					// free-form curve — DOES split that curve in the graph (the shared
+					// vertex reaches degree > 2, so its fragments stop coalescing). No cut
+					// record belongs here either way (the vertex already exists), and the
+					// split itself is recorded by taintMergedEndpoints above, which runs
+					// on the vertex table's own merge rule before this branch is reached.
 					continue
 				}
 				// Exception: the natural closure seam of an endpoint-closed spline
@@ -1181,6 +1201,32 @@ func (a *arranger) applyAnalyticCut(src int, t, x, y float64) {
 		}
 		s.cuts = append(s.cuts, cut{t: local, px: x, py: y, exact: true})
 		return
+	}
+}
+
+// taintMergedEndpoints taints the sample vertices of two DIFFERENT sources whose
+// tiny-segment endpoints canonicalize to the same graph vertex (they lie within the
+// vertex-merge tolerance). Such a vertex is shared, so every source incident to it
+// at an interior sample vertex is split there — and the contact was found by the
+// sampled polyline, not the closed-form kernel, so its parameter must read sampled.
+//
+// The merge tolerance is the SAME one buildGraph's vertex table uses, which is what
+// makes this exhaustive: the sampled crossing test can only see a contact inside its
+// parametric window, so it alone cannot guarantee every merged vertex is accounted
+// for. taintSampledVertex no-ops at a source's own endpoint, so an ordinary
+// end-to-end join between two curves stays a join.
+func (a *arranger) taintMergedEndpoints(si, sj *tinySeg) {
+	type end struct{ x, y, t float64 }
+	iEnds := [2]end{{si.ax, si.ay, si.pa}, {si.bx, si.by, si.pb}}
+	jEnds := [2]end{{sj.ax, sj.ay, sj.pa}, {sj.bx, sj.by, sj.pb}}
+	for _, ei := range iEnds {
+		for _, ej := range jEnds {
+			if math.Hypot(ei.x-ej.x, ei.y-ej.y) > a.merge {
+				continue
+			}
+			a.taintSampledVertex(si.src, ei.t)
+			a.taintSampledVertex(sj.src, ej.t)
+		}
 	}
 }
 
