@@ -22,9 +22,9 @@ must never move it; only the 3D layer re-feeds it).
 
 ### The 2D guardrail (separation contract)
 
-The reference API is strictly **2D plane-local**: coordinates in, no `space.Vec3`,
+The reference API is strictly **2D plane-local**: coordinates in, no `r3.Vec`,
 no frame, no face/edge handles, no projection. The 3D layer does the world→local
-projection (`space.Frame.ToLocal`) and hands in the already-projected `(x, y)`.
+projection (`r3.Frame.ToLocal`) and hands in the already-projected `(x, y)`.
 Do not add a refresh/authoring helper that takes 3D types — that would pull the
 *computation* into this layer and break the split.
 

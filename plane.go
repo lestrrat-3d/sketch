@@ -4,8 +4,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/lestrrat-3d/r3"
 	"github.com/lestrrat-3d/sketch/param"
-	"github.com/lestrrat-3d/sketch/space"
 	"github.com/lestrrat-3d/sketch/units"
 )
 
@@ -44,11 +44,11 @@ const (
 // frame is computed. Only the fields relevant to kind are populated.
 type planeDef struct {
 	kind     planeKind
-	frame    space.Frame // planeFrame
-	a, b, c  space.Vec3  // planePoints
-	base     *Plane      // planeOffset
-	dist     float64     // planeOffset literal distance
-	distExpr string      // planeOffset: a length expression over the world's params; empty = literal dist
+	frame    r3.Frame // planeFrame
+	a, b, c  r3.Vec   // planePoints
+	base     *Plane   // planeOffset
+	dist     float64  // planeOffset literal distance
+	distExpr string   // planeOffset: a length expression over the world's params; empty = literal dist
 }
 
 // Plane is a construction (datum) plane: a 3D coordinate frame positioned in a
@@ -78,16 +78,16 @@ func (p *Plane) ID() int { return p.id }
 // Frame returns the plane's coordinate frame, recomputed from its definition
 // (recursing into a base plane for derived planes). It returns an error for a
 // removed plane or a degenerate definition.
-func (p *Plane) Frame() (space.Frame, error) {
+func (p *Plane) Frame() (r3.Frame, error) {
 	if p.removed {
-		return space.Frame{}, ErrPlaneRemoved
+		return r3.Frame{}, ErrPlaneRemoved
 	}
 	switch p.def.kind {
 	case planeXY, planeXZ, planeYZ:
 		return datumFrame(p.def.kind)
 	case planeFrame:
 		if !p.def.frame.IsValid() {
-			return space.Frame{}, space.ErrDegenerateFrame
+			return r3.Frame{}, r3.ErrDegenerateFrame
 		}
 		return p.def.frame, nil
 	case planePoints:
@@ -95,20 +95,20 @@ func (p *Plane) Frame() (space.Frame, error) {
 	case planeOffset:
 		base := p.def.base
 		if base == nil || base.removed {
-			return space.Frame{}, ErrPlaneRemoved
+			return r3.Frame{}, ErrPlaneRemoved
 		}
 		bf, err := base.Frame()
 		if err != nil {
-			return space.Frame{}, err
+			return r3.Frame{}, err
 		}
 		dist, err := p.offsetDist()
 		if err != nil {
-			return space.Frame{}, err
+			return r3.Frame{}, err
 		}
 		origin := bf.Origin().Add(bf.N().Scale(dist))
-		return space.NewFrame(origin, bf.U(), bf.V())
+		return r3.NewFrame(origin, bf.U(), bf.V())
 	}
-	return space.Frame{}, fmt.Errorf("sketch: unknown plane definition kind %d", p.def.kind)
+	return r3.Frame{}, fmt.Errorf("sketch: unknown plane definition kind %d", p.def.kind)
 }
 
 // offsetDist resolves an offset plane's distance: a bound length expression
@@ -136,19 +136,19 @@ func (p *Plane) offsetDist() (float64, error) {
 // datumFrame returns the frame for a standard datum kind. The axes are
 // compile-time-known orthonormal, so NewFrame never actually errors here; the
 // error is propagated rather than panicked.
-func datumFrame(k planeKind) (space.Frame, error) {
+func datumFrame(k planeKind) (r3.Frame, error) {
 	switch k {
 	case planeXY:
-		return space.NewFrame(space.Vec3{}, space.NewVec3(1, 0, 0), space.NewVec3(0, 1, 0))
+		return r3.NewFrame(r3.Vec{}, r3.NewVec(1, 0, 0), r3.NewVec(0, 1, 0))
 	case planeXZ:
-		return space.NewFrame(space.Vec3{}, space.NewVec3(1, 0, 0), space.NewVec3(0, 0, 1))
+		return r3.NewFrame(r3.Vec{}, r3.NewVec(1, 0, 0), r3.NewVec(0, 0, 1))
 	case planeYZ:
-		return space.NewFrame(space.Vec3{}, space.NewVec3(0, 1, 0), space.NewVec3(0, 0, 1))
+		return r3.NewFrame(r3.Vec{}, r3.NewVec(0, 1, 0), r3.NewVec(0, 0, 1))
 	}
-	return space.Frame{}, fmt.Errorf("sketch: %d is not a datum kind", k)
+	return r3.Frame{}, fmt.Errorf("sketch: %d is not a datum kind", k)
 }
 
 // frameFromPoints builds the frame for a three-point plane definition.
-func frameFromPoints(a, b, c space.Vec3) (space.Frame, error) {
-	return space.NewFrame(a, b.Sub(a), c.Sub(a))
+func frameFromPoints(a, b, c r3.Vec) (r3.Frame, error) {
+	return r3.NewFrame(a, b.Sub(a), c.Sub(a))
 }

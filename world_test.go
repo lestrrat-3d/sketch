@@ -3,12 +3,12 @@ package sketch_test
 import (
 	"testing"
 
+	"github.com/lestrrat-3d/r3"
 	"github.com/lestrrat-3d/sketch"
-	"github.com/lestrrat-3d/sketch/space"
 	"github.com/stretchr/testify/require"
 )
 
-func worldVecEqual(t *testing.T, want, got space.Vec3) {
+func worldVecEqual(t *testing.T, want, got r3.Vec) {
 	t.Helper()
 	const tol = 1e-9
 	require.InDelta(t, want.X, got.X, tol)
@@ -25,15 +25,15 @@ func TestNewWorldSeedsDatums(t *testing.T) {
 
 	f, err := w.XZ().Frame()
 	require.NoError(t, err)
-	worldVecEqual(t, space.NewVec3(1, 0, 0), f.ToWorldUV(1, 0))
-	worldVecEqual(t, space.NewVec3(0, 0, 1), f.ToWorldUV(0, 1))
+	worldVecEqual(t, r3.NewVec(1, 0, 0), f.ToWorldUV(1, 0))
+	worldVecEqual(t, r3.NewVec(0, 0, 1), f.ToWorldUV(0, 1))
 }
 
 func TestNewEqualsNewOnWorldXY(t *testing.T) {
 	s := newSketch(t)
 	p := s.CreatePoint(3, 4)
 	// A bare sketch is a world-XY sketch: world == (x, y, 0).
-	worldVecEqual(t, space.NewVec3(3, 4, 0), p.World())
+	worldVecEqual(t, r3.NewVec(3, 4, 0), p.World())
 	require.NoError(t, p.WorldErr())
 }
 
@@ -45,7 +45,7 @@ func TestSketchOnXZWorldCoords(t *testing.T) {
 	corners := [][2]float64{{0, 0}, {1, 0}, {1, 1}, {0, 1}}
 	for _, c := range corners {
 		p := s.CreatePoint(c[0], c[1])
-		worldVecEqual(t, space.NewVec3(c[0], 0, c[1]), p.World())
+		worldVecEqual(t, r3.NewVec(c[0], 0, c[1]), p.World())
 	}
 }
 
@@ -56,26 +56,26 @@ func TestOffsetPlaneShiftsWorldZ(t *testing.T) {
 	s, err := w.CreateSketch(off)
 	require.NoError(t, err)
 	p := s.CreatePoint(3, 4)
-	worldVecEqual(t, space.NewVec3(3, 4, 5), p.World())
+	worldVecEqual(t, r3.NewVec(3, 4, 5), p.World())
 }
 
 func TestPlaneFromPoints(t *testing.T) {
 	w := sketch.NewWorld()
 	// Three points in the world z = 2 plane; normal should be +Z.
-	p, err := w.CreatePlaneFromPoints(space.NewVec3(0, 0, 2), space.NewVec3(1, 0, 2), space.NewVec3(0, 1, 2))
+	p, err := w.CreatePlaneFromPoints(r3.NewVec(0, 0, 2), r3.NewVec(1, 0, 2), r3.NewVec(0, 1, 2))
 	require.NoError(t, err)
 	f, err := p.Frame()
 	require.NoError(t, err)
-	worldVecEqual(t, space.NewVec3(0, 0, 1), f.N())
+	worldVecEqual(t, r3.NewVec(0, 0, 1), f.N())
 
-	_, err = w.CreatePlaneFromPoints(space.NewVec3(0, 0, 0), space.NewVec3(1, 0, 0), space.NewVec3(2, 0, 0))
-	require.ErrorIs(t, err, space.ErrDegenerateFrame)
+	_, err = w.CreatePlaneFromPoints(r3.NewVec(0, 0, 0), r3.NewVec(1, 0, 0), r3.NewVec(2, 0, 0))
+	require.ErrorIs(t, err, r3.ErrDegenerateFrame)
 }
 
 func TestPlaneFromFrameRejectsInvalid(t *testing.T) {
 	w := sketch.NewWorld()
-	_, err := w.CreatePlaneFromFrame(space.Frame{})
-	require.ErrorIs(t, err, space.ErrDegenerateFrame)
+	_, err := w.CreatePlaneFromFrame(r3.Frame{})
+	require.ErrorIs(t, err, r3.ErrDegenerateFrame)
 }
 
 func TestForeignPlaneRejected(t *testing.T) {
@@ -132,8 +132,8 @@ func TestWorldPolylineLiftsToWorld(t *testing.T) {
 	pts, err := s.WorldPolyline(line)
 	require.NoError(t, err)
 	require.Len(t, pts, 2)
-	worldVecEqual(t, space.NewVec3(0, 0, 0), pts[0])
-	worldVecEqual(t, space.NewVec3(2, 0, 0), pts[1])
+	worldVecEqual(t, r3.NewVec(0, 0, 0), pts[0])
+	worldVecEqual(t, r3.NewVec(2, 0, 0), pts[1])
 }
 
 func TestWorldPolylineRejectsForeignEntity(t *testing.T) {
@@ -165,5 +165,5 @@ func TestSketchOnXYPlacement(t *testing.T) {
 	require.Same(t, s.Plane(), s.Plane())
 	require.Same(t, w.XY(), s.Plane())
 	p := s.CreatePoint(3, 4)
-	worldVecEqual(t, space.NewVec3(3, 4, 0), p.World())
+	worldVecEqual(t, r3.NewVec(3, 4, 0), p.World())
 }

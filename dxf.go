@@ -5,8 +5,8 @@ import (
 	"math"
 	"strings"
 
+	"github.com/lestrrat-3d/r3"
 	"github.com/lestrrat-3d/sketch/geom"
-	"github.com/lestrrat-3d/sketch/space"
 	"github.com/lestrrat-3d/sketch/units"
 	"github.com/lestrrat-go/option/v3"
 )
@@ -84,8 +84,8 @@ func (s *Sketch) DXF(opts ...DXFOption) (string, error) {
 	// World-space placement: resolve the plane frame and the OCS axes the
 	// arbitrary-axis algorithm derives from its normal, once. In local mode
 	// these stay zero and every put… helper takes its 2D branch.
-	var frame space.Frame
-	var ax, ay, nrm space.Vec3
+	var frame r3.Frame
+	var ax, ay, nrm r3.Vec
 	if cfg.worldSpace {
 		f, err := s.plane().Frame()
 		if err != nil {
@@ -405,13 +405,13 @@ func dxff(v float64) string { return trimFloat(v, 6) }
 // reference world axis avoiding near-degeneracy with n, then builds a
 // right-handed (ax, ay, n) frame. A CIRCLE/ARC/LWPOLYLINE whose center is given
 // in this OCS plus extrusion n round-trips to the correct world placement.
-func arbitraryAxis(n space.Vec3) (space.Vec3, space.Vec3) {
+func arbitraryAxis(n r3.Vec) (r3.Vec, r3.Vec) {
 	const tol = 1.0 / 64.0
-	var a space.Vec3
+	var a r3.Vec
 	if math.Abs(n.X) < tol && math.Abs(n.Y) < tol {
-		a = space.NewVec3(0, 1, 0).Cross(n)
+		a = r3.NewVec(0, 1, 0).Cross(n)
 	} else {
-		a = space.NewVec3(0, 0, 1).Cross(n)
+		a = r3.NewVec(0, 0, 1).Cross(n)
 	}
 	ax, _ := a.Normalize()
 	ay, _ := n.Cross(ax).Normalize()

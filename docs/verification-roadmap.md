@@ -59,7 +59,7 @@ correct layering; auto-recompute-on-body-change is the 3D layer re-feeding
 snapshots via `RefreshReference`/`MarkStale`.
 
 **Minimal 3D concepts that must live at or below this layer:** orthonormal
-frames/planes (present — `space.Frame`, `Plane`, `World`), reference entities
+frames/planes (present — `r3.Frame`, `Plane`, `World`), reference entities
 with provenance (**present — the keystone**), and component/world transforms.
 Solid faces, edge topology, NURBS surfaces, and projection/intersection
 algorithms stay above.

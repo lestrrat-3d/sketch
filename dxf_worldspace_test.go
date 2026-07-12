@@ -4,21 +4,21 @@ import (
 	"math"
 	"testing"
 
+	"github.com/lestrrat-3d/r3"
 	"github.com/lestrrat-3d/sketch"
-	"github.com/lestrrat-3d/sketch/space"
 	"github.com/stretchr/testify/require"
 )
 
 // aaa reproduces AutoCAD's arbitrary-axis algorithm independently of the
 // exporter, so a world-space round-trip reconstructs the OCS frame from the
 // emitted extrusion direction and validates the encoding against Point.World().
-func aaa(n space.Vec3) (space.Vec3, space.Vec3) {
+func aaa(n r3.Vec) (r3.Vec, r3.Vec) {
 	const tol = 1.0 / 64.0
-	var a space.Vec3
+	var a r3.Vec
 	if math.Abs(n.X) < tol && math.Abs(n.Y) < tol {
-		a = space.NewVec3(0, 1, 0).Cross(n)
+		a = r3.NewVec(0, 1, 0).Cross(n)
 	} else {
-		a = space.NewVec3(0, 0, 1).Cross(n)
+		a = r3.NewVec(0, 0, 1).Cross(n)
 	}
 	ax, _ := a.Normalize()
 	ay, _ := n.Cross(ax).Normalize()
@@ -29,10 +29,10 @@ func aaa(n space.Vec3) (space.Vec3, space.Vec3) {
 // (so the OCS arbitrary-axis path is genuinely exercised).
 func tiltedSketch(t *testing.T) *sketch.Sketch {
 	t.Helper()
-	fr, err := space.NewFrame(
-		space.NewVec3(10, -5, 7), // origin off the world origin
-		space.NewVec3(1, 2, 0),   // u (orthonormalized by NewFrame)
-		space.NewVec3(0, 1, 3),   // v
+	fr, err := r3.NewFrame(
+		r3.NewVec(10, -5, 7), // origin off the world origin
+		r3.NewVec(1, 2, 0),   // u (orthonormalized by NewFrame)
+		r3.NewVec(0, 1, 3),   // v
 	)
 	require.NoError(t, err)
 	w := sketch.NewWorld()
@@ -43,21 +43,21 @@ func tiltedSketch(t *testing.T) *sketch.Sketch {
 	return s
 }
 
-func worldVec(t *testing.T, dxf, marker, c10 string) space.Vec3 {
+func worldVec(t *testing.T, dxf, marker, c10 string) r3.Vec {
 	t.Helper()
 	gx := mustFloat(t, dxfGroup(t, dxf, marker, c10))
 	// c10 is "10"/"11"; its y/z partners are +10/+20.
 	switch c10 {
 	case "10":
-		return space.NewVec3(gx, mustFloat(t, dxfGroup(t, dxf, marker, "20")), mustFloat(t, dxfGroup(t, dxf, marker, "30")))
+		return r3.NewVec(gx, mustFloat(t, dxfGroup(t, dxf, marker, "20")), mustFloat(t, dxfGroup(t, dxf, marker, "30")))
 	case "11":
-		return space.NewVec3(gx, mustFloat(t, dxfGroup(t, dxf, marker, "21")), mustFloat(t, dxfGroup(t, dxf, marker, "31")))
+		return r3.NewVec(gx, mustFloat(t, dxfGroup(t, dxf, marker, "21")), mustFloat(t, dxfGroup(t, dxf, marker, "31")))
 	}
 	t.Fatalf("unexpected base code %q", c10)
-	return space.Vec3{}
+	return r3.Vec{}
 }
 
-func requireVecInDelta(t *testing.T, want, got space.Vec3, msg string) {
+func requireVecInDelta(t *testing.T, want, got r3.Vec, msg string) {
 	t.Helper()
 	// 1e-5 absorbs the exporter's 6-decimal ASCII rounding (trimFloat(v, 6)),
 	// which accumulates a few ×1e-6 across an OCS basis reconstruction — far
@@ -92,7 +92,7 @@ func TestDXFWorldSpaceCircleOCS(t *testing.T) {
 	dxf, err := s.DXF(sketch.WithWorldSpace(true))
 	require.NoError(t, err)
 
-	ext := space.NewVec3(
+	ext := r3.NewVec(
 		mustFloat(t, dxfGroup(t, dxf, "CIRCLE", "210")),
 		mustFloat(t, dxfGroup(t, dxf, "CIRCLE", "220")),
 		mustFloat(t, dxfGroup(t, dxf, "CIRCLE", "230")),
@@ -121,7 +121,7 @@ func TestDXFWorldSpaceArcAngles(t *testing.T) {
 	dxf, err := s.DXF(sketch.WithWorldSpace(true))
 	require.NoError(t, err)
 
-	ext := space.NewVec3(
+	ext := r3.NewVec(
 		mustFloat(t, dxfGroup(t, dxf, "ARC", "210")),
 		mustFloat(t, dxfGroup(t, dxf, "ARC", "220")),
 		mustFloat(t, dxfGroup(t, dxf, "ARC", "230")),
@@ -155,7 +155,7 @@ func TestDXFWorldSpaceEllipse(t *testing.T) {
 	maj := worldVec(t, dxf, "ELLIPSE", "11")
 	require.InDelta(t, 5, maj.Len(), 1e-5, "major-axis vector length is the major semi-axis")
 
-	ext := space.NewVec3(
+	ext := r3.NewVec(
 		mustFloat(t, dxfGroup(t, dxf, "ELLIPSE", "210")),
 		mustFloat(t, dxfGroup(t, dxf, "ELLIPSE", "220")),
 		mustFloat(t, dxfGroup(t, dxf, "ELLIPSE", "230")),
@@ -183,7 +183,7 @@ func TestDXFWorldSpaceEllipticalArc(t *testing.T) {
 
 	center := worldVec(t, dxf, "ELLIPSE", "10")
 	major := worldVec(t, dxf, "ELLIPSE", "11")
-	ext := space.NewVec3(
+	ext := r3.NewVec(
 		mustFloat(t, dxfGroup(t, dxf, "ELLIPSE", "210")),
 		mustFloat(t, dxfGroup(t, dxf, "ELLIPSE", "220")),
 		mustFloat(t, dxfGroup(t, dxf, "ELLIPSE", "230")),
@@ -194,7 +194,7 @@ func TestDXFWorldSpaceEllipticalArc(t *testing.T) {
 
 	majHat, _ := major.Normalize()
 	minor := ext.Cross(majHat).Scale(ratio * major.Len()) // DXF derives minor = ext × major̂
-	recon := func(p float64) space.Vec3 {
+	recon := func(p float64) r3.Vec {
 		return center.Add(major.Scale(math.Cos(p))).Add(minor.Scale(math.Sin(p)))
 	}
 	requireVecInDelta(t, start.World(), recon(p41), "elliptical-arc start param")
@@ -213,13 +213,13 @@ func TestDXFWorldSpaceXYReducesToLocal(t *testing.T) {
 	require.NoError(t, err)
 
 	center := worldVec(t, dxf, "CIRCLE", "10")
-	requireVecInDelta(t, space.NewVec3(5, 7, 0), center, "XY circle center unchanged")
-	ext := space.NewVec3(
+	requireVecInDelta(t, r3.NewVec(5, 7, 0), center, "XY circle center unchanged")
+	ext := r3.NewVec(
 		mustFloat(t, dxfGroup(t, dxf, "CIRCLE", "210")),
 		mustFloat(t, dxfGroup(t, dxf, "CIRCLE", "220")),
 		mustFloat(t, dxfGroup(t, dxf, "CIRCLE", "230")),
 	)
-	requireVecInDelta(t, space.NewVec3(0, 0, 1), ext, "XY extrusion is +Z")
+	requireVecInDelta(t, r3.NewVec(0, 0, 1), ext, "XY extrusion is +Z")
 }
 
 // The default (no option) output stays plane-local: a tilted sketch still emits

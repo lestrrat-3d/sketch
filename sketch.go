@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/lestrrat-3d/r3"
 	"github.com/lestrrat-3d/sketch/geom"
 	"github.com/lestrrat-3d/sketch/param"
-	"github.com/lestrrat-3d/sketch/space"
 	"github.com/lestrrat-3d/sketch/units"
 )
 
@@ -98,7 +98,7 @@ const worldPolylineSegments = 32
 // not change what the 2D exporters emit. e must be a live entity of this sketch
 // ([ErrForeignEntity] otherwise); it errors for a degenerate or removed plane
 // (well-formed planes never error) and for an unsupported entity type.
-func (s *Sketch) WorldPolyline(e Entity) ([]space.Vec3, error) {
+func (s *Sketch) WorldPolyline(e Entity) ([]r3.Vec, error) {
 	local, err := s.localPolyline(e)
 	if err != nil {
 		return nil, err
@@ -107,7 +107,7 @@ func (s *Sketch) WorldPolyline(e Entity) ([]space.Vec3, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := make([]space.Vec3, len(local))
+	out := make([]r3.Vec, len(local))
 	for i, p := range local {
 		out[i] = f.ToWorldUV(p[0], p[1])
 	}
@@ -207,10 +207,10 @@ func (p *Point) Geometry() *geom.Point { return geom.NewPoint(p.x(), p.y()) }
 // lifted through the sketch plane's frame, in base units (millimetres). For a
 // degenerate or removed plane it returns the zero vector; use [Point.WorldErr]
 // to detect that case (well-formed planes never error).
-func (p *Point) World() space.Vec3 {
+func (p *Point) World() r3.Vec {
 	f, err := p.s.plane().Frame()
 	if err != nil {
-		return space.Vec3{}
+		return r3.Vec{}
 	}
 	return f.ToWorldUV(p.x(), p.y())
 }
