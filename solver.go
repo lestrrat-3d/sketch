@@ -4,7 +4,7 @@ import (
 	"context"
 	"math"
 
-	"github.com/lestrrat-3d/sketch/units"
+	"github.com/lestrrat-3d/units"
 	"github.com/lestrrat-go/option/v3"
 )
 

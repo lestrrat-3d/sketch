@@ -33,13 +33,17 @@ from a solid — the seam is first-class reference geometry), live in
    short, deliberate dependency list — do not add modules to `go.mod` without
    recording the decision here. Current approved dependencies:
    - `github.com/lestrrat-go/option/v3` — functional-options API. Used by the
-     root `sketch` package only (`Sketch.SVG`, `Sketch.Solve`). The `geom`,
-     `param` and `units` packages keep their **production** code standard-
-     library-only so they stay independently extractable.
+     root `sketch` package only (`Sketch.SVG`, `Sketch.Solve`). The `geom`
+     package keeps its **production** code standard-library-only, and `param`'s
+     only production dependency is the `units` module, so both stay
+     independently extractable.
    - `github.com/lestrrat-3d/r3` — the 3D coordinate-math layer (`r3.Vec`,
      `r3.Frame`), a standalone module of its own. Used by the root `sketch`
      package only (`plane.go`, `world.go`, `sketch.go`, the exporters); see
      "The `r3` module" below.
+   - `github.com/lestrrat-3d/units` — the units-of-measure layer (`units.Unit`,
+     `units.Value`, `units.System`), a standalone module of its own. Used by the
+     root `sketch` package and by `param`; see "The `units` module" below.
    - `github.com/stretchr/testify/require` — test assertions, **test code only**
      (all packages). Never imported by production code.
 
@@ -71,7 +75,6 @@ from a solid — the seam is first-class reference geometry), live in
 | `svg.go` / `png.go` / `dxf.go` / `json.go` / `json_world.go` | Exporters / serialization. `png.go` is a stdlib-only rasterizer (`image/png`) so agents/tools that read raster images can sanity-check sketches; visually equivalent to the SVG output (PNG annotation is a follow-up — SVG is the annotated target). `dxf.go` emits length fields in the sketch's **display length unit** (via the `units` library — angles/ratios/knots stay raw) with a matching `$INSUNITS`/`$MEASUREMENT` + `$EXTMIN`/`$EXTMAX` header, so a CAD importer reads the drawing at the right scale (metric output is unchanged). Coordinates are plane-**local** by default; `DXF(WithWorldSpace(true))` places geometry in 3D world coordinates via the plane frame — LINE/SPLINE/ELLIPSE in WCS, CIRCLE/ARC/LWPOLYLINE in the entity OCS (arbitrary-axis algorithm from the plane normal) + extrusion, arc angles recomputed in the OCS. `json_world.go` is the v2 `World`/`Plane` serialization + the `kind`-discriminator preflight. |
 | `geom/` | **Self-contained** context-agnostic 2D geometry (own package). |
 | `param/` | **Self-contained** parameter & expression engine (own package). |
-| `units/` | **Self-contained** units-of-measure library (own package). |
 | `examples/` | Executable Go examples (`Example_sketch_…` in `package examples_test`, `go test`-verified `// Output:` blocks) that double as living documentation. Never `package main` programs. |
 
 ### The `geom` package (slated for extraction)
@@ -239,20 +242,26 @@ object (the sketch's geometry builders). Load-bearing rules:
   `WorldPolyline` samples via the centralized curve samplers in `geom/sample.go`
   (the exporters delegate to the same math; their output is unchanged).
 
-### The `units` package (slated for extraction)
+### The `units` module (an external dependency)
 
-`units/` is a standalone units-of-measure library: typed [Unit] constants
-(metric + imperial length, deg/rad angle — never strings), a [Value] type that
-pairs a magnitude with its unit and converts between compatible units, and a
-[System] holding the current default length/angle units (`Metric`/`SI`/
-`Imperial`). Base units are millimetre and radian. Every unit has a [Kind]
-(length/angle/dimensionless); conversion and `Value` arithmetic are
-kind-checked and return [ErrIncompatible] on a mismatch — units are NEVER
-silently relabelled. New units register via [Define]/[Lookup] (also the
-serialization hook). **All unit conversion lives here** — no other package
-re-implements factor math. It must not import `sketch` or `param`; the
-dependency arrows are `sketch -> units` and `param -> units`, never the reverse.
-Like `param`, it is intended to move to its own module later.
+`github.com/lestrrat-3d/units` is a standalone units-of-measure library living
+in **its own module/repo** (not in this tree): typed `Unit` constants (metric +
+imperial length, deg/rad angle — never strings), a `Value` type that pairs a
+magnitude with its unit and converts between compatible units, and a `System`
+holding the current default length/angle units (`Metric`/`SI`/`Imperial`). Base
+units are millimetre and radian. Every unit has a `Kind`
+(length/angle/dimensionless); conversion and `Value` arithmetic are kind-checked
+and return `ErrIncompatible` on a mismatch — units are NEVER silently
+relabelled. New units register via `Define`/`Lookup` (also the serialization
+hook). It imports nothing but stdlib.
+
+- **All unit conversion lives there** — no other package re-implements factor
+  math. Never relabel a magnitude to change its unit; go through
+  `Value.Base`/`In`/`Convert`/`FromBase`.
+- The dependency arrows are `sketch -> units` and `param -> units`, never the
+  reverse — `units` knows nothing of sketches, parameters or documents.
+- A change spanning both repos needs a release of `units` before this module can
+  require it; a local `go.work` (gitignored) is the development seam.
 
 ### The `param` package (slated for extraction)
 
@@ -261,9 +270,9 @@ parameters holding literals or expressions (`width = height * 1.5`), with a
 lexer/parser/evaluator, functions, constants, forward references and cycle
 detection. **It must not import anything from the `sketch` package or rely on
 the rest of the repo** — it is intended to move into its own module/repository
-later, so the dependency arrow only ever points *into* it. Keep its production
-code standard-library-only (tests may use `testify/require`) and independently
-testable.
+later, so the dependency arrow only ever points *into* it. Its production code
+depends on the standard library plus the `units` module and nothing else (tests
+may use `testify/require`); keep it independently testable.
 
 ### Building blocks vs. sketch geometry (load-bearing)
 
@@ -704,7 +713,7 @@ These are unsettled. If you resolve one, record the decision here.
   current heroes are single-state), **rich PNG annotation text** (the rasterizer
   has no font), **global dimension-layout / collision avoidance**, and
   path-outlined glyphs for maximal SVG font portability.
-- **Units.** *Resolved (units).* The `units` package provides typed units, a
+- **Units.** *Resolved (units).* The `units` module provides typed units, a
   unit-carrying `Value`, and a default-units `System`. Sketch dimensions and
   `param` parameters both carry units; the solver stays in base units and all
   conversion is delegated to the library. **Expression kind algebra is in**

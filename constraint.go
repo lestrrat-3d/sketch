@@ -5,7 +5,7 @@ import (
 	"math"
 
 	"github.com/lestrrat-3d/sketch/geom"
-	"github.com/lestrrat-3d/sketch/units"
+	"github.com/lestrrat-3d/units"
 )
 
 // Constraint is a geometric or dimensional relationship between primitives.

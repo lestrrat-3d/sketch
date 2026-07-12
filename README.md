@@ -49,9 +49,11 @@ along the way.
   verification badge (see the Gallery) — plus **DXF** R12 (CAD interchange) and
   **JSON** (lossless save / load round-trip).
 * **Pure Go, minimal dependencies.** The production runtime depends only on the
-  standard library plus `github.com/lestrrat-go/option/v3` (functional options)
-  and `github.com/lestrrat-3d/r3` (3D coordinate math); the `geom`, `param` and
-  `units` subpackages are standard-library-only and independently extractable.
+  standard library plus `github.com/lestrrat-go/option/v3` (functional options),
+  `github.com/lestrrat-3d/r3` (3D coordinate math) and
+  `github.com/lestrrat-3d/units` (units of measure); the `geom` subpackage is
+  standard-library-only and `param` adds only `units`, so both stay
+  independently extractable.
 
 ```go
 import "github.com/lestrrat-3d/sketch"

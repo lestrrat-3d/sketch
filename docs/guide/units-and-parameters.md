@@ -2,10 +2,11 @@
 
 ## Units
 
-Dimensions and parameters carry units via the standalone [`units`](../../units)
-package. Units are **typed** — you use `units.Millimeter`, `units.Inch`,
-`units.Degree`, … rather than strings — and a `units.Value` knows its own unit
-and converts only through the library (no magnitude relabelling):
+Dimensions and parameters carry units via the standalone
+[`units`](https://github.com/lestrrat-3d/units) module. Units are **typed** —
+you use `units.Millimeter`, `units.Inch`, `units.Degree`, … rather than
+strings — and a `units.Value` knows its own unit and converts only through the
+library (no magnitude relabelling):
 
 <!-- INCLUDE(../../examples/sketch_units_example_test.go,Example_sketch_units) -->
 ```go
@@ -76,7 +77,7 @@ import (
   "fmt"
 
   "github.com/lestrrat-3d/sketch"
-  "github.com/lestrrat-3d/sketch/units"
+  "github.com/lestrrat-3d/units"
 )
 
 // Example_sketch_parametric drives a sketch from a parameter table: a

@@ -23,7 +23,7 @@
 // functions is registered by default and more can be added with
 // [Table.SetFunc].
 //
-// This package has no dependencies outside the standard library and no
-// knowledge of the rest of the repository; it is intended to be extracted into
-// its own module in the future.
+// This package depends on the standard library plus the units module, and has
+// no knowledge of the rest of the repository; it is intended to be extracted
+// into its own module in the future.
 package param

@@ -55,9 +55,8 @@ residuals) is a separate future design, deliberately not folded in.
 
 ## Package layout
 
-The 3D math lives in a self-contained module of its own, following the
-`geom`/`param`/`units` precedent (stdlib-only production code,
-`testify/require` in tests).
+The 3D math lives in a self-contained module of its own, following the `geom`
+precedent (stdlib-only production code, `testify/require` in tests).
 
 | Package | Holds | Imports |
 |---|---|---|

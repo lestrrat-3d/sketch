@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/lestrrat-3d/sketch"
-	"github.com/lestrrat-3d/sketch/units"
+	"github.com/lestrrat-3d/units"
 )
 
 // Example_sketch_parametric drives a sketch from a parameter table: a

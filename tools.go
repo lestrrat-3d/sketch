@@ -6,7 +6,7 @@ import (
 	"math"
 
 	"github.com/lestrrat-3d/sketch/geom"
-	"github.com/lestrrat-3d/sketch/units"
+	"github.com/lestrrat-3d/units"
 )
 
 // Sketch-modification tools mutate committed geometry by the build-then-replace
