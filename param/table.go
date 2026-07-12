@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/lestrrat-3d/sketch/units"
+	"github.com/lestrrat-3d/units"
 )
 
 // Sentinel errors returned (wrapped) by the package. Use [errors.Is] to test

@@ -7,7 +7,7 @@ import (
 
 	"github.com/lestrrat-3d/r3"
 	"github.com/lestrrat-3d/sketch/geom"
-	"github.com/lestrrat-3d/sketch/units"
+	"github.com/lestrrat-3d/units"
 	"github.com/lestrrat-go/option/v3"
 )
 

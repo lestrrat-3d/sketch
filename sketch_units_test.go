@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/lestrrat-3d/sketch"
-	"github.com/lestrrat-3d/sketch/units"
+	"github.com/lestrrat-3d/units"
 	"github.com/stretchr/testify/require"
 )
 

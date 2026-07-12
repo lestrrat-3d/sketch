@@ -130,7 +130,7 @@ annotation primitives, then emits SVG.
 ### Label formatting
 
 A dimension label is NOT `units.Value.String()` verbatim: that yields `30 deg`
-(the Degree unit's symbol is the ASCII `"deg"`, `units/unit.go`), and there is no
+(the Degree unit's symbol is the ASCII `"deg"` in the `units` module), and there is no
 `⌀` for diameters. Add a small internal `dimLabel(d Dimension) string` that reads
 `Target()` and prettifies for display: `deg`→`°`, diameter prefixed `⌀`, radius
 prefixed `R`. Driven dimensions are wrapped in parentheses and tinted lighter

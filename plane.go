@@ -6,7 +6,7 @@ import (
 
 	"github.com/lestrrat-3d/r3"
 	"github.com/lestrrat-3d/sketch/param"
-	"github.com/lestrrat-3d/sketch/units"
+	"github.com/lestrrat-3d/units"
 )
 
 // Plane-related errors.

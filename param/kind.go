@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/lestrrat-3d/sketch/units"
+	"github.com/lestrrat-3d/units"
 )
 
 // ErrIncompatibleKind indicates an expression mixes unit kinds in a way the

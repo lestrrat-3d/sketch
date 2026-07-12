@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/lestrrat-3d/sketch/units"
+	"github.com/lestrrat-3d/units"
 )
 
 // jsonEntry is the on-disk form of a single parameter. A literal value carries

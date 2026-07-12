@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/lestrrat-3d/sketch"
-	"github.com/lestrrat-3d/sketch/units"
+	"github.com/lestrrat-3d/units"
 )
 
 // Example_sketch_units shows that dimensions carry typed units while the solver

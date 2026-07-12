@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/lestrrat-3d/sketch/param"
-	"github.com/lestrrat-3d/sketch/units"
+	"github.com/lestrrat-3d/units"
 	"github.com/stretchr/testify/require"
 )
 

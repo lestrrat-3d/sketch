@@ -5,7 +5,7 @@ import (
 	"math"
 	"strconv"
 
-	"github.com/lestrrat-3d/sketch/units"
+	"github.com/lestrrat-3d/units"
 )
 
 // Expr is a parsed expression node. Expr values are immutable once produced by

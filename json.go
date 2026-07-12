@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/lestrrat-3d/sketch/param"
-	"github.com/lestrrat-3d/sketch/units"
+	"github.com/lestrrat-3d/units"
 )
 
 // On-disk representation. Points and entities are referenced by their stable
