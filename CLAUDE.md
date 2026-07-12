@@ -33,9 +33,10 @@ from a solid — the seam is first-class reference geometry), live in
    short, deliberate dependency list — do not add modules to `go.mod` without
    recording the decision here. Current approved dependencies:
    - `github.com/lestrrat-go/option/v3` — functional-options API. Used by the
-     root `sketch` package only (`Sketch.SVG`, `Sketch.Solve`). The `geom` and
-     `param` packages keep their **production** code standard-library-only so
-     they stay independently extractable.
+     root `sketch` package only (`Sketch.SVG`, `Sketch.Solve`). The `geom`
+     package keeps its **production** code standard-library-only, and `param`'s
+     only production dependency is the `units` module, so both stay
+     independently extractable.
    - `github.com/lestrrat-3d/r3` — the 3D coordinate-math layer (`r3.Vec`,
      `r3.Frame`), a standalone module of its own. Used by the root `sketch`
      package only (`plane.go`, `world.go`, `sketch.go`, the exporters); see
@@ -269,9 +270,9 @@ parameters holding literals or expressions (`width = height * 1.5`), with a
 lexer/parser/evaluator, functions, constants, forward references and cycle
 detection. **It must not import anything from the `sketch` package or rely on
 the rest of the repo** — it is intended to move into its own module/repository
-later, so the dependency arrow only ever points *into* it. Keep its production
-code standard-library-only (tests may use `testify/require`) and independently
-testable.
+later, so the dependency arrow only ever points *into* it. Its production code
+depends on the standard library plus the `units` module and nothing else (tests
+may use `testify/require`); keep it independently testable.
 
 ### Building blocks vs. sketch geometry (load-bearing)
 
