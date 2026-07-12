@@ -201,3 +201,97 @@ func TestProfileStaleness(t *testing.T) {
 		require.False(t, p1.IsStale())
 	})
 }
+
+// TestProfileStalenessPointRewire covers the defining points an entity is built
+// over. Entity fields (Line.Start, …) are exported, so a caller can point one at
+// a DIFFERENT *Point that carries the same numeric id — a point of another
+// sketch, or a removed handle whose id a later point has since inherited.
+// buildProfiles follows the pointer, so the region set changes; the fingerprint
+// must follow the pointer too, or the profile built before the rewire reads
+// fresh while describing geometry that no longer exists.
+func TestProfileStalenessPointRewire(t *testing.T) {
+	t.Run("a defining point rewired to a foreign point with the same id", func(t *testing.T) {
+		s, _ := squareSketch(t)
+
+		// A second sketch whose points carry the very same ids (0..3) but sit
+		// elsewhere: id equality across sketches is meaningless, the ids are
+		// per-sketch slice positions.
+		w2 := sketch.NewWorld()
+		other, err := w2.CreateSketch(w2.XY())
+		require.NoError(t, err)
+		foreign := other.CreatePoint(100, 100)
+		require.Equal(t, s.Points()[0].ID(), foreign.ID(), "the same numeric id in another sketch")
+
+		before := s.Profiles()
+		require.Len(t, before, 1)
+		p := before[0]
+		rev := s.Revision()
+
+		line, ok := s.Entities()[0].(*sketch.Line)
+		require.True(t, ok)
+		require.Same(t, s.Points()[0], line.Start)
+		line.Start = foreign // the square's corner now belongs to another sketch
+
+		require.NotEqual(t, rev, s.Revision(),
+			"the revision must follow the point pointer, not its id")
+		require.True(t, p.IsStale(), "the profile no longer describes the sketch")
+		require.Empty(t, s.Profiles(), "the boundary is broken open, so no region survives")
+	})
+
+	t.Run("a defining point rewired to a same-coordinate foreign point", func(t *testing.T) {
+		// The subtlest form: the foreign point has the SAME id AND the SAME
+		// coordinates, so only its identity differs. buildProfiles keys its shared
+		// geom.Point map on the *Point, so identity is an input to the arrangement;
+		// the revision hashes the sharing structure and reports the rewire
+		// conservatively rather than betting on coincident vertices welding.
+		s, pts := squareSketch(t)
+		other, _ := squareSketch(t)
+		foreign := other.Points()[0]
+		require.Equal(t, pts[0].ID(), foreign.ID())
+		require.Equal(t, pts[0].X(), foreign.X())
+		require.Equal(t, pts[0].Y(), foreign.Y())
+
+		p := s.Profiles()[0]
+		rev := s.Revision()
+
+		line, ok := s.Entities()[0].(*sketch.Line)
+		require.True(t, ok)
+		line.Start = foreign
+
+		require.NotEqual(t, rev, s.Revision(),
+			"point sharing is an input to the arrangement, so the revision must see it")
+		require.True(t, p.IsStale())
+	})
+
+	t.Run("a defining point rewired to a removed handle with a reused id", func(t *testing.T) {
+		w := sketch.NewWorld()
+		s, err := w.CreateSketch(w.XY())
+		require.NoError(t, err)
+		// The spare is created FIRST, so removing it renumbers the corners down and
+		// the dead handle keeps the id (0) the bottom-left corner then inherits.
+		spare := s.CreatePoint(50, 50)
+		bl, br := s.CreatePoint(0, 0), s.CreatePoint(10, 0)
+		tr, tl := s.CreatePoint(10, 10), s.CreatePoint(0, 10)
+		s.CreateLine(bl, br)
+		s.CreateLine(br, tr)
+		s.CreateLine(tr, tl)
+		s.CreateLine(tl, bl)
+		require.True(t, s.RemovePoint(spare))
+		require.Equal(t, spare.ID(), bl.ID(), "the dead handle's id was reused by a live point")
+
+		before := s.Profiles()
+		require.Len(t, before, 1)
+		p := before[0]
+		rev := s.Revision()
+
+		line, ok := s.Entities()[0].(*sketch.Line)
+		require.True(t, ok)
+		require.Same(t, bl, line.Start)
+		line.Start = spare // a removed handle, still resolving to (50, 50)
+
+		require.NotEqual(t, rev, s.Revision(),
+			"a dead handle with a reused id is the same class of rewire")
+		require.True(t, p.IsStale())
+		require.Empty(t, s.Profiles(), "the corner moved to (50,50), so the square is open")
+	})
+}

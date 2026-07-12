@@ -10,9 +10,11 @@ import (
 // Revision returns a fingerprint of the sketch state that [Sketch.Profiles]
 // depends on: every solver variable (point coordinates, circle radii, ellipse
 // axes/rotation, conic rho), plus the entity set, each entity's type, its
-// defining points, its construction flag, and any structural state the entity
-// stores outside the solver's variable vector (a NURBS' degree, knots and
-// weights) — see entityStructuralState.
+// construction flag, its defining points — their sharing structure, ids AND the
+// coordinates those point pointers actually resolve to, which is what
+// buildProfiles reads and need not live in this sketch's var vector — and any
+// structural state the entity stores outside the solver's variable vector (a
+// NURBS' degree, knots and weights) — see entityStructuralState.
 //
 // It is a FINGERPRINT, not a counter: compare it for EQUALITY only, never for
 // order. Equal revisions mean the sketch is geometrically unchanged; a different
@@ -54,6 +56,27 @@ func (s *Sketch) Revision() uint64 {
 	// Topology: which entities exist, of what type, over which points, and whether
 	// they take part in profiles at all (construction geometry is excluded) — plus
 	// whatever the entity stores outside the var vector.
+	//
+	// A defining point is hashed as buildProfiles CONSUMES it, not by a proxy for
+	// it. buildProfiles follows the entity's *Point pointer and reads the
+	// coordinates that pointer resolves to (Point.Geometry -> p.s.vars[p.xi]), and
+	// it shares one geom.Point per DISTINCT *Point so that entities meeting at the
+	// same point connect in the arrangement. So three things are hashed per point:
+	//
+	//   - its identity as sharing sees it (a first-seen sequence number over the
+	//     entity walk — pointer addresses are not hashed, they are not deterministic
+	//     across runs, but this ordinal captures exactly which entities share a
+	//     point);
+	//   - its id (the document-level handle);
+	//   - its actual coordinates, via math.Float64bits.
+	//
+	// The coordinates are NOT covered by hashing s.vars above: the entity's fields
+	// are exported, so a caller can rewire a defining point to a *Point belonging to
+	// ANOTHER sketch (or to a removed handle), whose coordinates live outside this
+	// sketch's var vector or under a renumbered id. Hashing p.id alone made such a
+	// rewire invisible — the profiles changed while the revision did not, so a stale
+	// Profile read fresh.
+	seq := make(map[*Point]uint64)
 	write(uint64(len(s.ents)))
 	for _, e := range s.ents {
 		_, _ = fmt.Fprintf(h, "%T", e)
@@ -65,7 +88,22 @@ func (s *Sketch) Revision() uint64 {
 		pts := entityPoints(e)
 		write(uint64(len(pts)))
 		for _, p := range pts {
+			if p == nil || p.s == nil {
+				// buildProfiles is nil-safe here (the builders reject nil), so the
+				// fingerprint must be too; a distinct sentinel keeps a nil slot from
+				// colliding with a real point.
+				write(math.MaxUint64)
+				continue
+			}
+			n, ok := seq[p]
+			if !ok {
+				n = uint64(len(seq))
+				seq[p] = n
+			}
+			write(n)
 			write(uint64(p.id))
+			write(math.Float64bits(p.x()))
+			write(math.Float64bits(p.y()))
 		}
 		entityStructuralState(e, write, writeFloats)
 	}
