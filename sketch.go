@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 
 	"github.com/lestrrat-3d/r3"
 	"github.com/lestrrat-3d/sketch/geom"
@@ -73,10 +74,36 @@ func (s *Sketch) addEntity(e Entity) {
 	s.ents = append(s.ents, e)
 }
 
-// entityUID returns the instance identity assigned by [Sketch.addEntity], or 0
-// for an entity this sketch does not own (a foreign or removed handle). Real
-// uids start at 1, so 0 is a distinguishable sentinel.
-func (s *Sketch) entityUID(e Entity) uint64 { return s.entUIDs[e] }
+// adoptUID returns e's instance identity, STAMPING a fresh one if e carries
+// none. It is what [Sketch.Revision] hashes, and it exists as defense in depth
+// behind the copy [Sketch.Entities] returns.
+//
+// addEntity is the only funnel an entity is supposed to enter s.ents through, so
+// every member should already carry a uid. If one ever does not — a future
+// internal path that appends directly, or a caller who reaches the backing slice
+// some other way — the honest reading is NOT uid 0. Hashing 0 makes uid 0 a
+// silent "same instance" signal: two DIFFERENT unstamped entities of the same
+// type over the same points hash identically, so swapping one for the other
+// leaves [Sketch.Revision] unchanged and a [Profile] holding the discarded
+// instance reports fresh. That is precisely the class of bug the uid was
+// introduced to close, so 0 must never survive to the hash.
+//
+// Stamping instead of hashing a sentinel is what makes the swap VISIBLE rather
+// than merely non-colliding: the counter never rewinds, so the intruder gets a
+// uid no other instance has ever had and the revision moves. It stays a
+// fingerprint — re-reading an unchanged sketch re-reads the same stamped uid, so
+// two consecutive Revision calls with no mutation in between still agree.
+func (s *Sketch) adoptUID(e Entity) uint64 {
+	if uid := s.entUIDs[e]; uid != 0 {
+		return uid
+	}
+	if s.entUIDs == nil {
+		s.entUIDs = map[Entity]uint64{}
+	}
+	s.nextEntID++
+	s.entUIDs[e] = s.nextEntID
+	return s.nextEntID
+}
 
 // newSketch is the shared constructor used by [World.CreateSketch] and the
 // document loaders. Every sketch belongs to a world; obtain one with
@@ -114,16 +141,40 @@ func (s *Sketch) newVar(v float64) int {
 	return len(s.vars) - 1
 }
 
-// Points returns the points in creation order. The slice must not be modified.
-func (s *Sketch) Points() []*Point { return s.points }
+// Points returns the points in creation order.
+//
+// The returned slice is a COPY: the elements are the sketch's live *Point
+// handles (mutate a point through its own API — MoveTo, Fix — as usual), but
+// writing to a SLOT of the returned slice does not reach the sketch. See
+// [Sketch.Entities] for why the copy is load-bearing.
+func (s *Sketch) Points() []*Point { return slices.Clone(s.points) }
 
 // Entities returns the lines, circles, arcs and ellipses in creation order.
-// The slice must not be modified.
-func (s *Sketch) Entities() []Entity { return s.ents }
+//
+// The returned slice is a COPY: the elements are the sketch's live [Entity]
+// handles, but writing to a SLOT of the returned slice does not reach the
+// sketch. That copy is load-bearing, not politeness. Handing out the backing
+// array would let a caller do
+//
+//	s.Entities()[i] = &sketch.Line{Start: a, End: b}
+//
+// — the entity types are exported with exported fields — and splice an entity
+// into the sketch that never passed through the addEntity funnel, so it carries
+// no instance identity (uid), no allocated solver vars, and no id matching its
+// slot. Every invariant the engine rests on (id == slice position, entity-owned
+// vars, the [Sketch.Revision] fingerprint that makes [Profile.IsStale] work) is
+// bypassed at once. Entities enter the sketch only through the builders.
+func (s *Sketch) Entities() []Entity { return slices.Clone(s.ents) }
 
-// Constraints returns the constraints in creation order. The slice must not be
-// modified.
-func (s *Sketch) Constraints() []Constraint { return s.cons }
+// Constraints returns the constraints in creation order.
+//
+// The returned slice is a COPY: the elements are the sketch's live [Constraint]
+// values, but writing to a SLOT of the returned slice does not reach the sketch.
+// Reordering or duplicating the backing slice would silently shift the
+// row->constraint attribution every diagnostic (RedundantConstraints, Diagnose,
+// ConflictSet) derives from residuals(); constraints enter and leave through
+// [Sketch.AddConstraint] / [Sketch.RemoveConstraint] only.
+func (s *Sketch) Constraints() []Constraint { return slices.Clone(s.cons) }
 
 // worldPolylineSegments is the per-curve sampling density of [Sketch.WorldPolyline].
 const worldPolylineSegments = 32

@@ -96,7 +96,12 @@ func (s *Sketch) Revision() uint64 {
 		// points, shape, id and the var vector all identical — only the uid (never
 		// reused; see Sketch.addEntity) reveals that the old handle is now dead and
 		// the sketch owns a different instance.
-		write(s.entityUID(e))
+		//
+		// The uid is READ THROUGH adoptUID, which stamps an entity that reached
+		// s.ents without one rather than letting it hash as 0: 0 would make two
+		// different unstamped instances fingerprint alike — a stale Profile reading
+		// fresh, the very bug the uid closes. See Sketch.adoptUID.
+		write(s.adoptUID(e))
 		_, _ = fmt.Fprintf(h, "%T", e)
 		if e.IsConstruction() {
 			write(1)

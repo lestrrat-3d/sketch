@@ -128,3 +128,36 @@ func TestRevisionResolvesShapeValues(t *testing.T) {
 			"the revision must hash the semi-axes the elliptical arc RESOLVES")
 	})
 }
+
+// TestRevisionStampsUnstampedEntity is the uid-0 defense in depth. addEntity is
+// the only funnel an entity should enter s.ents through, and Sketch.Entities
+// hands out a copy so no caller can splice one in behind it — but the
+// fingerprint must not COLLAPSE if an unstamped entity ever does reach the slice
+// (a future internal path, an unsafe reach). Hashing uid 0 for it would make two
+// DIFFERENT unstamped instances fingerprint alike: swap one for the other and
+// the revision would not move while a Profile still held the discarded handle.
+//
+// Reaching s.ents directly is only possible in-package, which is why this test
+// lives here rather than in the external suite.
+func TestRevisionStampsUnstampedEntity(t *testing.T) {
+	w := NewWorld()
+	s, err := w.CreateSketch(w.XY())
+	require.NoError(t, err)
+	a, b := s.CreatePoint(0, 0), s.CreatePoint(10, 0)
+
+	// Bypass addEntity entirely: no uid is stamped.
+	first := &Line{Start: a, End: b}
+	s.ents = append(s.ents, first)
+	require.Zero(t, s.entUIDs[first], "the intruder starts with no instance identity")
+
+	rev1 := s.Revision()
+	require.NotZero(t, s.entUIDs[first], "reading the revision must stamp it")
+	require.Equal(t, rev1, s.Revision(), "the revision is still a fingerprint: unchanged state, equal value")
+
+	// A DIFFERENT instance, identical in type, points and shape. Under a uid-0
+	// hash the two are indistinguishable and the revision would not move.
+	second := &Line{Start: a, End: b}
+	s.ents[len(s.ents)-1] = second
+	require.NotEqual(t, rev1, s.Revision(),
+		"a different unstamped instance must not fingerprint like the one it replaced")
+}

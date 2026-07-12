@@ -2,6 +2,7 @@ package sketch
 
 import (
 	"context"
+	"slices"
 
 	"github.com/lestrrat-3d/r3"
 	"github.com/lestrrat-3d/sketch/param"
@@ -50,12 +51,20 @@ func (w *World) XZ() *Plane { return w.planes[1] }
 // YZ returns the world's standard YZ datum plane.
 func (w *World) YZ() *Plane { return w.planes[2] }
 
-// Planes returns the world's planes in id order. The slice must not be modified.
-func (w *World) Planes() []*Plane { return w.planes }
+// Planes returns the world's planes in id order.
+//
+// The returned slice is a COPY: the elements are the world's live *Plane
+// handles, but writing to a SLOT of the returned slice does not reach the world.
+// The backing slice IS the id space (a plane's id is its position — see
+// [World.RemovePlane]), and w.planes[p.id] == p is the liveness test every
+// ownership check runs; a write-through would decouple the two.
+func (w *World) Planes() []*Plane { return slices.Clone(w.planes) }
 
-// Sketches returns the world's sketches in creation order. The slice must not be
-// modified.
-func (w *World) Sketches() []*Sketch { return w.sketches }
+// Sketches returns the world's sketches in creation order.
+//
+// The returned slice is a COPY: the elements are the world's live *Sketch
+// handles, but writing to a SLOT of the returned slice does not reach the world.
+func (w *World) Sketches() []*Sketch { return slices.Clone(w.sketches) }
 
 // owns reports whether p is a live member of this world. The w.planes[p.id] == p
 // clause rejects a removed (tombstoned) handle whose owner field may be stale.
