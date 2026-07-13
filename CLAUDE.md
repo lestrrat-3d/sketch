@@ -249,18 +249,22 @@ object (the sketch's geometry builders). Load-bearing rules:
 in **its own module/repo** (not in this tree): typed `Unit` constants (metric +
 imperial length, deg/rad angle — never strings), a `Value` type that pairs a
 magnitude with its unit and converts between compatible units, and a `System`
-holding the current default length/angle units (`Metric`/`SI`/`Imperial`). Base
-units are millimetre and radian. Every unit has a `Kind` — a **comparable
-dimension-exponent struct**, not an int enum, so kinds compose: the base kinds
-are length / angle / dimensionless, and `Kind.Mul`/`Div` (mirrored by
-`Value.Mul`/`Div`) build compound kinds (`Area`, `Volume`, `Mass`, `Density`,
-`MomentOfInertia`, `SecondMomentOfArea`, …). Conversion and `Value` arithmetic
-are kind-checked and return `ErrIncompatible` on a mismatch — units are NEVER
-silently relabelled — and a `Value` never carries negative zero. `BaseUnit(kind)`
-returns `(Unit, bool)`: an unnamed kind (e.g. a bare `L⁻¹`) has no base unit, so
-the `ok` must be handled (sketch's call sites deal only in length/angle/
-dimensionless, where `ok` is always true, but still return an error rather than
-panic on the impossible `false`). New units register via `Define`/`Lookup` (also
+holding the current default length/angle units (`Metric`/`SI`/`Imperial`). Every
+unit has a `Kind` — a **comparable dimension-exponent struct** over the base
+dimensions length, mass and angle, not an int enum — so kinds compose:
+`Kind.Mul`/`Div` (mirrored by `Value.Mul`/`Div`) build compound kinds (`Area`,
+`Volume`, `Density`, `MomentOfInertia`, `SecondMomentOfArea`, …) from those
+exponents. Every **named** kind — `Dimensionless`, `Length`, `Area`, `Volume`,
+`Angle`, `Mass`, `Density`, `MomentOfInertia`, `SecondMomentOfArea` — has a
+registered base unit via `BaseUnit(kind)`; millimetre and radian are the bases
+for `Length` and `Angle`, the two kinds sketch's own currency (points, solver
+vars) is denominated in. `BaseUnit` returns `(Unit, bool)`: an **unnamed** kind
+(e.g. a bare `L⁻¹`, curvature) has no base unit, so the `ok` must be handled
+(sketch's call sites deal only in length/angle/dimensionless, where `ok` is
+always true, but still return an error rather than panic on the impossible
+`false`). Conversion and `Value` arithmetic are kind-checked and return
+`ErrIncompatible` on a mismatch — units are NEVER silently relabelled — and a
+`Value` never carries negative zero. New units register via `Define`/`Lookup` (also
 the serialization hook); `Define` **panics** on a malformed registration
 (duplicate symbol, non-positive/non-finite factor, whitespace/non-ASCII/control
 or leading-`[` symbol, overflowed kind) — so it is a build-time authoring call,
