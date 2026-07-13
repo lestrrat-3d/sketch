@@ -259,10 +259,15 @@ exponents. Every **named** kind — `Dimensionless`, `Length`, `Area`, `Volume`,
 registered base unit via `BaseUnit(kind)`; millimetre and radian are the bases
 for `Length` and `Angle`, the two kinds sketch's own currency (points, solver
 vars) is denominated in. `BaseUnit` returns `(Unit, bool)`: an **unnamed** kind
-(e.g. a bare `L⁻¹`, curvature) has no base unit, so the `ok` must be handled
-(sketch's call sites deal only in length/angle/dimensionless, where `ok` is
-always true, but still return an error rather than panic on the impossible
-`false`). Conversion and `Value` arithmetic are kind-checked and return
+(e.g. a bare `L⁻¹`, curvature) has no base unit, so the `ok` must be handled.
+The two **sketch**-package call sites (`json.go`'s `dimUnit`, `parameters.go`'s
+`evalDimension`) key off a `Dimension`'s own kind, which is always length or
+angle, so `ok` is always true there — but they still return an error rather
+than panic on the impossible `false`. `param.Table.EvalValue` (`param/table.go`)
+is different: it keys off whatever kind the evaluated expression computes to —
+any *named* kind a table parameter was declared with (length, angle, mass,
+density, …) — so an unnamed kind is a real, reachable `ok == false` there,
+surfaced as `param.ErrIncompatibleKind`. Conversion and `Value` arithmetic are kind-checked and return
 `ErrIncompatible` on a mismatch — units are NEVER silently relabelled — and a
 `Value` never carries negative zero. New units register via `Define`/`Lookup` (also
 the serialization hook); `Define` **panics** on a malformed registration
