@@ -254,12 +254,34 @@ object (the sketch's geometry builders). Load-bearing rules:
 in **its own module/repo** (not in this tree): typed `Unit` constants (metric +
 imperial length, deg/rad angle — never strings), a `Value` type that pairs a
 magnitude with its unit and converts between compatible units, and a `System`
-holding the current default length/angle units (`Metric`/`SI`/`Imperial`). Base
-units are millimetre and radian. Every unit has a `Kind`
-(length/angle/dimensionless); conversion and `Value` arithmetic are kind-checked
-and return `ErrIncompatible` on a mismatch — units are NEVER silently
-relabelled. New units register via `Define`/`Lookup` (also the serialization
-hook). It imports nothing but stdlib.
+holding the current default length/angle units (`Metric`/`SI`/`Imperial`). Every
+unit has a `Kind` — a **comparable dimension-exponent struct** over the base
+dimensions length, mass and angle, not an int enum — so kinds compose:
+`Kind.Mul`/`Div` (mirrored by `Value.Mul`/`Div`) build compound kinds (`Area`,
+`Volume`, `Density`, `MomentOfInertia`, `SecondMomentOfArea`, …) from those
+exponents. Every **named** kind — `Dimensionless`, `Length`, `Area`, `Volume`,
+`Angle`, `Mass`, `Density`, `MomentOfInertia`, `SecondMomentOfArea` — has a
+registered base unit via `BaseUnit(kind)`; millimetre and radian are the bases
+for `Length` and `Angle`, the two kinds sketch's own currency (points, solver
+vars) is denominated in. `BaseUnit` returns `(Unit, bool)`: an **unnamed** kind
+(e.g. a bare `L⁻¹`, curvature) has no base unit, so the `ok` must be handled.
+The two **sketch**-package call sites (`json.go`'s `dimUnit`, `parameters.go`'s
+`evalDimension`) key off a `Dimension`'s own kind, which is always length or
+angle, so `ok` is always true there — but they still return an error rather
+than panic on the impossible `false`. `param.Table.EvalValue` (`param/table.go`)
+is different: it keys off whatever kind the evaluated expression computes to —
+any *named* kind a table parameter was declared with (length, angle, mass,
+density, …) — so an unnamed kind is a real, reachable `ok == false` there,
+surfaced as `param.ErrIncompatibleKind`. Conversion and `Value` arithmetic are kind-checked and return
+`ErrIncompatible` on a mismatch — units are NEVER silently relabelled — and a
+`Value` never carries negative zero. New units register via `Define`/`Lookup` (also
+the serialization hook); `Define` **panics** on a malformed registration
+(duplicate symbol, non-positive/non-finite factor, whitespace/non-ASCII/control
+or leading-`[` symbol, overflowed kind) — so it is a build-time authoring call,
+never fed user input. Sketch loads units through `Lookup` only, never `Define`,
+so those panics are unreachable at runtime. `Value` also round-trips as text
+(`MarshalText`/`UnmarshalText`, e.g. `"10 mm"`); sketch does not use it. It
+imports nothing but stdlib.
 
 - **All unit conversion lives there** — no other package re-implements factor
   math. Never relabel a magnitude to change its unit; go through
@@ -736,10 +758,11 @@ These are unsettled. If you resolve one, record the decision here.
   unit-carrying `Value`, and a default-units `System`. Sketch dimensions and
   `param` parameters both carry units; the solver stays in base units and all
   conversion is delegated to the library. **Expression kind algebra is in**
-  (`param/kind.go`): `param` tracks unit *kind* (length/angle/dimensionless)
-  through expression arithmetic via a static `kindOf` walk — an identifier's kind
+  (`param/kind.go`): `param` tracks unit *kind* (whatever kind a parameter's
+  declared unit carries — length, angle, mass, …, or dimensionless) through
+  expression arithmetic via a static `kindOf` walk — an identifier's kind
   is its declared unit's kind — and rejects incompatible combinations
-  (`length+angle`, `length*length` since there is no area unit, `1/length`
+  (`length+angle`, `length*length` (rejected as a compound kind), `1/length`
   inverse, `sqrt`/trig of a dimensioned value, …) with `param.ErrIncompatibleKind`.
   Addition allows angle/dimensionless mixing (radians are physically
   dimensionless, so `theta + pi/2` is an angle; a length never mixes with a bare
@@ -751,9 +774,14 @@ These are unsettled. If you resolve one, record the decision here.
   parameter-validation pass exposing `ParametersValid`/`ParameterErrors`, which
   gate `Trustworthy()` — so a unit-kind bug hidden in an expression is no longer
   silently blessed. *Limited on purpose:* this is **kind** algebra, not full
-  **dimensional** algebra — there are no area/inverse units, so those products are
-  *rejected* rather than represented; custom `SetFunc` functions are
-  dimensionless-only (typed custom functions are a follow-up). **The DXF
+  **dimensional** algebra. The `units` module can now represent compound kinds
+  (`Area`, `Volume`, …), but `param` deliberately does **not** compose them: a
+  dimensioned product/quotient (`length*length`, `1/length`, `length+angle`) is
+  *rejected* rather than represented. Parameters exist to drive dimensions
+  (lengths / angles) and plane offsets; a compound kind has no consumer in
+  sketch, so it stays outside the expression algebra. Revisit only if such a
+  consumer (e.g. an area-dimension constraint) is ever added. Custom `SetFunc`
+  functions are dimensionless-only (typed custom functions are a follow-up). **The DXF
   exporter honours the display `System`** (`dxf.go`: length fields in the
   display length unit + `$INSUNITS`/`$MEASUREMENT`); SVG/PNG stay unitless raster/
   vector renders by design. *Open follow-ups:*

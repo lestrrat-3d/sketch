@@ -196,7 +196,11 @@ func (s *Sketch) evalDimension(d Dimension, expr string) (units.Value, error) {
 		return units.Value{}, fmt.Errorf("sketch: evaluating dimension expression %q: %w", expr, err)
 	}
 	if v.Kind() == units.Dimensionless {
-		return units.FromBase(v.Base(), units.BaseUnit(d.Kind())), nil
+		bu, ok := units.BaseUnit(d.Kind())
+		if !ok {
+			return units.Value{}, fmt.Errorf("sketch: %s dimension has no base unit", d.Kind())
+		}
+		return units.FromBase(v.Base(), bu), nil
 	}
 	if v.Kind() != d.Kind() {
 		return units.Value{}, fmt.Errorf("sketch: %s dimension bound to %s expression %q", d.Kind(), v.Kind(), expr)

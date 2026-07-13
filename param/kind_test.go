@@ -56,7 +56,7 @@ func TestKindIncompatibleExpressions(t *testing.T) {
 	bad := []string{
 		"width + theta",     // length + angle
 		"width + 5",         // length + dimensionless (use a typed parameter)
-		"width * height",    // no area unit
+		"width * height",    // area: a compound kind, rejected
 		"1 / width",         // inverse length
 		"width / theta",     // length / angle
 		"sqrt(width)",       // sqrt of a length

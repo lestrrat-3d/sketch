@@ -74,9 +74,10 @@ func (t *Table) Set(name, expr string) error {
 
 // SetExpr defines or redefines a parameter from an expression whose result is
 // expressed in unit u. Within the expression, parameters contribute their
-// value in base units (millimetre for length, radian for angle) and numeric
-// literals are dimensionless, so e.g. "width / 2" with u = units.Millimeter is
-// a length.
+// value in their own kind's registered base unit (millimetre for length,
+// radian for angle, kilogram for mass, and so on — see [units.BaseUnit]) and
+// numeric literals are dimensionless, so e.g. "width / 2" with u =
+// units.Millimeter is a length.
 func (t *Table) SetExpr(name, expr string, u units.Unit) error {
 	if !isIdent(name) {
 		return fmt.Errorf("%w: %q", ErrInvalidName, name)
@@ -112,9 +113,10 @@ func (t *Table) put(e *entry) {
 }
 
 // Get evaluates the named parameter, resolving any parameters it depends on,
-// and returns its magnitude in the kind's base unit (millimetre for length,
-// radian for angle; the number itself for dimensionless parameters). Use
-// [Table.GetValue] for a unit-carrying result.
+// and returns its magnitude in its kind's registered base unit (millimetre
+// for length, radian for angle, kilogram for mass, and so on — the number
+// itself for dimensionless parameters). Use [Table.GetValue] for a
+// unit-carrying result.
 func (t *Table) Get(name string) (float64, error) {
 	ctx := newEvalContext(t)
 	return ctx.resolve(name)
@@ -156,11 +158,15 @@ func (t *Table) Eval(expr string) (float64, error) {
 }
 
 // EvalValue evaluates an ad-hoc expression and returns it as a unit-carrying
-// [units.Value] in the base unit of the kind the expression computes to
-// (millimetre for length, radian for angle, dimensionless otherwise). It returns
-// [ErrIncompatibleKind] when the expression mixes kinds incompatibly. This is the
-// kind-aware counterpart of [Table.Eval], used to drive a sketch dimension only
-// when the expression's kind matches the dimension's.
+// [units.Value] in the registered base unit of the kind the expression
+// computes to — millimetre for length, radian for angle, kilogram for mass,
+// and so on for whatever named kind its operands carry (dimensionless
+// otherwise). It returns [ErrIncompatibleKind] both when the expression mixes
+// kinds incompatibly and when it computes to a kind with no registered base
+// unit (see [units.BaseUnit]). This is the kind-aware counterpart of
+// [Table.Eval]; a caller such as sketch may further restrict which kinds it
+// accepts (e.g. only length or angle) when using the result to drive a
+// dimension.
 func (t *Table) EvalValue(expr string) (units.Value, error) {
 	e, err := Parse(expr)
 	if err != nil {
@@ -175,7 +181,11 @@ func (t *Table) EvalValue(expr string) (units.Value, error) {
 	if err != nil {
 		return units.Value{}, err
 	}
-	return units.FromBase(base, units.BaseUnit(kind)), nil
+	bu, ok := units.BaseUnit(kind)
+	if !ok {
+		return units.Value{}, fmt.Errorf("%w: %s has no base unit", ErrIncompatibleKind, kind.String())
+	}
+	return units.FromBase(base, bu), nil
 }
 
 // Has reports whether a parameter (not a constant or function) is defined.
