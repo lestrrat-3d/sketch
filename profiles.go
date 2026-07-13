@@ -79,8 +79,18 @@ type BoundaryEdge struct {
 	// Entity is the source sketch entity this edge lies on (*Line/*Arc/*Circle/
 	// *Ellipse).
 	Entity Entity
-	// Partial is true when this edge covers only a sub-range of Entity (the
-	// entity was split at a crossing); false when it spans the whole entity.
+	// Partial is true when this edge covers only a sub-range of Entity; false when
+	// it spans the whole entity.
+	//
+	// It is decided by each bound's provenance — the edge is whole exactly when BOTH
+	// of its bounds are the entity's own domain ends (an open curve's endpoint, or a
+	// closed curve's seam) rather than a crossing — and never by asking whether
+	// [TStart, TEnd] comes numerically close to [0,1], which cannot distinguish a
+	// bound that IS the entity's end from a crossing that landed 1e-10 from it. So an
+	// entity whose only crossing bounds nothing (the partner dangles and is pruned) is
+	// covered whole and reads Partial = false, while an entity grazed by a crossing a
+	// hair from its seam reads Partial = true — it is a fragment, however little of it
+	// is missing. See [geom.BoundaryEdge.Whole].
 	Partial bool
 	// Reversed is true when the boundary walks Entity against its natural
 	// Start→End (or counter-clockwise, for a closed entity) direction.
@@ -89,6 +99,44 @@ type BoundaryEdge struct {
 	// point its start, the last its end. A whole line is two points; an arc or
 	// fragment is more.
 	Polyline [][2]float64
+	// TStart and TEnd are this edge's parameter range on Entity, in the entity's
+	// NATURAL parameter direction — so TStart < TEnd always, and Reversed (not
+	// their order) says the walk runs backwards. A whole edge spans the entity's
+	// full domain; the range never wraps. Partial alone cannot tell you WHICH
+	// sub-range an edge covers — this is what can.
+	//
+	// The parameter is normalized t in [0,1], not the entity's own angle/knot
+	// parameter; see [geom.BoundaryEdge] for the per-type mapping (an *Arc's t
+	// is the fraction of its sweep, a *Circle's is the angle from +x over 2π, a
+	// *NURBS's maps linearly onto its knot domain, and so on).
+	TStart, TEnd float64
+	// TExact reports whether TStart/TEnd are the TRUE parameters on Entity rather
+	// than sampling-accurate approximations. Its precise, checkable meaning is:
+	// evaluating Entity at the reported parameter reproduces this edge's Polyline
+	// endpoint to machine precision, at BOTH bounds.
+	//
+	// A CUT bound is exact only when the closed-form kernel placed it, and that kernel
+	// runs only when BOTH entities of a pair are a *Line, *Circle or *Arc — a rule about
+	// the PAIR, not "a *Line was involved" and not the contact being a tangency. So
+	// every contact involving an *Ellipse, *EllipticalArc, *Conic, *Spline,
+	// *ClosedSpline, *FitSpline or *NURBS is sampled (INCLUDING a plain *Line crossing
+	// or TANGENT to one), as is every curve/curve crossing; a fragment bounded by such a
+	// contact reports TExact = false.
+	//
+	// A WHOLE edge (Partial = false) is bounded by Entity's own domain ends. Those ends
+	// are the entity's exact t=0/t=1 evaluation for every curve EXCEPT *EllipticalArc,
+	// which pins its ends to sketch Start/End points that lie on the parametric ellipse
+	// only within solver tolerance — so a whole *EllipticalArc edge reports
+	// TExact = false (eval(0)/eval(1) miss the pinned Polyline ends by that tolerance),
+	// while a whole *Ellipse/*Conic/*Spline/*ClosedSpline/*FitSpline/*NURBS/*Line/*Arc/
+	// *Circle edge reports TExact = true and its [0,1] reconstructs the curve exactly.
+	//
+	// The topology is still correct when this is false; only the parameter (and the
+	// Polyline, equally) converges with sampling — or was pinned — rather than being
+	// exact. A consumer that records the profile structurally or emits CAD code from it
+	// must check this and reject, not round-trip an approximate range as if it were the
+	// real one.
+	TExact bool
 }
 
 // Profiles detects the closed planar regions formed by the sketch's
@@ -263,5 +311,8 @@ func mapBoundaryEdge(ge geom.BoundaryEdge, entityFor func(int) Entity) BoundaryE
 		Partial:  !ge.Whole,
 		Reversed: ge.Reversed,
 		Polyline: ge.Polyline,
+		TStart:   ge.TStart,
+		TEnd:     ge.TEnd,
+		TExact:   ge.TExact,
 	}
 }
