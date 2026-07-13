@@ -63,24 +63,34 @@ type BoundaryEdge struct {
 	//	ClosedSpline      the periodic parameter, span boundaries at i/n
 	//	NURBS             normalized: knot u = lo + (hi-lo)·t over Domain()
 	TStart, TEnd float64
-	// TExact reports whether TStart and TEnd are the TRUE source parameters.
+	// TExact reports whether TStart and TEnd are the TRUE source parameters. Its
+	// precise, checkable meaning is: evaluating the source curve at the reported
+	// parameter reproduces the emitted Polyline endpoint to machine precision, at BOTH
+	// bounds. A false value does not mean the topology is wrong; it means a parameter
+	// converges with sampling density (or was pinned off the curve) rather than being
+	// exact. A consumer that must be exact (recording the region structurally, or
+	// emitting CAD from it) MUST check this and reject rather than trust the range.
 	//
-	// It is true when both bounds come from the closed-form kernel (an analytic
-	// crossing), a sample vertex, or the curve's own endpoint — and false when
-	// either bound comes from a SAMPLED crossing, whose parameter is interpolated
-	// between two sample params and whose point lies off the true curve by the
-	// chord sagitta. A false value does not mean the topology is wrong; it means
-	// the parameter converges with sampling density rather than being exact.
+	// A CUT bound is exact only when the closed-form kernel placed it. That kernel runs
+	// only when BOTH curves of a pair are a Line, Circle or Arc — a rule about the PAIR,
+	// not "a line was involved" and not the contact being a tangency. So every contact
+	// involving an Ellipse, EllipticalArc, Conic, Spline, ClosedSpline, FitSpline or
+	// NURBS is sampled (INCLUDING a plain line crossing one, and a plain line TANGENT to
+	// one), as is every curve/curve crossing (two circles/arcs are deferred to the
+	// sampled path); a FRAGMENT bounded by such a contact reports TExact = false.
 	//
-	// The closed-form kernel runs only when BOTH curves of a pair are a Line, Circle
-	// or Arc — it is a rule about the PAIR, not about "a line was involved", and not
-	// about the contact being a tangency. So every contact involving an Ellipse,
-	// EllipticalArc, Conic, Spline, ClosedSpline, FitSpline or NURBS is sampled,
-	// INCLUDING a plain line crossing one and a plain line TANGENT to one; so is
-	// every curve/curve crossing (two circles/arcs are deferred to the sampled path).
-	// A fragment of a free-form curve therefore reports TExact = false. A consumer
-	// that must be exact (e.g. one recording the region structurally, or emitting CAD
-	// code from it) MUST check this flag and reject rather than trust the range.
+	// A WHOLE edge (Whole = true) is bounded by the curve's own domain ends, not by a
+	// contact, so exactness turns on whether those ends were EVALUATED or PINNED:
+	//   - Line/Arc/Circle/Ellipse/Conic/Spline/ClosedSpline/FitSpline/NURBS: the domain
+	//     ends are the curve's own evaluation at t=0/t=1 (a clamped/interpolating curve
+	//     passes through them exactly, a closed curve's seam is its own point), so a
+	//     whole edge reports TExact = true — [0,1] reconstructs the curve exactly.
+	//   - EllipticalArc: its ends are PINNED to the sketch Start/End points, which lie
+	//     on the parametric ellipse only within solver tolerance. eval(t=0/t=1) misses
+	//     the pinned Polyline end (by that tolerance, e.g. ~5e-3), so even a whole
+	//     elliptical arc reports TExact = false. This is the one free-form curve whose
+	//     whole edge is inexact, and the reason exactness is decided by reproduction,
+	//     not by "is this bound the curve's own end".
 	TExact bool
 }
 

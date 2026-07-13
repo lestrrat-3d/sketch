@@ -1528,13 +1528,23 @@ func (a *arranger) split() {
 		s := &a.segs[i]
 		// Boundaries along the segment: the two endpoints (chord positions) plus
 		// every cut, each carrying the EXACT point to canonicalize the vertex at.
-		// The two segment endpoints are exact: they are sample params, evaluated ON
-		// the true curve by densify. Only a SAMPLED cut is inexact. They also carry
-		// the source-end PROVENANCE (cut.srcEnd) when the segment endpoint is the
-		// source's own domain end — the fact Whole is read from.
+		// A segment endpoint is exact only when evaluating its source at the endpoint's
+		// reported parameter reproduces the emitted coordinate — the general form that
+		// makes TExact's meaning ("eval(reported param) == emitted polyline endpoint")
+		// hold BY CONSTRUCTION for every source, evaluated or pinned. For all but one
+		// source densify stored the endpoint AS s.at(param), so the reproduction is
+		// bit-exact; but an elliptical arc PINS its ends to their sketch Start/End
+		// points, which sit off the parametric ellipse by solver tolerance, so
+		// s.at(param) does NOT reproduce them — identity of the welded vertex to the
+		// pinned coordinate would then pass vertexCertifies while the reported parameter
+		// misses the endpoint, the round-8 false certification this test guards against.
+		// The two endpoints also carry the source-end PROVENANCE (cut.srcEnd) when the
+		// segment endpoint is the source's own domain end — the fact Whole is read from
+		// (unchanged by this: Whole is topology, not parameter reproduction).
+		src := &a.sources[s.src]
 		bs := []cut{
-			{t: 0, px: s.ax, py: s.ay, exact: true, srcEnd: atDomainEnd(s.pa)},
-			{t: 1, px: s.bx, py: s.by, exact: true, srcEnd: atDomainEnd(s.pb)},
+			{t: 0, px: s.ax, py: s.ay, exact: a.endpointReproduces(src, s.param(0), s.ax, s.ay), srcEnd: atDomainEnd(s.pa)},
+			{t: 1, px: s.bx, py: s.by, exact: a.endpointReproduces(src, s.param(1), s.bx, s.by), srcEnd: atDomainEnd(s.pb)},
 		}
 		bs = append(bs, s.cuts...)
 		sort.Slice(bs, func(i, j int) bool { return bs[i].t < bs[j].t })
@@ -1621,6 +1631,22 @@ func (a *arranger) split() {
 func (a *arranger) vertexCertifies(v int, px, py float64) bool {
 	vx, vy := a.verts.coord(v)
 	return math.Hypot(vx-px, vy-py) <= weldIdentEps*a.scale
+}
+
+// endpointReproduces reports whether evaluating source src at parameter p reproduces
+// the emitted polyline coordinate (x,y) within the identity band. It is the exactness
+// test for a tiny segment's synthetic endpoint bound: TExact certifies that eval(the
+// reported parameter) equals the emitted polyline endpoint, so a bound may only be
+// exact when the source's own evaluation at its reported parameter lands back on the
+// coordinate densify actually emitted. For an evaluated endpoint (densify stored
+// s.at(p) verbatim) this is bit-exact; for a PINNED endpoint — an elliptical arc's
+// Start/End are pinned to sketch points off the parametric ellipse — s.at(p) misses
+// the pinned coordinate, so the bound is correctly inexact. The band is the same
+// round-off identity band vertexCertifies uses (five orders below the merge tolerance),
+// so a tolerance gap can never pass as exact reproduction.
+func (a *arranger) endpointReproduces(src *source, p, x, y float64) bool {
+	q := src.at(p)
+	return math.Hypot(q[0]-x, q[1]-y) <= weldIdentEps*a.scale
 }
 
 // weldIdentEps is the round-off band, relative to the scene scale, within which two

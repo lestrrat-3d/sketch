@@ -111,21 +111,31 @@ type BoundaryEdge struct {
 	// *NURBS's maps linearly onto its knot domain, and so on).
 	TStart, TEnd float64
 	// TExact reports whether TStart/TEnd are the TRUE parameters on Entity rather
-	// than sampling-accurate approximations.
+	// than sampling-accurate approximations. Its precise, checkable meaning is:
+	// evaluating Entity at the reported parameter reproduces this edge's Polyline
+	// endpoint to machine precision, at BOTH bounds.
 	//
-	// It is false whenever either bound came from a sampled crossing. The closed-form
-	// kernel runs only when BOTH entities of a pair are a *Line, *Circle or *Arc — a
-	// rule about the PAIR, not about "a *Line was involved", and not about the contact
-	// being a tangency. So every contact involving an *Ellipse, *EllipticalArc,
-	// *Conic, *Spline, *ClosedSpline, *FitSpline or *NURBS is sampled, INCLUDING a
-	// plain *Line crossing one and a plain *Line TANGENT to one; so is every
-	// curve/curve crossing. A fragment of a free-form curve reports TExact = false.
+	// A CUT bound is exact only when the closed-form kernel placed it, and that kernel
+	// runs only when BOTH entities of a pair are a *Line, *Circle or *Arc — a rule about
+	// the PAIR, not "a *Line was involved" and not the contact being a tangency. So
+	// every contact involving an *Ellipse, *EllipticalArc, *Conic, *Spline,
+	// *ClosedSpline, *FitSpline or *NURBS is sampled (INCLUDING a plain *Line crossing
+	// or TANGENT to one), as is every curve/curve crossing; a fragment bounded by such a
+	// contact reports TExact = false.
 	//
-	// The topology is still correct when this is false; only the parameter (and
-	// the Polyline, equally) converges with sampling rather than being exact. A
-	// consumer that records the profile structurally or emits CAD code from it
-	// must check this and reject, not round-trip an approximate range as if it
-	// were the real one.
+	// A WHOLE edge (Partial = false) is bounded by Entity's own domain ends. Those ends
+	// are the entity's exact t=0/t=1 evaluation for every curve EXCEPT *EllipticalArc,
+	// which pins its ends to sketch Start/End points that lie on the parametric ellipse
+	// only within solver tolerance — so a whole *EllipticalArc edge reports
+	// TExact = false (eval(0)/eval(1) miss the pinned Polyline ends by that tolerance),
+	// while a whole *Ellipse/*Conic/*Spline/*ClosedSpline/*FitSpline/*NURBS/*Line/*Arc/
+	// *Circle edge reports TExact = true and its [0,1] reconstructs the curve exactly.
+	//
+	// The topology is still correct when this is false; only the parameter (and the
+	// Polyline, equally) converges with sampling — or was pinned — rather than being
+	// exact. A consumer that records the profile structurally or emits CAD code from it
+	// must check this and reject, not round-trip an approximate range as if it were the
+	// real one.
 	TExact bool
 }
 
