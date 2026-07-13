@@ -747,7 +747,7 @@ These are unsettled. If you resolve one, record the decision here.
   (`param/kind.go`): `param` tracks unit *kind* (length/angle/dimensionless)
   through expression arithmetic via a static `kindOf` walk — an identifier's kind
   is its declared unit's kind — and rejects incompatible combinations
-  (`length+angle`, `length*length` since there is no area unit, `1/length`
+  (`length+angle`, `length*length` (rejected as a compound kind), `1/length`
   inverse, `sqrt`/trig of a dimensioned value, …) with `param.ErrIncompatibleKind`.
   Addition allows angle/dimensionless mixing (radians are physically
   dimensionless, so `theta + pi/2` is an angle; a length never mixes with a bare

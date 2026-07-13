@@ -7,11 +7,13 @@ import (
 	"github.com/lestrrat-3d/units"
 )
 
-// ErrIncompatibleKind indicates an expression mixes unit kinds in a way the
-// engine cannot represent — adding a length to an angle, multiplying two
-// lengths (no area unit), inverting a unit, and so on. Kind algebra tracks
-// length / angle / dimensionless through arithmetic; it is NOT full dimensional
-// algebra (there are no area or inverse-length units). Use [errors.Is].
+// ErrIncompatibleKind indicates an expression mixes unit kinds in a way param
+// does not represent — adding a length to an angle, multiplying two lengths,
+// inverting a unit, and so on. Kind algebra tracks length / angle /
+// dimensionless through arithmetic; it is NOT full dimensional algebra — the
+// units module can represent compound kinds (area, inverse-length, …), but
+// param deliberately rejects them rather than composing them, since it has no
+// compound-kind consumer. Use [errors.Is].
 var ErrIncompatibleKind = errors.New("param: incompatible unit kinds")
 
 // kindOf computes the unit kind an expression evaluates to, validating that
@@ -68,7 +70,7 @@ func (e *binaryExpr) kindOf(t *Table) (units.Kind, error) {
 		case kb == units.Dimensionless:
 			return ka, nil
 		default:
-			return units.Kind{}, fmt.Errorf("%w: cannot multiply a %s by a %s (no compound unit)", ErrIncompatibleKind, ka.String(), kb.String())
+			return units.Kind{}, fmt.Errorf("%w: cannot multiply a %s by a %s (compound units unsupported)", ErrIncompatibleKind, ka.String(), kb.String())
 		}
 	case '/':
 		// kind/dimensionless preserves the kind; same-kind/same-kind is a
