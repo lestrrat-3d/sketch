@@ -9,8 +9,9 @@ import (
 
 // ErrIncompatibleKind indicates an expression mixes unit kinds in a way param
 // does not represent — adding a length to an angle, multiplying two lengths,
-// inverting a unit, and so on. Kind algebra tracks length / angle /
-// dimensionless through arithmetic; it is NOT full dimensional algebra — the
+// inverting a unit, and so on. Kind algebra tracks whatever named kind each
+// operand's declared unit carries (length, angle, mass, …, or dimensionless)
+// through arithmetic; it is NOT full dimensional algebra — the
 // units module can represent compound kinds (area, inverse-length, …), but
 // param deliberately rejects them rather than composing them, since it has no
 // compound-kind consumer. Use [errors.Is].
