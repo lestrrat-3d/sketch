@@ -109,20 +109,32 @@ func dimJSON(typ string, d Dimension, points, entities []int) jsonConstraint {
 }
 
 // dimUnit resolves a stored unit symbol for a dimension of the given kind,
-// falling back to the kind's base unit.
-func dimUnit(symbol string, kind units.Kind) units.Unit {
+// falling back to the kind's base unit. A dimension kind is always
+// length or angle, both of which have a base unit, so the fallback never
+// fails in practice; the error is returned rather than panicked to honour the
+// no-panic contract.
+func dimUnit(symbol string, kind units.Kind) (units.Unit, error) {
 	if u, ok := units.Lookup(symbol); ok && u.Kind() == kind {
-		return u
+		return u, nil
 	}
-	return units.BaseUnit(kind)
+	bu, ok := units.BaseUnit(kind)
+	if !ok {
+		return units.Unit{}, fmt.Errorf("sketch: %s dimension has no base unit", kind)
+	}
+	return bu, nil
 }
 
 // restoreDim reinstates a deserialized dimension's unit, parameter binding and
 // driven flag.
-func restoreDim(d Dimension, jc jsonConstraint) {
-	d.restore(jc.Value, dimUnit(jc.Unit, d.Kind()))
+func restoreDim(d Dimension, jc jsonConstraint) error {
+	u, err := dimUnit(jc.Unit, d.Kind())
+	if err != nil {
+		return err
+	}
+	d.restore(jc.Value, u)
 	d.setDriverExpr(jc.Expr)
 	d.SetDriven(jc.Driven)
+	return nil
 }
 
 // MarshalJSON implements [json.Marshaler], producing a portable, reloadable
@@ -879,9 +891,12 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 
 	pt := func(i int) *Point { return s.points[jc.Points[i]] }
 	// dim restores a dimensional constraint's unit/binding, then commits it.
-	dim := func(d Dimension) {
-		restoreDim(d, jc)
+	dim := func(d Dimension) error {
+		if err := restoreDim(d, jc); err != nil {
+			return err
+		}
 		s.AddConstraint(d)
+		return nil
 	}
 	switch jc.Type {
 	case "coincident":
@@ -923,7 +938,9 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		case "collinear":
 			s.AddConstraint(NewCollinear(l1, l2))
 		case "angle":
-			dim(NewAngle(l1, l2, jc.Value))
+			if err := dim(NewAngle(l1, l2, jc.Value)); err != nil {
+				return err
+			}
 		}
 	case "point_on_line":
 		l, err := line(jc.Entities[0])
@@ -1062,11 +1079,17 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		}
 		switch jc.Type {
 		case "semi_major":
-			dim(NewSemiMajor(e, jc.Value))
+			if err := dim(NewSemiMajor(e, jc.Value)); err != nil {
+				return err
+			}
 		case "semi_minor":
-			dim(NewSemiMinor(e, jc.Value))
+			if err := dim(NewSemiMinor(e, jc.Value)); err != nil {
+				return err
+			}
 		case "ellipse_rotation":
-			dim(NewEllipseRotation(e, jc.Value))
+			if err := dim(NewEllipseRotation(e, jc.Value)); err != nil {
+				return err
+			}
 		}
 	case "midpoint":
 		l, err := line(jc.Entities[0])
@@ -1173,19 +1196,25 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		}
 		s.AddConstraint(NewTangentEllipse(l, e))
 	case "distance":
-		dim(NewDistance(pt(0), pt(1), jc.Value))
+		if err := dim(NewDistance(pt(0), pt(1), jc.Value)); err != nil {
+			return err
+		}
 	case "distance_point_line":
 		l, err := line(jc.Entities[0])
 		if err != nil {
 			return err
 		}
-		dim(NewDistancePointLine(pt(0), l, jc.Value))
+		if err := dim(NewDistancePointLine(pt(0), l, jc.Value)); err != nil {
+			return err
+		}
 	case "distance_point_circle":
 		ci, err := circle(jc.Entities[0])
 		if err != nil {
 			return err
 		}
-		dim(NewDistancePointCircle(pt(0), ci, jc.Value))
+		if err := dim(NewDistancePointCircle(pt(0), ci, jc.Value)); err != nil {
+			return err
+		}
 	case "distance_line_circle":
 		l, err := line(jc.Entities[0])
 		if err != nil {
@@ -1195,13 +1224,17 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		if err != nil {
 			return err
 		}
-		dim(NewDistanceLineCircle(l, ci, jc.Value))
+		if err := dim(NewDistanceLineCircle(l, ci, jc.Value)); err != nil {
+			return err
+		}
 	case "distance_point_arc":
 		arc, err := s.arcByID(jc.Entities[0], "distance_point_arc")
 		if err != nil {
 			return err
 		}
-		dim(NewDistancePointArc(pt(0), arc, jc.Value))
+		if err := dim(NewDistancePointArc(pt(0), arc, jc.Value)); err != nil {
+			return err
+		}
 	case "distance_line_arc":
 		l, err := line(jc.Entities[0])
 		if err != nil {
@@ -1211,7 +1244,9 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		if err != nil {
 			return err
 		}
-		dim(NewDistanceLineArc(l, arc, jc.Value))
+		if err := dim(NewDistanceLineArc(l, arc, jc.Value)); err != nil {
+			return err
+		}
 	case "distance_lines":
 		l1, err := line(jc.Entities[0])
 		if err != nil {
@@ -1221,7 +1256,9 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		if err != nil {
 			return err
 		}
-		dim(NewDistanceLines(l1, l2, jc.Value))
+		if err := dim(NewDistanceLines(l1, l2, jc.Value)); err != nil {
+			return err
+		}
 	case "offset":
 		src, err := line(jc.Entities[0])
 		if err != nil {
@@ -1231,29 +1268,41 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		if err != nil {
 			return err
 		}
-		dim(NewOffset(src, dst, jc.Value))
+		if err := dim(NewOffset(src, dst, jc.Value)); err != nil {
+			return err
+		}
 	case "hdistance":
-		dim(NewHorizontalDistance(pt(0), pt(1), jc.Value))
+		if err := dim(NewHorizontalDistance(pt(0), pt(1), jc.Value)); err != nil {
+			return err
+		}
 	case "vdistance":
-		dim(NewVerticalDistance(pt(0), pt(1), jc.Value))
+		if err := dim(NewVerticalDistance(pt(0), pt(1), jc.Value)); err != nil {
+			return err
+		}
 	case "radius":
 		c, err := circular(jc.Entities[0])
 		if err != nil {
 			return err
 		}
-		dim(NewRadius(c, jc.Value))
+		if err := dim(NewRadius(c, jc.Value)); err != nil {
+			return err
+		}
 	case "diameter":
 		c, err := circular(jc.Entities[0])
 		if err != nil {
 			return err
 		}
-		dim(NewDiameter(c, jc.Value))
+		if err := dim(NewDiameter(c, jc.Value)); err != nil {
+			return err
+		}
 	case "arc_length":
 		arc, err := s.arcByID(jc.Entities[0], "arc_length")
 		if err != nil {
 			return err
 		}
-		dim(NewArcLength(arc, jc.Value))
+		if err := dim(NewArcLength(arc, jc.Value)); err != nil {
+			return err
+		}
 	case "equal_line_arc":
 		l, err := line(jc.Entities[0])
 		if err != nil {

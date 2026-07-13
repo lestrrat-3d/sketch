@@ -250,11 +250,24 @@ in **its own module/repo** (not in this tree): typed `Unit` constants (metric +
 imperial length, deg/rad angle — never strings), a `Value` type that pairs a
 magnitude with its unit and converts between compatible units, and a `System`
 holding the current default length/angle units (`Metric`/`SI`/`Imperial`). Base
-units are millimetre and radian. Every unit has a `Kind`
-(length/angle/dimensionless); conversion and `Value` arithmetic are kind-checked
-and return `ErrIncompatible` on a mismatch — units are NEVER silently
-relabelled. New units register via `Define`/`Lookup` (also the serialization
-hook). It imports nothing but stdlib.
+units are millimetre and radian. Every unit has a `Kind` — a **comparable
+dimension-exponent struct**, not an int enum, so kinds compose: the base kinds
+are length / angle / dimensionless, and `Kind.Mul`/`Div` (mirrored by
+`Value.Mul`/`Div`) build compound kinds (`Area`, `Volume`, `Mass`, `Density`,
+`MomentOfInertia`, `SecondMomentOfArea`, …). Conversion and `Value` arithmetic
+are kind-checked and return `ErrIncompatible` on a mismatch — units are NEVER
+silently relabelled — and a `Value` never carries negative zero. `BaseUnit(kind)`
+returns `(Unit, bool)`: an unnamed kind (e.g. a bare `L⁻¹`) has no base unit, so
+the `ok` must be handled (sketch's call sites deal only in length/angle/
+dimensionless, where `ok` is always true, but still return an error rather than
+panic on the impossible `false`). New units register via `Define`/`Lookup` (also
+the serialization hook); `Define` **panics** on a malformed registration
+(duplicate symbol, non-positive/non-finite factor, whitespace/non-ASCII/control
+or leading-`[` symbol, overflowed kind) — so it is a build-time authoring call,
+never fed user input. Sketch loads units through `Lookup` only, never `Define`,
+so those panics are unreachable at runtime. `Value` also round-trips as text
+(`MarshalText`/`UnmarshalText`, e.g. `"10 mm"`); sketch does not use it. It
+imports nothing but stdlib.
 
 - **All unit conversion lives there** — no other package re-implements factor
   math. Never relabel a magnitude to change its unit; go through
@@ -746,9 +759,14 @@ These are unsettled. If you resolve one, record the decision here.
   parameter-validation pass exposing `ParametersValid`/`ParameterErrors`, which
   gate `Trustworthy()` — so a unit-kind bug hidden in an expression is no longer
   silently blessed. *Limited on purpose:* this is **kind** algebra, not full
-  **dimensional** algebra — there are no area/inverse units, so those products are
-  *rejected* rather than represented; custom `SetFunc` functions are
-  dimensionless-only (typed custom functions are a follow-up). **The DXF
+  **dimensional** algebra. The `units` module can now represent compound kinds
+  (`Area`, `Volume`, …), but `param` deliberately does **not** compose them: a
+  dimensioned product/quotient (`length*length`, `1/length`, `length+angle`) is
+  *rejected* rather than represented. Parameters exist to drive dimensions
+  (lengths / angles) and plane offsets; a compound kind has no consumer in
+  sketch, so it stays outside the expression algebra. Revisit only if such a
+  consumer (e.g. an area-dimension constraint) is ever added. Custom `SetFunc`
+  functions are dimensionless-only (typed custom functions are a follow-up). **The DXF
   exporter honours the display `System`** (`dxf.go`: length fields in the
   display length unit + `$INSUNITS`/`$MEASUREMENT`); SVG/PNG stay unitless raster/
   vector renders by design. *Open follow-ups:*

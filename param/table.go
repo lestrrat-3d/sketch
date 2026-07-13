@@ -175,7 +175,11 @@ func (t *Table) EvalValue(expr string) (units.Value, error) {
 	if err != nil {
 		return units.Value{}, err
 	}
-	return units.FromBase(base, units.BaseUnit(kind)), nil
+	bu, ok := units.BaseUnit(kind)
+	if !ok {
+		return units.Value{}, fmt.Errorf("%w: %s has no base unit", ErrIncompatibleKind, kind.String())
+	}
+	return units.FromBase(base, bu), nil
 }
 
 // Has reports whether a parameter (not a constant or function) is defined.
