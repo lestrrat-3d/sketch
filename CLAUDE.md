@@ -753,8 +753,9 @@ These are unsettled. If you resolve one, record the decision here.
   unit-carrying `Value`, and a default-units `System`. Sketch dimensions and
   `param` parameters both carry units; the solver stays in base units and all
   conversion is delegated to the library. **Expression kind algebra is in**
-  (`param/kind.go`): `param` tracks unit *kind* (length/angle/dimensionless)
-  through expression arithmetic via a static `kindOf` walk — an identifier's kind
+  (`param/kind.go`): `param` tracks unit *kind* (whatever kind a parameter's
+  declared unit carries — length, angle, mass, …, or dimensionless) through
+  expression arithmetic via a static `kindOf` walk — an identifier's kind
   is its declared unit's kind — and rejects incompatible combinations
   (`length+angle`, `length*length` (rejected as a compound kind), `1/length`
   inverse, `sqrt`/trig of a dimensioned value, …) with `param.ErrIncompatibleKind`.
