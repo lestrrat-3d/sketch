@@ -265,3 +265,35 @@ func TestProfilesSpurLeavesOtherRegionsValid(t *testing.T) {
 		require.InDeltaf(t, math.Pi*100, p.Area, 1e-6, "disk %d is whole", i)
 	}
 }
+
+func TestProfilesDegeneracyScopedToItsOwnRegion(t *testing.T) {
+	// A rectangle carrying a duplicated stretch of its bottom edge (coincident
+	// geometry the arrangement cannot resolve), and a circle far away. Only the
+	// rectangle's region is invalid; the circle is built from unrelated geometry.
+	s := newSketch(t)
+	s.CreateRectangle(0, 0, 10, 10)
+	s.CreateLine(s.CreatePoint(2, 0), s.CreatePoint(8, 0)) // lies on the bottom edge
+	s.CreateCircle(s.CreatePoint(100, 0), 5)
+
+	profiles := s.Profiles()
+	require.Len(t, profiles, 2, "rectangle + circle")
+
+	var rect, disk *sketch.Profile
+	for _, p := range profiles {
+		if p.Area > 99 && p.Area < 101 {
+			rect = p
+			continue
+		}
+		disk = p
+	}
+	require.NotNil(t, rect)
+	require.NotNil(t, disk)
+	require.False(t, rect.Valid, "the rectangle owns the coincident edge")
+	require.True(t, disk.Valid, "an unrelated region stays valid")
+
+	// The sketch as a whole is still reported unverifiable — the scoping refines
+	// which profile is implicated, it does not bless the sketch.
+	rep := s.Verify(t.Context())
+	require.False(t, rep.ProfilesValid, "the arrangement was unresolvable")
+	require.Equal(t, []*sketch.Profile{rect}, rep.InvalidProfiles)
+}

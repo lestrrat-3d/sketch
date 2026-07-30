@@ -103,6 +103,17 @@ type Region struct {
 	Holes            [][]BoundaryEdge
 	Area             float64 // net area (outer minus holes); >= 0 for a clean region
 	SelfIntersecting bool    // an input boundary feeding this region crosses itself
+	// Degenerate is true when an unresolvable condition reaches THIS region: one
+	// involving a curve its own boundary is built from, or one that could not be
+	// attributed to any curve (an unusable input, dropped before it formed an edge,
+	// so what it would have subdivided is unknown).
+	//
+	// It is narrower than [Arrangement.Degenerate], which is set when the
+	// arrangement holds any such condition at all — including one that produced no
+	// region, or destroyed one. A region far from the trouble reads false here while
+	// the arrangement still reads true, so a consumer deciding whether the whole
+	// region set is trustworthy must read the arrangement flag, not this.
+	Degenerate bool
 }
 
 // Arrangement is the result of Regions: the bounded regions plus arrangement-

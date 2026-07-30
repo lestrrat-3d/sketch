@@ -118,8 +118,10 @@ type VerificationReport struct {
 	// non-construction geometry (see [Sketch.Profiles]).
 	Profiles []*Profile
 	// InvalidProfiles lists the detected profiles that failed region validity —
-	// self-intersecting, degenerate (zero-area), or produced by an unresolvable
-	// arrangement. A subset of Profiles. Such a region cannot be extruded.
+	// self-intersecting, zero-area, or reached by an unresolvable arrangement
+	// condition on their own boundary curves. A subset of Profiles. Such a region
+	// cannot be extruded. It can be empty while ProfilesValid is false: a condition
+	// that produced no region, or one that destroyed one, has no profile to list.
 	InvalidProfiles []*Profile
 	// ProfilesValid is true when every detected region is a valid profile and the
 	// arrangement resolved cleanly. It is vacuously true when no geometry forms a
