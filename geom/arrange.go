@@ -1009,7 +1009,9 @@ func (a *arranger) analyticPrepass() {
 			// either, conservatively flag degeneracy. Pure line/line pairs are exact
 			// (sample == geometry), so a clean shallow crossing is never false-flagged.
 			if (isCurvedKind(si.kind) || isCurvedKind(sj.kind)) && !internalTan {
-				if !a.analyticCrossHosted(i, j, events) || !a.contactsResolved(i, j, events) {
+				if !a.analyticCrossHosted(i, j, events) ||
+					!a.contactsResolved(i, j, events) ||
+					!a.sampledCrossingsExplained(i, j, events) {
 					rx, ry := sourceRep(si)
 					sx, sy := sourceRep(sj)
 					a.flagDegenerate((rx+sx)/2, (ry+sy)/2)
@@ -1082,22 +1084,71 @@ func isCurvedKind(k srcKind) bool {
 	return k == srcCircle || k == srcArc
 }
 
-// contactsResolved reports whether the sampling separates the pair's WITNESS-FREE
-// contacts on each curved source: two of them falling inside ONE chord of a curve
-// mean the sampling cannot resolve what happens between them, and nothing else in
-// the gate looks at that stretch.
+// sampledCrossingsExplained reports whether every crossing of the two sampled
+// polylines answers to an analytic contact — the count half of the gate.
 //
-// That is the sub-sample cap. The case it catches is a line whose BOTH ends lie on
-// a circle within one sampled chord: neither contact needs a sampled witness (each
-// sits at the line's own endpoint), so the host check passes vacuously, yet the
-// whole line runs through the sliver OUTSIDE the sampled polygon and the planar map
-// collapses — the disk vanishes while the arrangement reads clean. A caller that
-// wants such a contact resolved raises WithSegmentsPerTurn.
+// The exact map is built from the kernel's contacts, so a sampled crossing with no
+// contact behind it is the chord approximation disagreeing with the geometry: two
+// arcs that merely touch slicing through each other, or a coarse chord cutting a
+// line where the true curve does not. The face walk has no vertex for it, so it
+// must not be blessed.
 //
-// Contacts that DO need a witness are excluded because they are already measured:
-// each must be hosted on its own segment-pair, which is the evidence this check
-// cannot get for the witness-free ones. So an everyday chord — one end on the
-// circle, the far end crossing out through the same coarse chord — stays blessed.
+// A crossing is explained when it sits within one CURVED chord of a contact. That
+// bound is where the chord approximation's own error lives — a curve's chord runs
+// inside it, so a line reaching a contact ON the curve starts in the sliver between
+// chord and arc and has to cross that chord to leave it (the inward gear spur is
+// exactly this: one contact at the line's endpoint, one sampled crossing beside it
+// that no analytic crossing corresponds to). A line contributes no bound at all:
+// its polyline IS the line, so it deviates nowhere. The bound shrinks with sampling
+// density, so this only ever forgives what the sampling itself produced.
+func (a *arranger) sampledCrossingsExplained(i, j int, events []xEvent) bool {
+	for _, ii := range a.sourceSegs[i] {
+		for _, jj := range a.sourceSegs[j] {
+			p, ok := a.segsCrossInteriorAt(ii, jj)
+			if !ok {
+				continue
+			}
+			var tol float64
+			if isCurvedKind(a.sources[i].kind) {
+				tol = math.Max(tol, a.segLen(ii))
+			}
+			if isCurvedKind(a.sources[j].kind) {
+				tol = math.Max(tol, a.segLen(jj))
+			}
+			explained := false
+			for _, e := range events {
+				if math.Hypot(e.x-p.x, e.y-p.y) <= tol {
+					explained = true
+					break
+				}
+			}
+			if !explained {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// segLen is a tiny segment's chord length.
+func (a *arranger) segLen(si int) float64 {
+	s := &a.segs[si]
+	return math.Hypot(s.bx-s.ax, s.by-s.ay)
+}
+
+// contactsResolved reports whether the sampling separates the pair's contacts on
+// each curved source: two of them falling inside ONE chord of a curve mean the
+// sampling cannot resolve the geometry between them, so whatever the exact cuts
+// produce there cannot be blessed.
+//
+// That stretch is a sub-sample cap. The plainest failure is a line whose BOTH ends
+// lie on a circle within one sampled chord: neither contact needs a sampled witness
+// (each sits at the line's own endpoint), so the host check passes vacuously, yet
+// the whole line runs through the sliver OUTSIDE the sampled polygon and the planar
+// map collapses — the disk vanishes while the arrangement reads clean. Contacts
+// that DO need a witness are held to this too: hosting says the chords cross where
+// the curves do, not that the cap between two crossings is resolved at all. A
+// caller who wants such a contact blessed raises WithSegmentsPerTurn.
 //
 // Only CURVED sources are checked. A line is reproduced exactly by its single
 // segment, so two contacts sharing it (an ordinary secant) say nothing about
@@ -1109,9 +1160,6 @@ func (a *arranger) contactsResolved(i, j int, events []xEvent) bool {
 		}
 		seen := map[int]struct{}{}
 		for _, e := range events {
-			if e.kind == evCross && a.crossNeedsSampledWitness(i, j, e) {
-				continue
-			}
 			t := e.ti
 			if src == j {
 				t = e.tj
@@ -1136,11 +1184,21 @@ func (a *arranger) contactsResolved(i, j int, events []xEvent) bool {
 // to the line but sits at the circle's vertex, a contact the analytic kernel
 // correctly reports as a tangency, not a transverse crossing.
 func (a *arranger) segsCrossInterior(ii, jj int) bool {
+	_, ok := a.segsCrossInteriorAt(ii, jj)
+	return ok
+}
+
+// segsCrossInteriorAt is segsCrossInterior with the hit itself, for a caller that
+// needs where the two chords crossed.
+func (a *arranger) segsCrossInteriorAt(ii, jj int) (segHit, bool) {
 	p, ok := segParams(&a.segs[ii], &a.segs[jj])
 	if !ok {
-		return false
+		return segHit{}, false
 	}
-	return p.ti > segEps && p.ti < 1-segEps && p.tj > segEps && p.tj < 1-segEps
+	if p.ti <= segEps || p.ti >= 1-segEps || p.tj <= segEps || p.tj >= 1-segEps {
+		return segHit{}, false
+	}
+	return p, true
 }
 
 // segContaining returns the index of the source's tiny segment whose natural

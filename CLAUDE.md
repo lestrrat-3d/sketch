@@ -150,8 +150,8 @@ path** (behaviour byte-identical to a no-wiring build): their sampled topology i
 already correct, and exact-cut injection there is unsound (coarse equal-count
 crossings at wrong locations fuse three regions into one) or over-conservative
 (a valid crossing one chord-segment off gets false-flagged) until increment 3's
-tangent-port certificate. For a handled line-involved curved pair a **two-part
-consistency gate** keeps it sound at coarse sampling, and which part applies turns
+tangent-port certificate. For a handled curved pair a **three-part consistency
+gate** keeps it sound at coarse sampling, and which of the first two applies turns
 on whether the contact INSERTS a vertex (`crossNeedsSampledWitness`, answered by the
 single `cutSite` the cut phase itself acts on, so the gate can never demand what the
 cut phase does not do). A crossing that inserts one on BOTH sources must be
@@ -160,9 +160,12 @@ disk-vanishing case, where the injected point sits off the chord by up to the
 sagitta. A contact the sampled map ALREADY has a vertex for (a source's own
 endpoint, or an interior sample vertex) inserts nothing, so no witness is possible —
 a contact at a segment boundary is not interior to that segment — and it is instead
-required to be **resolved**: two such contacts inside ONE chord of a curved source is
-a sub-sample cap (`contactsResolved`). Failing either, it is conservatively
-`Degenerate` rather than a vanished disk. **Demanding a witness where none can exist
+required to be **resolved**: two contacts inside ONE chord of a curved source is a
+sub-sample cap (`contactsResolved`). Third, every sampled crossing must be
+**explained** by a contact within one curved chord of it (`sampledCrossingsExplained`)
+— a leftover crossing is the chord approximation disagreeing with the geometry, and
+the face walk has no vertex for it. Failing any, it is conservatively `Degenerate`
+rather than a vanished disk. **Demanding a witness where none can exist
 is what once false-flagged everyday geometry** — a line ending exactly on a circle
 (the gear flank meeting its root circle, and what `NewPointOnCircle` builds), a chord
 crossing where the sampling happens to put a vertex, a corner join — so a contact
