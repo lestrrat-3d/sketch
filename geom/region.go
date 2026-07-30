@@ -98,6 +98,14 @@ type BoundaryEdge struct {
 // boundary walked counter-clockwise, zero or more holes (inner boundaries,
 // walked clockwise), the net area (outer minus holes), and whether the region
 // derives from a self-intersecting input boundary.
+//
+// CONSTRUCT IT WITH KEYED FIELDS, or better, do not construct it at all: every
+// field is an output of [Regions], and this struct GAINS fields as the engine
+// reports more about a region (Degenerate below is one; [BoundaryEdge] gained
+// TStart/TEnd/TExact the same way). An unkeyed composite literal breaks on each
+// such addition, and that is accepted rather than designed around — an accessor
+// over an unexported field would break identically, since a caller outside this
+// package cannot write one either.
 type Region struct {
 	Outer            []BoundaryEdge
 	Holes            [][]BoundaryEdge
