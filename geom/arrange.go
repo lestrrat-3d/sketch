@@ -998,33 +998,18 @@ func (a *arranger) analyticPrepass() {
 			a.handled[[2]int{i, j}] = struct{}{}
 			a.events[[2]int{i, j}] = events
 			// Consistency gate (curved pairs only): the sampled polyline must host
-			// the analytic crossings faithfully, or injecting exact cuts would warp
+			// the analytic contacts faithfully, or injecting exact cuts would warp
 			// the planar map (a vanished disk, a tangled face) while reading clean.
-			// Two conditions: (1) the same NUMBER of transverse crossings — a coarse
-			// chord that does not reach the true crossing shows too few; (2) each
-			// analytic crossing WITNESSED on its own host segment-pair. (The
-			// over-conservative branch of incidence only bites curve/curve pairs, which
-			// are deferred above; a line-involved curved pair has the exact line as one
-			// operand, so its sampled crossing tracks the analytic one.) Failing either,
-			// conservatively flag degeneracy. Pure line/line pairs are exact (sample ==
-			// geometry), so a clean shallow crossing is never false-flagged.
+			// Two conditions, one per kind of contact. (1) A crossing that INSERTS a
+			// vertex on both sources must be WITNESSED on its own host segment-pair —
+			// a coarse chord that never reaches the true crossing hosts nothing
+			// (analyticCrossHosted). (2) A contact the sampled map already carries a
+			// vertex for needs no witness, and cannot have one, but two of them inside
+			// ONE chord put a whole cap below the sampling (contactsResolved). Failing
+			// either, conservatively flag degeneracy. Pure line/line pairs are exact
+			// (sample == geometry), so a clean shallow crossing is never false-flagged.
 			if (isCurvedKind(si.kind) || isCurvedKind(sj.kind)) && !internalTan {
-				// A crossing at a shared endpoint of BOTH sources is a corner join
-				// (a loop vertex where two edges meet), not a transverse interior
-				// crossing: applyAnalyticCut no-ops at an endpoint, so it cuts
-				// neither source, and the sampled interior-crossing predicate
-				// (segsCrossInterior) never hosts it. Counting such joins against
-				// the sampled interior count false-flags a valid corner — a line
-				// meeting an arc at a loop vertex (a circular segment, slot, pie
-				// slice, or gear tooth) — as a degenerate arrangement. Compare only
-				// the interior crossings, which is what the sampled count measures.
-				nInteriorCross := 0
-				for _, e := range events {
-					if e.kind == evCross && !cornerJoin(si, sj, e) {
-						nInteriorCross++
-					}
-				}
-				if a.sampledCrossCount(i, j) != nInteriorCross || !a.analyticCrossHosted(i, j, events) {
+				if !a.analyticCrossHosted(i, j, events) || !a.contactsResolved(i, j, events) {
 					rx, ry := sourceRep(si)
 					sx, sy := sourceRep(sj)
 					a.flagDegenerate((rx+sx)/2, (ry+sy)/2)
@@ -1097,27 +1082,59 @@ func isCurvedKind(k srcKind) bool {
 	return k == srcCircle || k == srcArc
 }
 
-// sampledCrossCount counts the transverse crossings between two sources'
-// sampled polylines: a hit strictly interior to BOTH segments, where the two
-// polylines genuinely cross from one side to the other. Requiring both-interior
-// (not merely one) excludes a tangential touch at a shared sample vertex — a
-// line grazing a circle exactly at a polygon vertex is interior to the line but
-// sits at the circle's vertex, a contact the analytic kernel correctly reports
-// as a tangency (zero crossings), not a transverse crossing.
-func (a *arranger) sampledCrossCount(i, j int) int {
-	cnt := 0
-	for _, ii := range a.sourceSegs[i] {
-		for _, jj := range a.sourceSegs[j] {
-			if a.segsCrossInterior(ii, jj) {
-				cnt++
+// contactsResolved reports whether the sampling separates the pair's WITNESS-FREE
+// contacts on each curved source: two of them falling inside ONE chord of a curve
+// mean the sampling cannot resolve what happens between them, and nothing else in
+// the gate looks at that stretch.
+//
+// That is the sub-sample cap. The case it catches is a line whose BOTH ends lie on
+// a circle within one sampled chord: neither contact needs a sampled witness (each
+// sits at the line's own endpoint), so the host check passes vacuously, yet the
+// whole line runs through the sliver OUTSIDE the sampled polygon and the planar map
+// collapses — the disk vanishes while the arrangement reads clean. A caller that
+// wants such a contact resolved raises WithSegmentsPerTurn.
+//
+// Contacts that DO need a witness are excluded because they are already measured:
+// each must be hosted on its own segment-pair, which is the evidence this check
+// cannot get for the witness-free ones. So an everyday chord — one end on the
+// circle, the far end crossing out through the same coarse chord — stays blessed.
+//
+// Only CURVED sources are checked. A line is reproduced exactly by its single
+// segment, so two contacts sharing it (an ordinary secant) say nothing about
+// resolution.
+func (a *arranger) contactsResolved(i, j int, events []xEvent) bool {
+	for _, src := range [2]int{i, j} {
+		if !isCurvedKind(a.sources[src].kind) {
+			continue
+		}
+		seen := map[int]struct{}{}
+		for _, e := range events {
+			if e.kind == evCross && a.crossNeedsSampledWitness(i, j, e) {
+				continue
 			}
+			t := e.ti
+			if src == j {
+				t = e.tj
+			}
+			seg := a.segContaining(src, t)
+			if seg < 0 {
+				continue
+			}
+			if _, dup := seen[seg]; dup {
+				return false
+			}
+			seen[seg] = struct{}{}
 		}
 	}
-	return cnt
+	return true
 }
 
 // segsCrossInterior reports whether two tiny segments cross at a point strictly
-// interior to both — the transverse-crossing predicate sampledCrossCount uses.
+// interior to both — the transverse-crossing predicate the consistency gate uses.
+// Requiring both-interior (not merely one) excludes a tangential touch at a shared
+// sample vertex — a line grazing a circle exactly at a polygon vertex is interior
+// to the line but sits at the circle's vertex, a contact the analytic kernel
+// correctly reports as a tangency, not a transverse crossing.
 func (a *arranger) segsCrossInterior(ii, jj int) bool {
 	p, ok := segParams(&a.segs[ii], &a.segs[jj])
 	if !ok {
@@ -1158,11 +1175,9 @@ func (a *arranger) analyticCrossHosted(i, j int, events []xEvent) bool {
 		if e.kind != evCross {
 			continue
 		}
-		// A crossing at a shared endpoint of both sources is a corner join, not a
-		// transverse interior crossing — the sampled interior predicate never
-		// hosts it and it splits neither source, so it needs no witness (see the
-		// consistency gate in analyticPrepass).
-		if cornerJoin(&a.sources[i], &a.sources[j], e) {
+		// A crossing the sampled map already carries a vertex for needs no
+		// transverse witness — see crossNeedsSampledWitness.
+		if !a.crossNeedsSampledWitness(i, j, e) {
 			continue
 		}
 		si := a.segContaining(i, e.ti)
@@ -1174,31 +1189,56 @@ func (a *arranger) analyticCrossHosted(i, j int, events []xEvent) bool {
 	return true
 }
 
-// cornerJoin reports whether an analytic crossing sits at an endpoint of BOTH
-// sources — a loop vertex where two edges meet (a corner/join), as opposed to a
-// transverse crossing interior to at least one source. Such a join cuts neither
-// source (applyAnalyticCut no-ops at an endpoint) and is resolved by shared-vertex
-// topology, so the interior-crossing consistency gate must not count it.
+// crossNeedsSampledWitness reports whether an analytic transverse crossing has to
+// be witnessed by a sampled interior crossing of the two polylines.
 //
-// The endpoint test is atSourceEnd (a sourceEndEps parametric window), the SAME
-// predicate applyAnalyticCut and analyticSelfX use above to decide endpoint vs
-// interior, so a contact this treats as a corner is exactly one those treat as an
-// endpoint (no cut, no self-crossing) — keeping the gate consistent with what the
-// cut phase actually does. It is deliberately NOT the caller's vertex-merge
-// tolerance: tying it there would diverge from that adjacent endpoint logic and
-// false-flag a legitimate tiny-gap corner. A crossing interior to at least one
-// source is never a corner join, so a genuine transverse crossing is unaffected.
-func cornerJoin(si, sj *source, e xEvent) bool {
-	return e.kind == evCross && atSourceEnd(si, e.ti) && atSourceEnd(sj, e.tj)
+// A witness is needed only when the crossing inserts a NEW vertex on both sources.
+// That is the case the gate exists for: the injected point sits on the true curve,
+// off the chord by up to the sagitta, so at coarse sampling it can bend the polygon
+// through the other curve the wrong way (the vanished disk) — and the sampled map
+// hosting the same crossing is the evidence it does not.
+//
+// A crossing that lands where the sampled map ALREADY has a vertex inserts nothing
+// there (cutSite says so, and applyAnalyticCut acts on exactly that answer), so
+// there is nothing to bend and nothing to witness. Two ordinary arrangements reach
+// this, and both used to be flagged degenerate:
+//
+//   - a contact at a source's own ENDPOINT — a corner join between two curves, or a
+//     spur ending on a circle (the gear flank meeting its root circle). It splits
+//     only the other source, at the exact point the endpoint's own vertex welds to.
+//   - a contact at an interior SAMPLE VERTEX — the sample vertex IS the true
+//     crossing point (the vertex is the source evaluated at that parameter, and the
+//     parameters agree), so the polyline already passes through it.
+//
+// The sampled interior predicate can never host either one (a contact at a segment
+// boundary is not interior to that segment), so requiring a witness there asks for
+// evidence that cannot exist. What such contacts get instead is contactsResolved,
+// which checks the sampling is fine enough to separate them.
+func (a *arranger) crossNeedsSampledWitness(i, j int, e xEvent) bool {
+	segI, _, vertI := a.cutSite(i, e.ti)
+	segJ, _, vertJ := a.cutSite(j, e.tj)
+	if segI < 0 || segJ < 0 {
+		// The crossing parameter sits on no tiny segment at all. Demand a witness so
+		// analyticCrossHosted rejects it, rather than blessing a contact the sampled
+		// map has no place for.
+		return true
+	}
+	return !vertI && !vertJ
 }
 
-// applyAnalyticCut records an exact cut at source-parameter t (event point x,y) on
-// the tiny segment of source src that contains t. A cut at a segment boundary or a
-// source endpoint reuses the existing vertex and records nothing — the vertex is
-// already there, at the true parameter, so the fragment bounds it yields stay exact.
-func (a *arranger) applyAnalyticCut(src int, t, x, y float64) {
+// cutSite locates the tiny segment of source src carrying an analytic contact at
+// source parameter t, returning that segment's index and the contact's local chord
+// parameter. The index is -1 when no segment covers t.
+//
+// atVertex reports that the contact needs no cut because the sampled map already
+// has a vertex there: the source's own endpoint (a join, which never splits it), or
+// a tiny-segment boundary (a sample vertex, which is already at the true parameter).
+// It is the single place that decision is made — applyAnalyticCut acts on it, and
+// crossNeedsSampledWitness reads it — so what the gate expects can never drift from
+// what the cut phase does.
+func (a *arranger) cutSite(src int, t float64) (int, float64, bool) {
 	if atSourceEnd(&a.sources[src], t) {
-		return // a contact at the source's own endpoint does not split it (a join)
+		return a.segContaining(src, t), 0, true
 	}
 	for _, si := range a.sourceSegs[src] {
 		s := &a.segs[si]
@@ -1210,12 +1250,21 @@ func (a *arranger) applyAnalyticCut(src int, t, x, y float64) {
 			continue
 		}
 		local := (t - s.pa) / (s.pb - s.pa)
-		if local <= segEps || local >= 1-segEps {
-			return // interior split, but at an existing sample vertex
-		}
-		s.cuts = append(s.cuts, cut{t: local, px: x, py: y, exact: true})
+		return si, local, local <= segEps || local >= 1-segEps
+	}
+	return -1, 0, false
+}
+
+// applyAnalyticCut records an exact cut at source-parameter t (event point x,y) on
+// the tiny segment of source src that contains t. A cut at a segment boundary or a
+// source endpoint reuses the existing vertex and records nothing — the vertex is
+// already there, at the true parameter, so the fragment bounds it yields stay exact.
+func (a *arranger) applyAnalyticCut(src int, t, x, y float64) {
+	si, local, atVertex := a.cutSite(src, t)
+	if si < 0 || atVertex {
 		return
 	}
+	a.segs[si].cuts = append(a.segs[si].cuts, cut{t: local, px: x, py: y, exact: true})
 }
 
 // taintMergedEndpoints taints the sample vertices of two DIFFERENT sources whose

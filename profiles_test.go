@@ -194,3 +194,74 @@ func TestProfilesOpenChainAndConstructionCircle(t *testing.T) {
 
 	require.Empty(t, s.Profiles(), "no closed non-construction boundary")
 }
+
+func TestProfilesSpurConstrainedOntoCircle(t *testing.T) {
+	// A dangling line whose endpoint is CONSTRAINED onto a circle — how a gear's
+	// flank-to-root line meets its root circle. The spur bounds nothing, so the
+	// disk stays one valid profile: the contact must not make it unverifiable.
+	for _, tc := range []struct {
+		name       string
+		farX, farY float64
+	}{
+		{"pointing outward", 15, 0},
+		{"pointing inward", 5, 0},
+		{"outward off the sampling grid", 15 * math.Cos(0.7), 15 * math.Sin(0.7)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newSketch(t)
+			o := s.CreatePoint(0, 0)
+			s.Fix(o)
+			c := s.CreateCircle(o, 10)
+			s.AddConstraint(sketch.NewDiameter(c, 20))
+
+			on := s.CreatePoint(10, 0)
+			far := s.CreatePoint(tc.farX, tc.farY)
+			s.Fix(far)
+			s.CreateLine(on, far)
+			s.AddConstraint(sketch.NewPointOnCircle(on, c))
+
+			_, err := s.Solve(t.Context())
+			require.NoError(t, err)
+
+			rep := s.Verify(t.Context())
+			require.True(t, rep.ProfilesValid, "the spur's contact leaves the disk verifiable")
+			require.Empty(t, rep.InvalidProfiles)
+			require.Len(t, rep.Profiles, 1, "just the disk")
+			require.True(t, rep.Profiles[0].Valid, "the disk is a valid profile")
+			require.False(t, rep.Profiles[0].SelfIntersecting)
+			require.InDelta(t, math.Pi*100, rep.Profiles[0].Area, 1e-6, "the whole disk")
+		})
+	}
+}
+
+func TestProfilesSpurLeavesOtherRegionsValid(t *testing.T) {
+	// Two disjoint circles, one carrying a spur constrained onto it. Neither disk
+	// is touched by anything unresolvable, so both stay valid.
+	s := newSketch(t)
+	o := s.CreatePoint(0, 0)
+	s.Fix(o)
+	c := s.CreateCircle(o, 10)
+	s.AddConstraint(sketch.NewDiameter(c, 20))
+
+	o2 := s.CreatePoint(100, 0)
+	s.Fix(o2)
+	c2 := s.CreateCircle(o2, 10)
+	s.AddConstraint(sketch.NewDiameter(c2, 20))
+
+	on := s.CreatePoint(10, 0)
+	far := s.CreatePoint(15, 0)
+	s.Fix(far)
+	s.CreateLine(on, far)
+	s.AddConstraint(sketch.NewPointOnCircle(on, c))
+
+	_, err := s.Solve(t.Context())
+	require.NoError(t, err)
+
+	rep := s.Verify(t.Context())
+	require.True(t, rep.ProfilesValid)
+	require.Len(t, rep.Profiles, 2, "both disks")
+	for i, p := range rep.Profiles {
+		require.Truef(t, p.Valid, "disk %d is valid", i)
+		require.InDeltaf(t, math.Pi*100, p.Area, 1e-6, "disk %d is whole", i)
+	}
+}

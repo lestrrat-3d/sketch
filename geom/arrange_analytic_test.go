@@ -469,6 +469,96 @@ func TestAnalyticChainedWeldEndpointIsInexact(t *testing.T) {
 	require.NotZero(t, chords, "the chord must bound an emitted region")
 }
 
+func TestAnalyticSpurEndingOnCircleClean(t *testing.T) {
+	// A line whose ENDPOINT lies exactly on a circle — the gear flank meeting its
+	// root circle, and the shape a point-on-circle constraint produces. The contact
+	// splits only the circle, at the exact point the line's own endpoint welds to,
+	// so it is an ordinary T-junction: the spur is pruned and the disk stands whole.
+	// The gate used to demand a sampled interior crossing as a witness, which a
+	// contact at a segment endpoint can never produce, and flagged every one of
+	// these degenerate.
+	const R = 10.0
+	c := geom.NewCircle(geom.NewPoint(0, 0), R)
+	// 0° and 90° put the contact exactly ON a sample vertex at most densities; the
+	// others fall between vertices.
+	for _, deg := range []float64{0, 37, 90, 123.456, 200, 359.5} {
+		th := deg * math.Pi / 180
+		ex, ey := R*math.Cos(th), R*math.Sin(th)
+		for _, spt := range []int{8, 16, 64, 256} {
+			for _, dir := range []struct {
+				name string
+				far  float64 // multiple of the contact radius: >1 points out, <1 points in
+			}{{"outward", 1.5}, {"inward", 0.4}} {
+				curves := []geom.Curve{geom.NewLine(
+					geom.NewPoint(ex, ey), geom.NewPoint(dir.far*ex, dir.far*ey))}
+				closed := []geom.ClosedCurve{c}
+				arr := geom.Regions(curves, closed, geom.WithSegmentsPerTurn(spt))
+				requireExactBoundsReproduce(t, curves, closed, arr)
+				require.Falsef(t, arr.Degenerate,
+					"a %s spur at %g° is a clean contact at spt=%d", dir.name, deg, spt)
+				require.Lenf(t, arr.Regions, 1, "just the disk (%s, %g°, spt=%d)", dir.name, deg, spt)
+				require.InDeltaf(t, math.Pi*R*R, arr.Regions[0].Area, 1e-9,
+					"the spur takes nothing off the disk (%s, %g°, spt=%d)", dir.name, deg, spt)
+			}
+		}
+	}
+}
+
+func TestAnalyticCrossingOnSampleVertexClean(t *testing.T) {
+	// A chord crossing the circle exactly where the sampling puts vertices (y=0
+	// hits the +x and -x sample vertices at any even density). The contact needs no
+	// cut — the vertex is already there, at the true parameter — so it cannot show
+	// up as a crossing interior to the circle's chords, and demanding that as a
+	// witness false-flagged the whole arrangement.
+	const R = 10.0
+	for _, spt := range []int{4, 8, 64, 256} {
+		curves := []geom.Curve{geom.NewLine(geom.NewPoint(-15, 0), geom.NewPoint(15, 0))}
+		closed := []geom.ClosedCurve{geom.NewCircle(geom.NewPoint(0, 0), R)}
+		arr := geom.Regions(curves, closed, geom.WithSegmentsPerTurn(spt))
+		requireExactBoundsReproduce(t, curves, closed, arr)
+		require.Falsef(t, arr.Degenerate, "a chord through two sample vertices is clean at spt=%d", spt)
+		require.Lenf(t, arr.Regions, 2, "two half-disks at spt=%d", spt)
+		var total float64
+		for _, r := range arr.Regions {
+			total += r.Area
+		}
+		require.InDeltaf(t, math.Pi*R*R, total, 1e-9, "the halves partition the disk at spt=%d", spt)
+	}
+}
+
+func TestAnalyticSubSampleChordNeverBlessedWrong(t *testing.T) {
+	// The soundness boundary of the two tests above. A line whose BOTH ends sit on
+	// the circle needs no witness at either contact, so nothing in the gate measures
+	// the stretch between them: when that stretch falls inside ONE sampled chord,
+	// the line runs through the sliver outside the polygon and the planar map
+	// collapses — the disk vanishes. The invariant is the same as for the shallow
+	// secant: at any sampling the result is either right (the disk, split in two)
+	// or Degenerate, never a blessed wrong one.
+	const R = 5.0
+	for _, halfDeg := range []float64{0.5, 2, 5, 15, 45, 90} {
+		h := halfDeg * math.Pi / 180
+		for _, base := range []float64{0, 0.37, 1.9} { // rotate the chord off the sample grid
+			p0 := geom.NewPoint(R*math.Cos(base-h), R*math.Sin(base-h))
+			p1 := geom.NewPoint(R*math.Cos(base+h), R*math.Sin(base+h))
+			for spt := 3; spt <= 90; spt++ {
+				arr := geom.Regions(
+					[]geom.Curve{geom.NewLine(p0, p1)},
+					[]geom.ClosedCurve{geom.NewCircle(geom.NewPoint(0, 0), R)},
+					geom.WithSegmentsPerTurn(spt))
+				if arr.Degenerate {
+					continue // conservatively rejected — sound
+				}
+				var total float64
+				for _, r := range arr.Regions {
+					total += r.Area
+				}
+				require.Lenf(t, arr.Regions, 2, "blessed half=%g° base=%g spt=%d splits the disk in two", halfDeg, base, spt)
+				require.InDeltaf(t, math.Pi*R*R, total, 1e-5, "blessed half=%g° base=%g spt=%d partitions the disk", halfDeg, base, spt)
+			}
+		}
+	}
+}
+
 func flattenHoles(r *geom.Region) []geom.BoundaryEdge {
 	var out []geom.BoundaryEdge
 	for _, h := range r.Holes {

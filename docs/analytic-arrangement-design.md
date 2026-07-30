@@ -77,7 +77,7 @@ Same-component interior tangency is a **self-touch** → `SelfIntersections`, no
 
 2. **Analytic-authoritative wiring** — *done* (`geom/arrange.go`: `analyticPrepass`,
    the `cut{t,px,py}` exact-point record, the handled-pair skip, the
-   `sampledCrossCount` + `analyticCrossHosted` consistency gate). Analytic authority
+   `analyticCrossHosted` + `contactsResolved` consistency gate). Analytic authority
    is taken for **line-involved crossings and all tangencies**: the oracle no longer
    false-flags clean shallow crossings or clean tangencies (tangent line+circle → one
    disk; non-merged tangent circles → two disks) and line/circle cuts are
@@ -255,19 +255,38 @@ For a handled pair with a curved source (i.e. line/circle, line/arc, or a curved
 tolerance), to reject the disk-vanishing failure where a coarse polyline does not
 reach a crossing the exact geometry has:
 
-1. **Count** — `sampledCrossCount(i,j)` (transverse hits strictly interior to BOTH
-   sampled segments; a tangential touch at a shared vertex is interior to only one,
-   so it is *not* counted) must equal the number of analytic `evCross` events.
-2. **Incidence** — each analytic `evCross` must be *witnessed on its own host
-   segment-pair*: the segment of source `i` carrying `e.ti` and the segment of `j`
-   carrying `e.tj` must themselves cross (`analyticCrossHosted` via `segContaining`
-   + `segsCrossInterior`).
+Which part applies to a contact depends on whether it INSERTS a vertex
+(`crossNeedsSampledWitness`, answered by `cutSite` — the same call
+`applyAnalyticCut` acts on, so the gate can never expect something the cut phase
+does not do):
+
+1. **Incidence** — an `evCross` that inserts a new vertex on BOTH sources must be
+   *witnessed on its own host segment-pair*: the segment of source `i` carrying
+   `e.ti` and the segment of `j` carrying `e.tj` must themselves cross
+   (`analyticCrossHosted` via `segContaining` + `segsCrossInterior`). This is the
+   disk-vanishing case: the injected point sits off the chord by up to the sagitta,
+   and the sampled crossing is the evidence that bending the polygon there does not
+   push it through the other curve.
+2. **Resolution** — a contact the sampled map ALREADY has a vertex for (at a
+   source's own endpoint, or at an interior sample vertex) inserts nothing, so it
+   has nothing to witness and no witness is possible: a contact at a segment
+   boundary is not interior to that segment. Such contacts instead must be
+   SEPARATED by the sampling — two of them inside one chord of a curved source is a
+   sub-sample cap (`contactsResolved`).
 
 Failing either part `flagDegenerate`. Pure line/line pairs are exempt (lines
 reproduce exactly, so sampled == analytic — a clean shallow crossing is never
 false-flagged). This is the conservative escape hatch the tangency contract already
 mandates, extended from tangencies to line/curve secants: when the sampled DCEL
 cannot faithfully host the exact crossings, refuse rather than bless.
+
+Requiring a sampled witness for a contact that inserts no vertex is what once
+false-flagged everyday arrangements — a line ending exactly on a circle (the gear
+flank meeting its root circle, and what a point-on-circle constraint builds), a
+chord crossing where the sampling happens to put a vertex, a corner join — since
+that witness can never exist. Resolution is what keeps the relaxation sound: a line
+whose BOTH ends lie on a circle inside ONE chord runs through the sliver outside
+the polygon, and blessing it collapses the map.
 
 **Self-intersection preservation.** For an analytic `evCross` between *different*
 sources, replicate the current core/component check: require
