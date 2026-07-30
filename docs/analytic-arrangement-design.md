@@ -77,7 +77,8 @@ Same-component interior tangency is a **self-touch** → `SelfIntersections`, no
 
 2. **Analytic-authoritative wiring** — *done* (`geom/arrange.go`: `analyticPrepass`,
    the `cut{t,px,py}` exact-point record, the handled-pair skip, the
-   `sampledCrossCount` + `analyticCrossHosted` consistency gate). Analytic authority
+   `analyticCrossHosted` + `contactsResolved` + `sampledCrossingsExplained`
+   consistency gate). Analytic authority
    is taken for **line-involved crossings and all tangencies**: the oracle no longer
    false-flags clean shallow crossings or clean tangencies (tangent line+circle → one
    disk; non-merged tangent circles → two disks) and line/circle cuts are
@@ -118,10 +119,10 @@ Same-component interior tangency is a **self-touch** → `SelfIntersections`, no
    certified inside the outer) — is the remaining increment-3+ work.
 
    *Internal-tangency finding (why it is increment-7-level, not a focused increment).*
-   The current behaviour is **sound**: the count-consistency gate flags EVERY internal
+   The current behaviour is **sound**: the consistency gate flags EVERY internal
    tangency `Degenerate` (the inner sampled polygon pokes OUTSIDE the outer near the
-   contact — inherent to tangency — so `sampledCrossCount>0` while analytic `nCross=0`,
-   a mismatch). At the oracle's default sampling the underlying result is in fact
+   contact — inherent to tangency — so a sampled crossing is left with no analytic
+   contact to explain it). At the oracle's default sampling the underlying result is in fact
    correct (regions=2, exact π·R² area via the circular-segment correction + hole
    assignment), it is simply flagged. So `Sketch.Verify` never blesses a wrong internal
    tangency (a broad sweep: blessed=0, flagged=72, false-valids=0).
@@ -250,24 +251,50 @@ crossing. The decisive split is by operand kind:
   near-tangents).
 
 For a handled pair with a curved source (i.e. line/circle, line/arc, or a curved
-*tangency*) the prepass still runs a **two-part consistency gate**, both parts
-**threshold-free and scale-invariant** (parametric `segEps` only, no coordinate
-tolerance), to reject the disk-vanishing failure where a coarse polyline does not
-reach a crossing the exact geometry has:
+*tangency*) the prepass still runs a **three-part consistency gate**, to reject the
+disk-vanishing failure where a coarse polyline does not reach a crossing the exact
+geometry has. The first two parts are **threshold-free and scale-invariant**
+(parametric `segEps` only); the third measures against the sampling's own chord
+length, which shrinks with density.
 
-1. **Count** — `sampledCrossCount(i,j)` (transverse hits strictly interior to BOTH
-   sampled segments; a tangential touch at a shared vertex is interior to only one,
-   so it is *not* counted) must equal the number of analytic `evCross` events.
-2. **Incidence** — each analytic `evCross` must be *witnessed on its own host
-   segment-pair*: the segment of source `i` carrying `e.ti` and the segment of `j`
-   carrying `e.tj` must themselves cross (`analyticCrossHosted` via `segContaining`
-   + `segsCrossInterior`).
+Which of the first two applies to a contact turns on whether it INSERTS a vertex
+(`crossNeedsSampledWitness`, answered by `cutSite` — the same call
+`applyAnalyticCut` acts on, so the gate can never expect something the cut phase
+does not do):
 
-Failing either part `flagDegenerate`. Pure line/line pairs are exempt (lines
-reproduce exactly, so sampled == analytic — a clean shallow crossing is never
-false-flagged). This is the conservative escape hatch the tangency contract already
-mandates, extended from tangencies to line/curve secants: when the sampled DCEL
-cannot faithfully host the exact crossings, refuse rather than bless.
+1. **Incidence** — an `evCross` that inserts a new vertex on BOTH sources must be
+   *witnessed on its own host segment-pair*: the segment of source `i` carrying
+   `e.ti` and the segment of `j` carrying `e.tj` must themselves cross
+   (`analyticCrossHosted` via `segContaining` + `segsCrossInterior`). This is the
+   disk-vanishing case: the injected point sits off the chord by up to the sagitta,
+   and the sampled crossing is the evidence that bending the polygon there does not
+   push it through the other curve.
+2. **Resolution** — a contact the sampled map ALREADY has a vertex for (at a
+   source's own endpoint, or at an interior sample vertex) inserts nothing, so it
+   has nothing to witness and no witness is possible: a contact at a segment
+   boundary is not interior to that segment. Every contact must instead be
+   SEPARATED by the sampling — two inside one chord of a curved source is a
+   sub-sample cap (`contactsResolved`).
+3. **Explanation** — no sampled crossing may be left over: each must sit within one
+   curved chord of some analytic contact (`sampledCrossingsExplained`). A crossing
+   with nothing behind it is the chord approximation disagreeing with the geometry
+   — two arcs that merely touch slicing through each other — and the face walk has
+   no vertex for it. The chord bound is what the approximation's own error spans,
+   and a line contributes none (its polyline IS the line).
+
+Failing any part `flagDegenerate`. Pure line/line pairs are exempt (lines reproduce
+exactly, so sampled == analytic — a clean shallow crossing is never false-flagged).
+This is the conservative escape hatch the tangency contract already mandates,
+extended from tangencies to line/curve secants: when the sampled DCEL cannot
+faithfully host the exact crossings, refuse rather than bless.
+
+Requiring a sampled witness for a contact that inserts no vertex is what once
+false-flagged everyday arrangements — a line ending exactly on a circle (the gear
+flank meeting its root circle, and what a point-on-circle constraint builds), a
+chord crossing where the sampling happens to put a vertex, a corner join — since
+that witness can never exist. Parts 2 and 3 are what keep the relaxation sound: a
+line whose BOTH ends lie on a circle inside ONE chord runs through the sliver
+outside the polygon, and blessing it collapses the map.
 
 **Self-intersection preservation.** For an analytic `evCross` between *different*
 sources, replicate the current core/component check: require
