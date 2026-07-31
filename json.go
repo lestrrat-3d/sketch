@@ -108,23 +108,35 @@ func (s *Sketch) referencesOrigin() bool {
 	return false
 }
 
-// checkNoForeignOrigin rejects a point reference that carries the reserved origin
-// id without BEING this sketch's origin — that is, another sketch's origin.
-// [Sketch.pointRef] resolves the reserved id against the RECEIVING sketch, so
-// writing it for a foreign origin would launder a foreign handle into a local one
-// across a round trip: the reloaded document would hold an ordinary local
-// relation where the original had the cross-sketch reference [Sketch.Verify]
-// reports as [ErrForeignHandle].
+// checkNoForeignRefs rejects a point or entity reference this sketch does not
+// own. Every reference is serialized as a bare id and the loader resolves that id
+// against the RECEIVING sketch, so writing a foreign one launders it into a local
+// one across a round trip: the reloaded document holds an ordinary local relation
+// where the original had the cross-sketch reference [Sketch.Verify] reports as
+// [ErrForeignHandle]. The reload is CLEAN — nothing is left for the oracle to
+// flag — so the round trip would turn a rejected sketch into a blessed one. That
+// is the whole reason marshalling refuses instead of writing.
 //
-// The origin is the only point that can carry a negative id — a removed point
-// keeps its stale positional one — so this rejects exactly the references the
-// origin introduced, and nothing a build without an origin could produce. It is
-// deliberately NOT a general ownership check: a foreign NON-origin point still
-// serializes as its positional id, as it always has.
-func (s *Sketch) checkNoForeignOrigin(pts []*Point, what string) error {
+// The origin is the sharpest case, and the one that needs no id collision at all:
+// it carries the reserved id originPointID, which [Sketch.pointRef] resolves to
+// the READER's own origin, so a borrowed origin always comes back rebound. An
+// ordinary foreign point instead rebinds whenever its positional id happens to
+// name a local point — the likely case, since small ids are the common ones.
+//
+// Ownership is decided by the point's own sketch pointer (p.s != s), NOT by
+// [Sketch.owns]: the origin is deliberately absent from s.points, and a nil or
+// dead handle is a separate fault the reference-integrity scan already reports.
+// The entity half reuses [Sketch.ownsEntity], skipping a nil operand for the same
+// reason.
+func (s *Sketch) checkNoForeignRefs(pts []*Point, ents []Entity, what string) error {
 	for _, p := range pts {
-		if p != nil && p.id == originPointID && p != s.origin {
-			return fmt.Errorf("%w: %s references another sketch's origin point", ErrForeignHandle, what)
+		if p != nil && p.s != s {
+			return fmt.Errorf("%w: %s references a point this sketch does not own", ErrForeignHandle, what)
+		}
+	}
+	for _, e := range ents {
+		if !isNilEntity(e) && !s.ownsEntity(e) {
+			return fmt.Errorf("%w: %s references an entity this sketch does not own", ErrForeignHandle, what)
 		}
 	}
 	return nil
@@ -218,6 +230,13 @@ func restoreDim(d Dimension, jc jsonConstraint) error {
 // standalone sketch document (kind "sketch") with the sketch's plane inlined.
 // The plane must be a world-frame datum; a sketch on a derived (world-owned)
 // plane must be serialized through its [World] instead.
+//
+// It fails with an error wrapping [ErrForeignHandle] when a constraint operand or
+// an entity's defining point belongs to another sketch. A reference serializes as
+// a bare id that the loader resolves against the receiving sketch, so writing a
+// foreign one would silently rebind it to a local point or entity and the reload
+// would read clean. This is exactly the sketch [Sketch.Verify] already reports as
+// ForeignHandles, so a sketch its report calls trustworthy always marshals.
 func (s *Sketch) MarshalJSON() ([]byte, error) {
 	body, err := s.marshalBody()
 	if err != nil {
@@ -247,11 +266,11 @@ func (s *Sketch) marshalBody() (jsonSketchBody, error) {
 
 	for _, e := range s.ents {
 		// Every entity's point references come from entityPoints — the same
-		// accessor referencesOrigin and checkNoForeignOrigin read — so an entity type
+		// accessor referencesOrigin and checkNoForeignRefs read — so an entity type
 		// cannot be serialized here while those two miss it. The order it returns is
 		// the order each type's document form declares.
 		epts := entityPoints(e)
-		if err := s.checkNoForeignOrigin(epts, fmt.Sprintf("entity %T", e)); err != nil {
+		if err := s.checkNoForeignRefs(epts, nil, fmt.Sprintf("entity %T", e)); err != nil {
 			return jsonSketchBody{}, err
 		}
 		pts := pointIDs(epts)
@@ -324,11 +343,11 @@ func (s *Sketch) marshalBody() (jsonSketchBody, error) {
 		if _, ok := c.(internalConstraint); ok {
 			continue // recreated automatically on load
 		}
-		// marshalConstraint writes each operand's raw id, so the reserved origin id
-		// is screened here, through the same constraintRefs the removal cascade and
-		// the integrity scan read.
-		cpts, _ := constraintRefs(c)
-		if err := s.checkNoForeignOrigin(cpts, fmt.Sprintf("constraint %q", constraintKind(c))); err != nil {
+		// marshalConstraint writes each operand's raw id — points AND entities — so
+		// both halves are screened here, through the same constraintRefs the removal
+		// cascade and the integrity scan read.
+		cpts, cents := constraintRefs(c)
+		if err := s.checkNoForeignRefs(cpts, cents, fmt.Sprintf("constraint %q", constraintKind(c))); err != nil {
 			return jsonSketchBody{}, err
 		}
 		jc, ok := marshalConstraint(c)

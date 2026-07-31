@@ -241,6 +241,12 @@ type jsonWorldDoc struct {
 
 // MarshalJSON implements [json.Marshaler], producing a world document (kind
 // "world") with all planes and the sketches placed on them.
+//
+// It shares the sketch payload writer with [Sketch.MarshalJSON], so it fails the
+// same way: an error wrapping [ErrForeignHandle] when any of its sketches holds a
+// reference to a point or entity of another sketch. Serializing that reference
+// would rebind it to a local one on load, and a cross-sketch reference is not a
+// relation this engine models — see [Sketch.MarshalJSON].
 func (w *World) MarshalJSON() ([]byte, error) {
 	doc := jsonWorldDoc{Kind: kindWorld, Version: jsonWorldVersion}
 	// One sketch using the origin raises the whole document's declared version:

@@ -401,3 +401,92 @@ func TestRoundTripPreservesSolvedState(t *testing.T) {
 	require.Equal(t, 0, res.Iterations, "no iterations spent")
 	require.InDelta(t, b.X(), s2.Points()[b.ID()].X(), 1e-12, "coordinates preserved verbatim")
 }
+
+// TestForeignHandleIsNotSerialized covers the wider half of the guard that
+// TestForeignOriginIsNotSerialized covers for the origin: an ORDINARY point or
+// entity of another sketch. Every reference is written as a bare id and the
+// loader resolves it against the receiving sketch, so serializing a foreign one
+// silently rebinds it to whatever local point or entity carries that number —
+// and, because small ids are the common ones, a collision is the likely case.
+// The round trip then reads clean, turning a sketch Verify reports as
+// ForeignHandles into one it blesses. Marshalling must refuse instead.
+func TestForeignHandleIsNotSerialized(t *testing.T) {
+	build := func(t *testing.T) (*sketch.World, *sketch.Sketch, *sketch.Sketch) {
+		t.Helper()
+		w := sketch.NewWorld()
+		a, err := w.CreateSketch(w.XY())
+		require.NoError(t, err)
+		b, err := w.CreateSketch(w.XZ())
+		require.NoError(t, err)
+		return w, a, b
+	}
+
+	t.Run("a constraint's point operand", func(t *testing.T) {
+		w, a, b := build(t)
+		// Both points get id 0 in their own sketch, so the written reference would
+		// come back as a local self-coincidence.
+		a.AddConstraint(sketch.NewCoincident(a.CreatePoint(3, 4), b.CreatePoint(0, 0)))
+		require.True(t, a.Verify(t.Context()).ForeignHandles, "the oracle flags it before the round trip")
+
+		_, err := json.Marshal(a)
+		require.ErrorIs(t, err, sketch.ErrForeignHandle, "the sketch document refuses it")
+		_, err = json.Marshal(w)
+		require.ErrorIs(t, err, sketch.ErrForeignHandle, "and so does the world document")
+	})
+
+	t.Run("a constraint's entity operand", func(t *testing.T) {
+		w, a, b := build(t)
+		la := a.CreateLine(a.CreatePoint(0, 0), a.CreatePoint(5, 0))
+		lb := b.CreateLine(b.CreatePoint(0, 0), b.CreatePoint(0, 5))
+		a.AddConstraint(sketch.NewPerpendicular(la, lb))
+		require.True(t, a.Verify(t.Context()).ForeignHandles, "the oracle flags it before the round trip")
+
+		_, err := json.Marshal(a)
+		require.ErrorIs(t, err, sketch.ErrForeignHandle)
+		_, err = json.Marshal(w)
+		require.ErrorIs(t, err, sketch.ErrForeignHandle)
+	})
+
+	t.Run("an entity's defining point", func(t *testing.T) {
+		// No constraint involved: an entity writes its points' ids exactly as a
+		// constraint does, and this one would reload as a zero-length line.
+		w, a, b := build(t)
+		a.CreateLine(b.CreatePoint(0, 0), a.CreatePoint(3, 4))
+		require.True(t, a.Verify(t.Context()).ForeignHandles, "the oracle flags it before the round trip")
+
+		_, err := json.Marshal(a)
+		require.ErrorIs(t, err, sketch.ErrForeignHandle)
+		_, err = json.Marshal(w)
+		require.ErrorIs(t, err, sketch.ErrForeignHandle)
+	})
+
+	t.Run("an ordinary document is unaffected", func(t *testing.T) {
+		// The negative control: the guard fires only on a foreign reference, so a
+		// single-sketch document still marshals and round-trips byte-for-byte.
+		w, a, _ := build(t)
+		p := a.CreatePoint(0, 0)
+		q := a.CreatePoint(5, 0)
+		l := a.CreateLine(p, q)
+		a.AddConstraint(sketch.NewCoincident(p, a.Origin()), sketch.NewHorizontal(l),
+			sketch.NewDistance(p, q, 5))
+		_, err := a.Solve(t.Context())
+		require.NoError(t, err)
+		require.NoError(t, a.Verify(t.Context()).Check(), "a sound sketch stays sound")
+
+		data, err := json.Marshal(a)
+		require.NoError(t, err)
+		var back sketch.Sketch
+		require.NoError(t, json.Unmarshal(data, &back))
+		again, err := json.Marshal(&back)
+		require.NoError(t, err)
+		require.JSONEq(t, string(data), string(again), "the reloaded sketch writes the same document")
+
+		wdata, err := json.Marshal(w)
+		require.NoError(t, err)
+		var wback sketch.World
+		require.NoError(t, json.Unmarshal(wdata, &wback))
+		wagain, err := json.Marshal(&wback)
+		require.NoError(t, err)
+		require.JSONEq(t, string(wdata), string(wagain))
+	})
+}
