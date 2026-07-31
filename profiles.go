@@ -26,7 +26,16 @@ type Profile struct {
 	// >= 0 for a clean region, 0 for a degenerate one.
 	Area float64
 	// Valid is false when the region cannot be trusted as an extrudable profile:
-	// a self-intersecting or degenerate boundary, or a degenerate arrangement.
+	// a self-intersecting or zero-area boundary, or an unresolvable (degenerate)
+	// arrangement condition that REACHES this region — one involving a curve its own
+	// boundary is built from, or one no curve could be blamed for at all.
+	//
+	// An ATTRIBUTABLE condition, on curves this region's boundary does not use,
+	// leaves this region valid, so a sketch can hold both valid and invalid
+	// profiles. An unattributable one has no such reach limit and invalidates every
+	// region detected. Whether the sketch as a whole is verifiable is a different
+	// question, answered by [VerificationReport.ProfilesValid], which also covers a
+	// condition that produced no region to report.
 	Valid bool
 	// SelfIntersecting marks the specific invalidity that the boundary the
 	// region derives from crosses or touches itself.
@@ -150,8 +159,14 @@ type BoundaryEdge struct {
 //
 // Each region reports its outer boundary, holes, net area, and whether it is a
 // valid (non-self-intersecting, non-degenerate) extrudable profile. A region
-// touched by an unresolvable (degenerate) arrangement — coincident edges or an
-// ill-conditioned near-tangent crossing — is reported invalid.
+// touched by an unresolvable (degenerate) condition — coincident edges or an
+// ill-conditioned near-tangent crossing on one of its own boundary curves — is
+// reported invalid, while regions built from unrelated geometry stay valid.
+//
+// That scoping needs a curve to blame. A condition no curve can be attributed to
+// — an unusable input dropped before it reached the arrangement, such as a
+// zero-radius circle — invalidates EVERY region detected, since what it would
+// have subdivided is unknown.
 func (s *Sketch) Profiles() []*Profile {
 	profiles, _, _ := s.buildProfiles()
 	return profiles
@@ -296,7 +311,12 @@ func (s *Sketch) buildProfiles() ([]*Profile, bool, [][2]float64) {
 			}
 			p.Holes = append(p.Holes, he)
 		}
-		p.Valid = !r.SelfIntersecting && r.Area > areaEps && !arr.Degenerate
+		// Degeneracy is per REGION, not arrangement-wide: a region is invalid when an
+		// unresolvable condition reaches its own boundary curves (or could not be
+		// attributed to any curve at all), so trouble in one corner of a sketch no
+		// longer invalidates an unrelated region elsewhere. Verify still reports the
+		// arrangement-wide signal through ProfilesValid.
+		p.Valid = !r.SelfIntersecting && r.Area > areaEps && !r.Degenerate
 		profiles = append(profiles, p)
 	}
 	return profiles, arr.Degenerate, arr.Degeneracies

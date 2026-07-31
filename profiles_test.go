@@ -265,3 +265,56 @@ func TestProfilesSpurLeavesOtherRegionsValid(t *testing.T) {
 		require.InDeltaf(t, math.Pi*100, p.Area, 1e-6, "disk %d is whole", i)
 	}
 }
+
+func TestProfilesDegeneracyScopedToItsOwnRegion(t *testing.T) {
+	// A rectangle carrying a duplicated stretch of its bottom edge (coincident
+	// geometry the arrangement cannot resolve), and a circle far away. Only the
+	// rectangle's region is invalid; the circle is built from unrelated geometry.
+	s := newSketch(t)
+	s.CreateRectangle(0, 0, 10, 10)
+	s.CreateLine(s.CreatePoint(2, 0), s.CreatePoint(8, 0)) // lies on the bottom edge
+	s.CreateCircle(s.CreatePoint(100, 0), 5)
+
+	profiles := s.Profiles()
+	require.Len(t, profiles, 2, "rectangle + circle")
+
+	var rect, disk *sketch.Profile
+	for _, p := range profiles {
+		if p.Area > 99 && p.Area < 101 {
+			rect = p
+			continue
+		}
+		disk = p
+	}
+	require.NotNil(t, rect)
+	require.NotNil(t, disk)
+	require.False(t, rect.Valid, "the rectangle owns the coincident edge")
+	require.True(t, disk.Valid, "an unrelated region stays valid")
+
+	// The sketch as a whole is still reported unverifiable — the scoping refines
+	// which profile is implicated, it does not bless the sketch.
+	rep := s.Verify(t.Context())
+	require.False(t, rep.ProfilesValid, "the arrangement was unresolvable")
+	require.Equal(t, []*sketch.Profile{rect}, rep.InvalidProfiles)
+}
+
+func TestProfilesUnattributableDegeneracyInvalidatesEveryProfile(t *testing.T) {
+	// The other half of the scoping rule, and the one the doc comments must not
+	// omit: a zero-radius circle is unusable input, dropped before it can form an
+	// edge, so the condition it raises belongs to no curve. What it would have
+	// subdivided is unknown, so the unrelated rectangle is invalid too.
+	s := newSketch(t)
+	s.CreateRectangle(0, 0, 10, 10)
+	s.CreateCircle(s.CreatePoint(100, 0), 0)
+
+	profiles := s.Profiles()
+	require.Len(t, profiles, 1, "the zero-radius circle bounds nothing")
+	require.InDelta(t, 100, profiles[0].Area, 1e-6, "the rectangle is whole")
+	require.False(t, profiles[0].SelfIntersecting, "its boundary is clean")
+	require.False(t, profiles[0].Valid, "an unattributable condition reaches every region")
+
+	rep := s.Verify(t.Context())
+	require.False(t, rep.ProfilesValid)
+	require.Equal(t, profiles[0].Area, rep.InvalidProfiles[0].Area)
+	require.Len(t, rep.InvalidProfiles, 1, "every detected profile is listed")
+}

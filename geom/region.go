@@ -98,11 +98,30 @@ type BoundaryEdge struct {
 // boundary walked counter-clockwise, zero or more holes (inner boundaries,
 // walked clockwise), the net area (outer minus holes), and whether the region
 // derives from a self-intersecting input boundary.
+//
+// CONSTRUCT IT WITH KEYED FIELDS, or better, do not construct it at all: every
+// field is an output of [Regions], and this struct GAINS fields as the engine
+// reports more about a region (Degenerate below is one; [BoundaryEdge] gained
+// TStart/TEnd/TExact the same way). An unkeyed composite literal breaks on each
+// such addition, and that is accepted rather than designed around — an accessor
+// over an unexported field would break identically, since a caller outside this
+// package cannot write one either.
 type Region struct {
 	Outer            []BoundaryEdge
 	Holes            [][]BoundaryEdge
 	Area             float64 // net area (outer minus holes); >= 0 for a clean region
 	SelfIntersecting bool    // an input boundary feeding this region crosses itself
+	// Degenerate is true when an unresolvable condition reaches THIS region: one
+	// involving a curve its own boundary is built from, or one that could not be
+	// attributed to any curve (an unusable input, dropped before it formed an edge,
+	// so what it would have subdivided is unknown).
+	//
+	// It is narrower than [Arrangement.Degenerate], which is set when the
+	// arrangement holds any such condition at all — including one that produced no
+	// region, or destroyed one. A region far from the trouble reads false here while
+	// the arrangement still reads true, so a consumer deciding whether the whole
+	// region set is trustworthy must read the arrangement flag, not this.
+	Degenerate bool
 }
 
 // Arrangement is the result of Regions: the bounded regions plus arrangement-

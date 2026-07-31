@@ -221,7 +221,7 @@ type arranger struct {
 	notSimple map[int]struct{} // core components that are NOT a simple closed loop (some vertex degree != 2)
 	core      []bool           // per source: part of the cycle-bearing core (not a dangling spur)
 	comp      []int            // per source: core component id, or -1 if not core
-	degen     [][2]float64     // points of degenerate (collinear-overlap / unresolvable) conditions
+	degen     []degenRecord    // degenerate (collinear-overlap / unresolvable) conditions
 	degenSet  bool
 
 	// Analytic-arrangement state (increment 2): which line/circle/arc source pairs
@@ -692,11 +692,26 @@ func splineExtent(cc [][2]float64) float64 {
 // for a usable radius or semi-axis.
 func posFinite(v float64) bool { return v > 0 && !math.IsInf(v, 1) }
 
-// flagDegenerate records a degenerate condition at (x,y); the arrangement's
-// regions are then not trustworthy.
-func (a *arranger) flagDegenerate(x, y float64) {
+// degenRecord is one degenerate condition: a representative point and the sources
+// it involves. An EMPTY srcs means the condition could not be attributed to any
+// geometry that reaches the arrangement — an unusable input curve, dropped before
+// it could form an edge — and every region carries it, since whatever that curve
+// would have subdivided is unknown.
+type degenRecord struct {
+	x, y float64
+	srcs []int
+}
+
+// flagDegenerate records a degenerate condition at (x,y) involving the given
+// sources; the arrangement's regions are then not trustworthy.
+//
+// Pass every source the condition involves. A region is reported degenerate when
+// its boundary uses one of them (see Region.Degenerate), so omitting them widens
+// the blame to the whole arrangement — which is what a source-level failure (an
+// unusable input curve, contributing no edge at all) wants and nothing else does.
+func (a *arranger) flagDegenerate(x, y float64, srcs ...int) {
 	a.degenSet = true
-	a.degen = append(a.degen, [2]float64{x, y})
+	a.degen = append(a.degen, degenRecord{x: x, y: y, srcs: srcs})
 }
 
 // densify samples each source into tiny segments and computes the scene scale
@@ -856,7 +871,7 @@ func (a *arranger) intersect() {
 				// Parallel: a collinear overlap is a duplicated/coincident edge
 				// that corrupts the planar map — flag it rather than miscount.
 				if mx, my, over := collinearOverlap(si, sj); over {
-					a.flagDegenerate(mx, my)
+					a.flagDegenerate(mx, my, si.src, sj.src)
 				}
 				continue
 			}
@@ -892,7 +907,7 @@ func (a *arranger) intersect() {
 			// sampling (the two curves graze rather than cleanly cross); the
 			// region topology there cannot be trusted, so flag it.
 			if p.sin < 1e-3 {
-				a.flagDegenerate(p.x, p.y)
+				a.flagDegenerate(p.x, p.y, si.src, sj.src)
 			}
 			// exact:false — a sampled chord-chord crossing. Both the parameter and
 			// the point are approximations that converge with sampling density.
@@ -991,7 +1006,7 @@ func (a *arranger) analyticPrepass() {
 				if ambiguous {
 					rx, ry := sourceRep(si)
 					sx, sy := sourceRep(sj)
-					a.flagDegenerate((rx+sx)/2, (ry+sy)/2)
+					a.flagDegenerate((rx+sx)/2, (ry+sy)/2, i, j)
 				}
 				continue
 			}
@@ -1014,18 +1029,18 @@ func (a *arranger) analyticPrepass() {
 					!a.sampledCrossingsExplained(i, j, events) {
 					rx, ry := sourceRep(si)
 					sx, sy := sourceRep(sj)
-					a.flagDegenerate((rx+sx)/2, (ry+sy)/2)
+					a.flagDegenerate((rx+sx)/2, (ry+sy)/2, i, j)
 				}
 			}
 			if ambiguous {
 				rx, ry := sourceRep(si)
 				sx, sy := sourceRep(sj)
-				a.flagDegenerate((rx+sx)/2, (ry+sy)/2)
+				a.flagDegenerate((rx+sx)/2, (ry+sy)/2, i, j)
 			}
 			for _, e := range events {
 				switch e.kind {
 				case evOverlap:
-					a.flagDegenerate(e.x, e.y)
+					a.flagDegenerate(e.x, e.y, i, j)
 				case evCross:
 					a.applyAnalyticCut(i, e.ti, e.x, e.y)
 					a.applyAnalyticCut(j, e.tj, e.x, e.y)
@@ -1061,7 +1076,7 @@ func (a *arranger) analyticPrepass() {
 							// into an annulus + inner disk).
 							a.exactPortVerts = append(a.exactPortVerts, [2]float64{e.x, e.y})
 						default:
-							a.flagDegenerate(e.x, e.y)
+							a.flagDegenerate(e.x, e.y, i, j)
 						}
 					}
 				}
@@ -1901,7 +1916,7 @@ func (a *arranger) sortExactPorts(v int, ring []int) {
 		}
 		if math.Abs(hi.kappa-hj.kappa)*a.scale <= kappaCertifyEps {
 			vx, vy := a.verts.coord(v)
-			a.flagDegenerate(vx, vy)
+			a.flagDegenerate(vx, vy, a.edges[hi.edge].src, a.edges[hj.edge].src)
 			break
 		}
 	}
@@ -2047,7 +2062,10 @@ func (a *arranger) extract() *Arrangement {
 		}
 	}
 
-	arr := &Arrangement{SelfIntersections: a.selfX, Degenerate: a.degenSet, Degeneracies: a.degen}
+	arr := &Arrangement{SelfIntersections: a.selfX, Degenerate: a.degenSet}
+	for _, d := range a.degen {
+		arr.Degeneracies = append(arr.Degeneracies, [2]float64{d.x, d.y})
+	}
 	// Assign each hole to the smallest-area face that strictly contains it. The
 	// containment probe is a point guaranteed interior to the hole (not a
 	// boundary vertex), so a hole touching a face boundary still resolves.
@@ -2080,9 +2098,51 @@ func (a *arranger) extract() *Arrangement {
 				reg.SelfIntersecting = true
 			}
 		}
+		reg.Degenerate = a.regionDegenerate(reg)
 		arr.Regions = append(arr.Regions, reg)
 	}
 	return arr
+}
+
+// regionDegenerate reports whether any recorded degenerate condition reaches this
+// region: one involving a curve the region's own boundary is built from, or one
+// that could not be attributed to any curve at all.
+//
+// Attribution is by SOURCE, not by where the condition's representative point
+// landed. The point is only a locator — several are a midpoint between two sources
+// rather than the contact itself — while the curve identity is exact, and a
+// condition can only corrupt the faces its curves bound. A region built from
+// entirely different curves is unaffected, which is why a spur touching one circle
+// no longer invalidates a second circle across the sketch.
+//
+// The arrangement-wide [Arrangement.Degenerate] is unchanged: a condition that
+// produces no region at all (or destroys one) still has to be reported somewhere,
+// so a consumer gating on trustworthiness reads that, and this only refines WHICH
+// regions are implicated.
+func (a *arranger) regionDegenerate(reg *Region) bool {
+	if len(a.degen) == 0 {
+		return false
+	}
+	srcs := map[int]struct{}{}
+	for _, e := range reg.Outer {
+		srcs[e.SourceIndex] = struct{}{}
+	}
+	for _, h := range reg.Holes {
+		for _, e := range h {
+			srcs[e.SourceIndex] = struct{}{}
+		}
+	}
+	for _, d := range a.degen {
+		if len(d.srcs) == 0 {
+			return true // unattributable: every region carries it
+		}
+		for _, s := range d.srcs {
+			if _, ok := srcs[s]; ok {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // cycle is one next-cycle: its coalesced boundary edges, dense polygon, signed

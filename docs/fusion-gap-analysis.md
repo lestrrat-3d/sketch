@@ -197,8 +197,10 @@ are split into faces), **holes/nesting** (a shape inside another is a hole + a
 separate region), **net area** and **winding/orientation** (outer CCW, holes CW)
 are all in. Each `Profile` carries `Outer`/`Holes` boundary edges (whole or
 fragment), `Area`, and validity: a **self-intersecting** boundary (a simple
-closed loop crossing itself) or a **degenerate** arrangement (coincident edges,
-near-tangent uncertainty) reports `Valid=false` and makes
+closed loop crossing itself) reports `Valid=false`, and so does a **degenerate**
+arrangement condition (coincident edges, near-tangent uncertainty) that reaches
+the region — one involving a curve its own boundary uses, or one no curve can be
+blamed for, which reaches every region. Either makes
 `VerificationReport.Trustworthy()` false. *Open:* splines in profiles; exact
 ellipse-fragment area (currently sampled); an analytic (non-sampled) arrangement
 for tighter tolerance on near-tangencies.

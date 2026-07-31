@@ -201,6 +201,47 @@ func TestRegionsCollinearOverlapDegenerate(t *testing.T) {
 	arr := geom.Regions(curves, nil)
 	require.True(t, arr.Degenerate, "coincident edges are degenerate")
 	require.NotEmpty(t, arr.Degeneracies)
+	require.Len(t, arr.Regions, 1)
+	require.True(t, arr.Regions[0].Degenerate, "the square owns the coincident edge")
+}
+
+func TestRegionsDegeneracyScopedToItsOwnRegion(t *testing.T) {
+	// The same duplicated square edge, with a circle far away. The condition
+	// involves only the square's curves, so only the square's region carries it —
+	// the circle is built from entirely different geometry and stays clean. The
+	// arrangement-wide flag still reports that something was unresolvable.
+	curves := square(0, 0, 10)
+	curves = append(curves, geom.NewLine(geom.NewPoint(2, 0), geom.NewPoint(8, 0)))
+	closed := []geom.ClosedCurve{geom.NewCircle(geom.NewPoint(100, 0), 5)}
+
+	arr := geom.Regions(curves, closed)
+	require.True(t, arr.Degenerate, "the arrangement still reports the condition")
+	require.Len(t, arr.Regions, 2)
+
+	var sq, disk *geom.Region
+	for _, r := range arr.Regions {
+		if r.Area > 99 && r.Area < 101 {
+			sq = r
+			continue
+		}
+		disk = r
+	}
+	require.NotNil(t, sq)
+	require.NotNil(t, disk)
+	require.True(t, sq.Degenerate, "the square owns the coincident edge")
+	require.False(t, disk.Degenerate, "a region built from unrelated curves is untouched")
+}
+
+func TestRegionsUnusableInputDegeneratesEveryRegion(t *testing.T) {
+	// A condition with no usable curve behind it — a zero-radius circle is dropped
+	// before it can form an edge — cannot be attributed, so every region carries it:
+	// what that curve would have subdivided is unknowable.
+	arr := geom.Regions(square(0, 0, 10), []geom.ClosedCurve{
+		geom.NewCircle(geom.NewPoint(100, 0), 0),
+	})
+	require.True(t, arr.Degenerate)
+	require.Len(t, arr.Regions, 1)
+	require.True(t, arr.Regions[0].Degenerate, "an unattributable condition reaches every region")
 }
 
 func TestRegionsDanglingSpurPruned(t *testing.T) {
