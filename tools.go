@@ -257,8 +257,10 @@ type Fillet struct {
 // rounding tangent. The original legs (and any constraints that referenced them
 // as entities — horizontal, angle, …) are replaced; re-apply such constraints
 // to the returned [Fillet.L1]/[Fillet.L2] if needed. Constraints on the
-// surviving far endpoints are kept. Returns [ErrForeignEntity],
-// [ErrNoSharedCorner] or [ErrFilletInfeasible] without modifying the sketch.
+// surviving far endpoints are kept. Returns [ErrForeignEntity] when either line
+// is not a live entity of this sketch (nil, dead, or foreign),
+// [ErrNoSharedCorner] or [ErrFilletInfeasible] — in each case without modifying
+// the sketch.
 func (s *Sketch) CreateFillet(l1, l2 *Line, r float64) (*Fillet, error) {
 	if s.foreignInput(l1, l2) {
 		return nil, ErrForeignEntity
@@ -317,8 +319,9 @@ type Chamfer struct {
 // and each leg shortened to its contact; the contacts are pinned by editable
 // distance dimensions from the far endpoints (D1/D2), so editing them and
 // re-solving moves the chamfer parametrically. Constraint handling matches
-// [Sketch.CreateFillet]. Returns [ErrForeignEntity], [ErrNoSharedCorner] or
-// [ErrChamferInfeasible] without modifying the sketch.
+// [Sketch.CreateFillet]. Returns [ErrForeignEntity] when either line is not a
+// live entity of this sketch (nil, dead, or foreign), [ErrNoSharedCorner] or
+// [ErrChamferInfeasible] — in each case without modifying the sketch.
 func (s *Sketch) CreateChamfer(l1, l2 *Line, d float64) (*Chamfer, error) {
 	if s.foreignInput(l1, l2) {
 		return nil, ErrForeignEntity

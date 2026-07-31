@@ -64,9 +64,10 @@ func TestToolsRejectForeignEntity(t *testing.T) {
 	})
 
 	t.Run("ExtendForeignEndpoint", func(t *testing.T) {
-		// Defensive: a foreign point can never be l.Start or l.End of a local
-		// line, so the endpoint half of the guard has no reachable failure to
-		// distinguish. It pins the contract rather than a live defect.
+		// A foreign point that is NOT an endpoint of l. Base Extend already
+		// refuses this input for a different reason — end is neither l.Start nor
+		// l.End — so the subtest passes with and without the endpoint half of the
+		// guard. ExtendForeignStart below covers the path only the guard closes.
 		s := newSketch(t)
 		l := s.CreateLine(s.CreatePoint(0, 0), s.CreatePoint(4, 0))
 		fl := foreignLine(t, 0, 0, 4, 0)
@@ -75,6 +76,24 @@ func TestToolsRejectForeignEntity(t *testing.T) {
 		require.False(t, ok)
 		require.Nil(t, nl)
 		require.Len(t, s.Entities(), 1)
+		require.Empty(t, s.Constraints())
+	})
+
+	t.Run("ExtendForeignStart", func(t *testing.T) {
+		// The path the endpoint half of the guard closes. CreateLine stores the
+		// points it is given, so a LOCAL line can hold another sketch's point as
+		// its Start; that point passes the endpoint test (end == l.Start), and
+		// only !s.owns(end) refuses it. Without the guard this extends the line
+		// and reports true, splicing the foreign point into the replacement.
+		s := newSketch(t)
+		fl := foreignLine(t, 0, 0, 4, 0)
+		l := s.CreateLine(fl.Start, s.CreatePoint(4, 0))
+		s.CreateLine(s.CreatePoint(-8, -5), s.CreatePoint(-8, 5)) // cutter beyond the Start end
+
+		nl, ok := s.Extend(l, l.Start)
+		require.False(t, ok)
+		require.Nil(t, nl)
+		require.Len(t, s.Entities(), 2, "l and the cutter, nothing manufactured")
 		require.Empty(t, s.Constraints())
 	})
 
