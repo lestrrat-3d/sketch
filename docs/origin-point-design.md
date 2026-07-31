@@ -136,10 +136,25 @@ The origin is the sharpest case rather than a special one. It is the reference
 that rebinds with no id collision at all, since the reserved id resolves against
 the reader by construction; an ordinary foreign point rebinds whenever its
 positional id happens to name a local point, which small ids usually do. The guard
-therefore screens ownership in general — `p.s != s` for a point, `ownsEntity` for a
-constraint's entity operand — and `Sketch.MarshalJSON` and `World.MarshalJSON` both
-return an error for a sketch holding one. That refusal is bounded to exactly the
-sketches `Verify` already reports as `ErrForeignHandle`.
+therefore screens ownership in general — `Sketch.owns` for a point, `ownsEntity` for
+a constraint's entity operand — and `Sketch.MarshalJSON` and `World.MarshalJSON` both
+return an error for a sketch holding one.
+
+`owns` is the predicate because it is the same one `scanReferenceIntegrity` uses to
+set `ForeignHandles`, so marshal and `Verify` cannot diverge about which handles a
+sketch owns. It also carries the origin exception, so a sketch's OWN origin stays
+owned and still serializes as the reserved id; only a borrowed origin is refused.
+
+Screening the point's own sketch pointer instead would be weaker, because it passes a
+DEAD point — one `RemovePoint` spliced out. That point's sketch pointer still names
+this sketch while its `id` is stale, and the stale id fails in two shapes. The splice
+renumbers, so the id usually names a DIFFERENT live point by the time the document is
+written: the reload binds the reference to that point, silently, with nothing left to
+flag. When the removed point was the LAST one the id is out of range instead, so the
+document marshals cleanly and then fails to load.
+
+That refusal is bounded to exactly the sketches `Verify` already reports as
+`ErrForeignHandle`.
 
 ## Known consequence
 
