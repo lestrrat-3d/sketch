@@ -215,34 +215,6 @@ func isNilEntity(e Entity) bool {
 	return false
 }
 
-// entityPoints returns an entity's current defining points (read from its
-// exported fields), used by the reference lock-integrity and reachability checks.
-func entityPoints(e Entity) []*Point {
-	switch t := e.(type) {
-	case *Line:
-		return []*Point{t.Start, t.End}
-	case *Circle:
-		return []*Point{t.Center}
-	case *Arc:
-		return []*Point{t.Center, t.Start, t.End}
-	case *Ellipse:
-		return []*Point{t.Center}
-	case *EllipticalArc:
-		return []*Point{t.Center, t.Start, t.End}
-	case *Spline:
-		return t.Control
-	case *ClosedSpline:
-		return t.Control
-	case *FitSpline:
-		return t.Fit
-	case *Conic:
-		return []*Point{t.Start, t.Apex, t.End}
-	case *NURBS:
-		return t.Control
-	}
-	return nil
-}
-
 // referenceBroken reports whether an entity fails the lock-integrity check: any
 // entity with a foreign/dead defining point, or a reference entity that is also
 // construction, has a non-reference or unlocked defining point, an unfixed owned
