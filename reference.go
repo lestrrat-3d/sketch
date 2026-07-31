@@ -43,7 +43,16 @@ func (r refState) Source() string { return r.source }
 // (belonging to another sketch), and not dead (removed, its id slot now holding
 // a different point).
 func (s *Sketch) owns(p *Point) bool {
-	return p != nil && p.s == s && p.id >= 0 && p.id < len(s.points) && s.points[p.id] == p
+	if p == nil || p.s != s {
+		return false
+	}
+	// The origin is live-owned but deliberately not in s.points, so the positional
+	// check below can never find it. Without this a constraint to [Sketch.Origin]
+	// would read as a FOREIGN handle and abort verification.
+	if s.origin == p {
+		return true
+	}
+	return p.id >= 0 && p.id < len(s.points) && s.points[p.id] == p
 }
 
 // requireRefPoints checks that every point is a live reference point of this

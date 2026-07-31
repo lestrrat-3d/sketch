@@ -3,6 +3,7 @@ package sketch
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/lestrrat-3d/sketch/param"
 	"github.com/lestrrat-3d/units"
@@ -57,11 +58,53 @@ type jsonSystem struct {
 	Angle  string `json:"angle"`
 }
 
-// jsonVersion is the current document schema version. Version-2 documents carry
-// an explicit "kind" ("sketch" or "world") and placement. Legacy documents
-// (version absent/0/1, no "kind") still load as world-XY sketches; documents
-// from a newer schema are rejected rather than mis-loaded.
+// jsonVersion is the BASELINE standalone-sketch document version. Version-2
+// documents carry an explicit "kind" ("sketch" or "world") and placement. Legacy
+// documents (version absent/0/1, no "kind") still load as world-XY sketches;
+// documents from a newer schema are rejected rather than mis-loaded.
 const jsonVersion = 2
+
+// jsonOriginVersion is the version a document of EITHER kind declares once it
+// references the sketch origin ([Sketch.Origin]) from a constraint. Such a
+// document carries a point reference no older reader resolves, so it must not be
+// handed to one.
+//
+// The version is stamped ON DEMAND rather than unconditionally: a document that
+// never touches the origin is byte-identical to what earlier builds wrote and
+// stays readable by them. The number a document declares is the OLDEST reader
+// that can read it faithfully, not the newest writer that produced it.
+const jsonOriginVersion = 4
+
+// jsonMaxVersion is the newest schema THIS build reads, for either kind. Both
+// loaders reject anything above it rather than mis-load.
+const jsonMaxVersion = jsonOriginVersion
+
+// referencesOrigin reports whether any constraint refers to the sketch's origin
+// point, which is what forces the higher document version. It reads the same
+// constraintRefs the removal cascade and the integrity scan use, so a constraint
+// type that reaches the origin cannot be missed here while being seen there.
+func (s *Sketch) referencesOrigin() bool {
+	if s.origin == nil {
+		return false
+	}
+	for _, c := range s.cons {
+		pts, _ := constraintRefs(c)
+		if slices.Contains(pts, s.origin) {
+			return true
+		}
+	}
+	return false
+}
+
+// docVersion is the version a document containing this sketch must declare: the
+// given baseline for its kind, raised when the sketch uses a feature an older
+// reader cannot resolve.
+func (s *Sketch) docVersion(baseline int) int {
+	if s.referencesOrigin() {
+		return jsonOriginVersion
+	}
+	return baseline
+}
 
 // Document kind discriminators (the top-level "kind" field).
 const (
@@ -151,7 +194,7 @@ func (s *Sketch) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	return json.Marshal(jsonSketchDoc{
-		Kind: kindSketch, Version: jsonVersion,
+		Kind: kindSketch, Version: s.docVersion(jsonVersion),
 		jsonSketchBody: body, Plane: jp,
 	})
 }
@@ -524,8 +567,8 @@ func (s *Sketch) UnmarshalJSON(data []byte) error {
 	default:
 		return fmt.Errorf("%w: unknown kind %q", ErrWrongDocumentKind, pf.kind)
 	}
-	if pf.version > jsonVersion {
-		return fmt.Errorf("sketch: unsupported document version %d (this build reads up to %d)", pf.version, jsonVersion)
+	if pf.version > jsonMaxVersion {
+		return fmt.Errorf("sketch: unsupported document version %d (this build reads up to %d)", pf.version, jsonMaxVersion)
 	}
 	if pf.version >= 2 && pf.kind == "" {
 		return fmt.Errorf("%w: a version %d document requires a \"kind\"", ErrWrongDocumentKind, pf.version)
@@ -566,6 +609,7 @@ func (s *Sketch) UnmarshalJSON(data []byte) error {
 	// differ and Profile.IsStale() report true, which is the honest answer.
 	nextEntID := s.nextEntID
 	*s = Sketch{world: w, params: w.params, sys: units.Metric(), pl: plane, nextEntID: nextEntID}
+	s.initOrigin() // the reset cleared it; every construction path owes one
 	w.sketches = append(w.sketches, s)
 	if err := s.buildFromBody(doc.jsonSketchBody); err != nil {
 		return err
@@ -819,6 +863,14 @@ func (s *Sketch) arcByID(i int, name string) (*Arc, error) {
 // v2 decoder validates every reference through this before indexing, so a
 // malformed document errors rather than panicking.
 func (s *Sketch) pointRef(i int) (*Point, error) {
+	// The origin is not in s.points and carries its own reserved id, so it is
+	// resolved here rather than positionally (see [Sketch.Origin]).
+	if i == originPointID {
+		if s.origin == nil {
+			return nil, fmt.Errorf("sketch: document references the origin point, which this sketch has none of")
+		}
+		return s.origin, nil
+	}
 	if i < 0 || i >= len(s.points) {
 		return nil, fmt.Errorf("sketch: point id %d out of range", i)
 	}
@@ -879,6 +931,9 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		}
 	}
 	for _, i := range jc.Points {
+		if i == originPointID && s.origin != nil {
+			continue // the origin's reserved id; resolved by pointRef, not positionally
+		}
 		if i < 0 || i >= len(s.points) {
 			return fmt.Errorf("sketch: constraint %q references point id %d out of range", jc.Type, i)
 		}
@@ -889,7 +944,13 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 		}
 	}
 
-	pt := func(i int) *Point { return s.points[jc.Points[i]] }
+	// pt resolves the constraint's i-th point reference. It goes through pointRef
+	// rather than indexing s.points, so the origin's reserved id resolves here the
+	// same way it does everywhere else; the loop above already validated every id.
+	pt := func(i int) *Point {
+		p, _ := s.pointRef(jc.Points[i])
+		return p
+	}
 	// dim restores a dimensional constraint's unit/binding, then commits it.
 	dim := func(d Dimension) error {
 		if err := restoreDim(d, jc); err != nil {

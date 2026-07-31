@@ -243,6 +243,13 @@ type jsonWorldDoc struct {
 // "world") with all planes and the sketches placed on them.
 func (w *World) MarshalJSON() ([]byte, error) {
 	doc := jsonWorldDoc{Kind: kindWorld, Version: jsonWorldVersion}
+	// One sketch using the origin raises the whole document's declared version:
+	// the document is only as readable as its least-readable part.
+	for _, s := range w.sketches {
+		if v := s.docVersion(jsonWorldVersion); v > doc.Version {
+			doc.Version = v
+		}
+	}
 	if w.params != nil && len(w.params.Names()) > 0 {
 		doc.Parameters = w.params
 	}
@@ -285,8 +292,8 @@ func (w *World) UnmarshalJSON(data []byte) error {
 	if pf.kind != kindWorld {
 		return fmt.Errorf("%w: want a world document, got %q", ErrWrongDocumentKind, pf.kind)
 	}
-	if pf.version > jsonWorldVersion {
-		return fmt.Errorf("sketch: unsupported document version %d (this build reads up to %d)", pf.version, jsonWorldVersion)
+	if pf.version > jsonMaxVersion {
+		return fmt.Errorf("sketch: unsupported document version %d (this build reads up to %d)", pf.version, jsonMaxVersion)
 	}
 
 	var doc jsonWorldDoc

@@ -73,6 +73,6 @@ func Example_sketch_verify_check() {
 	// Output:
 	// status=fully constrained trustworthy=false
 	// blocking reasons: 0
-	// configurations found: 3
+	// configurations found: 2
 	// true
 }

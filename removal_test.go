@@ -165,12 +165,19 @@ func TestJSONVersionGuard(t *testing.T) {
 	var s2 sketch.Sketch
 	require.NoError(t, json.Unmarshal(legacy, &s2), "legacy document loads")
 
+	// A version this build DOES read (the origin-reference schema) still loads.
+	doc["version"] = json.RawMessage("4")
+	origin, err := json.Marshal(doc)
+	require.NoError(t, err, "re-encode origin-version document")
+	var s4 sketch.Sketch
+	require.NoError(t, json.Unmarshal(origin, &s4), "a version this build reads loads")
+
 	// Future document: rejected loudly.
-	doc["version"] = json.RawMessage("3")
+	doc["version"] = json.RawMessage("5")
 	future, err := json.Marshal(doc)
 	require.NoError(t, err, "re-encode future")
 	var s3 sketch.Sketch
-	require.ErrorContains(t, json.Unmarshal(future, &s3), "unsupported document version 3")
+	require.ErrorContains(t, json.Unmarshal(future, &s3), "unsupported document version 5")
 }
 
 func TestRemoveSplineGuardsControlPoints(t *testing.T) {
