@@ -305,18 +305,54 @@ func TestReferenceArcTrustworthy(t *testing.T) {
 }
 
 // A constraint with a typed-nil entity operand must not panic Verify.
+// A typed-nil entity is an interface value that is not nil but whose concrete
+// pointer is — what NewHorizontal(nil) stores. Every method on it panics, so the
+// engine must recognize it instead of calling entID on it. Recognition is a
+// method on the sealed Entity interface, implemented once per entity type, so
+// every type is exercised here: Sketch.WorldPolyline is the exported door onto
+// the ownership check that asks.
 func TestReferenceVerifyTypedNilOperand(t *testing.T) {
-	s := newSketch(t)
-	s.AddConstraint(sketch.NewHorizontal(nil)) // typed-nil *Line operand
-	var rep *sketch.VerificationReport
-	require.NotPanics(t, func() { rep = s.Verify(t.Context()) })
-	require.False(t, rep.Trustworthy())
+	for _, tc := range []struct {
+		name string
+		ent  sketch.Entity
+	}{
+		{"nil interface", nil},
+		{"Line", (*sketch.Line)(nil)},
+		{"Circle", (*sketch.Circle)(nil)},
+		{"Arc", (*sketch.Arc)(nil)},
+		{"Ellipse", (*sketch.Ellipse)(nil)},
+		{"EllipticalArc", (*sketch.EllipticalArc)(nil)},
+		{"Spline", (*sketch.Spline)(nil)},
+		{"ClosedSpline", (*sketch.ClosedSpline)(nil)},
+		{"FitSpline", (*sketch.FitSpline)(nil)},
+		{"Conic", (*sketch.Conic)(nil)},
+		{"NURBS", (*sketch.NURBS)(nil)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newSketch(t)
+			var err error
+			require.NotPanics(t, func() { _, err = s.WorldPolyline(tc.ent) })
+			require.ErrorIs(t, err, sketch.ErrForeignEntity)
+		})
+	}
 
-	// A non-nil but foreign entity with nil endpoints must not panic either.
-	s2 := newSketch(t)
-	s2.AddConstraint(sketch.NewHorizontal(&sketch.Line{}))
-	require.NotPanics(t, func() { rep = s2.Verify(t.Context()) })
-	require.False(t, rep.Trustworthy())
+	t.Run("constraint operand", func(t *testing.T) {
+		s := newSketch(t)
+		s.AddConstraint(sketch.NewHorizontal(nil)) // typed-nil *Line operand
+		var rep *sketch.VerificationReport
+		require.NotPanics(t, func() { rep = s.Verify(t.Context()) })
+		require.False(t, rep.Trustworthy())
+		require.ErrorIs(t, rep.Check(), sketch.ErrVerificationIncomplete)
+	})
+
+	t.Run("foreign entity with nil endpoints", func(t *testing.T) {
+		// A non-nil but foreign entity with nil endpoints must not panic either.
+		s := newSketch(t)
+		s.AddConstraint(sketch.NewHorizontal(&sketch.Line{}))
+		var rep *sketch.VerificationReport
+		require.NotPanics(t, func() { rep = s.Verify(t.Context()) })
+		require.False(t, rep.Trustworthy())
+	})
 }
 
 // Refreshing a reference arc endpoint to a different radius breaks the arc

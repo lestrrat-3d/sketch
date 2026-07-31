@@ -531,6 +531,15 @@ func (s *Sketch) EntityFixed(e Entity) bool {
 // [Sketch.EntityByName].
 type Entity interface {
 	entity()
+	// isNil reports whether the interface holds a nil concrete pointer — a
+	// typed nil, e.g. the *Line in NewHorizontal(nil), which `e == nil` misses
+	// and every other method on this interface would panic on. The body is
+	// always `return x == nil` for receiver x; it MUST NOT dereference the
+	// receiver. Being on the sealed interface is the point: a new entity type
+	// that forgets it fails to compile at [Sketch.addEntity], where a forgotten
+	// case in a type switch would have compiled and panicked at run time
+	// instead (see [isNilEntity]).
+	isNil() bool
 	entID() int
 	IsConstruction() bool
 	SetConstruction(v bool)
@@ -574,6 +583,7 @@ type Line struct {
 }
 
 func (l *Line) entity()              {}
+func (l *Line) isNil() bool          { return l == nil }
 func (l *Line) entID() int           { return l.id }
 func (l *Line) IsConstruction() bool { return l.construction }
 func (l *Line) SetConstruction(v bool) {
@@ -616,6 +626,7 @@ type Circle struct {
 }
 
 func (c *Circle) entity()              {}
+func (c *Circle) isNil() bool          { return c == nil }
 func (c *Circle) entID() int           { return c.id }
 func (c *Circle) IsConstruction() bool { return c.construction }
 func (c *Circle) SetConstruction(v bool) {
@@ -659,6 +670,7 @@ type Arc struct {
 }
 
 func (a *Arc) entity()              {}
+func (a *Arc) isNil() bool          { return a == nil }
 func (a *Arc) entID() int           { return a.id }
 func (a *Arc) IsConstruction() bool { return a.construction }
 func (a *Arc) SetConstruction(v bool) {
@@ -722,6 +734,7 @@ type Ellipse struct {
 }
 
 func (e *Ellipse) entity()              {}
+func (e *Ellipse) isNil() bool          { return e == nil }
 func (e *Ellipse) entID() int           { return e.id }
 func (e *Ellipse) IsConstruction() bool { return e.construction }
 func (e *Ellipse) SetConstruction(v bool) {
@@ -784,6 +797,7 @@ type EllipticalArc struct {
 }
 
 func (e *EllipticalArc) entity()              {}
+func (e *EllipticalArc) isNil() bool          { return e == nil }
 func (e *EllipticalArc) entID() int           { return e.id }
 func (e *EllipticalArc) IsConstruction() bool { return e.construction }
 func (e *EllipticalArc) SetConstruction(v bool) {
@@ -854,6 +868,7 @@ type Conic struct {
 }
 
 func (c *Conic) entity()              {}
+func (c *Conic) isNil() bool          { return c == nil }
 func (c *Conic) entID() int           { return c.id }
 func (c *Conic) IsConstruction() bool { return c.construction }
 func (c *Conic) SetConstruction(v bool) {

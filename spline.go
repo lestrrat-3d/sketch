@@ -22,6 +22,7 @@ type Spline struct {
 }
 
 func (sp *Spline) entity()              {}
+func (sp *Spline) isNil() bool          { return sp == nil }
 func (sp *Spline) entID() int           { return sp.id }
 func (sp *Spline) IsConstruction() bool { return sp.construction }
 func (sp *Spline) SetConstruction(v bool) {
@@ -107,6 +108,7 @@ type ClosedSpline struct {
 }
 
 func (sp *ClosedSpline) entity()              {}
+func (sp *ClosedSpline) isNil() bool          { return sp == nil }
 func (sp *ClosedSpline) entID() int           { return sp.id }
 func (sp *ClosedSpline) IsConstruction() bool { return sp.construction }
 func (sp *ClosedSpline) SetConstruction(v bool) {
@@ -192,6 +194,7 @@ type FitSpline struct {
 }
 
 func (sp *FitSpline) entity()              {}
+func (sp *FitSpline) isNil() bool          { return sp == nil }
 func (sp *FitSpline) entID() int           { return sp.id }
 func (sp *FitSpline) IsConstruction() bool { return sp.construction }
 func (sp *FitSpline) SetConstruction(v bool) {
