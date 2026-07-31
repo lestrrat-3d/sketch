@@ -349,6 +349,13 @@ func (r *VerificationReport) Check() Reasons {
 		add(fmt.Errorf("%w: %d dimensions", ErrInvalidParameter, len(r.ParameterErrors)))
 	}
 	if !(r.Conditioning >= r.condGate) { // NaN fails closed
+		// Printing condGate here exposes nothing: the threshold is already public
+		// information, stated verbatim as max(1e-6, 4·√tolerance) in the Conditioning
+		// field's own doc above, and it is a function of the tolerance THIS CALLER
+		// passed to Verify — so a caller can compute it without reading this message.
+		// The field stays unexported and gains no accessor; a number in an error
+		// string is not API surface. Without it the reason reads "conditioning 3e-08
+		// is below" and cannot be acted on.
 		add(fmt.Errorf("%w: conditioning %g is below %g", ErrNearSingular, r.Conditioning, r.condGate))
 	}
 	if r.ProbeIncomplete {
