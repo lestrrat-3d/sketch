@@ -39,14 +39,36 @@ var (
 	ErrReferenceGeometry = errors.New("sketch: cannot modify reference geometry")
 )
 
+// foreignInput reports whether any of the entities is not a live entity of this
+// sketch — nil, a removed (dead) handle, or one belonging to a different sketch.
+//
+// Every tool below must call it before touching its inputs. The tools work by
+// build-then-replace: they read the entity's defining points and manufacture new
+// geometry and constraints in THIS sketch from them. Fed a foreign entity they
+// would splice another sketch's points into this one — a handle Verify reports
+// as ErrForeignHandle and MarshalJSON refuses to write. Fed a removed one they
+// would resurrect deleted geometry, which nothing downstream flags at all.
+func (s *Sketch) foreignInput(ents ...Entity) bool {
+	for _, e := range ents {
+		if !s.ownsEntity(e) {
+			return true
+		}
+	}
+	return false
+}
+
 // Break splits a committed line or arc at the projection of (x, y) onto it,
 // replacing the original with two entities that share a fresh vertex point at
 // the split and reporting them. It returns false (changing nothing) when e is
 // not a line or arc, or the projection falls outside the segment / arc sweep.
-// The original entity handle and any constraints that referenced it are gone;
-// constraints on the surviving endpoints remain.
+// It also returns false when e is not a live entity of this sketch (nil, dead,
+// or foreign). The original entity handle and any constraints that referenced it
+// are gone; constraints on the surviving endpoints remain.
 func (s *Sketch) Break(e Entity, x, y float64) (Entity, Entity, bool) {
-	if e != nil && e.IsReference() {
+	if s.foreignInput(e) {
+		return nil, nil, false // nil, removed, or another sketch's entity
+	}
+	if e.IsReference() {
 		return nil, nil, false // reference geometry is locked; cannot be split
 	}
 	switch t := e.(type) {
@@ -81,8 +103,12 @@ func (s *Sketch) Break(e Entity, x, y float64) (Entity, Entity, bool) {
 // point (x, y). It returns the shortened replacement line and true, or false
 // (changing nothing) when l has no crossing on the picked side, or the pick
 // sits on an interior portion bounded by crossings on both sides (which would
-// split the line — use Break instead). The original handle is dead.
+// split the line — use Break instead), or when l is not a live line of this
+// sketch (nil, dead, or foreign). The original handle is dead.
 func (s *Sketch) Trim(l *Line, x, y float64) (*Line, bool) {
+	if s.foreignInput(l) {
+		return nil, false // nil, removed, or another sketch's line
+	}
 	if l.IsReference() {
 		return nil, false // reference geometry is locked; cannot be trimmed
 	}
@@ -121,8 +147,13 @@ func (s *Sketch) Trim(l *Line, x, y float64) (*Line, bool) {
 // Extend lengthens line l from the given endpoint (l.Start or l.End) to its
 // nearest crossing with another entity beyond that end, replacing l and
 // returning the lengthened line. It returns false (changing nothing) when end
-// is neither endpoint or no entity lies beyond it. The original handle is dead.
+// is neither endpoint or no entity lies beyond it, and when l or end is not a
+// live handle of this sketch (nil, dead, or foreign). The original handle is
+// dead.
 func (s *Sketch) Extend(l *Line, end *Point) (*Line, bool) {
+	if s.foreignInput(l) || !s.owns(end) {
+		return nil, false // nil, removed, or another sketch's handle
+	}
 	if l.IsReference() {
 		return nil, false // reference geometry is locked; cannot be extended
 	}
@@ -226,9 +257,12 @@ type Fillet struct {
 // rounding tangent. The original legs (and any constraints that referenced them
 // as entities — horizontal, angle, …) are replaced; re-apply such constraints
 // to the returned [Fillet.L1]/[Fillet.L2] if needed. Constraints on the
-// surviving far endpoints are kept. Returns [ErrNoSharedCorner] or
-// [ErrFilletInfeasible] without modifying the sketch.
+// surviving far endpoints are kept. Returns [ErrForeignEntity],
+// [ErrNoSharedCorner] or [ErrFilletInfeasible] without modifying the sketch.
 func (s *Sketch) CreateFillet(l1, l2 *Line, r float64) (*Fillet, error) {
+	if s.foreignInput(l1, l2) {
+		return nil, ErrForeignEntity
+	}
 	if l1.IsReference() || l2.IsReference() {
 		return nil, ErrReferenceGeometry
 	}
@@ -283,9 +317,12 @@ type Chamfer struct {
 // and each leg shortened to its contact; the contacts are pinned by editable
 // distance dimensions from the far endpoints (D1/D2), so editing them and
 // re-solving moves the chamfer parametrically. Constraint handling matches
-// [Sketch.CreateFillet]. Returns [ErrNoSharedCorner] or [ErrChamferInfeasible]
-// without modifying the sketch.
+// [Sketch.CreateFillet]. Returns [ErrForeignEntity], [ErrNoSharedCorner] or
+// [ErrChamferInfeasible] without modifying the sketch.
 func (s *Sketch) CreateChamfer(l1, l2 *Line, d float64) (*Chamfer, error) {
+	if s.foreignInput(l1, l2) {
+		return nil, ErrForeignEntity
+	}
 	if l1.IsReference() || l2.IsReference() {
 		return nil, ErrReferenceGeometry
 	}
@@ -391,8 +428,12 @@ func containsReference(ents []Entity) bool {
 // source point and its copy are tied with [NewSymmetric] (about axis); circles
 // additionally get [NewEqualRadius], and arcs are reversed to stay
 // counter-clockwise. The sources are left untouched. Returns nil if any source
-// or the axis is reference geometry.
+// or the axis is reference geometry, or is not a live entity of this sketch
+// (nil, dead, or foreign).
 func (s *Sketch) CreateMirror(ents []Entity, axis *Line) *Mirror {
+	if s.foreignInput(ents...) || !s.ownsEntity(axis) {
+		return nil // nil, removed, or another sketch's entity
+	}
 	if containsReference(ents) || axis.IsReference() {
 		return nil // reference geometry is locked; cannot be mirrored
 	}
@@ -435,9 +476,12 @@ type Pattern struct {
 // holds a copy whose points are tied to the seed's corresponding points by
 // horizontal and vertical distance dimensions (and an equal-radius constraint
 // per circle), so the whole grid follows when the seed is moved or resized.
-// It returns [ErrInvalidShape] if nx or ny is below 1. Supports lines, circles
-// and arcs.
+// It returns [ErrForeignEntity] if a seed entity is not live in this sketch, and
+// [ErrInvalidShape] if nx or ny is below 1. Supports lines, circles and arcs.
 func (s *Sketch) CreatePatternRect(ents []Entity, nx, ny int, dx, dy float64) (*Pattern, error) {
+	if s.foreignInput(ents...) {
+		return nil, ErrForeignEntity
+	}
 	if containsReference(ents) {
 		return nil, ErrReferenceGeometry
 	}
@@ -474,8 +518,12 @@ func (s *Sketch) CreatePatternRect(ents []Entity, nx, ny int, dx, dy float64) (*
 // (2π/n) about center; cell 0 is the seed. Each copy point is tied to its
 // source by a construction spoke from center constrained equal in length and at
 // the instance's angle, so the ring follows when the seed is moved. It returns
-// [ErrInvalidShape] if n is below 2. Supports lines, circles and arcs.
+// [ErrForeignEntity] if a seed entity or the center is not a live handle of this
+// sketch, and [ErrInvalidShape] if n is below 2. Supports lines, circles and arcs.
 func (s *Sketch) CreatePatternCircular(ents []Entity, center *Point, n int) (*Pattern, error) {
+	if s.foreignInput(ents...) || !s.owns(center) {
+		return nil, ErrForeignEntity
+	}
 	if containsReference(ents) {
 		return nil, ErrReferenceGeometry
 	}
@@ -549,9 +597,13 @@ func (g *OffsetGroup) Set(d float64) {
 // constraint; offset segments that meet at a shared source corner share a
 // single offset point, which the two constraints pull to the offset
 // intersection — so editing the distance keeps a mitred chain. Non-line
-// entities in ents are skipped. It returns [ErrInvalidShape] if a source line
-// has zero length (no defined offset direction).
+// entities in ents are skipped. It returns [ErrForeignEntity] if a source entity
+// is not live in this sketch, and [ErrInvalidShape] if a source line has zero
+// length (no defined offset direction).
 func (s *Sketch) CreateOffset(ents []Entity, d float64) (*OffsetGroup, error) {
+	if s.foreignInput(ents...) {
+		return nil, ErrForeignEntity
+	}
 	if containsReference(ents) {
 		return nil, ErrReferenceGeometry
 	}
