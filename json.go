@@ -123,14 +123,25 @@ func (s *Sketch) referencesOrigin() bool {
 // ordinary foreign point instead rebinds whenever its positional id happens to
 // name a local point — the likely case, since small ids are the common ones.
 //
-// Ownership is decided by the point's own sketch pointer (p.s != s), NOT by
-// [Sketch.owns]: the origin is deliberately absent from s.points, and a nil or
-// dead handle is a separate fault the reference-integrity scan already reports.
-// The entity half reuses [Sketch.ownsEntity], skipping a nil operand for the same
-// reason.
+// Ownership is decided by [Sketch.owns] — the SAME predicate scanReferenceIntegrity
+// uses to set ForeignHandles, so marshal and [Sketch.Verify] cannot diverge. A
+// weaker screen on the point's own sketch pointer (p.s != s) would pass a DEAD
+// point of this sketch, one [Sketch.RemovePoint] spliced out: its s still names
+// this sketch while its id is stale, so the document would write the id a
+// DIFFERENT live point has since inherited and the reload would bind the
+// reference to that point — silently, with nothing left to flag — or, when the
+// removed point was the last one, write an id out of range and produce a document
+// that marshals cleanly and then fails to load. `owns` also carries the origin
+// exception (it is deliberately absent from s.points, so a positional check alone
+// would call it foreign). The entity half reuses [Sketch.ownsEntity], which is
+// positional in the same way.
+//
+// A nil point is screened out first rather than reported here: [Sketch.Verify]
+// splits a nil operand out as a corrupt reference, not a foreign one, and the
+// entity half skips a nil operand for the same reason.
 func (s *Sketch) checkNoForeignRefs(pts []*Point, ents []Entity, what string) error {
 	for _, p := range pts {
-		if p != nil && p.s != s {
+		if p != nil && !s.owns(p) {
 			return fmt.Errorf("%w: %s references a point this sketch does not own", ErrForeignHandle, what)
 		}
 	}

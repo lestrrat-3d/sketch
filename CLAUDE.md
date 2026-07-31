@@ -456,11 +456,19 @@ when `allocVars` re-runs on load. This is the deliberate, narrow exception to
   small ids usually do. **Both halves of a reference are screened** — points (a
   constraint's operands and an entity's defining points) and a constraint's ENTITY
   operands, through the same `entityPoints`/`constraintRefs` accessors `marshalBody`
-  serializes from. Ownership is `p.s != s` for a point, NOT `owns`: the origin is
-  deliberately absent from `s.points`, and a nil or dead handle is a separate fault the
-  reference-integrity scan already reports (the entity half reuses `ownsEntity`, skipping
-  a nil operand for the same reason). The refusal is bounded to what `Verify` already
-  rejects, so a sketch its report calls trustworthy always marshals.
+  serializes from. **Ownership is `owns` for a point — the SAME predicate
+  `scanReferenceIntegrity` uses to set `ForeignHandles`, so marshal and `Verify` cannot
+  diverge.** A weaker screen on the point's own sketch pointer (`p.s != s`) passes a DEAD
+  point of this sketch, one `RemovePoint` spliced out: its `s` still names this sketch
+  while its `id` is stale, so the document writes the id a DIFFERENT live point has since
+  inherited and the reload binds the reference to that point — silently, with nothing left
+  to flag — or, when the removed point was the last one, writes an id out of range and
+  produces a document that marshals cleanly and then fails to load. `owns` also carries the
+  origin exception (the origin is deliberately absent from `s.points`, so a positional check
+  alone would call it foreign). A nil point is screened out first rather than reported as
+  foreign, since `Verify` splits a nil operand out as a corrupt reference (the entity half
+  reuses `ownsEntity` and skips a nil operand for the same reason). The refusal is bounded
+  to what `Verify` already rejects, so a sketch its report calls trustworthy always marshals.
 - A **sketch** document carries `"version": 2` (`jsonVersion`); a **world**
   document carries `"version": 3` (`jsonWorldVersion`, ahead because a world adds
   top-level shared `parameters` + plane `dist_expr` an older reader would silently
