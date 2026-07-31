@@ -490,3 +490,113 @@ func TestForeignHandleIsNotSerialized(t *testing.T) {
 		require.JSONEq(t, string(wdata), string(wagain))
 	})
 }
+
+// TestDeadPointIsNotSerialized covers the half of the guard a screen on the
+// point's own sketch pointer cannot see: a point of THIS sketch that
+// RemovePoint has spliced out. Its sketch pointer still names this sketch, so
+// only Sketch.owns — the predicate Verify uses to set ForeignHandles — rejects
+// it. Its id is stale, so writing it either names a DIFFERENT live point (the
+// reference silently rebinds and the reload reads clean) or names nothing at
+// all (the document marshals and then fails to load). Marshalling must refuse
+// in both shapes.
+func TestDeadPointIsNotSerialized(t *testing.T) {
+	build := func(t *testing.T) (*sketch.World, *sketch.Sketch) {
+		t.Helper()
+		w := sketch.NewWorld()
+		s, err := w.CreateSketch(w.XY())
+		require.NoError(t, err)
+		return w, s
+	}
+
+	t.Run("an entity's defining point", func(t *testing.T) {
+		w, s := build(t)
+		p0 := s.CreatePoint(0, 0)
+		dead := s.CreatePoint(10, 0)
+		heir := s.CreatePoint(20, 7)
+		require.True(t, s.RemovePoint(dead), "the point is removed")
+		require.Equal(t, dead.ID(), heir.ID(), "the removal renumbered a live point onto the dead id")
+
+		// The endpoint would be written as the dead point's stale id and come back
+		// bound to heir, moving the line's end from (10,0) to (20,7).
+		s.CreateLine(dead, p0)
+		require.True(t, s.Verify(t.Context()).ForeignHandles, "the oracle flags it before the round trip")
+
+		_, err := json.Marshal(s)
+		require.ErrorIs(t, err, sketch.ErrForeignHandle, "the sketch document refuses it")
+		_, err = json.Marshal(w)
+		require.ErrorIs(t, err, sketch.ErrForeignHandle, "and so does the world document")
+	})
+
+	t.Run("a constraint's point operand", func(t *testing.T) {
+		w, s := build(t)
+		p0 := s.CreatePoint(0, 0)
+		dead := s.CreatePoint(10, 0)
+		heir := s.CreatePoint(20, 7)
+		require.True(t, s.RemovePoint(dead))
+		require.Equal(t, dead.ID(), heir.ID())
+
+		s.AddConstraint(sketch.NewCoincident(dead, p0))
+		require.True(t, s.Verify(t.Context()).ForeignHandles, "the oracle flags it before the round trip")
+
+		_, err := json.Marshal(s)
+		require.ErrorIs(t, err, sketch.ErrForeignHandle)
+		_, err = json.Marshal(w)
+		require.ErrorIs(t, err, sketch.ErrForeignHandle)
+	})
+
+	t.Run("a dead LAST point, whose stale id is out of range", func(t *testing.T) {
+		// No live point inherits the id here, so the unguarded document was written
+		// successfully and then failed to reload ("point id out of range"): a corrupt
+		// document produced with no error at write time.
+		w, s := build(t)
+		p0 := s.CreatePoint(0, 0)
+		dead := s.CreatePoint(10, 0)
+		require.True(t, s.RemovePoint(dead))
+		require.GreaterOrEqual(t, dead.ID(), len(s.Points()), "the stale id names no point at all")
+
+		s.CreateLine(dead, p0)
+		require.True(t, s.Verify(t.Context()).ForeignHandles, "the oracle flags it before the round trip")
+
+		_, err := json.Marshal(s)
+		require.ErrorIs(t, err, sketch.ErrForeignHandle)
+		_, err = json.Marshal(w)
+		require.ErrorIs(t, err, sketch.ErrForeignHandle)
+	})
+
+	t.Run("live points and the origin are unaffected", func(t *testing.T) {
+		// The negative control. `owns` is a stricter predicate than the sketch-pointer
+		// screen it replaces, so it must still accept every LIVE reference — including
+		// the origin, which is deliberately absent from s.points and would read as
+		// foreign under a bare positional check.
+		w, s := build(t)
+		gone := s.CreatePoint(99, 99)
+		require.True(t, s.RemovePoint(gone), "an unrelated removal renumbers the ids below")
+		p := s.CreatePoint(0, 0)
+		q := s.CreatePoint(5, 0)
+		l := s.CreateLine(p, q)
+		origin := s.Origin()
+		s.AddConstraint(sketch.NewCoincident(p, origin), sketch.NewHorizontal(l),
+			sketch.NewDistance(p, q, 5))
+		// The origin as an entity's defining point too, not just a constraint operand.
+		s.CreateCircle(origin, 2)
+		_, err := s.Solve(t.Context())
+		require.NoError(t, err)
+		require.False(t, s.Verify(t.Context()).ForeignHandles, "every reference is live")
+
+		data, err := json.Marshal(s)
+		require.NoError(t, err)
+		var back sketch.Sketch
+		require.NoError(t, json.Unmarshal(data, &back))
+		again, err := json.Marshal(&back)
+		require.NoError(t, err)
+		require.JSONEq(t, string(data), string(again), "the reloaded sketch writes the same document")
+
+		wdata, err := json.Marshal(w)
+		require.NoError(t, err)
+		var wback sketch.World
+		require.NoError(t, json.Unmarshal(wdata, &wback))
+		wagain, err := json.Marshal(&wback)
+		require.NoError(t, err)
+		require.JSONEq(t, string(wdata), string(wagain))
+	})
+}
