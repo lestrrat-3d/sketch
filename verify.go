@@ -2,7 +2,10 @@ package sketch
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"math"
+	"strings"
 
 	"github.com/lestrrat-go/option/v3"
 )
@@ -55,6 +58,15 @@ func (st Status) String() string {
 // sketch is correct before executing the equivalent work in CAD software. It is
 // produced by [Sketch.Verify] and is a read-only snapshot of the call-time
 // configuration; it holds no live link to the sketch.
+//
+// One path leaves most of the report unevaluated. A nil, corrupt or foreign
+// handle would panic the residual, rank, profile and parameter passes, so
+// [Sketch.Verify] reports what its reference-integrity scan found and stops
+// there: only BrokenReferences, ForeignHandles and Status carry a finding, and
+// every other field holds its zero value. Those zero values are not verdicts —
+// a false Solvable on that path means "never evaluated", not "does not solve".
+// [VerificationReport.Check] reports such a report as [ErrVerificationIncomplete]
+// and asserts none of the conditions the skipped passes decide.
 type VerificationReport struct {
 	// Solvable reports whether every (non-driven) constraint holds within the
 	// tolerance at the current configuration (the same default as [Sketch.Solve],
@@ -99,6 +111,10 @@ type VerificationReport struct {
 	// condGate is the tolerance-derived threshold Conditioning was gated against
 	// (see [conditioningGate]); read by Trustworthy.
 	condGate float64
+	// analysisSkipped records that Verify stopped after the reference-integrity
+	// scan, so every field the residual/rank/profile/parameter passes fill holds
+	// an unevaluated zero value. Check reads it to report only what ran.
+	analysisSkipped bool
 	// Status is the single-value severity summary (see [Status]).
 	Status Status
 	// Redundant lists constraints that contribute a dependent but satisfied
@@ -143,6 +159,9 @@ type VerificationReport struct {
 	// probe was asked for. It fails [VerificationReport.Trustworthy]: the
 	// requested ambiguity check did not run, so the sketch must not be blessed.
 	ProbeIncomplete bool
+	// probeErr is the error that ended the probe run behind a true
+	// ProbeIncomplete; Check reports it as that reason's specifics.
+	probeErr error
 	// StaleReferences and StaleReferencePoints list the reference geometry whose
 	// 3D source has changed since its snapshot was taken (see [Sketch.MarkStale]).
 	// Points are tracked separately because a pierce point is not an [Entity].
@@ -173,6 +192,189 @@ type VerificationReport struct {
 	ParameterErrors []error
 }
 
+// The conditions [VerificationReport.Check] reports, one sentinel per condition.
+// Each is wrapped in an error carrying the specifics (which constraints, how far
+// off), so a caller matches the condition with [errors.Is] and reads the detail
+// from the message or the report's own fields.
+var (
+	// ErrUnsolvable: the sketch does not solve to tolerance.
+	ErrUnsolvable = errors.New("sketch: does not solve to tolerance")
+	// ErrNotFullyConstrained: the sketch has remaining degrees of freedom, or is
+	// over-constrained. [VerificationReport.Status] says which.
+	ErrNotFullyConstrained = errors.New("sketch: not fully constrained")
+	// ErrConflicting: constraints conflict — see [VerificationReport.Conflicts].
+	ErrConflicting = errors.New("sketch: conflicting constraints")
+	// ErrRedundant: dependent-but-satisfied constraints are present — see
+	// [VerificationReport.Redundant].
+	ErrRedundant = errors.New("sketch: redundant constraints")
+	// ErrStaleReference: reference geometry is stale, so the sketch is being
+	// verified against an outdated 3D snapshot.
+	ErrStaleReference = errors.New("sketch: stale reference geometry")
+	// ErrBrokenReference: reference geometry failed its lock-integrity check —
+	// see [VerificationReport.BrokenReferences].
+	ErrBrokenReference = errors.New("sketch: broken reference geometry")
+	// ErrForeignHandle: a point or entity reachable from this sketch is not
+	// live-owned by it (cross-sketch references are unsupported).
+	ErrForeignHandle = errors.New("sketch: foreign handle")
+	// ErrVerificationIncomplete: the reference-integrity scan found a nil,
+	// corrupt or foreign handle, so [Sketch.Verify] stopped before the
+	// solvability, rank, profile and parameter passes could run on that
+	// geometry. The conditions those passes decide are UNKNOWN for this report
+	// rather than passed, which is why the verdict fails: repair the handles the
+	// accompanying reasons name and verify again.
+	ErrVerificationIncomplete = errors.New("sketch: verification incomplete")
+	// ErrInvalidProfile: the region set cannot be trusted as extrudable profiles —
+	// see [VerificationReport.InvalidProfiles], which can be empty when the
+	// arrangement was unresolvable without producing a region.
+	ErrInvalidProfile = errors.New("sketch: invalid profiles")
+	// ErrInvalidParameter: a parameter-bound dimension's expression is not
+	// unit-kind-consistent — see [VerificationReport.ParameterErrors].
+	ErrInvalidParameter = errors.New("sketch: invalid parameter expression")
+	// ErrNearSingular: the constraint system is numerically near-singular — see
+	// [VerificationReport.Conditioning].
+	ErrNearSingular = errors.New("sketch: near-singular constraint system")
+	// ErrProbeIncomplete: the ambiguity probe was requested and its preconditions
+	// held, but it could not finish, so ambiguity is unknown rather than absent.
+	ErrProbeIncomplete = errors.New("sketch: ambiguity probe did not finish")
+	// ErrAmbiguous: the probe found several discrete configurations satisfying the
+	// same constraints — see [VerificationReport.Probe].
+	ErrAmbiguous = errors.New("sketch: sketch admits several configurations")
+)
+
+// Reasons is the error [VerificationReport.Check] returns: one wrapped sentinel
+// per failed condition, so a caller decides per reason rather than over the whole
+// verdict.
+//
+// Unwrap exposes the reasons as data. [errors.Is] also matches through it, so a
+// caller that cares about only one condition can ask directly without ranging.
+type Reasons interface {
+	error
+	// Unwrap returns one error per failed condition, each wrapping the sentinel
+	// that names it. It is never empty: a report with nothing to report yields a
+	// nil Reasons instead.
+	Unwrap() []error
+}
+
+// reasons is the concrete [Reasons]. It is never returned empty — Check returns a
+// literal nil interface instead, so `Check() != nil` cannot be true for a
+// trustworthy report through a non-nil interface holding a nil pointer.
+type reasons struct{ errs []error }
+
+func (r *reasons) Error() string {
+	msgs := make([]string, len(r.errs))
+	for i, e := range r.errs {
+		msgs[i] = e.Error()
+	}
+	return strings.Join(msgs, "\n")
+}
+
+func (r *reasons) Unwrap() []error { return r.errs }
+
+// Check reports every condition of the oracle verdict that the sketch fails,
+// returning nil when it passes them all.
+//
+// It is the granular form of [VerificationReport.Trustworthy], which is defined as
+// `Check() == nil` — so the two can never disagree, and a condition added here is
+// added to both. Gate on Trustworthy when the whole verdict is what matters; use
+// Check when a diagnostic needs to name what failed, or when the caller
+// legitimately disagrees with ONE condition:
+//
+//	if err := rep.Check(); err != nil {
+//		for _, reason := range err.Unwrap() {
+//			// A sketch built from unsigned constraints is ambiguous BY DESIGN;
+//			// every other condition still gates.
+//			if !errors.Is(reason, sketch.ErrAmbiguous) {
+//				return reason
+//			}
+//		}
+//	}
+//
+// That waiver is per reason and stays honest as the engine grows: a condition
+// added to the verdict later arrives as another element and is fatal by default,
+// because it is not in the caller's waiver list. Reimplementing the verdict by
+// copying its conditions is the alternative this exists to remove — such a copy
+// silently stops checking whatever is added next, and cannot reproduce the
+// conditioning gate at all, since its threshold is not exported.
+//
+// The reasons appear in a fixed order: the reference-integrity conditions come
+// first, being the ones [Sketch.Verify] establishes before it analyses anything,
+// then the analysis conditions, most fundamental first — an unsolvable sketch is
+// reported before the properties that only make sense once it solves. A report
+// whose analysis was skipped carries the integrity reasons plus
+// [ErrVerificationIncomplete] and nothing else: asserting a condition nobody
+// evaluated would invent a failure, and would leave a caller who deliberately
+// waives the handle condition blocked by reasons that were never tested.
+func (r *VerificationReport) Check() Reasons {
+	var errs []error
+	add := func(err error) { errs = append(errs, err) }
+
+	// The reference-integrity scan runs before every other pass, so its two
+	// conditions are the ones a report carries on either path.
+	if n := len(r.BrokenReferences); n > 0 {
+		add(fmt.Errorf("%w: %d entities", ErrBrokenReference, n))
+	}
+	if r.ForeignHandles {
+		add(fmt.Errorf("%w: a reachable point or entity is not owned by this sketch", ErrForeignHandle))
+	}
+	if r.analysisSkipped {
+		// Everything below reads a field the skipped passes never wrote, so it
+		// would report a failure nobody tested. Name the missing analysis
+		// instead — the verdict still fails, on a condition that is true.
+		add(fmt.Errorf("%w: solvability, degrees of freedom, profiles and parameters were not analysed",
+			ErrVerificationIncomplete))
+		return &reasons{errs: errs}
+	}
+
+	if !r.Solvable {
+		add(fmt.Errorf("%w: residual %g", ErrUnsolvable, r.Residual))
+	}
+	if r.Status != FullyConstrained {
+		add(fmt.Errorf("%w: %s (DOF %d)", ErrNotFullyConstrained, r.Status, r.DOF))
+	}
+	if n := len(r.Conflicts); n > 0 {
+		add(fmt.Errorf("%w: %d", ErrConflicting, n))
+	}
+	if n := len(r.Redundant); n > 0 {
+		add(fmt.Errorf("%w: %d", ErrRedundant, n))
+	}
+	if r.Stale {
+		add(fmt.Errorf("%w: %d entities, %d points", ErrStaleReference,
+			len(r.StaleReferences), len(r.StaleReferencePoints)))
+	}
+	if !r.ProfilesValid {
+		add(fmt.Errorf("%w: %d of %d regions", ErrInvalidProfile,
+			len(r.InvalidProfiles), len(r.Profiles)))
+	}
+	if !r.ParametersValid {
+		add(fmt.Errorf("%w: %d dimensions", ErrInvalidParameter, len(r.ParameterErrors)))
+	}
+	if !(r.Conditioning >= r.condGate) { // NaN fails closed
+		// Printing condGate here exposes nothing: the threshold is already public
+		// information, stated verbatim as max(1e-6, 4·√tolerance) in the Conditioning
+		// field's own doc above, and it is a function of the tolerance THIS CALLER
+		// passed to Verify — so a caller can compute it without reading this message.
+		// The field stays unexported and gains no accessor; a number in an error
+		// string is not API surface. Without it the reason reads "conditioning 3e-08
+		// is below" and cannot be acted on.
+		add(fmt.Errorf("%w: conditioning %g is below %g", ErrNearSingular, r.Conditioning, r.condGate))
+	}
+	if r.ProbeIncomplete {
+		if r.probeErr != nil {
+			add(fmt.Errorf("%w: %s", ErrProbeIncomplete, r.probeErr))
+		} else {
+			add(fmt.Errorf("%w: ambiguity is unknown", ErrProbeIncomplete))
+		}
+	}
+	if r.Probe != nil && r.Probe.Ambiguous() {
+		add(fmt.Errorf("%w: %d", ErrAmbiguous, len(r.Probe.Configurations)))
+	}
+
+	if len(errs) == 0 {
+		return nil // a literal nil, never a nil *reasons in a non-nil interface
+	}
+	return &reasons{errs: errs}
+}
+
 // Trustworthy reports the canonical oracle verdict: the sketch is solvable, fully
 // constrained, free of conflicting and redundant constraints, has no stale or
 // broken reference geometry, no foreign handles, every detected region is a
@@ -185,20 +387,16 @@ type VerificationReport struct {
 // [FullyConstrained]. (The advisory [VerificationReport.RankMargin] is reported
 // separately; being scale-dependent, it does not gate this verdict — Conditioning
 // is the unit-invariant gating measure.)
-func (r *VerificationReport) Trustworthy() bool {
-	return r.Solvable &&
-		r.Status == FullyConstrained &&
-		len(r.Conflicts) == 0 &&
-		len(r.Redundant) == 0 &&
-		!r.Stale &&
-		len(r.BrokenReferences) == 0 &&
-		!r.ForeignHandles &&
-		r.ProfilesValid &&
-		r.ParametersValid &&
-		r.Conditioning >= r.condGate &&
-		!r.ProbeIncomplete &&
-		(r.Probe == nil || !r.Probe.Ambiguous())
-}
+//
+// A report whose analysis was skipped never passes either, and for a different
+// reason: a nil, corrupt or foreign handle stopped [Sketch.Verify] before those
+// conditions could be established at all, so the verdict fails on
+// [ErrVerificationIncomplete] alongside the handle reason.
+//
+// It is exactly [VerificationReport.Check] returning nil, and is defined that way
+// rather than restated, so the boolean and the reasons cannot drift apart. Use
+// Check to learn WHICH condition failed, or to waive one deliberately.
+func (r *VerificationReport) Trustworthy() bool { return r.Check() == nil }
 
 // VerifyOption tunes [Sketch.Verify]. Construct values with the With… helpers.
 type VerifyOption interface {
@@ -260,9 +458,12 @@ func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *Verificat
 	// or foreign operand would otherwise panic the residual/profile/staleness
 	// analysis below (a foreign entity such as &Line{} can have nil endpoints).
 	// Such a sketch is untrustworthy regardless, so report the broken/foreign
-	// handles and skip the analysis.
+	// handles and skip the analysis. The skip is recorded: the fields those
+	// passes would have filled keep their zero values, and Check must report the
+	// missing analysis rather than read them as findings.
 	if nilCorrupt := s.scanReferenceIntegrity(rep); nilCorrupt || rep.ForeignHandles {
 		rep.Status = Overconstrained
+		rep.analysisSkipped = true
 		return rep
 	}
 
@@ -333,6 +534,7 @@ func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *Verificat
 			rep.Probe = pr
 		} else {
 			rep.ProbeIncomplete = true
+			rep.probeErr = err
 		}
 	}
 
