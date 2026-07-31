@@ -126,19 +126,20 @@ handle, exactly like any other borrowed point.
 
 Serialization has to enforce the same thing, and identity is exactly what it
 loses. `pointRef` resolves the reserved id against the RECEIVING sketch, so a
-borrowed origin written as a bare `-1` would come back as the reader's OWN origin:
-the reloaded document holds an ordinary local relation where the original had a
-foreign handle, and `Verify` no longer has anything to report. So `marshalBody`
-refuses a point reference that carries the reserved id without being this sketch's
-origin, for constraint operands and entity points alike, wrapping
-`ErrForeignHandle`.
+borrowed origin written as a bare `-1` comes back as the reader's OWN origin:
+the reloaded document would hold an ordinary local relation where the original had
+a foreign handle, and `Verify` would have nothing left to report. So `marshalBody`
+refuses a foreign reference instead of writing it (`checkNoForeignRefs`, wrapping
+`ErrForeignHandle`), for constraint operands and entity points alike.
 
-That guard is deliberately narrow: it screens the reserved id this design
-introduced, not ownership in general. Only the origin can carry a negative id — a
-removed point keeps its stale positional one — so nothing a build without an
-origin could write is affected. A foreign NON-origin point still serializes as its
-positional id and still reloads as a local point of the same id, which is an older
-and wider problem than this one.
+The origin is the sharpest case rather than a special one. It is the reference
+that rebinds with no id collision at all, since the reserved id resolves against
+the reader by construction; an ordinary foreign point rebinds whenever its
+positional id happens to name a local point, which small ids usually do. The guard
+therefore screens ownership in general — `p.s != s` for a point, `ownsEntity` for a
+constraint's entity operand — and `Sketch.MarshalJSON` and `World.MarshalJSON` both
+return an error for a sketch holding one. That refusal is bounded to exactly the
+sketches `Verify` already reports as `ErrForeignHandle`.
 
 ## Known consequence
 

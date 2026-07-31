@@ -442,15 +442,25 @@ when `allocVars` re-runs on load. This is the deliberate, narrow exception to
   reserved id in the document with no constraint involved. `referencesOrigin` therefore
   walks entities through `entityPoints` and constraints through `constraintRefs` —
   the same two accessors `marshalBody` serializes from, so a type cannot be written by one
-  and missed by the other. **A BORROWED origin is refused rather than written**
-  (`checkNoForeignOrigin`, wrapping `ErrForeignHandle`): `pointRef` resolves the reserved
-  id against the RECEIVING sketch, so a bare `-1` for another sketch's origin would come
-  back as the reader's OWN origin — laundering a foreign handle `Verify` reports into an
-  ordinary local relation it cannot. The guard is origin-specific by design, NOT a general
-  ownership check: only the origin can carry a negative id (a removed point keeps its
-  stale positional one), so nothing a build without an origin could write is affected,
-  while a foreign NON-origin point still serializes as its positional id — an older,
-  wider problem than this one.
+  and missed by the other.
+- **A FOREIGN reference is refused rather than written** (`checkNoForeignRefs`, wrapping
+  `ErrForeignHandle`, so `Sketch.MarshalJSON` and `World.MarshalJSON` both return an
+  error): every reference is a bare id the loader resolves against the RECEIVING sketch,
+  so writing one for another sketch's point or entity rebinds it to whatever local handle
+  carries that number. The reload is CLEAN — a foreign handle `Verify` reports as
+  `ErrForeignHandle` comes back as an ordinary local relation with nothing left to flag —
+  so the round trip would turn a rejected sketch into a blessed one. **The origin is the
+  sharpest case and needs no id collision at all**: it carries the reserved id `-1`, which
+  `pointRef` resolves to the READER's own origin, so a borrowed origin ALWAYS rebinds;
+  an ordinary foreign point rebinds whenever its positional id names a local point, which
+  small ids usually do. **Both halves of a reference are screened** — points (a
+  constraint's operands and an entity's defining points) and a constraint's ENTITY
+  operands, through the same `entityPoints`/`constraintRefs` accessors `marshalBody`
+  serializes from. Ownership is `p.s != s` for a point, NOT `owns`: the origin is
+  deliberately absent from `s.points`, and a nil or dead handle is a separate fault the
+  reference-integrity scan already reports (the entity half reuses `ownsEntity`, skipping
+  a nil operand for the same reason). The refusal is bounded to what `Verify` already
+  rejects, so a sketch its report calls trustworthy always marshals.
 - A **sketch** document carries `"version": 2` (`jsonVersion`); a **world**
   document carries `"version": 3` (`jsonWorldVersion`, ahead because a world adds
   top-level shared `parameters` + plane `dist_expr` an older reader would silently
