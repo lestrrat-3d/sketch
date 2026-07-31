@@ -75,6 +75,7 @@ func TestToolsRejectForeignEntity(t *testing.T) {
 		require.False(t, ok)
 		require.Nil(t, nl)
 		require.Len(t, s.Entities(), 1)
+		require.Empty(t, s.Constraints())
 	})
 
 	t.Run("CreateMirror", func(t *testing.T) {
@@ -184,6 +185,7 @@ func TestToolsRejectRemovedEntity(t *testing.T) {
 		require.False(t, ok)
 		require.Nil(t, nl)
 		require.Len(t, s.Entities(), 1, "the removed line is not resurrected")
+		require.Empty(t, s.Constraints())
 	})
 
 	t.Run("Break", func(t *testing.T) {
@@ -197,6 +199,26 @@ func TestToolsRejectRemovedEntity(t *testing.T) {
 		require.Nil(t, e1)
 		require.Nil(t, e2)
 		require.Empty(t, s.Entities(), "the removed line is not resurrected")
+		require.Empty(t, s.Constraints())
+	})
+
+	t.Run("BreakArc", func(t *testing.T) {
+		// The arc is the case where the constraint assertion is the one that
+		// bites: breaking it manufactures two halves, each auto-carrying an
+		// internal arc-radius constraint, so an unguarded Break on the dead
+		// handle leaves constraints behind as well as entities.
+		s := newSketch(t)
+		a := s.CreateArc(s.CreatePoint(0, 0), s.CreatePoint(5, 0), s.CreatePoint(0, 5))
+		require.True(t, s.RemoveEntity(a))
+		require.Empty(t, s.Entities())
+		require.Empty(t, s.Constraints())
+
+		e1, e2, ok := s.Break(a, 4, 4) // pick near the 45° point
+		require.False(t, ok)
+		require.Nil(t, e1)
+		require.Nil(t, e2)
+		require.Empty(t, s.Entities(), "the removed arc is not resurrected")
+		require.Empty(t, s.Constraints(), "no internal arc-radius constraints manufactured")
 	})
 }
 
