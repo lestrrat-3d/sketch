@@ -1,6 +1,7 @@
 package sketch_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -14,6 +15,19 @@ func reasonsOf(t *testing.T, rep *sketch.VerificationReport) []error {
 	err := rep.Check()
 	require.Error(t, err, "expected the report to fail at least one condition")
 	return err.Unwrap()
+}
+
+// reasonFor returns the one reason of the report matching the given sentinel.
+func reasonFor(t *testing.T, rep *sketch.VerificationReport, sentinel error) error {
+	t.Helper()
+	var found []error
+	for _, reason := range reasonsOf(t, rep) {
+		if errors.Is(reason, sentinel) {
+			found = append(found, reason)
+		}
+	}
+	require.Lenf(t, found, 1, "expected exactly one reason matching %v", sentinel)
+	return found[0]
 }
 
 func TestCheckCleanReportReturnsNilInterface(t *testing.T) {
@@ -206,6 +220,140 @@ func TestCheckReportsEveryFailedConditionAtOnce(t *testing.T) {
 	require.Equal(t, 1, matched[sketch.ErrInvalidProfile], "exactly one reason per condition")
 }
 
+func TestCheckEveryReasonWrapsItsSentinel(t *testing.T) {
+	// Reasons.Unwrap documents each element as WRAPPING the sentinel that names
+	// it. A bare sentinel appended as-is answers errors.Is by identity, so only
+	// errors.Unwrap tells the two apart — and the wrapper is where a reason's
+	// own specifics live, which a bare sentinel has none of.
+	t.Run("unsolvable", func(t *testing.T) {
+		s := newSketch(t)
+		a := s.CreatePoint(0, 0)
+		b := s.CreatePoint(10, 0)
+		s.CreateLine(a, b)
+		s.Fix(a)
+		s.AddConstraint(sketch.NewDistance(a, b, 10), sketch.NewDistance(a, b, 4))
+		_, _ = s.Solve(t.Context()) // two lengths on one segment cannot both hold
+
+		rep := s.Verify(t.Context())
+		require.False(t, rep.Solvable, "the pair has no satisfying configuration")
+
+		reason := reasonFor(t, rep, sketch.ErrUnsolvable)
+		require.Equal(t, sketch.ErrUnsolvable, errors.Unwrap(reason))
+		require.Contains(t, reason.Error(), "residual", "the reason carries the specifics")
+	})
+
+	t.Run("foreign handle", func(t *testing.T) {
+		s := newSketch(t)
+		other := newSketch(t)
+		s.AddConstraint(sketch.NewCoincident(s.CreatePoint(0, 0), other.CreatePoint(5, 5)))
+
+		rep := s.Verify(t.Context())
+		require.True(t, rep.ForeignHandles)
+
+		reason := reasonFor(t, rep, sketch.ErrForeignHandle)
+		require.Equal(t, sketch.ErrForeignHandle, errors.Unwrap(reason))
+	})
+
+	t.Run("probe incomplete", func(t *testing.T) {
+		s := newSketch(t)
+		r := s.CreateRectangle(0, 0, 20, 12)
+		s.Fix(r.A)
+		s.AddConstraint(sketch.NewDistance(r.A, r.B, 20), sketch.NewDistance(r.A, r.D, 12))
+		_, err := s.Solve(t.Context())
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel() // the probe cannot run, so ambiguity is unknown rather than absent
+
+		rep := s.Verify(ctx, sketch.WithProbe())
+		require.True(t, rep.ProbeIncomplete)
+
+		reason := reasonFor(t, rep, sketch.ErrProbeIncomplete)
+		require.Equal(t, sketch.ErrProbeIncomplete, errors.Unwrap(reason))
+		require.Contains(t, reason.Error(), context.Canceled.Error(),
+			"the reason names why the probe stopped")
+	})
+}
+
+func TestCheckSkippedAnalysisReportsOnlyWhatRan(t *testing.T) {
+	// A nil, corrupt or foreign handle stops Verify at the reference-integrity
+	// scan: solvability, DOF, profiles and parameters are never analysed, so those
+	// report fields hold unevaluated zero values. Check must not read them as
+	// findings — a caller waiving the handle condition would otherwise stay
+	// blocked by conditions nobody tested.
+	unevaluated := []error{
+		sketch.ErrUnsolvable,
+		sketch.ErrNotFullyConstrained,
+		sketch.ErrInvalidProfile,
+		sketch.ErrInvalidParameter,
+		sketch.ErrNearSingular,
+	}
+
+	t.Run("foreign handle", func(t *testing.T) {
+		s := newSketch(t)
+		other := newSketch(t)
+		s.AddConstraint(sketch.NewCoincident(s.CreatePoint(0, 0), other.CreateReferencePoint(5, 5, "x")))
+
+		rep := s.Verify(t.Context())
+		require.False(t, rep.Trustworthy(), "a foreign handle is a genuine failure")
+
+		reasons := reasonsOf(t, rep)
+		require.Lenf(t, reasons, 2, "the foreign handle and the missing analysis, nothing else: %v", reasons)
+		require.ErrorIs(t, rep.Check(), sketch.ErrForeignHandle)
+		require.ErrorIs(t, rep.Check(), sketch.ErrVerificationIncomplete)
+		for _, cond := range unevaluated {
+			require.NotErrorIsf(t, rep.Check(), cond, "Verify never evaluated %v", cond)
+		}
+
+		// The documented waiver: a caller that accepts the foreign handle is left
+		// with the honest reason that everything else went unchecked.
+		var blocking []error
+		for _, reason := range reasons {
+			if !errors.Is(reason, sketch.ErrForeignHandle) {
+				blocking = append(blocking, reason)
+			}
+		}
+		require.Len(t, blocking, 1)
+		require.ErrorIs(t, blocking[0], sketch.ErrVerificationIncomplete)
+	})
+
+	t.Run("nil defining point", func(t *testing.T) {
+		s := newSketch(t)
+		p1 := s.CreateReferencePoint(0, 0, "a")
+		p2 := s.CreateReferencePoint(10, 0, "b")
+		l, err := s.CreateReferenceLine(p1, p2, "edge")
+		require.NoError(t, err)
+		l.Start = nil // corrupt topology
+
+		rep := s.Verify(t.Context())
+		require.False(t, rep.Trustworthy())
+
+		require.Len(t, reasonsOf(t, rep), 2)
+		require.ErrorIs(t, rep.Check(), sketch.ErrBrokenReference)
+		require.ErrorIs(t, rep.Check(), sketch.ErrVerificationIncomplete)
+		for _, cond := range unevaluated {
+			require.NotErrorIsf(t, rep.Check(), cond, "Verify never evaluated %v", cond)
+		}
+	})
+
+	t.Run("nil constraint operand", func(t *testing.T) {
+		// The scan establishes no broken entity and no foreign owner here, only a
+		// nil operand. The verdict must still fail: reporting the established
+		// conditions alone would bless a sketch that was never analysed.
+		s := newSketch(t)
+		s.AddConstraint(sketch.NewCoincident(s.CreatePoint(0, 0), nil))
+
+		rep := s.Verify(t.Context())
+		require.Empty(t, rep.BrokenReferences)
+		require.False(t, rep.ForeignHandles)
+		require.False(t, rep.Trustworthy(), "an unanalysable sketch is never trustworthy")
+
+		reasons := reasonsOf(t, rep)
+		require.Len(t, reasons, 1)
+		require.ErrorIs(t, reasons[0], sketch.ErrVerificationIncomplete)
+	})
+}
+
 func TestCheckSentinelsAreDistinct(t *testing.T) {
 	// Every condition needs its OWN sentinel: two conditions sharing one would make
 	// a waiver silently waive both.
@@ -217,6 +365,7 @@ func TestCheckSentinelsAreDistinct(t *testing.T) {
 		sketch.ErrStaleReference,
 		sketch.ErrBrokenReference,
 		sketch.ErrForeignHandle,
+		sketch.ErrVerificationIncomplete,
 		sketch.ErrInvalidProfile,
 		sketch.ErrInvalidParameter,
 		sketch.ErrNearSingular,
