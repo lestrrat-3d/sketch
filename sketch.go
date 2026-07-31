@@ -410,10 +410,22 @@ func (s *Sketch) Unfix(p *Point) {
 func (p *Point) IsFixed() bool { return p.s.fixed[p.xi] && p.s.fixed[p.yi] }
 
 // entityPoints returns an entity's defining points (endpoints, center, control
-// points). entitySizeVars returns the extra solver variables an entity owns
-// beyond its points — a circle's radius, an ellipse's semi-axes and rotation. An
-// arc's radius is derived from its points, so it owns no size variable.
-func (s *Sketch) entityPoints(e Entity) []*Point {
+// points), read from the entity's own exported fields. It is the SINGLE
+// definition of "which points define this entity", and every consumer goes
+// through it: grounding ([Sketch.FixEntity]/[Sketch.UnfixEntity]/
+// [Sketch.EntityFixed]), the removal cascade, serialization, the reference
+// lock-integrity and reachability scan, the [Sketch.Revision] fingerprint,
+// per-entity DOF attribution, and conflict coloring. Keeping one definition is
+// load-bearing: a second copy agreeing today would let a new entity type — or a
+// new point on an existing one — be added to one and forgotten in the other,
+// and the consumers of the forgotten copy fail SILENTLY (Verify stops flagging
+// a foreign point, Revision stops moving, so a stale Profile reads fresh). A
+// new entity type MUST get a case here.
+//
+// entitySizeVars returns the extra solver variables an entity owns beyond its
+// points — a circle's radius, an ellipse's semi-axes and rotation. An arc's
+// radius is derived from its points, so it owns no size variable.
+func entityPoints(e Entity) []*Point {
 	switch t := e.(type) {
 	case *Line:
 		return []*Point{t.Start, t.End}
@@ -458,7 +470,7 @@ func (s *Sketch) entitySizeVars(e Entity) []int {
 // the solver holds the whole entity rigid at its current shape and location. It
 // is the entity-level counterpart of [Sketch.Fix].
 func (s *Sketch) FixEntity(e Entity) {
-	for _, p := range s.entityPoints(e) {
+	for _, p := range entityPoints(e) {
 		s.fixed[p.xi] = true
 		s.fixed[p.yi] = true
 	}
@@ -477,7 +489,7 @@ func (s *Sketch) UnfixEntity(e Entity) {
 	if e.IsReference() {
 		return
 	}
-	for _, p := range s.entityPoints(e) {
+	for _, p := range entityPoints(e) {
 		if p.reference || p.isOrigin() {
 			continue // externally-locked reference point, or the always-grounded origin
 		}
@@ -491,7 +503,7 @@ func (s *Sketch) UnfixEntity(e Entity) {
 
 // EntityFixed reports whether all of an entity's variables are grounded.
 func (s *Sketch) EntityFixed(e Entity) bool {
-	pts := s.entityPoints(e)
+	pts := entityPoints(e)
 	sz := s.entitySizeVars(e)
 	if len(pts) == 0 && len(sz) == 0 {
 		return false

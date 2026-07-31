@@ -139,7 +139,7 @@ cannot self-cross, so (like an arc) it is not its own self-crossing source.
 - **removal.go**: `renumberEntity`, `entityUsesPoint`, `RemoveEntity` rho-var
   retirement. (No constraint-ref case — no conic constraint yet.)
 - **tools.go**: `varKind` (rho → dimensionless) so DOF/conditioning are right.
-- **reference.go**: `isNilEntity`, `entityPoints` cases (no reference conic).
+- **reference.go**: `isNilEntity` (no reference conic).
 - **conditioning.go**: no new constraint rows (rho is a free var, not a residual
   row), so `condRowKinds` is untouched; the rho **column** is dimensionless and
   handled by the default column scaling.

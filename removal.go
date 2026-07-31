@@ -197,9 +197,9 @@ func renumberEntity(e Entity, id int) {
 
 // entityUsesPoint reports whether the entity references p as an endpoint,
 // center or control point. It is a membership check over the entity's defining
-// points — the single source of truth is [Sketch.entityPoints].
+// points — the single source of truth is [entityPoints].
 func (s *Sketch) entityUsesPoint(e Entity, p *Point) bool {
-	for _, q := range s.entityPoints(e) {
+	for _, q := range entityPoints(e) {
 		if q == p {
 			return true
 		}

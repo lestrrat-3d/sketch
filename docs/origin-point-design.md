@@ -90,7 +90,7 @@ Both shapes of point reference count, and missing either one is the same bug. A
 constraint writes its operands' ids, and an ENTITY writes its defining points'
 ids — so a line drawn from the origin puts the reserved id in the document with no
 constraint involved. Detection therefore walks entities through
-`Sketch.entityPoints` and constraints through `constraintRefs`, the same two
+`entityPoints` and constraints through `constraintRefs`, the same two
 accessors `marshalBody` serializes from, so a type cannot be written by one and
 missed by the other.
 

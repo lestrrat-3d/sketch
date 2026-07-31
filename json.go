@@ -88,14 +88,14 @@ const jsonMaxVersion = jsonOriginVersion
 // document with no constraint involved.
 //
 // Each half reads through the very accessor marshalBody serializes from —
-// [Sketch.entityPoints] for entities, constraintRefs for constraints — so a type
+// [entityPoints] for entities, constraintRefs for constraints — so a type
 // that can reach the origin cannot be written there while being missed here.
 func (s *Sketch) referencesOrigin() bool {
 	if s.origin == nil {
 		return false
 	}
 	for _, e := range s.ents {
-		if slices.Contains(s.entityPoints(e), s.origin) {
+		if slices.Contains(entityPoints(e), s.origin) {
 			return true
 		}
 	}
@@ -246,11 +246,11 @@ func (s *Sketch) marshalBody() (jsonSketchBody, error) {
 	}
 
 	for _, e := range s.ents {
-		// Every entity's point references come from Sketch.entityPoints — the same
+		// Every entity's point references come from entityPoints — the same
 		// accessor referencesOrigin and checkNoForeignOrigin read — so an entity type
 		// cannot be serialized here while those two miss it. The order it returns is
 		// the order each type's document form declares.
-		epts := s.entityPoints(e)
+		epts := entityPoints(e)
 		if err := s.checkNoForeignOrigin(epts, fmt.Sprintf("entity %T", e)); err != nil {
 			return jsonSketchBody{}, err
 		}

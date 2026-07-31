@@ -141,7 +141,7 @@ flagged `SelfIntersecting`.
   `RemoveEntity` (no vars to retire — control points are shared sketch points,
   kept like a line's).
 - **tools.go**: no `varKind` entry (no shape vars).
-- **reference.go**: `isNilEntity`, `entityPoints`.
+- **reference.go**: `isNilEntity`.
 - **conditioning.go / probe.go**: no new var kind (no shape vars), untouched.
 
 ## Deferred (explicit follow-ups)
