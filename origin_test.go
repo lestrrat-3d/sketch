@@ -115,6 +115,135 @@ func TestOriginCannotBeMovedUnfixedOrRemoved(t *testing.T) {
 	require.False(t, o.IsConstruction(), "the origin is not drawn geometry")
 }
 
+func TestOriginStaysFixedWhenAnEntityBuiltOnItIsUnfixed(t *testing.T) {
+	// UnfixEntity releases every defining point of an entity. The origin is one
+	// the grounding API must not release: were it freed, the solver could move it
+	// and freeVars, DOF and the conditioning measure would all start seeing it.
+	s := newSketch(t)
+	o := s.Origin()
+	far := s.CreatePoint(10, 0)
+	l := s.CreateLine(o, far)
+	s.FixEntity(l)
+	require.True(t, o.IsFixed())
+	require.True(t, far.IsFixed())
+
+	s.UnfixEntity(l)
+	require.True(t, o.IsFixed(), "UnfixEntity leaves the origin grounded, as Unfix does")
+	require.False(t, far.IsFixed(), "the authored endpoint is released")
+	require.Equal(t, 0.0, o.X())
+	require.Equal(t, 0.0, o.Y())
+}
+
+func TestOriginReferenceFromAnEntityRaisesTheDocumentVersion(t *testing.T) {
+	// An entity serializes its defining points by id just as a constraint
+	// serializes its operands, so an entity endpoint on the origin puts the
+	// reserved id in the document with no constraint involved. The declared
+	// version must rise for it too, or an older reader is handed an id its
+	// pointRef rejects while the version claims it can read the document.
+	docVersion := func(t *testing.T, data []byte) float64 {
+		t.Helper()
+		var doc map[string]any
+		require.NoError(t, json.Unmarshal(data, &doc))
+		v, ok := doc["version"].(float64)
+		require.True(t, ok, "the document declares a version")
+		return v
+	}
+
+	t.Run("standalone sketch document", func(t *testing.T) {
+		plain := newSketch(t)
+		plain.CreateLine(plain.CreatePoint(0, 0), plain.CreatePoint(5, 0))
+		baseline, err := json.Marshal(plain)
+		require.NoError(t, err)
+
+		s := newSketch(t)
+		s.CreateLine(s.Origin(), s.CreatePoint(5, 0))
+		require.Empty(t, s.Constraints(), "no constraint touches the origin — only the line does")
+		data, err := json.Marshal(s)
+		require.NoError(t, err)
+		require.Contains(t, string(data), "-1", "the reserved origin id is in the document")
+		require.Greater(t, docVersion(t, data), docVersion(t, baseline),
+			"an entity-only origin reference raises the declared version")
+
+		var back sketch.Sketch
+		require.NoError(t, json.Unmarshal(data, &back))
+		require.Len(t, back.Points(), 1, "the origin is still not serialized as a point")
+		require.Same(t, back.Origin(), back.Entities()[0].(*sketch.Line).Start,
+			"the reloaded line starts at the reloaded sketch's own origin")
+	})
+
+	t.Run("world document", func(t *testing.T) {
+		plainW := sketch.NewWorld()
+		ps, err := plainW.CreateSketch(plainW.XY())
+		require.NoError(t, err)
+		ps.CreateLine(ps.CreatePoint(0, 0), ps.CreatePoint(5, 0))
+		baseline, err := json.Marshal(plainW)
+		require.NoError(t, err)
+
+		w := sketch.NewWorld()
+		s, err := w.CreateSketch(w.XY())
+		require.NoError(t, err)
+		s.CreateLine(s.Origin(), s.CreatePoint(5, 0))
+		data, err := json.Marshal(w)
+		require.NoError(t, err)
+		require.Greater(t, docVersion(t, data), docVersion(t, baseline),
+			"a world document takes the max over its sketches")
+
+		var back sketch.World
+		require.NoError(t, json.Unmarshal(data, &back))
+		rs := back.Sketches()[0]
+		require.Same(t, rs.Origin(), rs.Entities()[0].(*sketch.Line).Start)
+	})
+}
+
+func TestForeignOriginIsNotSerialized(t *testing.T) {
+	// The reserved id is resolved against the RECEIVING sketch, so writing it for
+	// another sketch's origin would turn a cross-sketch reference into an ordinary
+	// local one on reload — the sketch would stop reporting the foreign handle the
+	// original had. Marshalling must refuse it instead.
+	build := func(t *testing.T) (*sketch.World, *sketch.Sketch, *sketch.Sketch) {
+		t.Helper()
+		w := sketch.NewWorld()
+		a, err := w.CreateSketch(w.XY())
+		require.NoError(t, err)
+		b, err := w.CreateSketch(w.XZ())
+		require.NoError(t, err)
+		return w, a, b
+	}
+
+	t.Run("borrowed by a constraint", func(t *testing.T) {
+		w, a, b := build(t)
+		a.AddConstraint(sketch.NewCoincident(a.CreatePoint(3, 4), b.Origin()))
+		require.True(t, a.Verify(t.Context()).ForeignHandles, "it is a foreign handle before the round trip")
+
+		_, err := json.Marshal(a)
+		require.ErrorIs(t, err, sketch.ErrForeignHandle, "the sketch document refuses it")
+		_, err = json.Marshal(w)
+		require.ErrorIs(t, err, sketch.ErrForeignHandle, "and so does the world document")
+	})
+
+	t.Run("borrowed by an entity", func(t *testing.T) {
+		w, a, b := build(t)
+		a.CreateLine(b.Origin(), a.CreatePoint(3, 4))
+
+		_, err := json.Marshal(a)
+		require.ErrorIs(t, err, sketch.ErrForeignHandle)
+		_, err = json.Marshal(w)
+		require.ErrorIs(t, err, sketch.ErrForeignHandle)
+	})
+
+	t.Run("a sketch's OWN origin still serializes", func(t *testing.T) {
+		// The guard is origin-specific and identity-based: only a borrowed origin
+		// is refused, never the sketch's own.
+		w, a, _ := build(t)
+		a.AddConstraint(sketch.NewCoincident(a.CreatePoint(3, 4), a.Origin()))
+		a.CreateLine(a.Origin(), a.CreatePoint(1, 1))
+		_, err := json.Marshal(a)
+		require.NoError(t, err)
+		_, err = json.Marshal(w)
+		require.NoError(t, err)
+	})
+}
+
 func TestOriginSurvivesSolving(t *testing.T) {
 	// The solver must never move it, including when the rest of the sketch is
 	// dragged far away.

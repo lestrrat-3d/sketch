@@ -84,7 +84,15 @@ and anchoring by fixing a point at (0, 0) must give the same verdict.
 
 The origin is recreated by the constructor on load, like an internal constraint,
 so it is never serialized as a point and no existing document changes. A
-*constraint* referencing it does serialize, as the reserved point id `-1`.
+*reference* to it does serialize, as the reserved point id `-1`.
+
+Both shapes of point reference count, and missing either one is the same bug. A
+constraint writes its operands' ids, and an ENTITY writes its defining points'
+ids — so a line drawn from the origin puts the reserved id in the document with no
+constraint involved. Detection therefore walks entities through
+`Sketch.entityPoints` and constraints through `constraintRefs`, the same two
+accessors `marshalBody` serializes from, so a type cannot be written by one and
+missed by the other.
 
 That id is a schema change: an older reader cannot resolve it. So a document
 containing one declares `jsonOriginVersion`, which older builds reject.
@@ -98,9 +106,13 @@ least-readable part.
 
 ### The origin refuses the mutators
 
-`MoveTo`, `Unfix` and `SetConstruction` are no-ops on it, and `RemovePoint`
-refuses it (it is not in the slice, so the lookup already fails). Its coordinates
-are the plane origin by definition, and its grounding is what makes it an anchor.
+`MoveTo`, `Unfix`, `UnfixEntity` (for an entity drawn from it) and
+`SetConstruction` are no-ops on it, and `RemovePoint` refuses it (it is not in the
+slice, so the lookup already fails). Its coordinates are the plane origin by
+definition, and its grounding is what makes it an anchor. `UnfixEntity` is the
+easy one to forget: it releases every defining point of an entity, so an entity
+with the origin as an endpoint is a second door onto the same variables, and it
+refuses the origin for the same reason `Unfix` does.
 
 `Fix` is deliberately still allowed and is simply redundant — it is already
 fixed — rather than being made an error for one point.
@@ -111,6 +123,22 @@ fixed — rather than being made an error for one point.
 the id, so another sketch's origin is not mistaken for this one's. Constraining
 to another sketch's origin is a cross-sketch reference and reads as a foreign
 handle, exactly like any other borrowed point.
+
+Serialization has to enforce the same thing, and identity is exactly what it
+loses. `pointRef` resolves the reserved id against the RECEIVING sketch, so a
+borrowed origin written as a bare `-1` would come back as the reader's OWN origin:
+the reloaded document holds an ordinary local relation where the original had a
+foreign handle, and `Verify` no longer has anything to report. So `marshalBody`
+refuses a point reference that carries the reserved id without being this sketch's
+origin, for constraint operands and entity points alike, wrapping
+`ErrForeignHandle`.
+
+That guard is deliberately narrow: it screens the reserved id this design
+introduced, not ownership in general. Only the origin can carry a negative id — a
+removed point keeps its stale positional one — so nothing a build without an
+origin could write is affected. A foreign NON-origin point still serializes as its
+positional id and still reloads as a local point of the same id, which is an older
+and wider problem than this one.
 
 ## Known consequence
 

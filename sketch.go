@@ -468,16 +468,18 @@ func (s *Sketch) FixEntity(e Entity) {
 }
 
 // UnfixEntity releases an entity's variables previously grounded with
-// [Sketch.FixEntity]. It is a no-op on reference geometry; it also leaves any
-// reference-locked point the entity happens to share untouched, since a
-// reference lock cannot be lifted through the grounding API.
+// [Sketch.FixEntity]. It is a no-op on reference geometry; it also leaves
+// untouched any point the entity shares whose grounding the grounding API cannot
+// lift — a reference-locked point (locked externally) and the sketch's
+// [Sketch.Origin] (grounded for the sketch's whole life), exactly as
+// [Sketch.Unfix] refuses both.
 func (s *Sketch) UnfixEntity(e Entity) {
 	if e.IsReference() {
 		return
 	}
 	for _, p := range s.entityPoints(e) {
-		if p.reference {
-			continue // a shared, externally-locked reference point keeps its lock
+		if p.reference || p.isOrigin() {
+			continue // externally-locked reference point, or the always-grounded origin
 		}
 		s.fixed[p.xi] = false
 		s.fixed[p.yi] = false

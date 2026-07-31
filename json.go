@@ -65,9 +65,10 @@ type jsonSystem struct {
 const jsonVersion = 2
 
 // jsonOriginVersion is the version a document of EITHER kind declares once it
-// references the sketch origin ([Sketch.Origin]) from a constraint. Such a
-// document carries a point reference no older reader resolves, so it must not be
-// handed to one.
+// references the sketch origin ([Sketch.Origin]) — from a constraint operand or
+// from an entity's defining points, both of which serialize a point by id. Such
+// a document carries a point reference no older reader resolves, so it must not
+// be handed to one.
 //
 // The version is stamped ON DEMAND rather than unconditionally: a document that
 // never touches the origin is byte-identical to what earlier builds wrote and
@@ -79,13 +80,24 @@ const jsonOriginVersion = 4
 // loaders reject anything above it rather than mis-load.
 const jsonMaxVersion = jsonOriginVersion
 
-// referencesOrigin reports whether any constraint refers to the sketch's origin
-// point, which is what forces the higher document version. It reads the same
-// constraintRefs the removal cascade and the integrity scan use, so a constraint
-// type that reaches the origin cannot be missed here while being seen there.
+// referencesOrigin reports whether the document this sketch serializes to carries
+// a reference to the sketch's origin point, which is what forces the higher
+// document version. BOTH shapes of point reference count: an ENTITY's defining
+// points and a constraint's operands. An entity writes its points' ids exactly as
+// a constraint does, so a line drawn from the origin puts the reserved id in the
+// document with no constraint involved.
+//
+// Each half reads through the very accessor marshalBody serializes from —
+// [Sketch.entityPoints] for entities, constraintRefs for constraints — so a type
+// that can reach the origin cannot be written there while being missed here.
 func (s *Sketch) referencesOrigin() bool {
 	if s.origin == nil {
 		return false
+	}
+	for _, e := range s.ents {
+		if slices.Contains(s.entityPoints(e), s.origin) {
+			return true
+		}
 	}
 	for _, c := range s.cons {
 		pts, _ := constraintRefs(c)
@@ -94,6 +106,28 @@ func (s *Sketch) referencesOrigin() bool {
 		}
 	}
 	return false
+}
+
+// checkNoForeignOrigin rejects a point reference that carries the reserved origin
+// id without BEING this sketch's origin — that is, another sketch's origin.
+// [Sketch.pointRef] resolves the reserved id against the RECEIVING sketch, so
+// writing it for a foreign origin would launder a foreign handle into a local one
+// across a round trip: the reloaded document would hold an ordinary local
+// relation where the original had the cross-sketch reference [Sketch.Verify]
+// reports as [ErrForeignHandle].
+//
+// The origin is the only point that can carry a negative id — a removed point
+// keeps its stale positional one — so this rejects exactly the references the
+// origin introduced, and nothing a build without an origin could produce. It is
+// deliberately NOT a general ownership check: a foreign NON-origin point still
+// serializes as its positional id, as it always has.
+func (s *Sketch) checkNoForeignOrigin(pts []*Point, what string) error {
+	for _, p := range pts {
+		if p != nil && p.id == originPointID && p != s.origin {
+			return fmt.Errorf("%w: %s references another sketch's origin point", ErrForeignHandle, what)
+		}
+	}
+	return nil
 }
 
 // docVersion is the version a document containing this sketch must declare: the
@@ -212,55 +246,64 @@ func (s *Sketch) marshalBody() (jsonSketchBody, error) {
 	}
 
 	for _, e := range s.ents {
+		// Every entity's point references come from Sketch.entityPoints — the same
+		// accessor referencesOrigin and checkNoForeignOrigin read — so an entity type
+		// cannot be serialized here while those two miss it. The order it returns is
+		// the order each type's document form declares.
+		epts := s.entityPoints(e)
+		if err := s.checkNoForeignOrigin(epts, fmt.Sprintf("entity %T", e)); err != nil {
+			return jsonSketchBody{}, err
+		}
+		pts := pointIDs(epts)
 		before := len(body.Entities)
 		switch t := e.(type) {
 		case *Line:
 			body.Entities = append(body.Entities, jsonEntity{
-				Type: "line", Points: []int{t.Start.id, t.End.id}, Construction: t.construction,
+				Type: "line", Points: pts, Construction: t.construction,
 				Reference: t.reference, Source: t.source,
 			})
 		case *Circle:
 			body.Entities = append(body.Entities, jsonEntity{
-				Type: "circle", Points: []int{t.Center.id}, Radius: t.r(), Construction: t.construction,
+				Type: "circle", Points: pts, Radius: t.r(), Construction: t.construction,
 				Reference: t.reference, Source: t.source, Stale: t.stale, // circle: radius freshness
 			})
 		case *Arc:
 			body.Entities = append(body.Entities, jsonEntity{
-				Type: "arc", Points: []int{t.Center.id, t.Start.id, t.End.id}, Construction: t.construction,
+				Type: "arc", Points: pts, Construction: t.construction,
 				Reference: t.reference, Source: t.source,
 			})
 		case *Ellipse:
 			body.Entities = append(body.Entities, jsonEntity{
-				Type: "ellipse", Points: []int{t.Center.id},
+				Type: "ellipse", Points: pts,
 				Rx: t.rx(), Ry: t.ry(), Rotation: t.rot(), Construction: t.construction,
 			})
 		case *EllipticalArc:
 			body.Entities = append(body.Entities, jsonEntity{
-				Type: "elliptical_arc", Points: []int{t.Center.id, t.Start.id, t.End.id},
+				Type: "elliptical_arc", Points: pts,
 				Rx: t.rx(), Ry: t.ry(), Rotation: t.rot(), Construction: t.construction,
 			})
 		case *Spline:
 			body.Entities = append(body.Entities, jsonEntity{
 				Type: "spline", Degree: 3, Construction: t.construction,
-				Points: pointIDs(t.Control),
+				Points: pts,
 			})
 		case *ClosedSpline:
 			// A distinct type (not a "closed" flag on "spline") so an older reader
 			// rejects it as unknown rather than silently loading it as an open spline.
 			body.Entities = append(body.Entities, jsonEntity{
 				Type: "closed_spline", Degree: 3, Construction: t.construction,
-				Points: pointIDs(t.Control),
+				Points: pts,
 			})
 		case *FitSpline:
 			// Distinct type: the points are FIT points (interpolated), not control
 			// points; the interpolant is recomputed on load, never serialized.
 			body.Entities = append(body.Entities, jsonEntity{
 				Type: "fit_spline", Degree: 3, Construction: t.construction,
-				Points: pointIDs(t.Fit),
+				Points: pts,
 			})
 		case *Conic:
 			body.Entities = append(body.Entities, jsonEntity{
-				Type: "conic", Points: []int{t.Start.id, t.Apex.id, t.End.id},
+				Type: "conic", Points: pts,
 				Rho: t.rho(), Construction: t.construction,
 			})
 		case *NURBS:
@@ -268,7 +311,7 @@ func (s *Sketch) marshalBody() (jsonSketchBody, error) {
 				Type: "nurbs", Degree: t.degree, Construction: t.construction,
 				Knots:   append([]float64(nil), t.knots...),
 				Weights: append([]float64(nil), t.weights...),
-				Points:  pointIDs(t.Control),
+				Points:  pts,
 			})
 		}
 		// Attach the optional label to whichever entity this iteration appended.
@@ -280,6 +323,13 @@ func (s *Sketch) marshalBody() (jsonSketchBody, error) {
 	for _, c := range s.cons {
 		if _, ok := c.(internalConstraint); ok {
 			continue // recreated automatically on load
+		}
+		// marshalConstraint writes each operand's raw id, so the reserved origin id
+		// is screened here, through the same constraintRefs the removal cascade and
+		// the integrity scan read.
+		cpts, _ := constraintRefs(c)
+		if err := s.checkNoForeignOrigin(cpts, fmt.Sprintf("constraint %q", constraintKind(c))); err != nil {
+			return jsonSketchBody{}, err
 		}
 		jc, ok := marshalConstraint(c)
 		if !ok {
