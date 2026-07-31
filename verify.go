@@ -2,7 +2,10 @@ package sketch
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"math"
+	"strings"
 
 	"github.com/lestrrat-go/option/v3"
 )
@@ -173,6 +176,154 @@ type VerificationReport struct {
 	ParameterErrors []error
 }
 
+// The conditions [VerificationReport.Check] reports, one sentinel per condition.
+// Each is wrapped in an error carrying the specifics (which constraints, how far
+// off), so a caller matches the condition with [errors.Is] and reads the detail
+// from the message or the report's own fields.
+var (
+	// ErrUnsolvable: the sketch does not solve to tolerance.
+	ErrUnsolvable = errors.New("sketch: does not solve to tolerance")
+	// ErrNotFullyConstrained: the sketch has remaining degrees of freedom, or is
+	// over-constrained. [VerificationReport.Status] says which.
+	ErrNotFullyConstrained = errors.New("sketch: not fully constrained")
+	// ErrConflicting: constraints conflict — see [VerificationReport.Conflicts].
+	ErrConflicting = errors.New("sketch: conflicting constraints")
+	// ErrRedundant: dependent-but-satisfied constraints are present — see
+	// [VerificationReport.Redundant].
+	ErrRedundant = errors.New("sketch: redundant constraints")
+	// ErrStaleReference: reference geometry is stale, so the sketch is being
+	// verified against an outdated 3D snapshot.
+	ErrStaleReference = errors.New("sketch: stale reference geometry")
+	// ErrBrokenReference: reference geometry failed its lock-integrity check —
+	// see [VerificationReport.BrokenReferences].
+	ErrBrokenReference = errors.New("sketch: broken reference geometry")
+	// ErrForeignHandle: a point or entity reachable from this sketch is not
+	// live-owned by it (cross-sketch references are unsupported).
+	ErrForeignHandle = errors.New("sketch: foreign handle")
+	// ErrInvalidProfile: the region set cannot be trusted as extrudable profiles —
+	// see [VerificationReport.InvalidProfiles], which can be empty when the
+	// arrangement was unresolvable without producing a region.
+	ErrInvalidProfile = errors.New("sketch: invalid profiles")
+	// ErrInvalidParameter: a parameter-bound dimension's expression is not
+	// unit-kind-consistent — see [VerificationReport.ParameterErrors].
+	ErrInvalidParameter = errors.New("sketch: invalid parameter expression")
+	// ErrNearSingular: the constraint system is numerically near-singular — see
+	// [VerificationReport.Conditioning].
+	ErrNearSingular = errors.New("sketch: near-singular constraint system")
+	// ErrProbeIncomplete: the ambiguity probe was requested and its preconditions
+	// held, but it could not finish, so ambiguity is unknown rather than absent.
+	ErrProbeIncomplete = errors.New("sketch: ambiguity probe did not finish")
+	// ErrAmbiguous: the probe found several discrete configurations satisfying the
+	// same constraints — see [VerificationReport.Probe].
+	ErrAmbiguous = errors.New("sketch: sketch admits several configurations")
+)
+
+// Reasons is the error [VerificationReport.Check] returns: one wrapped sentinel
+// per failed condition, so a caller decides per reason rather than over the whole
+// verdict.
+//
+// Unwrap exposes the reasons as data. [errors.Is] also matches through it, so a
+// caller that cares about only one condition can ask directly without ranging.
+type Reasons interface {
+	error
+	// Unwrap returns one error per failed condition, each wrapping the sentinel
+	// that names it. It is never empty: a report with nothing to report yields a
+	// nil Reasons instead.
+	Unwrap() []error
+}
+
+// reasons is the concrete [Reasons]. It is never returned empty — Check returns a
+// literal nil interface instead, so `Check() != nil` cannot be true for a
+// trustworthy report through a non-nil interface holding a nil pointer.
+type reasons struct{ errs []error }
+
+func (r *reasons) Error() string {
+	msgs := make([]string, len(r.errs))
+	for i, e := range r.errs {
+		msgs[i] = e.Error()
+	}
+	return strings.Join(msgs, "\n")
+}
+
+func (r *reasons) Unwrap() []error { return r.errs }
+
+// Check reports every condition of the oracle verdict that the sketch fails,
+// returning nil when it passes them all.
+//
+// It is the granular form of [VerificationReport.Trustworthy], which is defined as
+// `Check() == nil` — so the two can never disagree, and a condition added here is
+// added to both. Gate on Trustworthy when the whole verdict is what matters; use
+// Check when a diagnostic needs to name what failed, or when the caller
+// legitimately disagrees with ONE condition:
+//
+//	if err := rep.Check(); err != nil {
+//		for _, reason := range err.Unwrap() {
+//			// A sketch built from unsigned constraints is ambiguous BY DESIGN;
+//			// every other condition still gates.
+//			if !errors.Is(reason, sketch.ErrAmbiguous) {
+//				return reason
+//			}
+//		}
+//	}
+//
+// That waiver is per reason and stays honest as the engine grows: a condition
+// added to the verdict later arrives as another element and is fatal by default,
+// because it is not in the caller's waiver list. Reimplementing the verdict by
+// copying its conditions is the alternative this exists to remove — such a copy
+// silently stops checking whatever is added next, and cannot reproduce the
+// conditioning gate at all, since its threshold is not exported.
+//
+// The reasons appear in a fixed order, most fundamental first: an unsolvable
+// sketch is reported before the properties that only make sense once it solves.
+func (r *VerificationReport) Check() Reasons {
+	var errs []error
+	add := func(err error) { errs = append(errs, err) }
+
+	if !r.Solvable {
+		add(ErrUnsolvable)
+	}
+	if r.Status != FullyConstrained {
+		add(fmt.Errorf("%w: %s (DOF %d)", ErrNotFullyConstrained, r.Status, r.DOF))
+	}
+	if n := len(r.Conflicts); n > 0 {
+		add(fmt.Errorf("%w: %d", ErrConflicting, n))
+	}
+	if n := len(r.Redundant); n > 0 {
+		add(fmt.Errorf("%w: %d", ErrRedundant, n))
+	}
+	if r.Stale {
+		add(fmt.Errorf("%w: %d entities, %d points", ErrStaleReference,
+			len(r.StaleReferences), len(r.StaleReferencePoints)))
+	}
+	if n := len(r.BrokenReferences); n > 0 {
+		add(fmt.Errorf("%w: %d entities", ErrBrokenReference, n))
+	}
+	if r.ForeignHandles {
+		add(ErrForeignHandle)
+	}
+	if !r.ProfilesValid {
+		add(fmt.Errorf("%w: %d of %d regions", ErrInvalidProfile,
+			len(r.InvalidProfiles), len(r.Profiles)))
+	}
+	if !r.ParametersValid {
+		add(fmt.Errorf("%w: %d dimensions", ErrInvalidParameter, len(r.ParameterErrors)))
+	}
+	if !(r.Conditioning >= r.condGate) { // NaN fails closed
+		add(fmt.Errorf("%w: conditioning %g is below %g", ErrNearSingular, r.Conditioning, r.condGate))
+	}
+	if r.ProbeIncomplete {
+		add(ErrProbeIncomplete)
+	}
+	if r.Probe != nil && r.Probe.Ambiguous() {
+		add(fmt.Errorf("%w: %d", ErrAmbiguous, len(r.Probe.Configurations)))
+	}
+
+	if len(errs) == 0 {
+		return nil // a literal nil, never a nil *reasons in a non-nil interface
+	}
+	return &reasons{errs: errs}
+}
+
 // Trustworthy reports the canonical oracle verdict: the sketch is solvable, fully
 // constrained, free of conflicting and redundant constraints, has no stale or
 // broken reference geometry, no foreign handles, every detected region is a
@@ -185,20 +336,11 @@ type VerificationReport struct {
 // [FullyConstrained]. (The advisory [VerificationReport.RankMargin] is reported
 // separately; being scale-dependent, it does not gate this verdict — Conditioning
 // is the unit-invariant gating measure.)
-func (r *VerificationReport) Trustworthy() bool {
-	return r.Solvable &&
-		r.Status == FullyConstrained &&
-		len(r.Conflicts) == 0 &&
-		len(r.Redundant) == 0 &&
-		!r.Stale &&
-		len(r.BrokenReferences) == 0 &&
-		!r.ForeignHandles &&
-		r.ProfilesValid &&
-		r.ParametersValid &&
-		r.Conditioning >= r.condGate &&
-		!r.ProbeIncomplete &&
-		(r.Probe == nil || !r.Probe.Ambiguous())
-}
+//
+// It is exactly [VerificationReport.Check] returning nil, and is defined that way
+// rather than restated, so the boolean and the reasons cannot drift apart. Use
+// Check to learn WHICH condition failed, or to waive one deliberately.
+func (r *VerificationReport) Trustworthy() bool { return r.Check() == nil }
 
 // VerifyOption tunes [Sketch.Verify]. Construct values with the With… helpers.
 type VerifyOption interface {
