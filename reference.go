@@ -184,36 +184,17 @@ func (s *Sketch) RefreshReferenceCircle(c *Circle, r float64) error {
 	return nil
 }
 
-// isNilEntity reports whether an Entity interface holds a nil concrete pointer
-// (a typed nil, e.g. NewHorizontal(nil)'s line) — which a plain `== nil` misses,
-// so calling a method on it would panic.
-func isNilEntity(e Entity) bool {
-	switch t := e.(type) {
-	case nil:
-		return true
-	case *Line:
-		return t == nil
-	case *Circle:
-		return t == nil
-	case *Arc:
-		return t == nil
-	case *Ellipse:
-		return t == nil
-	case *EllipticalArc:
-		return t == nil
-	case *Spline:
-		return t == nil
-	case *ClosedSpline:
-		return t == nil
-	case *FitSpline:
-		return t == nil
-	case *Conic:
-		return t == nil
-	case *NURBS:
-		return t == nil
-	}
-	return false
-}
+// isNilEntity reports whether an Entity interface is nil or holds a nil concrete
+// pointer (a typed nil, e.g. NewHorizontal(nil)'s line) — which a plain `== nil`
+// misses, so calling a method on it would panic.
+//
+// It dispatches through the sealed interface's isNil method rather than a type
+// switch over the entity types. That is the load-bearing part: a type switch has
+// no exhaustiveness check, so a new entity type omitted from it built, vetted,
+// linted and tested green and then panicked in [Sketch.Verify] the first time a
+// consumer handed a typed nil of it to a constraint. A method on the interface
+// makes the same omission a compile error at [Sketch.addEntity].
+func isNilEntity(e Entity) bool { return e == nil || e.isNil() }
 
 // referenceBroken reports whether an entity fails the lock-integrity check: any
 // entity with a foreign/dead defining point, or a reference entity that is also

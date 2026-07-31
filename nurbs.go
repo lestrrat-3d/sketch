@@ -27,6 +27,7 @@ type NURBS struct {
 }
 
 func (c *NURBS) entity()              {}
+func (c *NURBS) isNil() bool          { return c == nil }
 func (c *NURBS) entID() int           { return c.id }
 func (c *NURBS) IsConstruction() bool { return c.construction }
 func (c *NURBS) SetConstruction(v bool) {
