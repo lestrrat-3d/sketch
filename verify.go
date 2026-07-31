@@ -119,7 +119,10 @@ type VerificationReport struct {
 	Profiles []*Profile
 	// InvalidProfiles lists the detected profiles that failed region validity —
 	// self-intersecting, zero-area, or reached by an unresolvable arrangement
-	// condition on their own boundary curves. A subset of Profiles. Such a region
+	// condition. A condition is reached when it involves one of the region's own
+	// boundary curves, or when no curve could be blamed for it at all (an unusable
+	// input dropped before it reached the arrangement), which reaches every detected
+	// region and so lists them all. A subset of Profiles. Such a region
 	// cannot be extruded. It can be empty while ProfilesValid is false: a condition
 	// that produced no region, or one that destroyed one, has no profile to list.
 	InvalidProfiles []*Profile

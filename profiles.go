@@ -30,11 +30,12 @@ type Profile struct {
 	// arrangement condition that REACHES this region — one involving a curve its own
 	// boundary is built from, or one no curve could be blamed for at all.
 	//
-	// A condition elsewhere in the sketch leaves this region valid, so a sketch can
-	// hold both valid and invalid profiles. Whether the sketch as a whole is
-	// verifiable is a different question, answered by
-	// [VerificationReport.ProfilesValid], which also covers a condition that
-	// produced no region to report.
+	// An ATTRIBUTABLE condition, on curves this region's boundary does not use,
+	// leaves this region valid, so a sketch can hold both valid and invalid
+	// profiles. An unattributable one has no such reach limit and invalidates every
+	// region detected. Whether the sketch as a whole is verifiable is a different
+	// question, answered by [VerificationReport.ProfilesValid], which also covers a
+	// condition that produced no region to report.
 	Valid bool
 	// SelfIntersecting marks the specific invalidity that the boundary the
 	// region derives from crosses or touches itself.
@@ -161,6 +162,11 @@ type BoundaryEdge struct {
 // touched by an unresolvable (degenerate) condition — coincident edges or an
 // ill-conditioned near-tangent crossing on one of its own boundary curves — is
 // reported invalid, while regions built from unrelated geometry stay valid.
+//
+// That scoping needs a curve to blame. A condition no curve can be attributed to
+// — an unusable input dropped before it reached the arrangement, such as a
+// zero-radius circle — invalidates EVERY region detected, since what it would
+// have subdivided is unknown.
 func (s *Sketch) Profiles() []*Profile {
 	profiles, _, _ := s.buildProfiles()
 	return profiles

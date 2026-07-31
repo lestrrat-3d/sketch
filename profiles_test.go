@@ -297,3 +297,24 @@ func TestProfilesDegeneracyScopedToItsOwnRegion(t *testing.T) {
 	require.False(t, rep.ProfilesValid, "the arrangement was unresolvable")
 	require.Equal(t, []*sketch.Profile{rect}, rep.InvalidProfiles)
 }
+
+func TestProfilesUnattributableDegeneracyInvalidatesEveryProfile(t *testing.T) {
+	// The other half of the scoping rule, and the one the doc comments must not
+	// omit: a zero-radius circle is unusable input, dropped before it can form an
+	// edge, so the condition it raises belongs to no curve. What it would have
+	// subdivided is unknown, so the unrelated rectangle is invalid too.
+	s := newSketch(t)
+	s.CreateRectangle(0, 0, 10, 10)
+	s.CreateCircle(s.CreatePoint(100, 0), 0)
+
+	profiles := s.Profiles()
+	require.Len(t, profiles, 1, "the zero-radius circle bounds nothing")
+	require.InDelta(t, 100, profiles[0].Area, 1e-6, "the rectangle is whole")
+	require.False(t, profiles[0].SelfIntersecting, "its boundary is clean")
+	require.False(t, profiles[0].Valid, "an unattributable condition reaches every region")
+
+	rep := s.Verify(t.Context())
+	require.False(t, rep.ProfilesValid)
+	require.Equal(t, profiles[0].Area, rep.InvalidProfiles[0].Area)
+	require.Len(t, rep.InvalidProfiles, 1, "every detected profile is listed")
+}
