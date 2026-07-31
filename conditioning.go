@@ -99,6 +99,13 @@ func (s *Sketch) condVarScales(L float64) []float64 {
 		scale[p.xi] = L
 		scale[p.yi] = L
 	}
+	if s.origin != nil {
+		// The origin's coordinates are length-kind like any other point's. Its
+		// columns are dropped before the SVD (they are fixed), so this changes no
+		// measure today; it keeps the table coherent for anything that reads it.
+		scale[s.origin.xi] = L
+		scale[s.origin.yi] = L
+	}
 	for i, k := range s.varKinds() {
 		switch k {
 		case varRadius:
@@ -145,6 +152,17 @@ func (s *Sketch) positionShift(extraXY ...[2]int) []float64 {
 	for _, p := range s.points {
 		shift[p.xi] = cx
 		shift[p.yi] = cy
+	}
+	// The ORIGIN moves with everything else. The shift is only sound because it is
+	// a RIGID translation — every residual is invariant under one — so a position
+	// left behind is not a translation at all: it silently changes the sketch the
+	// finite differences measure. (Leaving the origin unshifted collapsed it onto a
+	// point constrained to it, which read as a rank loss and an invented redundant
+	// constraint.) The centroid itself is still taken over the authored points
+	// only, so the shift for an origin-free sketch is byte-identical to before.
+	if s.origin != nil {
+		shift[s.origin.xi] = cx
+		shift[s.origin.yi] = cy
 	}
 	for _, c := range s.cons {
 		if tc, ok := c.(*tangentConics); ok && tc.px >= 0 {

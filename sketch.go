@@ -35,6 +35,13 @@ type Sketch struct {
 	ents   []Entity
 	cons   []Constraint
 
+	// origin is the sketch's own origin point (see [Sketch.Origin]). It is
+	// deliberately NOT in points: keeping it out leaves that slice the authored
+	// id space it has always been, so no existing id, document or point count
+	// shifts. Its two vars are fixed for the sketch's life, so freeVars never
+	// selects them and the solver, rank analysis and conditioning never see it.
+	origin *Point
+
 	world    *World                // owning world (every sketch belongs to one)
 	params   *param.Table          // drives bound dimensions; shared with the world
 	sys      units.System          // default length/angle units
@@ -83,8 +90,57 @@ func (s *Sketch) addEntity(e Entity) {
 // [World.CreateSketch] on a plane from [World.XY]/[World.XZ]/[World.YZ] (or a
 // created plane).
 func newSketch(plane *Plane) *Sketch {
-	return &Sketch{sys: units.Metric(), pl: plane}
+	s := &Sketch{sys: units.Metric(), pl: plane}
+	s.initOrigin()
+	return s
 }
+
+// originPointID is the origin point's id. It is NEGATIVE on purpose: every
+// authored point's id is its position in s.points, and the origin is not in that
+// slice, so it needs an id no authored point can ever hold. It doubles as the
+// origin's serialized point reference — see [Sketch.pointRef].
+const originPointID = -1
+
+// initOrigin creates the sketch's origin point: two solver variables at (0, 0),
+// both fixed for the sketch's whole life. Every construction path must call it
+// (see [newSketch] and the loaders), so that [Sketch.Origin] is never nil for a
+// sketch the package built.
+//
+// It is deliberately NOT lazy. A lazily-created origin would make a read a
+// mutator — the bug removed from [Sketch.Revision] — and would race two readers
+// of one sketch.
+func (s *Sketch) initOrigin() {
+	p := &Point{s: s, xi: s.newVar(0), yi: s.newVar(0), id: originPointID}
+	s.fixed[p.xi] = true
+	s.fixed[p.yi] = true
+	s.origin = p
+}
+
+// Origin returns the sketch's origin point: a point at the plane origin (0, 0)
+// that the engine provides, the solver never moves, and geometry can be
+// constrained to like any other point.
+//
+// It exists before anything is drawn and is grounded from the start, so it is the
+// anchor a sketch ties itself to:
+//
+//	p := s.CreatePoint(0, 0)
+//	s.AddConstraint(sketch.NewCoincident(p, s.Origin()))
+//
+// That REPLACES [Sketch.Fix] at the anchor rather than adding a second way to
+// ground. Constraining to the origin keeps the tie inside the parameter model —
+// it is a constraint like any other, visible to [Sketch.Diagnose] and removable
+// with [Sketch.RemoveConstraint] — whereas fixing a point writes the solver's
+// fixed flags directly, which no constraint diagnostic can see.
+//
+// It is NOT in [Sketch.Points], is never serialized as a point, and cannot be
+// removed, unfixed or moved: it is engine-provided rather than authored, and its
+// coordinates are the plane origin by definition. A constraint referencing it IS
+// serialized, and a document carrying one declares a schema version older readers
+// reject rather than mis-load.
+//
+// It is nil only for a zero-value [Sketch] built outside the package, which is
+// not a usable sketch; obtain one from [World.CreateSketch].
+func (s *Sketch) Origin() *Point { return s.origin }
 
 // Plane returns the construction plane the sketch is drawn on. A sketch created
 // without an explicit placement reads as the world XY datum.
@@ -252,12 +308,19 @@ func (p *Point) SetName(name string) { p.name = name }
 func (p *Point) IsConstruction() bool { return p.construction }
 
 // SetConstruction marks the point as construction geometry or not. It is a
-// no-op on reference geometry (the two categories are mutually exclusive).
+// no-op on reference geometry (the two categories are mutually exclusive) and on
+// the sketch's [Sketch.Origin], which is not drawn geometry at all.
 func (p *Point) SetConstruction(v bool) {
-	if !p.reference {
+	if !p.reference && !p.isOrigin() {
 		p.construction = v
 	}
 }
+
+// isOrigin reports whether this point is its sketch's origin — the one point the
+// grounding and coordinate setters refuse. It compares identity against the
+// sketch's own origin rather than testing the id, so a point from ANOTHER sketch
+// is never mistaken for this one's.
+func (p *Point) isOrigin() bool { return p != nil && p.s != nil && p.s.origin == p }
 
 // Geometry returns a fresh [geom.Point] snapshot at the point's current
 // coordinates.
@@ -304,9 +367,10 @@ func (s *Sketch) CreatePoint(x, y float64) *Point {
 // MoveTo moves a point to (x, y). This sets the solver's starting guess for the
 // point and has no effect once constraints pin it down. It is a no-op on
 // reference geometry, whose coordinates are externally locked — re-feed those
-// with [Sketch.RefreshReference].
+// with [Sketch.RefreshReference] — and on the sketch's [Sketch.Origin], which is
+// the plane origin by definition.
 func (p *Point) MoveTo(x, y float64) {
-	if p.reference {
+	if p.reference || p.isOrigin() {
 		return
 	}
 	p.s.vars[p.xi] = x
@@ -332,9 +396,10 @@ func (s *Sketch) Fix(p *Point) {
 
 // Unfix releases a previously grounded point so the solver may move it again. It
 // is a no-op on reference geometry, whose lock cannot be lifted through the
-// grounding API.
+// grounding API, and on the sketch's [Sketch.Origin], which is grounded for the
+// sketch's whole life.
 func (s *Sketch) Unfix(p *Point) {
-	if p.reference {
+	if p.reference || p.isOrigin() {
 		return
 	}
 	s.fixed[p.xi] = false
@@ -403,16 +468,18 @@ func (s *Sketch) FixEntity(e Entity) {
 }
 
 // UnfixEntity releases an entity's variables previously grounded with
-// [Sketch.FixEntity]. It is a no-op on reference geometry; it also leaves any
-// reference-locked point the entity happens to share untouched, since a
-// reference lock cannot be lifted through the grounding API.
+// [Sketch.FixEntity]. It is a no-op on reference geometry; it also leaves
+// untouched any point the entity shares whose grounding the grounding API cannot
+// lift — a reference-locked point (locked externally) and the sketch's
+// [Sketch.Origin] (grounded for the sketch's whole life), exactly as
+// [Sketch.Unfix] refuses both.
 func (s *Sketch) UnfixEntity(e Entity) {
 	if e.IsReference() {
 		return
 	}
 	for _, p := range s.entityPoints(e) {
-		if p.reference {
-			continue // a shared, externally-locked reference point keeps its lock
+		if p.reference || p.isOrigin() {
+			continue // externally-locked reference point, or the always-grounded origin
 		}
 		s.fixed[p.xi] = false
 		s.fixed[p.yi] = false

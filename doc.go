@@ -41,15 +41,32 @@
 //
 // # Grounding: ground, don't pin
 //
-// Anchor a sketch with exactly one fixed point, placed at the origin
-// (p.MoveTo(0, 0); s.Fix(p)), and remove the remaining rotational freedom with a
-// single orientation constraint (a horizontal or vertical line). Locate every
-// other point with geometric and dimensional constraints — never by fixing its
-// coordinates. A fixed coordinate is outside the parameter model: it cannot be
-// driven by a parameter (see [Sketch.Bind]) and will not reflow when a driving
-// dimension changes, so pinning interior points, non-origin points, or more than
-// the single origin anchor is a non-parametric anti-pattern. (Reference geometry
-// is the deliberate exception: it is externally locked by design.)
+// Every sketch owns an origin point ([Sketch.Origin]) at the plane origin. It
+// exists before anything is drawn, the solver never moves it, and it is the
+// anchor a sketch ties itself to — by CONSTRAINT, like any other point:
+//
+//	p := s.CreatePoint(0, 0)
+//	s.AddConstraint(sketch.NewCoincident(p, s.Origin()))
+//
+// Then remove the remaining rotational freedom with a single orientation
+// constraint (a horizontal or vertical line), and locate every other point with
+// geometric and dimensional constraints — never by fixing its coordinates.
+//
+// Prefer that to [Sketch.Fix]. Both ground the geometry, but a constraint to the
+// origin stays inside the model the rest of the sketch lives in: it is visible to
+// [Sketch.Diagnose], removable with [Sketch.RemoveConstraint], and reported like
+// any other relation. Fix instead writes the solver's grounding flags directly,
+// where no constraint diagnostic can see it. A fixed coordinate is also outside
+// the parameter model: it cannot be driven by a parameter (see [Sketch.Bind]) and
+// will not reflow when a driving dimension changes, so pinning interior points,
+// non-origin points, or more than a single anchor is a non-parametric
+// anti-pattern. (Reference geometry is the deliberate exception: it is externally
+// locked by design.)
+//
+// A point that a drawing does not otherwise constrain — a leftover from a shared
+// builder, say — is made determinate the same way, by constraining it coincident
+// to the origin. That is one relation rather than a pinned coordinate or a claim
+// that its position came from outside the sketch.
 //
 // # Orientation and sign conventions
 //
