@@ -328,7 +328,7 @@ narrower than one chord (measured: 30 of 45 hider × partner combinations left u
 with a wrong region count). Scoped to pairs with at least one free-form source, so an
 all-analytic scene is untouched and pays nothing. **The guard sets a FLAG and nothing
 else** — region counts, areas and every reported parameter range are byte-identical to
-what the same geometry produced before it (pinned across 900 mixed-family scenes).
+what the same geometry produced before it (measured across 900 mixed-family scenes).
 **What it does not answer**: whether the recorded crossing COUNT is right. A lens
 narrower than the band whose chords DO cross is explained by its own crossing and stays
 silent, so a sub-sample cap is still unflagged where the chords meet — 27% of wrong

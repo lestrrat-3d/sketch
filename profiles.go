@@ -136,11 +136,15 @@ type BoundaryEdge struct {
 	// arcs beside it included, however far apart they sit.
 	//
 	// The reason is that a free-form entity reaches the profile pass only as chords, and
-	// nothing bounds how far it runs from them: it can cross another entity entirely
-	// between two samples. That crossing is then missing from the map, the regions it
-	// separates are fused, and the sketch's line/circle/arc pairs — cut in closed form —
-	// would publish the fused profile set with every bound exact. Only the flag is
-	// withheld: the profiles, their areas, their validity and their ranges are unchanged.
+	// it bows away from them: it can cross another entity entirely between two samples.
+	// That crossing is then missing from the map, the regions it separates are fused, and
+	// the sketch's line/circle/arc pairs — cut in closed form — would publish the fused
+	// profile set with every bound exact. The profile pass does prove a per-entity-kind
+	// upper bound on that departure and reports [Profile.Valid] = false where a hidden
+	// crossing cannot be ruled out, but a flag is a warning, not a certificate: where that
+	// guard stays silent it has certified nothing about the profile set. So exactness is
+	// gated on the entity kinds alone. Only this flag is withheld: the profiles, their
+	// areas and their ranges are unchanged.
 	//
 	// Within an all line/circle/arc sketch, a CUT bound is exact only when the
 	// closed-form kernel placed it, which it does for any pair of those three.
