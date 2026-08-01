@@ -2,6 +2,7 @@ package geom_test
 
 import (
 	"math"
+	"sort"
 	"testing"
 
 	"github.com/lestrrat-3d/sketch/geom"
@@ -679,6 +680,109 @@ func TestAnalyticCrossingAtSampleVertexBlessedExact(t *testing.T) {
 	_, exact, partial := arrangementArea(arr)
 	require.True(t, partial, "both circles are cut")
 	require.True(t, exact, "a contact that IS a sample vertex carries the true crossing parameter")
+}
+
+// regionAreasDescending returns the arrangement's region areas, largest first, and
+// whether EVERY emitted boundary fragment of every region carries an exact range.
+func regionAreasDescending(arr *geom.Arrangement) ([]float64, bool) {
+	areas := make([]float64, 0, len(arr.Regions))
+	exact := true
+	for _, rg := range arr.Regions {
+		areas = append(areas, rg.Area)
+		for _, e := range rg.Outer {
+			exact = exact && e.TExact
+		}
+		for _, h := range rg.Holes {
+			for _, e := range h {
+				exact = exact && e.TExact
+			}
+		}
+	}
+	sort.Sort(sort.Reverse(sort.Float64Slice(areas)))
+	return areas, exact
+}
+
+func TestAnalyticCurveCrossingEndpointOnChordNotCertified(t *testing.T) {
+	// An arc whose own ENDPOINT rests on the INTERIOR of one of the circle's chords is a
+	// contact the pair has no analytic event for — the exact geometry puts that endpoint
+	// strictly inside the disk, and only the chord approximation brings the two polylines
+	// together there. Taking analytic authority skips the sampled loop for the pair, so
+	// the contact is never recorded, and the map the pair then publishes is NOT the
+	// sampled one the certificate promises to reproduce: one region instead of two, with
+	// every bound reading exact.
+	//
+	// The contact is placed by construction. At 8 segments per turn the circle's samples
+	// sit every 45 degrees, and the arc ends a quarter of the way along the chord between
+	// the 0 and 45 degree samples. Its host parameters there are 1 on the arc's own last
+	// segment and 0.25 on the chord, so a check that excuses a contact for sitting at a
+	// segment END lets it through; deciding by identity with an injected crossing point
+	// does not.
+	const r = 5.0
+	v1x, v1y := r*math.Cos(math.Pi/4), r*math.Sin(math.Pi/4)
+	ex, ey := r+0.25*(v1x-r), 0.25*v1y
+
+	cx, cy := -3.0, -2.75
+	ra := math.Hypot(ex-cx, ey-cy)
+	end := math.Atan2(ey-cy, ex-cx)
+	start := end - 1.2
+	curves := []geom.Curve{geom.NewArc(
+		geom.NewPoint(cx, cy),
+		geom.NewPoint(cx+ra*math.Cos(start), cy+ra*math.Sin(start)),
+		geom.NewPoint(ex, ey))}
+	closed := []geom.ClosedCurve{geom.NewCircle(geom.NewPoint(0, 0), r)}
+
+	arr := geom.Regions(curves, closed, geom.WithSegmentsPerTurn(8))
+	require.False(t, arr.Degenerate,
+		"the fallback for an uncertified pair is the sampled path, never a degeneracy")
+	require.Len(t, arr.Regions, 2, "the sampled map's own regions, which the certified pair fused into one")
+	areas, exact := regionAreasDescending(arr)
+	require.InDelta(t, 78.512659246063137, areas[0], 1e-9)
+	require.InDelta(t, 0.14921088265903304, areas[1], 1e-9)
+	require.False(t, exact,
+		"a pair whose polylines meet away from every injected crossing publishes no exact bound")
+}
+
+func TestAnalyticCurveCrossingAtSampleVertexNotCertified(t *testing.T) {
+	// The same failure reached by the other door: a genuine transverse crossing of the two
+	// SAMPLED polylines that lands on a sample vertex of one of them, and on no analytic
+	// contact at all. It is a crossing with no node — the pair's sampled crossings are
+	// never recorded once it takes analytic authority — so the face walk runs the two
+	// edges through each other and fuses the regions on either side. Here two regions
+	// become one, reported with every bound exact.
+	//
+	// Built by placing an INTERIOR sample vertex of the first arc exactly on the interior
+	// of a chord of the second: at 8 segments per turn the second arc's 1.0 rad sweep is
+	// sampled into 2 chords and the first arc's 2.0 rad sweep into 3, so vertex 1 of the
+	// first lands three quarters of the way along chord 0 of the second.
+	const spt, r = 8, 5.0
+	const qStart, qSweep = -2.4, 1.0
+	qAt := func(u float64) *geom.Point {
+		a := qStart + u*qSweep
+		return geom.NewPoint(r*math.Cos(a), r*math.Sin(a))
+	}
+	const nq = 2 // ceil(spt * qSweep / 2pi)
+	c0, c1 := qAt(0), qAt(1.0/nq)
+	ex := c0.X + 0.75*(c1.X-c0.X)
+	ey := c0.Y + 0.75*(c1.Y-c0.Y)
+
+	const pSweep, nP, iVert = 2.0, 3, 1 // nP = ceil(spt * pSweep / 2pi)
+	pcx, pcy := 0.0, -1.0
+	rp := math.Hypot(ex-pcx, ey-pcy)
+	pStart := math.Atan2(ey-pcy, ex-pcx) - float64(iVert)/float64(nP)*pSweep
+	curves := []geom.Curve{
+		geom.NewArc(geom.NewPoint(pcx, pcy),
+			geom.NewPoint(pcx+rp*math.Cos(pStart), pcy+rp*math.Sin(pStart)),
+			geom.NewPoint(pcx+rp*math.Cos(pStart+pSweep), pcy+rp*math.Sin(pStart+pSweep))),
+		geom.NewArc(geom.NewPoint(0, 0), qAt(0), qAt(1)),
+	}
+
+	arr := geom.Regions(curves, nil, geom.WithSegmentsPerTurn(spt))
+	require.False(t, arr.Degenerate, "an uncertified pair falls back to the sampled path, not to a degeneracy")
+	require.Len(t, arr.Regions, 2, "the two regions the node-less crossing separates")
+	areas, exact := regionAreasDescending(arr)
+	require.InDelta(t, 0.022316286135887403, areas[0], 1e-9)
+	require.InDelta(t, 0.0035697752231414488, areas[1], 1e-9)
+	require.False(t, exact, "a crossing the map has no node for withholds every exact bound of the pair")
 }
 
 func TestAnalyticArcArcCrossingCertified(t *testing.T) {

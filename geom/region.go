@@ -95,17 +95,24 @@ type BoundaryEdge struct {
 	// polylines there are chord approximations, so the arrangement checks that splicing
 	// the exact crossing points into them leaves the sampled topology unchanged. When it
 	// cannot, the pair falls back to the sampled path and its fragments report
-	// TExact = false. Three things fail that check. A sampling too coarse to resolve the
+	// TExact = false. Four things fail that check. A sampling too coarse to resolve the
 	// crossing, which raising [WithSegmentsPerTurn] recovers. A contact at an open
 	// curve's own endpoint, where the curve stops instead of crossing — refused at every
-	// density, by construction rather than by coarseness. And a contact that falls inside
+	// density, by construction rather than by coarseness. A contact that falls inside
 	// the sampling's parameter window of an existing sample vertex WITHOUT sitting at it:
 	// the arrangement maps such a contact onto that vertex, whose own parameter is a
 	// plain sample fraction rather than the crossing's. A contact that DOES sit at a
 	// sample vertex, to within round-off, is certified — the vertex is the crossing
 	// point, so the true crossing parameter and the sample fraction are the same number.
-	// Which contacts land in that window is a property of the density, so this last one
-	// neither persists through resampling nor is reliably fixed by it.
+	// Which contacts land in that window is a property of the density, so that one
+	// neither persists through resampling nor is reliably fixed by it. And, fourth, the
+	// two sampled polylines MEETING anywhere other than at the crossing points
+	// themselves: an endpoint of one resting on the interior of the other's chord, a
+	// transverse pass-through landing on a sample vertex, or a stretch of chord the two
+	// share. Each is a place the two curves touch in the sampled map and do not touch in
+	// the exact geometry, so taking analytic authority there would drop a contact the
+	// map has, and the answer would no longer be the sampled one. These are hairline
+	// coincidences of a particular sampling and, like the third, move with density.
 	//
 	// The sampled path that takes over normally resolves the crossing on its own, so the
 	// topology stays right. Below the density where it can, the crossing is missing from
@@ -113,7 +120,7 @@ type BoundaryEdge struct {
 	// path itself, which [WithSegmentsPerTurn] also lifts. Exactness is then withdrawn
 	// from every fragment of the whole connected component, including the fragments of
 	// pairs the certificate did accept and cut exactly: their bounds are right about
-	// their own curve and collectively describe a map that is missing a crossing. The
+	// their own curve and collectively describe a map that is missing a crossing.
 	// The crossing a free-form curve can hide is covered by the scene gate above instead:
 	// a pair the closed-form kernel never classifies exists only in a scene that
 	// publishes nothing exact. So an arrangement whose every fragment reports TExact is

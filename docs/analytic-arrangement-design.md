@@ -235,13 +235,25 @@ curve/curve pair with at least one `evCross` takes analytic authority only when
 splicing its exact crossing points into BOTH sampled polylines — at the site the
 cut phase itself uses (`postCutPolyline` over `cutSite`) — leaves the sampled map
 with the same crossing incidence. Three conditions, checked on the spliced
-polylines: they meet ONLY at those points (`polylinesMeetOnlyAtVertices`); each
-contact IS the polyline vertex it was mapped to, within the identity band
-`vertexCertifies` uses (`contactIsVertex`); and the four chord departures at each
-injected point ALTERNATE between the sources (`portsCross`), so meeting at a point
-is distinguished from crossing at it. The first and third are threshold-free. A
-contact at an open source's own endpoint contributes three departures, not four,
+polylines: they meet ONLY at those points — every contact between a segment of one
+and a segment of the other IS an injected crossing point
+(`polylinesMeetOnlyAtContacts`); each contact IS the polyline vertex it was mapped
+to, within the identity band `vertexCertifies` uses (`contactIsVertex`); and the
+four chord departures at
+each injected point ALTERNATE between the sources (`portsCross`), so meeting at a
+point is distinguished from crossing at it. The third is threshold-free; the first
+two decide only "one point or two", and both decide it with that one identity band.
+A contact at an open source's own endpoint contributes three departures, not four,
 and is refused by construction at every density.
+
+The first condition is stated as IDENTITY with an injected point, never as position
+along the host segments. Excluding a contact for sitting within `segEps` of either
+segment's END is a different question, and it admits contacts that carry no node in
+the map: a source's own endpoint resting on the interior of the other's chord, and a
+transverse pass-through landing on a sample vertex of one polyline. Parallel pairs
+are covered separately — `segParams` rejects them on the determinant before any range
+test, so a collinear overlap reached that check as silence — by `collinearOverlap`,
+an overlap of positive length being no transverse crossing.
 
 **The fallback is the sampled path, never a degeneracy.** An uncertified pair is
 left unhandled exactly as before the lift, so it keeps the sampled topology with

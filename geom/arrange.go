@@ -1449,11 +1449,16 @@ func (a *arranger) analyticCrossHosted(i, j int, events []xEvent) bool {
 // applyAnalyticCut would use (postCutPolyline, so the gate can never test something
 // the cut phase does not do), then require
 //
-//   - the two spliced polylines to meet ONLY at those points — no crossing interior
-//     to a segment of each (polylinesMeetOnlyAtVertices). A leftover crossing has no
-//     vertex in the planar map, because a handled pair's sampled crossings are never
-//     recorded, so the face walk would run two edges through each other and fuse the
-//     regions on either side. That is the round-2 failure exactly.
+//   - the two spliced polylines to meet ONLY at those points — every contact between
+//     them IS an injected crossing point (polylinesMeetOnlyAtContacts). A leftover
+//     contact has no vertex in the planar map, because a handled pair's sampled
+//     crossings are never recorded, so the face walk would run two edges through each
+//     other and fuse the regions on either side. That is the round-2 failure exactly.
+//     The membership is decided by IDENTITY with an injected point, never by where the
+//     contact sits along its host segments: an arc's own endpoint resting on the
+//     interior of the other source's chord, and a transverse pass-through that lands on
+//     a sample vertex of one polyline, are both contacts with no node — and a
+//     segment-endpoint band admits both of them.
 //   - each contact to sit AT the polyline vertex it was mapped to (contactIsVertex).
 //     A spliced point satisfies this by construction; a contact postCutPolyline mapped
 //     onto an EXISTING vertex need not, because that mapping is decided in the source's
@@ -1470,10 +1475,13 @@ func (a *arranger) analyticCrossHosted(i, j int, events []xEvent) bool {
 //
 // Together those are the polygonal statement of "the sampled map has the same
 // crossing incidence as the exact geometry", which is what injecting an exact cut
-// needs and all it needs. The first two are threshold-free — no tolerance, no
-// chord-length bound, no crossing-angle floor — so a shallow crossing is judged by
-// whether the chords actually resolve it, not by how shallow it is; the third uses
-// the one band that already decides "same point or two", vertexCertifies'.
+// needs and all it needs. The third is threshold-free — no tolerance, no chord-length
+// bound, no crossing-angle floor — so a shallow crossing is judged by whether the
+// chords actually resolve it, not by how shallow it is. The first two decide only
+// "one point or two", and both decide it with the SAME identity band vertexCertifies
+// uses: the first to ask whether a contact IS an injected crossing point, the second
+// whether it IS the vertex it was mapped to. No crossing-angle or chord-length threshold
+// enters either verdict.
 //
 // Why analyticCrossHosted is not that statement for this pair: it requires the
 // crossing to be witnessed on the very segment pair carrying its two source
@@ -1502,7 +1510,7 @@ func (a *arranger) analyticCrossingsCertified(i, j int, events []xEvent) bool {
 	if pi == nil || pj == nil {
 		return false // a contact the sampled polyline has no place for
 	}
-	if !polylinesMeetOnlyAtVertices(pi, pj) {
+	if !polylinesMeetOnlyAtContacts(pi, pj, pts, weldIdentEps*a.scale) {
 		return false
 	}
 	for k := range pts {
@@ -1521,13 +1529,13 @@ func (a *arranger) analyticCrossingsCertified(i, j int, events []xEvent) bool {
 // same "one point or two" question about a graph vertex.
 //
 // For a spliced contact this holds by construction — the vertex is the contact point.
-// It is load-bearing for a contact cutSite reported as already carrying a vertex: that
-// decision is made in the source's PARAMETER (within segEps of a segment boundary), and
-// a parameter that close still admits a POSITION gap of up to a few times segEps·segment
-// length, orders of magnitude above the identity band. Certifying a contact with a real
-// gap hands the sampled vertex's own parameter — a plain sample fraction i/n — out as an
-// exact bound, describing a point the crossing is not at. A curve/curve pair has no
-// second safety net here: certification exempts it from the taint passes that would
+// It is load-bearing for a contact cutSite reported as already carrying a
+// vertex: that decision is made in the source's PARAMETER (within segEps of a segment
+// boundary), and a parameter that close still admits a POSITION gap of up to a few times
+// segEps·segment length, orders of magnitude above the identity band. Certifying a contact
+// with a real gap hands the sampled vertex's own parameter — a plain sample fraction i/n —
+// out as an exact bound, describing a point the crossing is not at. A curve/curve pair has
+// no second safety net here: certification exempts it from the taint passes that would
 // otherwise mark a weld inexact, so the certificate itself has to refuse. Refusing means
 // the sampled fallback, where the parameter is reported inexact and the topology is
 // unchanged. A contact that IS the vertex passes and keeps its exact bound: the sample
@@ -1730,20 +1738,55 @@ func (a *arranger) postCutPolyline(src int, ts []float64, pts [][2]float64) ([][
 	return out, at
 }
 
-// polylinesMeetOnlyAtVertices reports whether two polylines have no crossing interior
-// to a segment of each. A contact at a shared vertex is not interior to either
-// polyline's segments there, so the injected crossing points — vertices of both — are
-// exactly what this permits.
-func polylinesMeetOnlyAtVertices(pi, pj [][2]float64) bool {
+// polylinesMeetOnlyAtContacts reports whether the two spliced polylines meet ONLY at
+// the injected contact points pts — every contact between a segment of one and a
+// segment of the other IS one of those points, within the round-off identity band eps
+// (weldIdentEps·scale, the same band contactIsVertex and vertexCertifies decide "one
+// point or two" by).
+//
+// Membership is decided by IDENTITY with an injected point. Deciding it by POSITION
+// ALONG THE HOST SEGMENTS instead — excluding a contact whose segment parameter sits
+// within segEps of either segment's end, which is what this predicate used to do — is a
+// different question, and the gap between the two admits contacts that carry no node in
+// the planar map:
+//
+//   - a source's own ENDPOINT resting on the INTERIOR of the other source's chord. The
+//     endpoint is one segment's parameter 1, so the band excused it, while the contact
+//     is a real meeting of the two polylines that the exact geometry does not have.
+//   - a genuine transverse PASS-THROUGH that happens to land on a sample vertex of one
+//     of the polylines. It is the same crossing the gate exists to refuse, waved
+//     through for sitting at a vertex of one source rather than being a vertex of both.
+//
+// PARALLEL pairs never reached the parameter test at all: segParams rejects a pair by
+// its determinant before any range test, so a collinear OVERLAP — two chords sharing a
+// whole span rather than a point — arrived as silence and was accepted with no
+// tolerance applied to it whatever. collinearOverlap is the same coincident-edge test
+// the sampled loop uses, and an overlap of positive length is never a transverse
+// crossing, so it is refused outright.
+//
+// Refusing costs the sampled fallback, which keeps the correct sampled topology and
+// reports TExact=false; accepting one of these publishes a fused map as exact.
+func polylinesMeetOnlyAtContacts(pi, pj, pts [][2]float64, eps float64) bool {
+	injected := func(x, y float64) bool {
+		for _, p := range pts {
+			if math.Hypot(p[0]-x, p[1]-y) <= eps {
+				return true
+			}
+		}
+		return false
+	}
 	for x := 0; x+1 < len(pi); x++ {
 		si := tinySeg{ax: pi[x][0], ay: pi[x][1], bx: pi[x+1][0], by: pi[x+1][1]}
 		for y := 0; y+1 < len(pj); y++ {
 			sj := tinySeg{ax: pj[y][0], ay: pj[y][1], bx: pj[y+1][0], by: pj[y+1][1]}
+			if _, _, ok := collinearOverlap(&si, &sj); ok {
+				return false
+			}
 			p, ok := segParams(&si, &sj)
 			if !ok {
 				continue
 			}
-			if p.ti > segEps && p.ti < 1-segEps && p.tj > segEps && p.tj < 1-segEps {
+			if !injected(p.x, p.y) {
 				return false
 			}
 		}
