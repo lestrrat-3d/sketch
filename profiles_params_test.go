@@ -217,10 +217,15 @@ func TestBoundaryEdgeParams(t *testing.T) {
 
 	t.Run("a free-form entity withholds exact bounds across the whole sketch", func(t *testing.T) {
 		// The closed-form kernel never classifies a contact involving a spline (or an
-		// ellipse, elliptical arc, conic or NURBS), and nothing bounds how far such a
-		// curve runs from the chords it is sampled into — so it can cross another entity
-		// entirely between two samples, leaving the profile set fused while the certified
-		// circle/circle crossing publishes exact bounds describing it.
+		// ellipse, elliptical arc, conic or NURBS), and such a curve bows away from the
+		// chords it is sampled into — so it can cross another entity entirely between two
+		// samples, leaving the profile set fused while the certified circle/circle crossing
+		// publishes exact bounds describing it. The profile pass does prove a
+		// per-entity-kind upper bound on that departure and reports an invalid profile
+		// where a hidden crossing cannot be ruled out, but a flag is a warning, not a
+		// certificate: where that guard stays silent it has certified nothing about the
+		// profile set. So exactness is gated on the entity kinds alone, with no deviation
+		// estimate entering the verdict.
 		//
 		// So the engine withholds exactness for the whole sketch whenever any free-form
 		// entity is present: every BoundaryEdge reports TExact = false, the ones bounded
