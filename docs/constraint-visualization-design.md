@@ -9,9 +9,9 @@ constraints/dimensions or the *verification* that make this a constraint-solving
 verification oracle rather than a drawing library. The README's own "Why this
 exists" sells DOF analysis, conflict/redundancy detection, ambiguity probing and
 "does the solved geometry match intent." The gallery must lead with **that**
-story, not with decorative geometry. `docs/fusion-gap-analysis.md:181` already
-lists "under-constrained visualization data" (Fusion's blue/black DOF coloring)
-as a parity gap.
+story, not with decorative geometry. `docs/fusion-gap-analysis.md` ("Solver &
+diagnostics") already lists "under-constrained visualization data" (Fusion's
+blue/black DOF coloring) as a parity gap.
 
 This increment ships an **annotation-rendering layer** (dimensions, geometric
 glyphs, DOF coloring, conflict/status overlays) plus an **image pipeline + README
@@ -66,8 +66,9 @@ renderer's proven per-constraint data model rather than guessed up front.
 
 `svg.go` flips y **per coordinate** in `ty` (no SVG group transform, scale 1:1),
 and already has to manually negate rotation for the one directional element today
-(the `<ellipse>`: `svg.go:297-303`, "negate the angle"). Every annotation this
-increment adds is directional and hits the same trap. **Primary rule: compute
+(the `<ellipse>`: the `case *Ellipse:` branch of `Sketch.SVG` in `svg.go`,
+"negate the angle"). Every annotation this increment adds is directional and
+hits the same trap. **Primary rule: compute
 annotation key *points* in sketch coordinates, map them through `tx`/`ty`, and
 derive every screen direction/arrowhead/arc from the mapped points.** Because
 `tx`/`ty` are a pure translate + y-flip at scale 1:1 (screen units == sketch mm),
