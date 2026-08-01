@@ -84,13 +84,16 @@ type BoundaryEdge struct {
 	// edge included.
 	//
 	// The reason is that a free-form curve reaches the arrangement only as chords, and
-	// nothing bounds how far it runs from them: it can cross another curve entirely
-	// between two samples. The crossing is then missing from the map, the regions it
-	// separates are fused, and the scene's line/circle/arc pairs — cut in closed form —
-	// would publish that fused map with every bound exact. Gating on the source kinds
-	// answers that without any deviation estimate. The cost is exactness on the
-	// analytic sources sharing a scene with a free-form one; nothing else moves —
-	// topology, areas, degeneracy and the reported ranges are unchanged.
+	// it bows away from them: it can cross another curve entirely between two samples.
+	// The crossing is then missing from the map, the regions it separates are fused, and
+	// the scene's line/circle/arc pairs — cut in closed form — would publish that fused
+	// map with every bound exact. The arrangement does prove a per-family upper bound on
+	// that departure and reports [Arrangement.Degenerate] where a hidden crossing cannot
+	// be ruled out, but a flag is a warning, not a certificate: where that guard stays
+	// silent it has certified nothing about the map. So exactness is gated on the source
+	// kinds alone, with no deviation estimate entering the verdict. The cost is exactness
+	// on the analytic sources sharing a scene with a free-form one; nothing else moves —
+	// topology, areas and the reported ranges are unchanged.
 	//
 	// Within an all-analytic scene, a CUT bound is exact only when the closed-form
 	// kernel placed it, which it does for any pair of a Line, Circle and Arc.
@@ -184,10 +187,13 @@ type Arrangement struct {
 	// boundaries, which subdivides rather than invalidates.
 	SelfIntersections [][2]float64
 	// Degenerate is set when the arrangement could not be resolved soundly:
-	// collinear overlapping curves (duplicated/coincident edges) or a crossing
+	// collinear overlapping curves (duplicated/coincident edges), a crossing
 	// too close to a vertex or another crossing to place reliably given the
-	// sampling. The region set is then not trustworthy and a caller (the oracle)
-	// must treat the profiles as unverifiable rather than valid.
+	// sampling, or a free-form near miss — two curves approaching within the
+	// proven chord-deviation bounds of their own samples, so a crossing hidden
+	// between two samples, never placed at all, cannot be ruled out. The region
+	// set is then not trustworthy and a caller (the oracle) must treat the
+	// profiles as unverifiable rather than valid.
 	Degenerate bool
 	// Degeneracies lists representative points of the degenerate conditions.
 	Degeneracies [][2]float64

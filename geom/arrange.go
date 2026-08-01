@@ -24,6 +24,7 @@ func Regions(curves []Curve, closed []ClosedCurve, opts ...Option) *Arrangement 
 	a := newArranger(curves, closed, cfg)
 	a.densify()
 	a.intersect()
+	a.nearMissGuard()
 	a.split()
 	a.prune()
 	a.buildGraph()
@@ -218,9 +219,14 @@ type cut struct {
 type arranger struct {
 	sources []source
 	segs    []tinySeg
-	cfg     arrangeConfig
-	scale   float64
-	merge   float64
+	// segDev is the PROVEN upper bound, per tiny segment, on how far its source
+	// departs from that segment's own chord over the segment's parameter span —
+	// +Inf for a span no bound could be proven for. densify fills it; nearMissGuard
+	// is its only reader. See geom/nearmiss.go.
+	segDev []float64
+	cfg    arrangeConfig
+	scale  float64
+	merge  float64
 
 	verts     vertexTable
 	edges     []arrEdge        // undirected arrangement edges
@@ -264,25 +270,28 @@ type arranger struct {
 	// exact bound anywhere, including on the lines, circles and arcs that share the
 	// scene with it, and including a free-form curve's own uncut whole edge.
 	//
-	// A free-form source reaches the planar map only as chords, and nothing bounds how
-	// far one of them leaves its chord: the sampler places vertices, it does not certify
-	// a deviation, and no per-family enclosure is computed here. A curve with a lobe
-	// between two consecutive samples can therefore cross another curve entirely between
-	// them (measured on a knot-clustered degree-3 NURBS at the default sampling: a
+	// A free-form source reaches the planar map only as chords, so a curve with a lobe
+	// between two consecutive samples can cross another curve entirely between them
+	// (measured on a knot-clustered degree-3 NURBS at the default sampling: a
 	// midpoint-sampled deviation of 2.1e-05 against a true 4.7e-01 maximum deviation on
 	// the same segment). That crossing is missing from the map, the regions it separates
 	// FUSE, and the analytic pairs of the same scene — certified on their own merits and
-	// cut exactly — then publish the fused map with every bound exact. Gating on the
-	// SOURCE KINDS answers that without a threshold, a per-family deviation bound, or an
-	// estimate of any kind; in an all-analytic scene there is no sampled-only pair to
-	// reason about at all, and the only remaining reconciliation is the refused-crossing
-	// one below, whose bound errs toward withdrawing exactness.
+	// cut exactly — then publish the fused map with every bound exact.
+	//
+	// nearMissGuard now reports that fusion as Degenerate, from the per-segment
+	// deviation bounds in segDev, but it does NOT certify the crossing set where it
+	// stays silent: an approach beside a contact the sampled map already recorded is
+	// excused, and a free-form crossing's parameter is a sampled one whatever the
+	// topology. So exactness keeps the SOURCE-KIND gate, which needs no threshold and no
+	// estimate; in an all-analytic scene there is no sampled-only pair to reason about
+	// at all, and the only remaining reconciliation is the refused-crossing one below,
+	// whose bound errs toward withdrawing exactness.
 	//
 	// What it costs is exactness on the analytic sources sharing a scene with a
-	// free-form one. Topology, areas, degeneracy and the reported parameter ranges are
-	// untouched, and an all-analytic scene is unaffected. Lifting it needs a sampler
-	// that certifies its own deviation per source — a separate change to densify, not a
-	// wider estimate here.
+	// free-form one. Topology, areas and the reported parameter ranges are untouched,
+	// and an all-analytic scene is unaffected. Lifting it needs a sampler that certifies
+	// its own deviation per source — a separate change to densify, not a wider estimate
+	// here.
 	exactAllowed bool
 
 	// Certified analytic tangency contacts (increment 3): the exact points where
@@ -896,6 +905,11 @@ func (a *arranger) densify() {
 				src: si, pa: params[i-1], pb: params[i],
 				ax: prev[0], ay: prev[1], bx: cur[0], by: cur[1],
 			})
+			dev, ok := chordDeviation(s, params[i-1], params[i], prev[0], prev[1], cur[0], cur[1])
+			if !ok {
+				dev = math.Inf(1)
+			}
+			a.segDev = append(a.segDev, dev)
 			prev = cur
 		}
 		s.extent = math.Max(sMaxX-sMinX, sMaxY-sMinY)
@@ -1628,9 +1642,10 @@ func (a *arranger) noteSampledContact(i, j int, x, y float64) {
 // regions with every bound exact where seven is the truth.
 //
 // A SAMPLED-ONLY pair — one involving an ellipse, conic, spline or NURBS — can hide a
-// crossing the same way, and is answered a whole level up instead, by the exactAllowed
-// scene gate: such a pair only exists in a scene that publishes no exact bound at all.
-// Nothing here estimates how far a chord runs from its curve.
+// crossing the same way. Its exactness is answered a whole level up, by the exactAllowed
+// scene gate (such a pair only exists in a scene that publishes no exact bound at all),
+// and its DEGENERACY by nearMissGuard. Nothing here estimates how far a chord runs from
+// its curve; the bounds that do are in geom/nearmiss.go and are read only there.
 //
 // The unit is the CONNECTED COMPONENT, not the offending pair: a fused crossing moves
 // the face boundaries of every cycle it takes part in, so a fragment of ANY source

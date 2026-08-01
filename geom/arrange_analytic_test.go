@@ -552,19 +552,21 @@ func requireNoExactBounds(t *testing.T, arr *geom.Arrangement, what string) {
 
 func TestFreeFormSourceWithholdsExactBoundsSceneWide(t *testing.T) {
 	// A free-form source — ellipse, elliptical arc, conic, spline, closed spline, fit
-	// spline or NURBS — reaches the planar map only as chords, and nothing bounds how
-	// far one of them runs from its chord: the sampler places vertices, it does not
-	// certify a deviation. So such a curve can cross another entirely BETWEEN two
-	// samples; the crossing is then missing from the map, the regions it separates fuse,
-	// and the scene's analytic pairs — certified on their own merits and cut exactly —
-	// publish the fused map with every bound exact.
+	// spline or NURBS — reaches the planar map only as chords, so such a curve can cross
+	// another entirely BETWEEN two samples; the crossing is then missing from the map,
+	// the regions it separates fuse, and the scene's analytic pairs — certified on their
+	// own merits and cut exactly — publish the fused map with every bound exact.
 	//
-	// The gate is therefore on the SOURCE KINDS, not on any estimate of how far a chord
-	// can stray: a scene holding ANY free-form source publishes NO exact bound anywhere
-	// in it, including on the lines, circles and arcs beside it, and however far apart
-	// they sit. This test pins all three halves of that — the hidden crossing, the
-	// resolved crossing, and the untouching curve — plus the all-analytic control that
-	// keeps its exactness.
+	// The near-miss guard now flags that fusion as Degenerate wherever the two chords
+	// approach within their proven deviation bands with no contact recorded between
+	// them, but it does not certify the crossing set where it stays silent: a hidden
+	// crossing beside a recorded contact is excused, and a sampled crossing's parameter
+	// is approximate whatever the topology. So the EXACTNESS gate stays on the SOURCE
+	// KINDS: a scene holding ANY free-form source publishes NO exact bound anywhere in
+	// it, including on the lines, circles and arcs beside it, and however far apart they
+	// sit. This test pins all three halves of that — the hidden crossing, the resolved
+	// crossing, and the untouching curve — plus the all-analytic control that keeps its
+	// exactness.
 	circles := []geom.ClosedCurve{
 		geom.NewCircle(geom.NewPoint(0, 0), 5),
 		geom.NewCircle(geom.NewPoint(-6, 0), 5),
@@ -572,16 +574,19 @@ func TestFreeFormSourceWithholdsExactBoundsSceneWide(t *testing.T) {
 
 	// (a) The demonstrated hazard: an ellipse whose rim clips the first circle in a lens
 	// far below 256 segments per turn. The arrangement returns four regions — the lens
-	// absent — and no bound of the scene may read exact.
+	// absent — and no bound of the scene may read exact. The near-miss guard reports the
+	// missing crossing as Degenerate: the two rims approach within the sum of their
+	// chord-deviation bounds at this density with no contact recorded between them.
 	clipping := append(append([]geom.ClosedCurve{}, circles...),
 		geom.NewEllipse(geom.NewPoint(9.9997, 0), 5, 5, math.Pi/256))
 	coarse := geom.Regions(nil, clipping, geom.WithSegmentsPerTurn(256))
-	require.False(t, coarse.Degenerate, "three clean transverse crossings")
+	require.True(t, coarse.Degenerate, "a crossing this sampling cannot rule out")
 	requireExactBoundsReproduce(t, nil, clipping, coarse)
 	require.Len(t, coarse.Regions, 4, "the ellipse lens is below this sampling")
 	requireNoExactBounds(t, coarse, "a map missing a crossing")
 
-	// (b) Raising the density resolves the lens. Exactness stays withheld: whether a
+	// (b) Raising the density resolves the lens, and the deviation bands shrink below
+	// the clip depth, so the guard is satisfied too. Exactness stays withheld: whether a
 	// given density happens to resolve a given free-form contact is not something the
 	// arrangement can certify, so the verdict does not turn on it.
 	fine := geom.Regions(nil, clipping, geom.WithSegmentsPerTurn(2048))
