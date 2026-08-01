@@ -424,6 +424,66 @@ func TestAnalyticNearSampleVertexCrossingNotBlessedExact(t *testing.T) {
 	}
 }
 
+func TestAnalyticFusedCurveCrossingNotBlessedExact(t *testing.T) {
+	// A refused curve/curve crossing goes back to the SAMPLED path, and the sampled
+	// path can miss it entirely at a density that certifies the scene's OTHER pairs.
+	// The regions that crossing separates then fuse, while every surviving fragment is
+	// bounded by an exact cut of a certified pair — so the arrangement publishes a
+	// topology that is missing a crossing as fully certified.
+	//
+	// Three r=5 circles in general position do exactly that: pairs (0,1) and (0,2)
+	// certify, the shallow (1,2) crossing is below the sampling until spt=24, and the
+	// seven true regions read as five with all sixteen bounds exact.
+	//
+	// The wrong region count at coarse sampling is the sampled path's own pre-existing
+	// density limit — it moves with WithSegmentsPerTurn with or without any analytic
+	// authority, and this test does not assert it away. What must never happen is the
+	// BLESSING: an arrangement whose every bound reads exact has to be the converged
+	// one. Seven is the truth here (stable from spt=24 to spt=2048).
+	circles := func(c1, c2 [2]float64) []geom.ClosedCurve {
+		return []geom.ClosedCurve{
+			geom.NewCircle(geom.NewPoint(0, 0), 5),
+			geom.NewCircle(geom.NewPoint(c1[0], c1[1]), 5),
+			geom.NewCircle(geom.NewPoint(c2[0], c2[1]), 5),
+		}
+	}
+	c1 := [2]float64{0.9620341521811382, -7.264319290590297}
+	c2 := [2]float64{-1.343538285914439, 2.4540578044489263}
+	for _, spt := range []int{8, 12, 16, 24, 32, 48, 64, 128, 256, 512} {
+		closed := circles(c1, c2)
+		arr := geom.Regions(nil, closed, geom.WithSegmentsPerTurn(spt))
+		require.Falsef(t, arr.Degenerate, "three clean transverse crossings at spt=%d", spt)
+		requireExactBoundsReproduce(t, nil, closed, arr)
+		_, exact, partial := arrangementArea(arr)
+		if exact && partial {
+			require.Lenf(t, arr.Regions, 7, "an all-exact arrangement is the converged one; spt=%d blessed a fused map", spt)
+		}
+		if spt <= 16 {
+			// The reported case, pinned directly: at these densities the (1,2) crossing
+			// is absent from the sampled map, so no bound of the component may read
+			// exact — whatever the region count does.
+			require.Falsef(t, exact, "the fused map at spt=%d must report no exact bound", spt)
+		}
+		if spt >= 24 {
+			require.Truef(t, exact && partial, "the resolved map at spt=%d keeps its exact bounds", spt)
+		}
+	}
+
+	// The same construction with the two outer circles a hair short of tangency pushes
+	// the failure window past the ADAPTIVE DEFAULT density (256 segments per turn) that
+	// Sketch.Profiles renders at — the ordinary consumer path, no option involved.
+	dx, dy := c2[0]-c1[0], c2[1]-c1[1]
+	s := (10 - 1e-4) / math.Hypot(dx, dy)
+	closed := circles(c1, [2]float64{c1[0] + dx*s, c1[1] + dy*s})
+	arr := geom.Regions(nil, closed)
+	require.False(t, arr.Degenerate, "a shallow crossing is not a degeneracy")
+	requireExactBoundsReproduce(t, nil, closed, arr)
+	_, exact, partial := arrangementArea(arr)
+	require.Len(t, arr.Regions, 5, "the default density still fuses this shallow crossing")
+	require.True(t, partial, "the certified pairs still cut their circles")
+	require.False(t, exact, "a fused map is never exact, default sampling included")
+}
+
 func TestAnalyticArcArcCrossingCertified(t *testing.T) {
 	// The certificate is about the PAIR being two sampled curves, not about them being
 	// full circles: two arcs on different carriers, closed into a wire by two lines,

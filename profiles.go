@@ -134,10 +134,17 @@ type BoundaryEdge struct {
 	// A crossing between two CURVED entities (*Circle/*Arc against *Circle/*Arc) is a
 	// further case: both sides are sampled as chords there, so it is exact only when
 	// the arrangement can certify that placing the exact crossing points leaves the
-	// sampled topology unchanged. Whatever fails that check keeps the correct topology
-	// and reports TExact = false — a sampling too coarse to resolve the crossing, and
-	// also a contact no sampling can certify: one at an arc's own endpoint, and one
+	// sampled topology unchanged. Whatever fails that check falls back to the sampled
+	// path and reports TExact = false — a sampling too coarse to resolve the crossing,
+	// and also a contact no sampling can certify: one at an arc's own endpoint, and one
 	// landing within round-off of a sample vertex.
+	//
+	// Below the density at which the sampled path resolves such a crossing ITSELF, the
+	// crossing is missing from the map and the regions it separates are fused. Exactness
+	// is then withdrawn from every edge of the affected connected component, the edges of
+	// certified pairs included, so an all-exact profile set is also saying no crossing is
+	// missing from it. The region set itself is what the sampled path produced, as it was
+	// before any crossing could be certified.
 	//
 	// A WHOLE edge (Partial = false) is bounded by Entity's own domain ends. Those ends
 	// are the entity's exact t=0/t=1 evaluation for every curve EXCEPT *EllipticalArc,

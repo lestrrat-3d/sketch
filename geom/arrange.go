@@ -233,6 +233,21 @@ type arranger struct {
 	events     map[[2]int][]xEvent
 	sourceSegs [][]int
 
+	// Curve/curve crossings the incidence certificate REFUSED, so the pair fell back
+	// to the sampled path (see analyticCrossingsCertified), and the contacts the
+	// SAMPLED loop actually recorded between two sources — a crossing it found, or a
+	// weld of their sample vertices. The fallback is only sound while the sampled map
+	// represents those crossings; where it does not, the map is fused and no fragment
+	// of the affected component may report an exact parameter. refuseExactOnFusedMap
+	// compares the two and fills exactRefused.
+	deferredCross   map[[2]int][]xEvent
+	sampledContacts map[[2]int][][2]float64
+
+	// exactRefused withdraws exact authority per SOURCE: split() forces every bound of
+	// such a source to exact:false, whatever its own cut records say. Nil when nothing
+	// is refused (the common case).
+	exactRefused []bool
+
 	// Certified analytic tangency contacts (increment 3): the exact points where
 	// the rotation system must order coincident-tangent ports by curvature instead
 	// of by chord direction. Used ONLY at these vertices — at a sampled crossing the
@@ -984,6 +999,7 @@ func (a *arranger) intersect() {
 			if p.sin < 1e-3 {
 				a.flagDegenerate(p.x, p.y, si.src, sj.src)
 			}
+			a.noteSampledContact(si.src, sj.src, p.x, p.y)
 			// exact:false — a sampled chord-chord crossing. Both the parameter and
 			// the point are approximations that converge with sampling density.
 			//
@@ -1016,6 +1032,7 @@ func (a *arranger) intersect() {
 			}
 		}
 	}
+	a.refuseExactOnFusedMap()
 }
 
 // analyticPrepass classifies every supported (line/circle/arc) source pair with
@@ -1030,6 +1047,8 @@ func (a *arranger) intersect() {
 func (a *arranger) analyticPrepass() {
 	a.handled = make(map[[2]int]struct{})
 	a.events = make(map[[2]int][]xEvent)
+	a.deferredCross = make(map[[2]int][]xEvent)
+	a.sampledContacts = make(map[[2]int][][2]float64)
 	a.sourceSegs = make([][]int, len(a.sources))
 	for i := range a.segs {
 		a.sourceSegs[a.segs[i].src] = append(a.sourceSegs[a.segs[i].src], i)
@@ -1077,10 +1096,17 @@ func (a *arranger) analyticPrepass() {
 			//
 			// The fallback is the SAMPLED path, not a degeneracy: leave the pair
 			// unhandled and let the sampled loop resolve it exactly as before the lift.
-			// Sampled topology for such a pair is already correct — what the lift buys
-			// is the exact cut parameter (BoundaryEdge.TExact) and the exact area, so a
-			// pair too coarsely sampled to certify loses only that, and no caller that
-			// was blessed before the lift is refused after it.
+			// What the lift buys is the exact cut parameter (BoundaryEdge.TExact) and the
+			// exact area, so a pair too coarsely sampled to certify loses only that, and
+			// no caller that was blessed before the lift is refused after it.
+			//
+			// The sampled path resolves such a pair correctly wherever it finds the
+			// crossing at all — and below that density it does not find it, fusing the
+			// regions the crossing separates. That fusion is the sampled path's own
+			// pre-existing density limit, but the OTHER pairs of the same component,
+			// certified on their own merits, would then hand out exact bounds describing
+			// the fused map. So each refused crossing is recorded here and reconciled
+			// against the sampled map after the sampled loop (refuseExactOnFusedMap).
 			curveCrossPair := nCross > 0 && isCurvedKind(si.kind) && isCurvedKind(sj.kind)
 			if curveCrossPair && !a.analyticCrossingsCertified(i, j, events) {
 				if ambiguous {
@@ -1088,6 +1114,13 @@ func (a *arranger) analyticPrepass() {
 					sx, sy := sourceRep(sj)
 					a.flagDegenerate((rx+sx)/2, (ry+sy)/2, i, j)
 				}
+				var crossings []xEvent
+				for _, e := range events {
+					if e.kind == evCross {
+						crossings = append(crossings, e)
+					}
+				}
+				a.deferredCross[pairKey(i, j)] = crossings
 				continue
 			}
 			a.handled[[2]int{i, j}] = struct{}{}
@@ -1465,6 +1498,104 @@ func (a *arranger) contactIsVertex(p [][2]float64, k int, pt [2]float64) bool {
 		return false
 	}
 	return math.Hypot(p[k][0]-pt[0], p[k][1]-pt[1]) <= weldIdentEps*a.scale
+}
+
+// noteSampledContact records that the SAMPLED loop put a contact between two DIFFERENT
+// sources at (x,y): a chord/chord crossing, or a weld of their sample vertices (the
+// shape a crossing takes when it lands on a sample vertex of both). It is the evidence
+// refuseExactOnFusedMap reconciles a refused analytic crossing against.
+func (a *arranger) noteSampledContact(i, j int, x, y float64) {
+	if i == j {
+		return
+	}
+	k := pairKey(i, j)
+	a.sampledContacts[k] = append(a.sampledContacts[k], [2]float64{x, y})
+}
+
+// refuseExactOnFusedMap withdraws exact authority from every source of a connected
+// component whose planar map is FUSED — one where a curve/curve crossing the incidence
+// certificate refused is also missing from the sampled map that took over.
+//
+// Refusing a crossing hands the pair back to the sampled path, which is sound only
+// while that path RESOLVES the crossing. Below the density where the two chord
+// polylines meet at all, it does not: the crossing disappears, the regions it separates
+// fuse, and nothing flags it (this is the sampled path's own pre-existing sampling
+// limit — the region count changes with WithSegmentsPerTurn either way, and repairing
+// that is not what this pass is for). What this pass prevents is the fused map being
+// published as EXACT. The other pairs of the same component are certified on their own
+// merits and cut exactly, so every surviving fragment reports TExact — describing a
+// topology that is wrong. Three r=5 circles in general position show it directly: two
+// pairs certify, the third pair's shallow crossing is below the sampling, and the
+// arrangement reports five regions with every bound exact where seven is the truth.
+//
+// The unit is the CONNECTED COMPONENT, not the offending pair: a fused crossing moves
+// the face boundaries of every cycle it takes part in, so a fragment of ANY source
+// reachable through contacts is describing the fused map. Sources are joined here by
+// any contact at all — an analytic event of a handled pair, a refused crossing, or a
+// sampled contact — so an untouched cluster elsewhere in the scene keeps its exactness.
+//
+// Refusal costs only the exactness FLAG. Topology, areas and degeneracy are untouched,
+// and the reported ranges stay the sampled ones, which is exactly what the same
+// geometry reported before curve/curve crossings could certify at all.
+func (a *arranger) refuseExactOnFusedMap() {
+	if len(a.deferredCross) == 0 {
+		return
+	}
+	uf := newUnionFind(len(a.sources))
+	for k := range a.events {
+		uf.union(k[0], k[1])
+	}
+	for k := range a.deferredCross {
+		uf.union(k[0], k[1])
+	}
+	for k := range a.sampledContacts {
+		uf.union(k[0], k[1])
+	}
+	fused := map[int]struct{}{}
+	for k, evs := range a.deferredCross {
+		for _, e := range evs {
+			if a.sampledRepresents(k[0], k[1], e) {
+				continue
+			}
+			fused[uf.find(k[0])] = struct{}{}
+			break
+		}
+	}
+	if len(fused) == 0 {
+		return
+	}
+	a.exactRefused = make([]bool, len(a.sources))
+	for s := range a.sources {
+		if _, bad := fused[uf.find(s)]; bad {
+			a.exactRefused[s] = true
+		}
+	}
+}
+
+// sampledRepresents reports whether the sampled map carries a contact for a refused
+// analytic crossing of the pair.
+//
+// The sampled crossing does not sit ON the exact one — it is displaced by roughly the
+// chord sagitta divided by the sine of the crossing angle — so the question is asked
+// within one chord of the two host segments (the same bound sampledCrossingsExplained
+// uses, and where the chord approximation's own error lives), floored at the vertex
+// merge tolerance for a contact the sampling recorded as a weld. Judging a represented
+// crossing unrepresented costs only the exactness flag on that component; the reverse
+// would publish a fused map as exact, so the bound is deliberately the tight one.
+func (a *arranger) sampledRepresents(i, j int, e xEvent) bool {
+	tol := a.merge
+	if si := a.segContaining(i, e.ti); si >= 0 {
+		tol = math.Max(tol, a.segLen(si))
+	}
+	if sj := a.segContaining(j, e.tj); sj >= 0 {
+		tol = math.Max(tol, a.segLen(sj))
+	}
+	for _, p := range a.sampledContacts[pairKey(i, j)] {
+		if math.Hypot(p[0]-e.x, p[1]-e.y) <= tol {
+			return true
+		}
+	}
+	return false
 }
 
 // postCutPolyline returns source src's sampled polyline with the given exact contact
@@ -1879,6 +2010,10 @@ func (a *arranger) fragmentSuppressed(src int, p0, p1 float64) bool {
 // end-to-end join between two curves stays a join.
 func (a *arranger) taintMergedEndpoints(si, sj *tinySeg) {
 	a.forEachMergedEnd(si, sj, func(e mergedEnd) {
+		// A weld IS a contact the sampled map made between the two sources — the
+		// shape a crossing takes when it lands on a sample vertex of both rather
+		// than interior to a chord of each. refuseExactOnFusedMap reads it as such.
+		a.noteSampledContact(si.src, sj.src, e.xi, e.yi)
 		a.taintSampledVertex(si.src, e.ti)
 		a.taintSampledVertex(sj.src, e.tj)
 	})
@@ -2241,10 +2376,16 @@ func (a *arranger) split() {
 		// audited: it is a fact about the source's parameterization ("this bound IS
 		// the curve's domain end"), which a weld does not change, and Whole must not
 		// be lost to one.
+		//
+		// A source whose component's map is FUSED (refuseExactOnFusedMap) is refused
+		// here wholesale, cut records and vertex identity notwithstanding: its bounds
+		// are individually right about their own curve and collectively describe a
+		// topology that is missing a crossing.
+		refused := a.exactRefused != nil && a.exactRefused[s.src]
 		a.edges = append(a.edges, arrEdge{u: f.u, v: f.v, src: s.src,
 			pu: s.param(f.b0.t), pv: s.param(f.b1.t),
-			exactU: f.b0.exact && a.vertexCertifies(f.u, f.b0.px, f.b0.py),
-			exactV: f.b1.exact && a.vertexCertifies(f.v, f.b1.px, f.b1.py),
+			exactU: !refused && f.b0.exact && a.vertexCertifies(f.u, f.b0.px, f.b0.py),
+			exactV: !refused && f.b1.exact && a.vertexCertifies(f.v, f.b1.px, f.b1.py),
 			endU:   f.b0.srcEnd, endV: f.b1.srcEnd})
 	}
 }
