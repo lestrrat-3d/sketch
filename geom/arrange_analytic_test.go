@@ -901,6 +901,67 @@ func TestAnalyticCoincidentCarrierDistantSceneStaysDegenerate(t *testing.T) {
 	require.InDelta(t, math.Pi, alone.Regions[0].Area, 1e-9)
 }
 
+// TestAnalyticCoincidentCarrierHalfTurnFragmentSurvives pins that a suppression
+// window classifies a fragment by the source EVALUATED at the fragment's parameter
+// midpoint, not by the midpoint of the fragment's chord. densify floors a source at
+// two tiny segments, so a coincident circle at a low WithSegmentsPerTurn is two
+// semicircle fragments whose chords are diameters — each chord midpoint is the
+// carrier CENTRE, where the window's angle test reads atan2(0,0)=0 and answers about
+// nothing. With the centre offset far enough for the perpendicular residue to cancel
+// (any offset of order 1 and up), both semicircles then read as angle 0, both were
+// suppressed, and the disk vanished with Degenerate=false.
+func TestAnalyticCoincidentCarrierHalfTurnFragmentSurvives(t *testing.T) {
+	for _, cy := range []float64{0, 1, 10, 1e3} {
+		for _, spt := range []int{1, 2, 3, 4, 8, 64} {
+			c := geom.NewPoint(0, cy)
+			arc := geom.NewArc(c, geom.NewPoint(1, cy), geom.NewPoint(-1, cy)) // sweep [0,π]
+			arr := geom.Regions([]geom.Curve{arc}, []geom.ClosedCurve{geom.NewCircle(c, 1)},
+				geom.WithSegmentsPerTurn(spt))
+			require.Falsef(t, arr.Degenerate, "cy=%g spt=%d: an ordinary single-window overlap resolves", cy, spt)
+			require.Lenf(t, arr.Regions, 1, "cy=%g spt=%d: the disk closes over the arc plus the circle's other half", cy, spt)
+			require.InDeltaf(t, math.Pi, arr.Regions[0].Area, 1e-9, "cy=%g spt=%d", cy, spt)
+		}
+	}
+}
+
+// TestAnalyticCoincidentCarrierUnsplitBoundaryStaysDegenerate pins that a
+// suppression window is recorded only when both of its boundaries really become
+// fragment boundaries on both sources. cutSite declines to cut whenever a boundary's
+// local chord parameter falls within segEps of a segment end — a PARAMETER test — so
+// at coarse sampling a boundary sitting a whole vertex-merge tolerance away from the
+// nearest sample vertex can still record no cut. The window was recorded anyway, and
+// split then suppressed the unsplit whole-segment fragments, deleting the hair that
+// closes the region with Degenerate=false and no region at all.
+//
+// The fixture is a unit circle and an exactly coincident arc whose gap is 1.2e-9 rad
+// with a vertex merge (1e-10) below it, so the hair cannot weld shut instead: the
+// overlap boundary sits at source parameter t≈9.55e-11, whose local parameter t·spt
+// stays under segEps for spt ≤ 10.
+func TestAnalyticCoincidentCarrierUnsplitBoundaryStaysDegenerate(t *testing.T) {
+	c := geom.NewPoint(0, 0)
+	at := func(ang float64) *geom.Point { return geom.NewPoint(math.Cos(ang), math.Sin(ang)) }
+	half := 0.6e-9
+	build := func(spt int) *geom.Arrangement {
+		return geom.Regions([]geom.Curve{geom.NewArc(c, at(half), at(-half))},
+			[]geom.ClosedCurve{geom.NewCircle(c, 1)},
+			geom.WithVertexMerge(1e-10), geom.WithSegmentsPerTurn(spt))
+	}
+
+	for _, spt := range []int{2, 3, 4, 6, 8, 10} {
+		arr := build(spt)
+		require.Truef(t, arr.Degenerate,
+			"spt=%d: a window boundary that materializes no split must be refused, not suppressed against", spt)
+	}
+
+	// Above that density the boundaries cut normally and the resolution is unchanged.
+	for _, spt := range []int{11, 16, 64, 256} {
+		arr := build(spt)
+		require.Falsef(t, arr.Degenerate, "spt=%d: both boundaries cut, so the pair resolves", spt)
+		require.Lenf(t, arr.Regions, 1, "spt=%d", spt)
+		require.InDeltaf(t, math.Pi, arr.Regions[0].Area, 1e-9, "spt=%d", spt)
+	}
+}
+
 // TestAnalyticCoincidentCarrierNearFullGapStaysClosed covers a coincident overlap
 // whose window leaves only a hair of the losing source outside it: a unit circle and
 // an exactly coincident arc sweeping all but `gap` radians. The circle's exterior

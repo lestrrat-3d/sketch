@@ -268,13 +268,22 @@ type angularWindow struct {
 // The window is tested EXACTLY, with no outward slop, and the asymmetry is
 // load-bearing. A fragment that genuinely lies inside the window is separated from
 // either end of it by at least half its own angular extent, because both window
-// boundaries are cut sites (resolveCoincidentOverlap cuts the losing source at both,
-// so no emitted fragment straddles one) — so it needs no margin to be recognised.
+// boundaries are boundaries of the losing source's own emitted fragments, so no
+// emitted fragment straddles one — and it therefore needs no margin to be
+// recognised. That is a CHECKED fact, not an assumption: the cut phase declines to
+// cut near an existing vertex and can leave a boundary with no split at all, so
+// resolveCoincidentOverlap refuses the whole resolution (leaving the pair
+// degenerate) unless overlapBoundariesSplit confirms both boundaries materialize.
 // A fragment OUTSIDE the window, by contrast, can sit arbitrarily close to it: the
 // losing source's own gap beyond the overlap is a real span of any width, and it is
 // the only thing left to close a region when the overlap covers nearly the whole
 // carrier. An outward slop of arcParamEps deleted exactly that fragment for every
 // gap up to twice it, taking the region with it and leaving nothing flagged.
+//
+// The point handed in must be the source EVALUATED at the fragment's parameter
+// midpoint, never the midpoint of the fragment's chord: a fragment spanning half a
+// circle has its chord midpoint AT the carrier centre, where the angle this test
+// reads is meaningless (see fragmentSuppressed).
 func (w angularWindow) contains(x, y float64) bool {
 	ang := math.Atan2(y-w.cy, x-w.cx)
 	d := math.Mod(ang-w.angLo, 2*math.Pi)
@@ -1098,10 +1107,11 @@ func (a *arranger) analyticPrepass() {
 					// coincident LINE carrier, or carriers equal only within the
 					// classification band rather than at round-off) keeps the original
 					// unconditional flag — e.overlap is nil there (populated only by
-					// circleCircleEvents' in-scope branch).
-					if e.overlap != nil {
-						a.resolveCoincidentOverlap(i, j, e.overlap)
-					} else {
+					// circleCircleEvents' in-scope branch). A resolution the cut phase
+					// cannot materialize both window boundaries for is REFUSED the same
+					// way, since suppressing against a window whose boundaries are not
+					// splits deletes geometry silently (see resolveCoincidentOverlap).
+					if e.overlap == nil || !a.resolveCoincidentOverlap(i, j, e.overlap) {
 						a.flagDegenerate(e.x, e.y, i, j)
 					}
 				case evCross:
@@ -1408,8 +1418,10 @@ func (a *arranger) applyAnalyticCut(src int, t, x, y float64) {
 // suppression window on the LOSING source (j, always the higher of the pair's
 // indices — analyticPrepass's own i<j iteration order — see "The SourceIndex
 // decision" in docs/coincident-carrier-resolution-design.md), so split() omits
-// its edges over the shared span; the NAMED source i represents it instead. The
-// caller marks the pair handled rather than degenerate.
+// its edges over the shared span; the NAMED source i represents it instead. It
+// reports whether the resolution was taken: the caller marks a resolved pair
+// handled rather than degenerate, and flags a REFUSED one exactly as it flags
+// every other out-of-scope overlap.
 //
 // Both boundary points are exact — each is one operand's own domain end or the
 // other's, never a solved root — and both cuts are stamped exact:true on BOTH
@@ -1417,7 +1429,17 @@ func (a *arranger) applyAnalyticCut(src int, t, x, y float64) {
 // sound only because the event is emitted only for carriers identical at round-off
 // (carriersIdentical), which bounds how far the point can sit off the other
 // operand's own curve.
-func (a *arranger) resolveCoincidentOverlap(i, j int, ov *overlapExtent) {
+//
+// The resolution is REFUSED unless both boundaries really become fragment
+// boundaries on both sources (overlapBoundariesSplit). A suppression window whose
+// boundaries do not exist as splits is unsound: split() would then delete a
+// fragment reaching outside the window — the hair that closes the region — with
+// nothing flagged. Recording no window at all leaves the pair degenerate, which a
+// caller can act on.
+func (a *arranger) resolveCoincidentOverlap(i, j int, ov *overlapExtent) bool {
+	if !a.overlapBoundariesSplit(i, ov.loTi, ov.hiTi, ov) || !a.overlapBoundariesSplit(j, ov.loTj, ov.hiTj, ov) {
+		return false
+	}
 	a.applyAnalyticCut(i, ov.loTi, ov.loX, ov.loY)
 	a.applyAnalyticCut(i, ov.hiTi, ov.hiX, ov.hiY)
 	a.applyAnalyticCut(j, ov.loTj, ov.loX, ov.loY)
@@ -1428,13 +1450,82 @@ func (a *arranger) resolveCoincidentOverlap(i, j int, ov *overlapExtent) {
 	a.suppressed[j] = append(a.suppressed[j], angularWindow{
 		cx: a.sources[j].cx, cy: a.sources[j].cy, angLo: ov.angLo, width: ov.width,
 	})
+	return true
 }
 
-// sourceSuppressed reports whether the point (x,y) on source src falls inside any
-// suppression window recorded for it.
-func (a *arranger) sourceSuppressed(src int, x, y float64) bool {
-	for _, w := range a.suppressed[src] {
-		if w.contains(x, y) {
+// overlapBoundariesSplit reports whether BOTH boundary points of a coincident-carrier
+// overlap window really become boundaries of source src's emitted fragments — the
+// premise the exact, no-slop window test rests on ("no emitted fragment straddles a
+// window boundary", see angularWindow.contains).
+//
+// It is checked rather than assumed because applyAnalyticCut records NOTHING when
+// cutSite reports the sampled map already has a vertex at the contact, and cutSite
+// answers that in PARAMETER space (a local chord parameter within segEps of a
+// segment end, or a parameter past an open source's domain end). At coarse sampling
+// a boundary can sit within segEps of a sample vertex while its POINT is many merge
+// tolerances away from that vertex, so nothing materializes there at all: the span
+// stays one fragment, and split() then suppresses a fragment that reaches outside
+// the window.
+//
+// Two boundaries landing on ONE tiny segment must additionally survive split's
+// segment-parameter dedup as distinct cuts, or they collapse into a single boundary
+// and the fragment between them — the gap the region needs — is never emitted.
+func (a *arranger) overlapBoundariesSplit(src int, tLo, tHi float64, ov *overlapExtent) bool {
+	segLo, localLo, ok := a.overlapBoundarySplit(src, tLo, ov.loX, ov.loY)
+	if !ok {
+		return false
+	}
+	segHi, localHi, ok := a.overlapBoundarySplit(src, tHi, ov.hiX, ov.hiY)
+	if !ok {
+		return false
+	}
+	return segLo != segHi || math.Abs(localLo-localHi) > segEps
+}
+
+// overlapBoundarySplit reports whether one overlap boundary — source parameter t of
+// source src, at the point (x,y) — becomes a boundary of src's emitted fragments,
+// and returns the tiny segment and the local chord parameter split() sees it at.
+//
+// Either the cut phase records a cut for it, or — for the parameters applyAnalyticCut
+// deliberately no-ops on — the boundary must already BE a vertex of this source: a
+// segment end within the vertex table's own merge tolerance of the boundary point,
+// since that is exactly when the graph treats the two as one vertex. Answering the
+// second case by DISTANCE is the whole point; the parameter proximity cutSite used to
+// decline the cut says nothing about where the boundary point actually is.
+func (a *arranger) overlapBoundarySplit(src int, t, x, y float64) (int, float64, bool) {
+	if si, local, atVertex := a.cutSite(src, t); si >= 0 && !atVertex {
+		return si, local, true // applyAnalyticCut records a cut at exactly (x,y)
+	}
+	for _, si := range a.sourceSegs[src] {
+		s := &a.segs[si]
+		if math.Hypot(s.ax-x, s.ay-y) <= a.merge {
+			return si, 0, true
+		}
+		if math.Hypot(s.bx-x, s.by-y) <= a.merge {
+			return si, 1, true
+		}
+	}
+	return -1, 0, false
+}
+
+// fragmentSuppressed reports whether the fragment of source src spanning natural
+// parameters p0..p1 falls inside a suppression window recorded for src.
+//
+// The fragment is classified by the source EVALUATED at its parameter midpoint — a
+// point on the source by construction, whatever the fragment's extent. Its CHORD
+// midpoint is not a substitute: for a fragment spanning half a circle the chord is a
+// diameter and its midpoint is the carrier centre itself, where the window's angle
+// test reads atan2(0,0) = 0 and suppresses (or keeps) the fragment for a reason that
+// has nothing to do with where it lies. A tiny segment never wraps a closed source's
+// seam, so the midpoint parameter is genuinely between p0 and p1.
+func (a *arranger) fragmentSuppressed(src int, p0, p1 float64) bool {
+	ws := a.suppressed[src]
+	if len(ws) == 0 {
+		return false
+	}
+	p := a.sources[src].at((p0 + p1) / 2)
+	for _, w := range ws {
+		if w.contains(p[0], p[1]) {
 			return true
 		}
 	}
@@ -1506,7 +1597,8 @@ func (a *arranger) auditMergedEndpoints(si, sj *tinySeg) {
 //
 // An event's CONTACT POINTS are what must be tested, and for a resolvable
 // coincident-carrier overlap those are the window's two BOUNDARY points, not e.x/e.y:
-// the boundary points are where resolveCoincidentOverlap cuts both sources, while
+// the boundary points are where the two carriers exactly touch, and where
+// resolveCoincidentOverlap cuts both sources when it takes the resolution, while
 // e.x/e.y is only the window midpoint, a locator for the degeneracy flag and never a
 // cut site. Testing the midpoint alone tainted the very cuts the resolution had just
 // made exact, whenever an overlap boundary happened to weld onto a sample vertex.
@@ -1521,9 +1613,11 @@ func (a *arranger) eventExplains(events []xEvent, m mergedEnd) bool {
 	return false
 }
 
-// eventContacts returns the points an analytic event actually places a cut at: the
+// eventContacts returns the points an analytic event places a contact at: the
 // event's own point, plus — for a resolvable coincident-carrier overlap — the two
-// boundary points of its window (see resolveCoincidentOverlap).
+// boundary points of its window (see resolveCoincidentOverlap). They are contacts of
+// the geometry, so they answer the weld audit whether or not the resolution was
+// ultimately taken.
 func eventContacts(e xEvent) [][2]float64 {
 	if e.overlap == nil {
 		return [][2]float64{{e.x, e.y}}
@@ -1823,14 +1917,14 @@ func (a *arranger) split() {
 			// this one is omitted rather than emitted as a duplicate boundary. The two
 			// boundary points are canonicalized above regardless (both sources were cut
 			// at the SAME exact event point), so the named source's edge still has valid
-			// endpoints to attach to. The midpoint of the fragment's chord is exactly on
-			// the shared carrier's angular bisector of its two endpoints (the chord's
-			// perpendicular bisector passes through the center), so it needs no
-			// densification to test — and testing that ONE point answers for the whole
-			// fragment because both window boundaries are cut sites, so no emitted
-			// fragment straddles one (see angularWindow.contains, which is why the
-			// window is tested with no slop).
-			if a.sourceSuppressed(s.src, (b0.px+b1.px)/2, (b0.py+b1.py)/2) {
+			// endpoints to attach to. The fragment is classified by the source evaluated
+			// at its PARAMETER midpoint — never its chord midpoint, which for a
+			// half-circle fragment is the carrier centre itself (see fragmentSuppressed)
+			// — and testing that ONE point answers for the whole fragment because
+			// resolveCoincidentOverlap verified both window boundaries split the losing
+			// source, so no emitted fragment straddles one (see angularWindow.contains,
+			// which is why the window is tested with no slop).
+			if a.fragmentSuppressed(s.src, s.param(b0.t), s.param(b1.t)) {
 				continue
 			}
 			// Exactness is decided HERE, against the vertex the boundary actually

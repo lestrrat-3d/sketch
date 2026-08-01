@@ -40,7 +40,8 @@ type xEvent struct {
 	// carriersIdentical), which callers still treat as an unconditional degeneracy.
 	//
 	// When it is non-nil, its lo/hi are the event's authoritative CONTACT points —
-	// the two sites resolveCoincidentOverlap cuts both sources at. x/y is the window
+	// the two sites resolveCoincidentOverlap cuts both sources at when it takes the
+	// resolution (it refuses a boundary it cannot split). x/y is the window
 	// MIDPOINT, a locator for a degeneracy flag, and is never a cut site, so anything
 	// asking "where does this event place a contact" must read the extent too
 	// (arrange.go's eventContacts).

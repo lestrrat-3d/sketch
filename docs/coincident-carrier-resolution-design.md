@@ -14,8 +14,9 @@ request; the note itself is not committed to this repository).
 
 Two arrangement sources with the same circle/arc carrier (same center, same
 radius) are classified `evOverlap` and unconditionally `flagDegenerate`d
-(`geom/arrange.go:1042-1043`, fed by `circleCircleEvents`'s coincident-carrier
-branch and `coincidentArcOverlap`, `geom/arrange_events.go:159-182,299-310`).
+(the `evOverlap` arm of `analyticPrepass`, `geom/arrange.go`, fed by
+`circleCircleEvents`'s coincident-carrier branch and `coincidentArcOverlap`,
+`geom/arrange_events.go`).
 This is not a rare input: it is the **normal case** for a gear tooth, whose
 root arc is by construction an arc of the hub circle it sits on — every tooth
 in a 12–45-tooth gear repeats it. `TestAnalyticSameCarrierArcs`
@@ -90,6 +91,15 @@ exactly as today:
   refusal band" below: classification as coincident is scale-relative to
   `tangentCertify`, but RESOLUTION additionally requires the two carriers to be
   the same curve at round-off.
+- **An overlap boundary the cut phase cannot materialize as a split.** The
+  suppression in step 4 is only sound while every emitted fragment lies wholly
+  inside the window or wholly outside it, which needs both boundaries to be
+  boundaries of the losing source's own fragments. `applyAnalyticCut` records
+  nothing when `cutSite` judges — in PARAMETER space — that a vertex is already
+  there, so at coarse sampling a boundary can sit a whole vertex-merge tolerance
+  away from the nearest sample vertex and still split nothing. Step 2 verifies
+  both boundaries rather than assuming them, and a pair failing that check is
+  refused like any other out-of-scope overlap.
 
 ## Mechanism
 
@@ -119,11 +129,29 @@ classification band. See "The refusal band" for why, and for the exact bound.
    solved root, matching the note's own framing ("exact — they are the arc's
    own domain ends, interior parameters on the circle").
 2. **Cut both sources at both boundary points** via the existing
-   `applyAnalyticCut(src, t, x, y)` (`geom/arrange.go:1331-1341`), using each
+   `applyAnalyticCut(src, t, x, y)` (`geom/arrange.go`), using each
    operand's own `circleParam(x,y)` for `t` — unmodified; a boundary that
    lands on a source's own domain end is already a no-op through the existing
    `cutSite`/`atSourceEnd` check, exactly as an ordinary `evCross` at a shared
    endpoint is today.
+
+   **First VERIFY that all four cuts materialize** (`overlapBoundariesSplit`),
+   and refuse the whole resolution when any does not — the premise step 4's
+   exact window test rests on, made a fact rather than an assertion.
+   `applyAnalyticCut` is free to record nothing: `cutSite` declines a cut
+   whenever the boundary's local chord parameter falls within `segEps` of a
+   segment end, or past an open source's domain end, both PARAMETER tests. At
+   coarse sampling a boundary can clear neither bar — no cut recorded, and no
+   sample vertex within the merge tolerance of the boundary POINT either — so
+   the span stays one fragment and step 4 suppresses a fragment that reaches
+   outside the window, deleting the hair that closes the region with nothing
+   flagged. The check is therefore by distance: a boundary is materialized when
+   the cut phase records a cut for it, or when a segment end lies within the
+   vertex table's own merge tolerance of the boundary point (exactly when the
+   graph treats the two as one vertex). Two boundaries landing on ONE tiny
+   segment must also stay farther apart than `segEps` in that segment's local
+   parameter, or `split`'s dedup collapses them into a single boundary and the
+   fragment between them is never emitted.
 
    The window's two boundary points are therefore this event's **contact
    points**, and every consumer asking "where does this event place a contact"
@@ -157,16 +185,23 @@ classification band. See "The refusal band" for why, and for the exact bound.
    tiny-segment sub-range into vertices before appending an `arrEdge`; the only
    new step is a check, immediately before that append, for whether the fragment
    lies inside a window recorded for `s.src` — if so, skip the append. The
-   fragment is tested at the midpoint of its chord, which is exactly on the
-   shared carrier's angular bisector of the fragment's two ends (the chord's
-   perpendicular bisector passes through the centre), so no densification is
-   needed to place it.
+   fragment is tested at **the source evaluated at its parameter midpoint**
+   (`fragmentSuppressed`), a point on the source whatever the fragment's extent.
+   Its CHORD midpoint is not a substitute, even though it is on the shared
+   carrier's angular bisector of the fragment's two ends: `densify` floors a
+   source at two tiny segments, so a coincident circle at a low
+   `WithSegmentsPerTurn` is two semicircle fragments whose chords are diameters,
+   and each chord midpoint is the carrier CENTRE — where the window's angle test
+   reads `atan2(0,0) = 0` and answers about nothing. Both semicircles then read
+   as angle 0, both are suppressed, and the disk vanishes with
+   `Degenerate = false`.
 
    **The window is tested exactly, with no outward slop, and testing one
    interior point is equivalent to testing the whole sub-range** — but only
-   because of step 2. Both window boundaries are cut sites on the losing source,
-   so no emitted fragment straddles one: every fragment is wholly inside the
-   window or wholly outside it, and its midpoint answers for all of it. Slop
+   because of step 2. Both window boundaries are verified fragment boundaries on
+   the losing source, so no emitted fragment straddles one: every fragment is
+   wholly inside the window or wholly outside it, and its midpoint answers for
+   all of it. Slop
    breaks that equivalence in the unsafe direction. A fragment inside the window
    sits at least half its own angular extent clear of either end and needs no
    margin to be recognised, while a fragment OUTSIDE can be arbitrarily close:
@@ -187,12 +222,13 @@ classification band. See "The refusal band" for why, and for the exact bound.
 5. **Mark the pair `handled`, do not `flagDegenerate`.** This is the same
    bookkeeping an ordinary `evCross`/`evTangent` pair already gets; only the
    `evOverlap` arm of `analyticPrepass`'s event-kind switch
-   (`geom/arrange.go:1040-1083`) changes, from an unconditional
+   (`geom/arrange.go`) changes, from an unconditional
    `flagDegenerate` to this resolution when the overlap is a positive-length,
    single-window overlap with at least one non-complete arc operand and
    round-off-identical carriers — the scope above. A pair failing that scope
-   (ambiguous, both operands covering the full turn, multi-window, or a carrier
-   match only within the classification band) still flags exactly as today.
+   (ambiguous, both operands covering the full turn, multi-window, a carrier
+   match only within the classification band, or a window boundary step 2
+   cannot materialize as a split) still flags exactly as today.
 
 ### The `SourceIndex` decision
 
@@ -201,8 +237,8 @@ order `analyticPrepass` already uses — `for i ...; for j := i+1 ...`) and
 report a single `SourceIndex` per `BoundaryEdge` for the merged span — no
 signature change to `BoundaryEdge`/`cycFrag`/`arrEdge`, all of which already
 carry exactly one `src`/`SourceIndex` field end to end
-(`geom/arrange.go:246-259,2158-2165`, `geom/region.go:17-95`,
-`profiles.go:88-149`). The design commits to naming one rather than reporting
+(`geom/arrange.go`'s `arrEdge`/`cycFrag`, `geom/region.go`'s `BoundaryEdge`,
+`profiles.go`'s `BoundaryEdge`). The design commits to naming one rather than reporting
 both:
 
 - `BoundaryEdge` (and `Sketch`'s `BoundaryEdge`) name one source throughout
@@ -244,7 +280,7 @@ both:
 
 ## Area accounting
 
-No new formula. `makeCycle`'s bulge computation (`geom/arrange.go:2281-2306`)
+No new formula. `makeCycle`'s bulge computation (`geom/arrange.go`)
 reads `s.r` and the fragment's swept angle `(f.pEnd-f.pStart)*s.sweep` from
 whichever source the surviving fragment names — after suppression, that is
 always the named source for the merged span. Because the condition that admits
@@ -338,7 +374,11 @@ case with a genuine arc sweep, plus an in-certify-band case (see "Tests").
   source's overlap span is chopped into before suppression, but every one of
   those pieces falls inside the same window and is dropped — the resolved
   topology, the named source, and the reported area do not move with sampling
-  density.
+  density. What density CAN change is whether the pair is resolved at all: the
+  boundaries have to materialize as splits (step 2), and a boundary a coarse
+  sampling cannot place is refused outright. That direction is safe — a refusal
+  is a `Degenerate` flag, never a quietly different region set — and the
+  threshold is a property of the cut machinery, not of the window.
 
 ## Acceptance criteria (repository terms)
 
@@ -356,8 +396,12 @@ case with a genuine arc sweep, plus an in-certify-band case (see "Tests").
 - `Sketch.Profiles()` on the equivalent sketch reports the merged edge's
   `Entity` consistently across both adjoining `Profile`s, and neither
   `Profile.Entities` includes the discarded (non-named) entity for that span.
-- Input order, curve reversal, and `WithSegmentsPerTurn` density do not change
-  region count, area, or which source is named (see "Determinism").
+- Curve reversal and `WithSegmentsPerTurn` density do not change region count,
+  area, or which source is named. Input order does not change region count or
+  area either, and names the lower input position in every order — so the named
+  ENTITY does change when the inputs are reordered, which is the `min(i,j)` rule
+  working as specified and not a defect (see "Determinism"; no positional
+  `SourceIndex` scheme can be reorder-invariant).
 - A carrier pair equal within noise but not at round-off still reports
   `arrangementDegenerate=true`, both in the outer ambiguous band and INSIDE the
   certify band — the resolution never fires outside the identity band.
@@ -370,10 +414,15 @@ case with a genuine arc sweep, plus an in-certify-band case (see "Tests").
   with a real angular gap report one disk of area π and
   `arrangementDegenerate=false`, for gaps down to `arcParamEps` (below which the
   arc is a complete carrier and the pair is refused instead). The lower end
-  additionally needs the gap's two cuts to survive `split`'s segment-parameter
-  dedup as distinct boundaries — a `segEps` fraction of one chord, which sits
-  below `arcParamEps` from 16 segments per turn up, and is a pre-existing limit
-  of the cut machinery rather than of this resolution.
+  additionally needs the gap's two cuts to materialize as distinct boundaries —
+  they must each split the losing source and stay farther apart than a `segEps`
+  fraction of one chord, which holds from 16 segments per turn up. Below that
+  density the pair is REFUSED (`arrangementDegenerate=true`), never resolved
+  against boundaries that do not exist: step 2 checks it.
+- A coincident circle at a `WithSegmentsPerTurn` low enough to sample it as two
+  semicircles still reports the resolved disk, at any distance of the shared
+  centre from the origin — the fragment classification never reads a chord
+  midpoint.
 - A full-turn operand (a 2π `Arc` as much as a `Circle`) paired with another
   full carrier still reports `arrangementDegenerate=true`.
 - A pair with a second overlap window of any positive length, however far below
@@ -436,6 +485,16 @@ case with a genuine arc sweep, plus an in-certify-band case (see "Tests").
   region of area π at every gap — the no-slop suppression guard, plus the
   sub-`arcParamEps` gap asserted still refused as a complete carrier
   (`TestAnalyticCoincidentCarrierNearFullGapStaysClosed`).
+- `geom/arrange_analytic_test.go`: a coincident circle sampled as two semicircles
+  (`WithSegmentsPerTurn` at and below 2, where `densify`'s floor bites), swept over
+  shared-centre offsets, asserting the resolved disk at every one — the
+  chord-midpoint guard for step 4's fragment classification
+  (`TestAnalyticCoincidentCarrierHalfTurnFragmentSurvives`).
+- `geom/arrange_analytic_test.go`: a near-full overlap whose boundaries fall within
+  `segEps` of the losing source's seam vertex while sitting well outside the vertex
+  merge tolerance, asserting `Degenerate == true` below the density where the cuts
+  land and the unchanged resolved disk above it — the materialization guard for
+  step 2 (`TestAnalyticCoincidentCarrierUnsplitBoundaryStaysDegenerate`).
 - `profiles_test.go` (root package): a sketch-level equivalent of probe case
   C, asserting `Verify(ctx).Trustworthy()` and consistent `Entity` attribution
   across the hub and tooth profiles.

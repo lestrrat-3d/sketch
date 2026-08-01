@@ -244,7 +244,20 @@ twice with no flag left to warn); and two fully-coincident COMPLETE carriers, wh
 "complete" is the GEOMETRIC question `operand.coversFullTurn` asks, never the
 `fullCircle` FLAG — `wrapSweep` maps a non-positive delta to a full turn, so
 `NewArc(c, p, p)` is a 2π arc that the flag calls partial, and keyed on the flag it
-paired with a real circle and suppressed the whole circle carrier. The window's two
+paired with a real circle and suppressed the whole circle carrier; and an overlap
+boundary the cut phase cannot MATERIALIZE as a split, which
+`resolveCoincidentOverlap` verifies (`overlapBoundariesSplit`) instead of assuming
+before it records any window. That check is what makes the no-slop window test's
+premise a fact: `applyAnalyticCut` records nothing when `cutSite` judges — in
+PARAMETER space — that a vertex is already there, so at coarse sampling a boundary
+can sit a whole vertex-merge tolerance from the nearest sample vertex and still split
+nothing, leaving `split` to suppress a fragment that reaches outside the window. So
+the check is by DISTANCE (a cut recorded, or a segment end within the vertex table's
+own merge tolerance of the boundary point), plus `segEps` separation for two
+boundaries landing on one tiny segment. Refusing is safe in the way resolving on a
+phantom boundary is not: a refusal is a `Degenerate` flag, while the phantom deleted
+the hair that closes the region and reported `Degenerate=false` with no region at
+all. The window's two
 BOUNDARY points are this event's contact points (`eventContacts`), so the weld audit
 `auditMergedEndpoints`/`eventExplains` must read them: `xEvent.x/y` is only the
 window MIDPOINT, a locator for a degeneracy flag and never a cut site, and answering
@@ -258,9 +271,14 @@ artifact of the coincidence itself that the gate was never built to judge — th
 resolution's own soundness argument is sampling-density-independent (`split`
 suppresses by the recorded ANGULAR WINDOW about the shared centre, not by segment
 count) and does not depend on that gate at all. **That window is tested EXACTLY, at
-the midpoint of a fragment's chord and with NO outward slop**: the two boundaries are
-cut sites, so no emitted fragment straddles one and one interior point answers for
-the whole fragment — while a fragment OUTSIDE the window can sit arbitrarily close to
+the source EVALUATED at a fragment's PARAMETER midpoint and with NO outward slop**:
+the two boundaries are verified splits, so no emitted fragment straddles one and one
+interior point answers for the whole fragment. The fragment's CHORD midpoint is not
+that point — `densify` floors a source at two tiny segments, so a coincident circle
+at a low `WithSegmentsPerTurn` is two semicircle fragments whose chords are
+diameters, putting each chord midpoint ON the carrier centre, where the window's
+angle test reads `atan2(0,0)=0`; both halves then read as angle 0, both were
+suppressed, and the disk vanished. Meanwhile a fragment OUTSIDE the window can sit arbitrarily close to
 it, since the losing source's gap beyond the overlap is a real span of any width and
 is the only thing left to close a region when the overlap covers nearly the whole
 carrier. An outward slop of `arcParamEps` deleted exactly that fragment for every gap
