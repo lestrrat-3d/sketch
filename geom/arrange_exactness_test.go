@@ -313,12 +313,14 @@ func TestEllipticalArcWholeEdgePinnedNotFalseExact(t *testing.T) {
 }
 
 // TestBoundaryEdgeExactInvariantFreeform extends the universal exactness invariant over
-// the free-form curve families the analytic battery never exercised. It also nails the
-// MEANING of TExact for a whole edge of a free-form curve: an uncut ellipse/conic/
-// spline/closed-spline/fit-spline/NURBS reports TExact=true because its polyline ends
-// ARE its own domain-end evaluations (which the invariant verifies eval reproduces),
-// whereas the pinned elliptical arc reports TExact=false. Every emitted TExact bound —
-// whole or fragment — must reproduce its polyline endpoints for every one of them.
+// the free-form curve families the analytic battery never exercised, and pins what the
+// scene gate does to them: a scene holding ANY free-form source — ellipse, elliptical
+// arc, conic, spline, closed spline, fit spline or NURBS — publishes NO exact bound
+// anywhere in it, whole edges of the free-form curve itself included. A chord's
+// deviation from its curve is not bounded for those families, so a crossing can hide
+// between two samples and leave a whole edge that is really a fragment (see
+// TestFreeFormSourceWithholdsExactBoundsSceneWide). The invariant itself is unchanged
+// and still runs: whatever DOES report TExact must reproduce its polyline endpoints.
 func TestBoundaryEdgeExactInvariantFreeform(t *testing.T) {
 	closedSpline, err := geom.NewClosedSpline(
 		geom.NewPoint(-3, -3), geom.NewPoint(3, -3), geom.NewPoint(3, 3), geom.NewPoint(-3, 3),
@@ -336,66 +338,59 @@ func TestBoundaryEdgeExactInvariantFreeform(t *testing.T) {
 		[]*geom.Point{geom.NewPoint(-3, 0), geom.NewPoint(0, 4), geom.NewPoint(3, 0)},
 		[]float64{0, 0, 0, 1, 1, 1}, []float64{1, 2, 1})
 
-	// wholeExact records which SourceIndex values are expected to report a whole edge
-	// with TExact=true (an uncut free-form curve whose ends are its own evaluated domain
-	// ends), so the test asserts the MEANING, not just "the invariant did not fire".
+	// Each fixture holds at least one free-form source, so the expectation is the same
+	// for all of them: nothing in the scene reports TExact. The fixtures still differ in
+	// what they exercise — an uncut whole edge, a pinned elliptical arc, a sampled
+	// crossing — which is what the per-case assertions below check.
 	cases := []struct {
-		name        string
-		curves      []geom.Curve
-		closed      []geom.ClosedCurve
-		wantTExact0 bool // whether source 0 (the free-form curve) must read a whole exact edge
+		name   string
+		curves []geom.Curve
+		closed []geom.ClosedCurve
 	}{
 		{
-			name: "whole ellipse is exact",
+			name: "whole ellipse: no exact bound in a free-form scene",
 			closed: []geom.ClosedCurve{
 				geom.NewEllipse(geom.NewPoint(0, 0), 5, 3, 0.4),
 			},
-			wantTExact0: true,
 		},
 		{
-			name: "whole conic is exact",
+			name: "whole conic: no exact bound in a free-form scene",
 			curves: []geom.Curve{
 				geom.NewConic(geom.NewPoint(-3, 0), geom.NewPoint(0, 4), geom.NewPoint(3, 0), 0.6),
 				geom.NewLine(geom.NewPoint(3, 0), geom.NewPoint(-3, 0)),
 			},
-			wantTExact0: true,
 		},
 		{
-			name:        "whole closed spline is exact",
-			closed:      []geom.ClosedCurve{closedSpline},
-			wantTExact0: true,
+			name:   "whole closed spline: no exact bound in a free-form scene",
+			closed: []geom.ClosedCurve{closedSpline},
 		},
 		{
-			name: "whole open spline is exact",
+			name: "whole open spline: no exact bound in a free-form scene",
 			curves: []geom.Curve{
 				spline,
 				geom.NewLine(geom.NewPoint(4, 0), geom.NewPoint(-4, 0)),
 			},
-			wantTExact0: true,
 		},
 		{
-			name: "whole fit spline is exact",
+			name: "whole fit spline: no exact bound in a free-form scene",
 			curves: []geom.Curve{
 				fit,
 				geom.NewLine(geom.NewPoint(4, 0), geom.NewPoint(-4, 0)),
 			},
-			wantTExact0: true,
 		},
 		{
-			name: "whole nurbs is exact",
+			name: "whole nurbs: no exact bound in a free-form scene",
 			curves: []geom.Curve{
 				nurbs,
 				geom.NewLine(geom.NewPoint(3, 0), geom.NewPoint(-3, 0)),
 			},
-			wantTExact0: true,
 		},
 		{
-			name: "whole elliptical arc is inexact (pinned ends)",
+			name: "whole elliptical arc: pinned ends, no exact bound",
 			curves: []geom.Curve{
 				geom.NewEllipticalArc(geom.NewPoint(0, 0), geom.NewPoint(4, 0.1), geom.NewPoint(-4, 0), 4, 2, 0),
 				geom.NewLine(geom.NewPoint(-4, 0), geom.NewPoint(4, 0.1)),
 			},
-			wantTExact0: false,
 		},
 		{
 			name: "line crossing an ellipse: fragments inexact",
@@ -405,7 +400,6 @@ func TestBoundaryEdgeExactInvariantFreeform(t *testing.T) {
 			closed: []geom.ClosedCurve{
 				geom.NewEllipse(geom.NewPoint(0, 0), 5, 3, 0),
 			},
-			wantTExact0: false, // source 0 here is the LINE; asserted separately below
 		},
 	}
 
@@ -415,37 +409,29 @@ func TestBoundaryEdgeExactInvariantFreeform(t *testing.T) {
 			require.NotEmpty(t, arr.Regions)
 			requireExactBoundsReproduce(t, tc.curves, tc.closed, arr)
 
-			if tc.name == "line crossing an ellipse: fragments inexact" {
-				// Every ellipse fragment (source 1, the closed curve) is bounded by a
-				// SAMPLED line/ellipse crossing, so none may read exact.
-				var frags int
-				for _, r := range arr.Regions {
-					for _, e := range append(append([]geom.BoundaryEdge{}, r.Outer...), flattenHoles(r)...) {
-						if e.SourceIndex == 1 && !e.Whole {
-							frags++
-							require.False(t, e.TExact, "a sampled line/ellipse crossing is not exact")
-						}
-					}
-				}
-				require.NotZero(t, frags, "the line must cut the ellipse")
-				return
-			}
-
-			// For the whole-curve fixtures, source 0's whole edge must carry the
-			// expected TExact — true for evaluated ends, false for the pinned arc.
-			var sawWhole bool
+			// The scene gate, asserted on every emitted bound of every source: a
+			// free-form source is present in each fixture, so nothing here is exact.
+			var whole0, frags1 int
 			for _, r := range arr.Regions {
 				for _, e := range append(append([]geom.BoundaryEdge{}, r.Outer...), flattenHoles(r)...) {
-					if e.SourceIndex != 0 || !e.Whole {
-						continue
+					require.Falsef(t, e.TExact,
+						"source %d publishes an exact bound in a scene holding a free-form curve (t=[%v %v])",
+						e.SourceIndex, e.TStart, e.TEnd)
+					switch {
+					case e.SourceIndex == 0 && e.Whole:
+						whole0++
+					case e.SourceIndex == 1 && !e.Whole:
+						frags1++
 					}
-					sawWhole = true
-					require.Equalf(t, tc.wantTExact0, e.TExact,
-						"whole edge of source 0 TExact: got %v want %v (t=[%v %v])",
-						e.TExact, tc.wantTExact0, e.TStart, e.TEnd)
 				}
 			}
-			require.True(t, sawWhole, "source 0 must contribute a whole edge")
+			if tc.name == "line crossing an ellipse: fragments inexact" {
+				// The sampled line/ellipse crossing cuts the ellipse (source 1) into
+				// fragments; the gate above already covered their exactness.
+				require.NotZero(t, frags1, "the line must cut the ellipse")
+				return
+			}
+			require.NotZero(t, whole0, "source 0 must contribute a whole edge")
 		})
 	}
 }

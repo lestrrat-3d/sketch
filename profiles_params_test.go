@@ -168,10 +168,16 @@ func TestBoundaryEdgeParams(t *testing.T) {
 		require.Equal(t, 4, checked, "both halves of both vertical edges")
 	})
 
-	t.Run("a sampled crossing reports TExact false", func(t *testing.T) {
-		// Two overlapping circles: a curve/curve crossing, which the arrangement
-		// deliberately resolves on the sampled polyline rather than in closed form.
-		// The fragments' parameters are therefore approximate and MUST say so.
+	t.Run("a circle/circle crossing is exact", func(t *testing.T) {
+		// SUPERSEDED EXPECTATION. This fixture used to assert the opposite — that a
+		// curve/curve crossing is resolved on the sampled polyline and so must report
+		// TExact = false. A curve/curve transverse crossing now takes analytic
+		// authority whenever the arrangement can certify that splicing the exact
+		// crossing points into both polylines leaves the sampled topology unchanged,
+		// which it can here. The general "a sampled crossing must not claim to be
+		// exact" contract is unchanged and is still covered, by the line/spline
+		// fixture below: the analytic kernel admits only line/circle/arc operands, so
+		// everything involving an ellipse, conic or spline is still sampled.
 		w := sketch.NewWorld()
 		s, err := w.CreateSketch(w.XY())
 		require.NoError(t, err)
@@ -181,18 +187,85 @@ func TestBoundaryEdgeParams(t *testing.T) {
 		profiles := s.Profiles()
 		require.NotEmpty(t, profiles)
 
+		// The circles cross at (3, ±4). Every fragment bound must therefore evaluate
+		// either to one of those two points — the closed-form answer, not a value that
+		// merely converges to it with sampling — or to the circle's own seam.
+		onExactBound := func(e sketch.BoundaryEdge, u float64) bool {
+			if u == 0 || u == 1 {
+				return true // the circle's own domain end (its seam)
+			}
+			q := evalEntityAt(t, e.Entity, u)
+			return math.Abs(q[0]-3) < 1e-12 && math.Abs(math.Abs(q[1])-4) < 1e-12
+		}
+
 		var partials int
 		for _, p := range profiles {
 			for _, e := range p.Outer {
-				requireEdgeParamsConsistent(t, e, false)
-				if e.Partial {
-					partials++
-					require.False(t, e.TExact,
-						"a circle/circle crossing is sampled — its range must not claim to be exact")
+				requireEdgeParamsConsistent(t, e, true)
+				if !e.Partial {
+					continue
 				}
+				partials++
+				require.True(t, e.TExact,
+					"a certified circle/circle crossing is analytic — its range is exact")
+				require.Truef(t, onExactBound(e, e.TStart) && onExactBound(e, e.TEnd),
+					"fragment [%v, %v] must be bounded by the closed-form crossing points", e.TStart, e.TEnd)
 			}
 		}
 		require.NotZero(t, partials, "the two circles must cut each other")
+	})
+
+	t.Run("a free-form entity withholds exact bounds across the whole sketch", func(t *testing.T) {
+		// The closed-form kernel never classifies a contact involving a spline (or an
+		// ellipse, elliptical arc, conic or NURBS), and nothing bounds how far such a
+		// curve runs from the chords it is sampled into — so it can cross another entity
+		// entirely between two samples, leaving the profile set fused while the certified
+		// circle/circle crossing publishes exact bounds describing it.
+		//
+		// So the engine withholds exactness for the whole sketch whenever any free-form
+		// entity is present: every BoundaryEdge reports TExact = false, the ones bounded
+		// by the certified circle crossing included, and however far the free-form entity
+		// sits from them. Only the flag is withheld — the profiles, their areas and their
+		// ranges are what they were.
+		w := sketch.NewWorld()
+		s, err := w.CreateSketch(w.XY())
+		require.NoError(t, err)
+		s.CreateCircle(s.CreatePoint(0, 0), 5)
+		s.CreateCircle(s.CreatePoint(6, 0), 5)
+		_, err = s.CreateSpline(
+			s.CreatePoint(40, 0), s.CreatePoint(42, 4),
+			s.CreatePoint(46, 4), s.CreatePoint(48, 0),
+		)
+		require.NoError(t, err)
+
+		profiles := s.Profiles()
+		require.Len(t, profiles, 3, "two lune caps plus the lens; the spline bounds nothing")
+		var edges int
+		for _, p := range profiles {
+			for _, e := range p.Outer {
+				requireEdgeParamsConsistent(t, e, false)
+				require.Falsef(t, e.TExact,
+					"the %T fragment [%v, %v] claims exactness in a sketch holding a spline",
+					e.Entity, e.TStart, e.TEnd)
+				edges++
+			}
+		}
+		require.NotZero(t, edges, "the circles must bound the regions")
+
+		// The control: the identical circles WITHOUT the spline keep their exact bounds,
+		// so what withholds exactness is the free-form entity, not the crossing.
+		w2 := sketch.NewWorld()
+		s2, err := w2.CreateSketch(w2.XY())
+		require.NoError(t, err)
+		s2.CreateCircle(s2.CreatePoint(0, 0), 5)
+		s2.CreateCircle(s2.CreatePoint(6, 0), 5)
+		for _, p := range s2.Profiles() {
+			for _, e := range p.Outer {
+				require.Truef(t, e.TExact,
+					"an all line/circle/arc sketch keeps its exact bounds: %T [%v, %v]",
+					e.Entity, e.TStart, e.TEnd)
+			}
+		}
 	})
 
 	t.Run("a line crossing a spline is sampled, not exact", func(t *testing.T) {

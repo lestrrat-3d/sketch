@@ -287,7 +287,12 @@ both:
   fragment — `Whole` is `false` (the merged span is, by construction, a
   strict sub-range unless the whole named source happens to equal the
   overlap), and `TExact` is `true` on both bounds (both are exact cuts from
-  step 2, on the named source's own parameterization). The losing source
+  step 2, on the named source's own parameterization) — subject, like every
+  exact bound, to the arrangement-wide gate that EVERY source be a line, circle
+  or arc (`docs/analytic-arrangement-design.md` §7b): a scene that also holds an
+  ellipse, conic, spline or NURBS reports `TExact = false` on every bound, this
+  one included. Every fixture in this document is line/circle/arc only, so the
+  `TExact` claims below read as written. The losing source
   contributes nothing to any `BoundaryEdge` for this span — not a second,
   suppressed fragment, not a zero-length placeholder.
 

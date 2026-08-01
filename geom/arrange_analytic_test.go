@@ -2,6 +2,7 @@ package geom_test
 
 import (
 	"math"
+	"sort"
 	"testing"
 
 	"github.com/lestrrat-3d/sketch/geom"
@@ -133,39 +134,86 @@ func TestAnalyticInternalTangentNeverBlessedWrong(t *testing.T) {
 	}
 }
 
-func TestAnalyticCircleCircleSecantDeferredToSampled(t *testing.T) {
-	// Curve/curve TRANSVERSE crossings are deferred to the sampled path: injecting
-	// exact cuts into a coarse curved map is unsound (round-2: two equal-count coarse
-	// crossings at the wrong locations fused three regions into one, regions=1) or
-	// over-conservative (a sampled crossing one chord segment off the analytic param
-	// false-flagged well-separated valid crossings) until increment 3's tangent-port
-	// certificate. The sampled DCEL already resolves circle/circle topology correctly,
-	// so deferring is both sound and non-conservative.
+// twoCircleUnionArea is the closed-form area of the union of two transversally
+// crossing circles — the exact answer a certified curve/curve crossing must reproduce.
+func twoCircleUnionArea(R, r, d float64) float64 {
+	a1 := R * R * math.Acos((d*d+R*R-r*r)/(2*d*R))
+	a2 := r * r * math.Acos((d*d+r*r-R*R)/(2*d*r))
+	a3 := 0.5 * math.Sqrt((-d+R+r)*(d+R-r)*(d-R+r)*(d+R+r))
+	return math.Pi*(R*R+r*r) - (a1 + a2 - a3)
+}
+
+// arrangementArea sums an arrangement's net region areas and reports whether EVERY
+// emitted boundary fragment carries an exact parameter range, and whether any
+// fragment is a PARTIAL curve at all.
+//
+// Both are needed to recognise a certified crossing: an arrangement whose curves were
+// never cut reports every fragment exact trivially (a whole curve's bounds are its own
+// domain ends), so "all exact" alone would also match a sampling too coarse to find
+// the crossing — the sampled fallback, not the analytic path.
+func arrangementArea(arr *geom.Arrangement) (float64, bool, bool) {
+	total, exact, partial := 0.0, true, false
+	note := func(e geom.BoundaryEdge) {
+		exact = exact && e.TExact
+		partial = partial || !e.Whole
+	}
+	for _, rg := range arr.Regions {
+		total += rg.Area
+		for _, e := range rg.Outer {
+			note(e)
+		}
+		for _, h := range rg.Holes {
+			for _, e := range h {
+				note(e)
+			}
+		}
+	}
+	return total, exact, partial
+}
+
+func TestAnalyticCircleCircleCrossingCertified(t *testing.T) {
+	// SUPERSEDED EXPECTATION. This test was TestAnalyticCircleCircleSecantDeferredToSampled
+	// and asserted that a curve/curve transverse crossing is ALWAYS resolved on the
+	// sampled path. A curve/curve crossing now takes analytic authority whenever the
+	// arrangement can certify the exact crossing points splice into both polylines
+	// without changing the sampled topology, so its fragments carry exact parameters
+	// and the region areas are closed-form. The old assertions are kept verbatim (they
+	// still hold), because the fallback for an uncertified pair is the sampled path —
+	// not a degeneracy — so nothing this test blessed before is refused now.
 	//
-	// The exact round-2 geometry (a near-internal pair that exact-cut injection fused
-	// to regions=1) is now blessed with the CORRECT three regions across sampling:
-	for _, spt := range []int{3, 4, 5, 6, 7, 8, 16, 32, 64} {
-		arr := geom.Regions(nil, []geom.ClosedCurve{
+	// The round-2 geometry is the adversarial case: injecting exact cuts here once
+	// fused three regions into one. It is correct at every sampling, and exact from
+	// spt=8 — the density at which the chord map can host the crossing.
+	for _, spt := range []int{3, 4, 5, 6, 7, 8, 16, 32, 64, 128, 256} {
+		curves := []geom.ClosedCurve{
 			geom.NewCircle(geom.NewPoint(0, 0), 5),
 			geom.NewCircle(geom.NewPoint(1.9088280743172588, 0.8754286851013426), 3),
-		}, geom.WithSegmentsPerTurn(spt))
+		}
+		arr := geom.Regions(nil, curves, geom.WithSegmentsPerTurn(spt))
 		require.Falsef(t, arr.Degenerate, "round-2 pair is a clean transverse crossing at spt=%d", spt)
 		require.Lenf(t, arr.Regions, 3, "round-2 pair is two lune caps + lens, never a fused blob, at spt=%d", spt)
+		requireExactBoundsReproduce(t, nil, curves, arr)
+
+		d := math.Hypot(1.9088280743172588, 0.8754286851013426)
+		total, exact, partial := arrangementArea(arr)
+		require.Truef(t, partial, "both circles are cut by the crossing at spt=%d", spt)
+		if spt >= 8 {
+			require.Truef(t, exact, "the round-2 crossing is certified from spt=8; spt=%d must report exact fragments", spt)
+		}
+		if exact {
+			require.InDeltaf(t, twoCircleUnionArea(5, 3, d), total, 1e-9,
+				"a certified crossing gives the closed-form union area at spt=%d", spt)
+		}
 	}
 
-	// Across the transverse band, at adequate sampling (spt>=8 resolves even a thin
-	// lens), a blessed pair is the correct three regions netting ~the union area
-	// (sampled, so only sanity-bounded). Coarser spt is the sampled path's domain and
-	// may merge a sub-resolution lens — a pre-existing limitation, not the injection
-	// bug, lifted when increment 3 makes curve/curve crossings analytic.
+	// Across the transverse band the pair is always the correct three regions, and
+	// wherever the fragments read exact the area is the closed-form union — never a
+	// value that merely converges. An uncertified sampling still nets ~the union.
 	const R, r = 5.0, 3.0
 	for _, ang := range []float64{0.0, 0.45, math.Pi / 4, 1.3, 2.6} {
 		for _, d := range []float64{2.5, 3.0, 4.0, 5.0, 6.5} { // transverse: |R-r|=2 < d < R+r=8
 			cx, cy := d*math.Cos(ang), d*math.Sin(ang)
-			a1 := R * R * math.Acos((d*d+R*R-r*r)/(2*d*R))
-			a2 := r * r * math.Acos((d*d+r*r-R*R)/(2*d*r))
-			a3 := 0.5 * math.Sqrt((-d+R+r)*(d+R-r)*(d-R+r)*(d+R+r))
-			union := math.Pi*(R*R+r*r) - (a1 + a2 - a3)
+			union := twoCircleUnionArea(R, r, d)
 			for spt := 8; spt <= 120; spt++ {
 				arr := geom.Regions(nil, []geom.ClosedCurve{
 					geom.NewCircle(geom.NewPoint(0, 0), R),
@@ -174,14 +222,633 @@ func TestAnalyticCircleCircleSecantDeferredToSampled(t *testing.T) {
 				if arr.Degenerate {
 					continue
 				}
-				var total float64
-				for _, rg := range arr.Regions {
-					total += rg.Area
-				}
+				total, exact, partial := arrangementArea(arr)
+				exact = exact && partial
 				require.Lenf(t, arr.Regions, 3, "blessed circle pair ang=%.3f d=%.1f spt=%d is two lune caps + lens", ang, d, spt)
+				if exact {
+					require.InDeltaf(t, union, total, 1e-9,
+						"certified circle pair ang=%.3f d=%.1f spt=%d nets the closed-form union area", ang, d, spt)
+					continue
+				}
 				require.InDeltaf(t, union, total, 0.1*union, "blessed circle pair ang=%.3f d=%.1f spt=%d nets ~the union area (sampled)", ang, d, spt)
 			}
 		}
+	}
+}
+
+func TestAnalyticCircleCircleCrossingSamplingStable(t *testing.T) {
+	// The curve/curve analog of TestAnalyticCircleChordSamplingStable: a well-separated
+	// circle/circle secant reports the SAME exact fragment parameters and the SAME
+	// closed-form area at every sampling density, because the cuts land on the exact
+	// intersection points rather than on chord crossings.
+	//
+	// The circles cross at (3, ±4), so on the first circle the fragment bounds are the
+	// parameters of the angles ±atan2(4,3) — asserted against the closed form, not
+	// against a re-derivation of what the arrangement did.
+	closed := []geom.ClosedCurve{
+		geom.NewCircle(geom.NewPoint(0, 0), 5),
+		geom.NewCircle(geom.NewPoint(6, 0), 5),
+	}
+	lo := math.Atan2(4, 3) / (2 * math.Pi)
+	want := map[float64]struct{}{0: {}, 1: {}, lo: {}, 1 - lo: {}, 0.5 - lo: {}, 0.5 + lo: {}}
+	onBound := func(v float64) bool {
+		for u := range want {
+			if math.Abs(v-u) < 1e-12 {
+				return true
+			}
+		}
+		return false
+	}
+	for _, spt := range []int{8, 16, 32, 64, 128, 256, 512} {
+		arr := geom.Regions(nil, closed, geom.WithSegmentsPerTurn(spt))
+		require.Falsef(t, arr.Degenerate, "spt=%d", spt)
+		require.Lenf(t, arr.Regions, 3, "two lune caps + lens at spt=%d", spt)
+		requireExactBoundsReproduce(t, nil, closed, arr)
+
+		total, exact, partial := arrangementArea(arr)
+		require.Truef(t, partial, "both circles are cut by the crossing at spt=%d", spt)
+		require.Truef(t, exact, "every fragment of a certified curve/curve crossing is exact at spt=%d", spt)
+		require.InDeltaf(t, twoCircleUnionArea(5, 5, 6), total, 1e-9, "closed-form union area at spt=%d", spt)
+		for _, rg := range arr.Regions {
+			for _, e := range rg.Outer {
+				require.Truef(t, onBound(e.TStart) && onBound(e.TEnd),
+					"fragment [%v, %v] of source %d must be bounded by the closed-form crossing parameters at spt=%d",
+					e.TStart, e.TEnd, e.SourceIndex, spt)
+			}
+		}
+	}
+}
+
+func TestAnalyticCurveCrossingNeverBlessedWrong(t *testing.T) {
+	// The soundness invariant for the curve/curve lift, over the whole transverse band
+	// including its two near-tangent ends: an arrangement whose fragments all read
+	// EXACT took analytic authority, so its topology and area must be exactly right.
+	// A pair the certificate refuses falls back to the sampled path, which is only
+	// held to the region count. Neither may be a blessed wrong topology.
+	for _, rr := range [][2]float64{{5, 3}, {5, 5}, {5, 0.7}} {
+		R, r := rr[0], rr[1]
+		lo, hi := math.Abs(R-r), R+r
+		for _, f := range []float64{0.02, 0.1, 0.5, 0.9, 0.98} {
+			d := lo + f*(hi-lo)
+			union := twoCircleUnionArea(R, r, d)
+			for _, ang := range []float64{0.0, 0.45, 1.3, 2.6} {
+				cx, cy := d*math.Cos(ang), d*math.Sin(ang)
+				for spt := 3; spt <= 60; spt++ {
+					arr := geom.Regions(nil, []geom.ClosedCurve{
+						geom.NewCircle(geom.NewPoint(0, 0), R),
+						geom.NewCircle(geom.NewPoint(cx, cy), r),
+					}, geom.WithSegmentsPerTurn(spt))
+					if arr.Degenerate {
+						continue // conservatively rejected — sound
+					}
+					total, exact, partial := arrangementArea(arr)
+					if !exact || !partial {
+						continue // the sampled fallback, unchanged by the lift
+					}
+					require.Lenf(t, arr.Regions, 3,
+						"certified R=%g r=%g d=%.4f ang=%.3f spt=%d is two lune caps + lens", R, r, d, ang, spt)
+					require.InDeltaf(t, union, total, 1e-9,
+						"certified R=%g r=%g d=%.4f ang=%.3f spt=%d nets the closed-form union area", R, r, d, ang, spt)
+				}
+			}
+		}
+	}
+}
+
+func TestAnalyticArcEndpointOnCrossingCircleKeepsRegion(t *testing.T) {
+	// An arc whose own ENDPOINT lies exactly on a circle it also crosses is the
+	// contact the incidence certificate cannot judge: the arc stops at the point, so
+	// it contributes ONE chord departure there and the four cannot alternate. Blessing
+	// it certified nothing, and the injected cut then bent the polylines through each
+	// other and left the disk with no region at all — an arrangement reporting
+	// degenerate=false, zero regions and zero area, which no consumer can detect.
+	//
+	// The invariant asserted is the one the collapse broke: the circle's disk survives,
+	// whole, at every density. The arc dips inside the circle by far less than one
+	// chord sagitta here, so the sub-sample sliver it carves is legitimately not
+	// resolved at these densities — the disk being the single region is the correct
+	// sampled answer, and the fault was losing it, not merging it.
+	P := geom.NewPoint(5, 0) // on the r=5 circle centred at the origin
+	for _, tc := range []struct {
+		name    string
+		rB      float64
+		psiDeg  float64 // direction of B's centre from P, off the radial direction
+		sweep   float64 // arc sweep from P; negative means the arc ENDS at P
+		density []int
+	}{
+		// The contact at the arc's t=0 end.
+		{"start-endpoint-r12", 12, 3, math.Pi / 6, []int{32, 64, 128}},
+		{"start-endpoint-r5", 5, 0.25, math.Pi / 2, []int{32, 64, 256}},
+		{"start-endpoint-r3", 3, -1, math.Pi, []int{32, 128}},
+		// The contact at the arc's t=1 end — the mirrored case, where the contact's
+		// segment-local parameter is 1 rather than 0.
+		{"end-endpoint-r5", 5, -0.25, -math.Pi / 2, []int{32, 64, 256}},
+		{"end-endpoint-r12", 12, -3, -math.Pi / 6, []int{32, 64, 128}},
+		{"end-endpoint-r3", 3, 1, -math.Pi, []int{32, 128}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			psi := tc.psiDeg * math.Pi / 180
+			cB := geom.NewPoint(P.X+tc.rB*math.Cos(psi), P.Y+tc.rB*math.Sin(psi))
+			far := geom.NewPoint(5*math.Cos(tc.sweep), 5*math.Sin(tc.sweep))
+			start, end := P, far
+			if tc.sweep < 0 {
+				start, end = far, P
+			}
+			curves := []geom.Curve{geom.NewArc(geom.NewPoint(0, 0), start, end)}
+			closed := []geom.ClosedCurve{geom.NewCircle(cB, tc.rB)}
+			for _, spt := range tc.density {
+				arr := geom.Regions(curves, closed, geom.WithSegmentsPerTurn(spt))
+				if arr.Degenerate {
+					continue // conservatively refused — sound
+				}
+				requireExactBoundsReproduce(t, curves, closed, arr)
+				total, _, _ := arrangementArea(arr)
+				require.NotEmptyf(t, arr.Regions, "the disk must not vanish at spt=%d", spt)
+				require.InDeltaf(t, math.Pi*tc.rB*tc.rB, total, 1e-3,
+					"the disk survives whole at spt=%d", spt)
+			}
+		})
+	}
+}
+
+func TestAnalyticNearSampleVertexCrossingNotBlessedExact(t *testing.T) {
+	// A crossing whose source parameter sits a hair from a sample vertex is snapped
+	// onto that vertex (the decision is made in the PARAMETER, within segEps of the
+	// segment boundary) and records no cut, so the fragment it bounds carries the
+	// VERTEX's parameter — a plain sample fraction i/n. Certifying such a contact
+	// published that fraction as an exact bound for a crossing it is not at, and a
+	// certified curve/curve pair is exempt from the taint passes that would otherwise
+	// have marked the weld inexact, so nothing downstream corrected it.
+	//
+	// Two r=5 circles crossing a hair off the 1/8 sample vertex, with the offset kept
+	// inside the snap band at every density. Every bound a fragment reports as EXACT
+	// must be the source's own domain end or a true crossing parameter — asserted
+	// against the closed form, so the test cannot be satisfied by whatever the
+	// arrangement happened to emit.
+	const r = 5.0
+	for _, spt := range []int{8, 16, 32, 64, 128, 256} {
+		delta := 2 * math.Pi * 5e-10 / float64(spt) // inside the snap band at this density
+		d := 2 * r * math.Cos(math.Pi/4-delta)
+		closed := []geom.ClosedCurve{
+			geom.NewCircle(geom.NewPoint(0, 0), r),
+			geom.NewCircle(geom.NewPoint(d, 0), r),
+		}
+		// The circles meet at x=d/2, y=±r·sin(π/4−δ): the eighth-turn parameter, minus
+		// δ. On the second circle the same two points sit half a turn away.
+		p := (math.Pi/4 - delta) / (2 * math.Pi)
+		allowed := map[int][]float64{
+			0: {0, 1, p, 1 - p},
+			1: {0, 1, 0.5 - p, 0.5 + p},
+		}
+		arr := geom.Regions(nil, closed, geom.WithSegmentsPerTurn(spt))
+		require.Falsef(t, arr.Degenerate, "a transverse crossing near a sample vertex is not degenerate (spt=%d)", spt)
+		require.Lenf(t, arr.Regions, 3, "two lune caps + lens at spt=%d", spt)
+		requireExactBoundsReproduce(t, nil, closed, arr)
+		near := func(v float64, src int) bool {
+			for _, u := range allowed[src] {
+				if math.Abs(v-u) <= 1e-13 {
+					return true
+				}
+			}
+			return false
+		}
+		for _, rg := range arr.Regions {
+			for _, e := range rg.Outer {
+				if !e.TExact {
+					continue
+				}
+				require.Truef(t, near(e.TStart, e.SourceIndex) && near(e.TEnd, e.SourceIndex),
+					"exact fragment [%.17g %.17g] of source %d at spt=%d reports a bound that is neither a domain end nor a closed-form crossing parameter",
+					e.TStart, e.TEnd, e.SourceIndex, spt)
+			}
+		}
+	}
+}
+
+func TestAnalyticFusedCurveCrossingNotBlessedExact(t *testing.T) {
+	// A refused curve/curve crossing goes back to the SAMPLED path, and the sampled
+	// path can miss it entirely at a density that certifies the scene's OTHER pairs.
+	// The regions that crossing separates then fuse, while every surviving fragment is
+	// bounded by an exact cut of a certified pair — so the arrangement publishes a
+	// topology that is missing a crossing as fully certified.
+	//
+	// Three r=5 circles in general position do exactly that: pairs (0,1) and (0,2)
+	// certify, the shallow (1,2) crossing is below the sampling until spt=24, and the
+	// seven true regions read as five with all sixteen bounds exact.
+	//
+	// The wrong region count at coarse sampling is the sampled path's own pre-existing
+	// density limit — it moves with WithSegmentsPerTurn with or without any analytic
+	// authority, and this test does not assert it away. What must never happen is the
+	// BLESSING: an arrangement whose every bound reads exact has to be the converged
+	// one. Seven is the truth here (stable from spt=24 to spt=2048).
+	circles := func(c1, c2 [2]float64) []geom.ClosedCurve {
+		return []geom.ClosedCurve{
+			geom.NewCircle(geom.NewPoint(0, 0), 5),
+			geom.NewCircle(geom.NewPoint(c1[0], c1[1]), 5),
+			geom.NewCircle(geom.NewPoint(c2[0], c2[1]), 5),
+		}
+	}
+	c1 := [2]float64{0.9620341521811382, -7.264319290590297}
+	c2 := [2]float64{-1.343538285914439, 2.4540578044489263}
+	for _, spt := range []int{8, 12, 16, 24, 32, 48, 64, 128, 256, 512} {
+		closed := circles(c1, c2)
+		arr := geom.Regions(nil, closed, geom.WithSegmentsPerTurn(spt))
+		require.Falsef(t, arr.Degenerate, "three clean transverse crossings at spt=%d", spt)
+		requireExactBoundsReproduce(t, nil, closed, arr)
+		_, exact, partial := arrangementArea(arr)
+		if exact && partial {
+			require.Lenf(t, arr.Regions, 7, "an all-exact arrangement is the converged one; spt=%d blessed a fused map", spt)
+		}
+		if spt <= 16 {
+			// The reported case, pinned directly: at these densities the (1,2) crossing
+			// is absent from the sampled map, so no bound of the component may read
+			// exact — whatever the region count does.
+			require.Falsef(t, exact, "the fused map at spt=%d must report no exact bound", spt)
+		}
+		if spt >= 24 {
+			require.Truef(t, exact && partial, "the resolved map at spt=%d keeps its exact bounds", spt)
+		}
+	}
+
+	// The same construction with the two outer circles a hair short of tangency pushes
+	// the failure window past the ADAPTIVE DEFAULT density (256 segments per turn) that
+	// Sketch.Profiles renders at — the ordinary consumer path, no option involved.
+	dx, dy := c2[0]-c1[0], c2[1]-c1[1]
+	s := (10 - 1e-4) / math.Hypot(dx, dy)
+	closed := circles(c1, [2]float64{c1[0] + dx*s, c1[1] + dy*s})
+	arr := geom.Regions(nil, closed)
+	require.False(t, arr.Degenerate, "a shallow crossing is not a degeneracy")
+	requireExactBoundsReproduce(t, nil, closed, arr)
+	_, exact, partial := arrangementArea(arr)
+	require.Len(t, arr.Regions, 5, "the default density still fuses this shallow crossing")
+	require.True(t, partial, "the certified pairs still cut their circles")
+	require.False(t, exact, "a fused map is never exact, default sampling included")
+}
+
+// exactBySource reports, per source index the arrangement emitted a bound for, whether
+// EVERY bound that source contributes reads exact.
+func exactBySource(arr *geom.Arrangement) map[int]bool {
+	out := map[int]bool{}
+	note := func(e geom.BoundaryEdge) {
+		if v, seen := out[e.SourceIndex]; seen {
+			out[e.SourceIndex] = v && e.TExact
+			return
+		}
+		out[e.SourceIndex] = e.TExact
+	}
+	for _, rg := range arr.Regions {
+		for _, e := range rg.Outer {
+			note(e)
+		}
+		for _, h := range rg.Holes {
+			for _, e := range h {
+				note(e)
+			}
+		}
+	}
+	return out
+}
+
+func TestAnalyticFusedComponentLeavesUntouchedClusterExact(t *testing.T) {
+	// The withdrawal is per CONNECTED COMPONENT, and a component is joined by CONTACT.
+	// A handled pair the kernel classified and found NOT to meet carries no contact and
+	// must join nothing: joining on the mere existence of a classification collapsed
+	// every analytic source in the scene into one component, so one refused crossing
+	// withdrew exactness scene-wide — including from a cluster nothing in the fused
+	// component can reach.
+	//
+	// TestAnalyticFusedCurveCrossingNotBlessedExact's three fused circles, plus an
+	// ordinary two-circle crossing 100 units away. The triple loses its exactness; the
+	// distant pair keeps its own.
+	closed := []geom.ClosedCurve{
+		geom.NewCircle(geom.NewPoint(0, 0), 5),
+		geom.NewCircle(geom.NewPoint(0.9620341521811382, -7.264319290590297), 5),
+		geom.NewCircle(geom.NewPoint(-1.343538285914439, 2.4540578044489263), 5),
+		geom.NewCircle(geom.NewPoint(100, 0), 5),
+		geom.NewCircle(geom.NewPoint(106, 0), 5),
+	}
+	arr := geom.Regions(nil, closed, geom.WithSegmentsPerTurn(8))
+	require.False(t, arr.Degenerate, "five clean transverse crossings")
+	requireExactBoundsReproduce(t, nil, closed, arr)
+	require.Len(t, arr.Regions, 8, "the fused triple's five regions plus the far pair's three")
+	exact := exactBySource(arr)
+	require.Len(t, exact, 5, "every circle bounds something")
+	for _, src := range []int{0, 1, 2} {
+		require.Falsef(t, exact[src], "source %d is in the fused component", src)
+	}
+	for _, src := range []int{3, 4} {
+		require.Truef(t, exact[src], "source %d is 100 units from the fused component", src)
+	}
+}
+
+// requireNoExactBounds asserts the scene gate: not one emitted bound of the
+// arrangement reports TExact.
+func requireNoExactBounds(t *testing.T, arr *geom.Arrangement, what string) {
+	t.Helper()
+	for src, ok := range exactBySource(arr) {
+		require.Falsef(t, ok, "%s: source %d publishes an exact bound", what, src)
+	}
+}
+
+func TestFreeFormSourceWithholdsExactBoundsSceneWide(t *testing.T) {
+	// A free-form source — ellipse, elliptical arc, conic, spline, closed spline, fit
+	// spline or NURBS — reaches the planar map only as chords, and nothing bounds how
+	// far one of them runs from its chord: the sampler places vertices, it does not
+	// certify a deviation. So such a curve can cross another entirely BETWEEN two
+	// samples; the crossing is then missing from the map, the regions it separates fuse,
+	// and the scene's analytic pairs — certified on their own merits and cut exactly —
+	// publish the fused map with every bound exact.
+	//
+	// The gate is therefore on the SOURCE KINDS, not on any estimate of how far a chord
+	// can stray: a scene holding ANY free-form source publishes NO exact bound anywhere
+	// in it, including on the lines, circles and arcs beside it, and however far apart
+	// they sit. This test pins all three halves of that — the hidden crossing, the
+	// resolved crossing, and the untouching curve — plus the all-analytic control that
+	// keeps its exactness.
+	circles := []geom.ClosedCurve{
+		geom.NewCircle(geom.NewPoint(0, 0), 5),
+		geom.NewCircle(geom.NewPoint(-6, 0), 5),
+	}
+
+	// (a) The demonstrated hazard: an ellipse whose rim clips the first circle in a lens
+	// far below 256 segments per turn. The arrangement returns four regions — the lens
+	// absent — and no bound of the scene may read exact.
+	clipping := append(append([]geom.ClosedCurve{}, circles...),
+		geom.NewEllipse(geom.NewPoint(9.9997, 0), 5, 5, math.Pi/256))
+	coarse := geom.Regions(nil, clipping, geom.WithSegmentsPerTurn(256))
+	require.False(t, coarse.Degenerate, "three clean transverse crossings")
+	requireExactBoundsReproduce(t, nil, clipping, coarse)
+	require.Len(t, coarse.Regions, 4, "the ellipse lens is below this sampling")
+	requireNoExactBounds(t, coarse, "a map missing a crossing")
+
+	// (b) Raising the density resolves the lens. Exactness stays withheld: whether a
+	// given density happens to resolve a given free-form contact is not something the
+	// arrangement can certify, so the verdict does not turn on it.
+	fine := geom.Regions(nil, clipping, geom.WithSegmentsPerTurn(2048))
+	require.False(t, fine.Degenerate, "the finer sampling is clean too")
+	requireExactBoundsReproduce(t, nil, clipping, fine)
+	require.Len(t, fine.Regions, 5, "the lens resolves at this sampling")
+	requireNoExactBounds(t, fine, "a resolved lens is still a sampled contact")
+
+	// (c) The accepted coverage cost, stated directly: a free-form curve that touches
+	// nothing withholds exactness from the certified circle pair just the same. Distance
+	// is not the test — the source kind is.
+	for _, tc := range []struct {
+		name   string
+		curves []geom.Curve
+		closed []geom.ClosedCurve
+	}{
+		{name: "ellipse", closed: []geom.ClosedCurve{geom.NewEllipse(geom.NewPoint(40, 0), 5, 5, math.Pi/256)}},
+		{name: "elliptical arc", curves: []geom.Curve{
+			geom.NewEllipticalArc(geom.NewPoint(40, 0), geom.NewPoint(45, 0), geom.NewPoint(40, 3), 5, 3, 0),
+		}},
+		{name: "conic", curves: []geom.Curve{
+			geom.NewConic(geom.NewPoint(37, 0), geom.NewPoint(40, 4), geom.NewPoint(43, 0), 0.6),
+		}},
+		{name: "spline", curves: []geom.Curve{mustSpline(t,
+			geom.NewPoint(36, 0), geom.NewPoint(38, 4), geom.NewPoint(42, 4), geom.NewPoint(44, 0))}},
+		{name: "closed spline", closed: []geom.ClosedCurve{mustClosedSpline(t,
+			geom.NewPoint(37, -3), geom.NewPoint(43, -3), geom.NewPoint(43, 3), geom.NewPoint(37, 3))}},
+		{name: "fit spline", curves: []geom.Curve{mustFitSpline(t,
+			geom.NewPoint(36, 0), geom.NewPoint(40, 3), geom.NewPoint(44, 0))}},
+		{name: "nurbs", curves: []geom.Curve{geom.NewNURBS(2,
+			[]*geom.Point{geom.NewPoint(37, 0), geom.NewPoint(40, 4), geom.NewPoint(43, 0)},
+			[]float64{0, 0, 0, 1, 1, 1}, []float64{1, 2, 1})}},
+	} {
+		t.Run("parked "+tc.name, func(t *testing.T) {
+			closed := append(append([]geom.ClosedCurve{}, circles...), tc.closed...)
+			arr := geom.Regions(tc.curves, closed, geom.WithSegmentsPerTurn(256))
+			require.False(t, arr.Degenerate, "the parked curve touches nothing")
+			requireExactBoundsReproduce(t, tc.curves, closed, arr)
+			requireNoExactBounds(t, arr, "a scene holding a "+tc.name)
+		})
+	}
+
+	// (d) The control: the same two circles ALONE — every source a line, circle or arc —
+	// keep every exact bound the certificate earns them. What withholds exactness is the
+	// free-form source in the scene, nothing about the circles or their crossing.
+	only := geom.Regions(nil, circles, geom.WithSegmentsPerTurn(256))
+	require.False(t, only.Degenerate, "one clean transverse crossing")
+	requireExactBoundsReproduce(t, nil, circles, only)
+	require.Len(t, only.Regions, 3, "two lune caps plus the lens")
+	for src, ok := range exactBySource(only) {
+		require.Truef(t, ok, "source %d of an all-analytic scene must keep its exact bounds", src)
+	}
+}
+
+func mustSpline(t *testing.T, ctrl ...*geom.Point) *geom.Spline {
+	t.Helper()
+	sp, err := geom.NewSpline(ctrl...)
+	require.NoError(t, err)
+	return sp
+}
+
+func mustClosedSpline(t *testing.T, ctrl ...*geom.Point) *geom.ClosedSpline {
+	t.Helper()
+	sp, err := geom.NewClosedSpline(ctrl...)
+	require.NoError(t, err)
+	return sp
+}
+
+func mustFitSpline(t *testing.T, fit ...*geom.Point) *geom.FitSpline {
+	t.Helper()
+	sp, err := geom.NewFitSpline(fit...)
+	require.NoError(t, err)
+	return sp
+}
+
+func TestAnalyticCrossingAtSampleVertexBlessedExact(t *testing.T) {
+	// A crossing whose point IS a sample vertex of both curves, to within round-off, is
+	// CERTIFIED: the reported parameter is the true crossing parameter, which happens to
+	// equal that vertex's own sample fraction, and evaluating it reproduces the emitted
+	// point. What the certificate refuses is a contact merely NEAR a sample vertex —
+	// mapped onto it in PARAMETER while sitting away from it in POSITION
+	// (TestAnalyticNearSampleVertexCrossingNotBlessedExact) — and which of the two a
+	// given contact is moves with the sampling rather than persisting through it.
+	//
+	// Two r=5 circles centred 10·cos(45°) apart cross exactly at the ±45° sample vertex
+	// of both at 8 segments per turn.
+	const r = 5.0
+	closed := []geom.ClosedCurve{
+		geom.NewCircle(geom.NewPoint(0, 0), r),
+		geom.NewCircle(geom.NewPoint(2*r*math.Cos(math.Pi/4), 0), r),
+	}
+	arr := geom.Regions(nil, closed, geom.WithSegmentsPerTurn(8))
+	require.False(t, arr.Degenerate, "a transverse crossing on a sample vertex is not degenerate")
+	require.Len(t, arr.Regions, 3, "two lune caps plus the lens")
+	requireExactBoundsReproduce(t, nil, closed, arr)
+	_, exact, partial := arrangementArea(arr)
+	require.True(t, partial, "both circles are cut")
+	require.True(t, exact, "a contact that IS a sample vertex carries the true crossing parameter")
+}
+
+// regionAreasDescending returns the arrangement's region areas, largest first, and
+// whether EVERY emitted boundary fragment of every region carries an exact range.
+func regionAreasDescending(arr *geom.Arrangement) ([]float64, bool) {
+	areas := make([]float64, 0, len(arr.Regions))
+	exact := true
+	for _, rg := range arr.Regions {
+		areas = append(areas, rg.Area)
+		for _, e := range rg.Outer {
+			exact = exact && e.TExact
+		}
+		for _, h := range rg.Holes {
+			for _, e := range h {
+				exact = exact && e.TExact
+			}
+		}
+	}
+	sort.Sort(sort.Reverse(sort.Float64Slice(areas)))
+	return areas, exact
+}
+
+func TestAnalyticCurveCrossingEndpointOnChordNotCertified(t *testing.T) {
+	// An arc whose own ENDPOINT rests on the INTERIOR of one of the circle's chords is a
+	// contact the pair has no analytic event for — the exact geometry puts that endpoint
+	// strictly inside the disk, and only the chord approximation brings the two polylines
+	// together there. Taking analytic authority skips the sampled loop for the pair, so
+	// the contact is never recorded, and the map the pair then publishes is NOT the
+	// sampled one the certificate promises to reproduce: one region instead of two, with
+	// every bound reading exact.
+	//
+	// The contact is placed by construction. At 8 segments per turn the circle's samples
+	// sit every 45 degrees, and the arc ends a quarter of the way along the chord between
+	// the 0 and 45 degree samples. Its host parameters there are 1 on the arc's own last
+	// segment and 0.25 on the chord, so a check that excuses a contact for sitting at a
+	// segment END lets it through; deciding by identity with an injected crossing point
+	// does not.
+	const r = 5.0
+	v1x, v1y := r*math.Cos(math.Pi/4), r*math.Sin(math.Pi/4)
+	ex, ey := r+0.25*(v1x-r), 0.25*v1y
+
+	cx, cy := -3.0, -2.75
+	ra := math.Hypot(ex-cx, ey-cy)
+	end := math.Atan2(ey-cy, ex-cx)
+	start := end - 1.2
+	curves := []geom.Curve{geom.NewArc(
+		geom.NewPoint(cx, cy),
+		geom.NewPoint(cx+ra*math.Cos(start), cy+ra*math.Sin(start)),
+		geom.NewPoint(ex, ey))}
+	closed := []geom.ClosedCurve{geom.NewCircle(geom.NewPoint(0, 0), r)}
+
+	arr := geom.Regions(curves, closed, geom.WithSegmentsPerTurn(8))
+	require.False(t, arr.Degenerate,
+		"the fallback for an uncertified pair is the sampled path, never a degeneracy")
+	require.Len(t, arr.Regions, 2, "the sampled map's own regions, which the certified pair fused into one")
+	areas, exact := regionAreasDescending(arr)
+	require.InDelta(t, 78.512659246063137, areas[0], 1e-9)
+	require.InDelta(t, 0.14921088265903304, areas[1], 1e-9)
+	require.False(t, exact,
+		"a pair whose polylines meet away from every injected crossing publishes no exact bound")
+}
+
+func TestAnalyticCurveCrossingAtSampleVertexNotCertified(t *testing.T) {
+	// The same failure reached by the other door: a genuine transverse crossing of the two
+	// SAMPLED polylines that lands on a sample vertex of one of them, and on no analytic
+	// contact at all. It is a crossing with no node — the pair's sampled crossings are
+	// never recorded once it takes analytic authority — so the face walk runs the two
+	// edges through each other and fuses the regions on either side. Here two regions
+	// become one, reported with every bound exact.
+	//
+	// Built by placing an INTERIOR sample vertex of the first arc exactly on the interior
+	// of a chord of the second: at 8 segments per turn the second arc's 1.0 rad sweep is
+	// sampled into 2 chords and the first arc's 2.0 rad sweep into 3, so vertex 1 of the
+	// first lands three quarters of the way along chord 0 of the second.
+	const spt, r = 8, 5.0
+	const qStart, qSweep = -2.4, 1.0
+	qAt := func(u float64) *geom.Point {
+		a := qStart + u*qSweep
+		return geom.NewPoint(r*math.Cos(a), r*math.Sin(a))
+	}
+	const nq = 2 // ceil(spt * qSweep / 2pi)
+	c0, c1 := qAt(0), qAt(1.0/nq)
+	ex := c0.X + 0.75*(c1.X-c0.X)
+	ey := c0.Y + 0.75*(c1.Y-c0.Y)
+
+	const pSweep, nP, iVert = 2.0, 3, 1 // nP = ceil(spt * pSweep / 2pi)
+	pcx, pcy := 0.0, -1.0
+	rp := math.Hypot(ex-pcx, ey-pcy)
+	pStart := math.Atan2(ey-pcy, ex-pcx) - float64(iVert)/float64(nP)*pSweep
+	curves := []geom.Curve{
+		geom.NewArc(geom.NewPoint(pcx, pcy),
+			geom.NewPoint(pcx+rp*math.Cos(pStart), pcy+rp*math.Sin(pStart)),
+			geom.NewPoint(pcx+rp*math.Cos(pStart+pSweep), pcy+rp*math.Sin(pStart+pSweep))),
+		geom.NewArc(geom.NewPoint(0, 0), qAt(0), qAt(1)),
+	}
+
+	arr := geom.Regions(curves, nil, geom.WithSegmentsPerTurn(spt))
+	require.False(t, arr.Degenerate, "an uncertified pair falls back to the sampled path, not to a degeneracy")
+	require.Len(t, arr.Regions, 2, "the two regions the node-less crossing separates")
+	areas, exact := regionAreasDescending(arr)
+	require.InDelta(t, 0.022316286135887403, areas[0], 1e-9)
+	require.InDelta(t, 0.0035697752231414488, areas[1], 1e-9)
+	require.False(t, exact, "a crossing the map has no node for withholds every exact bound of the pair")
+}
+
+func TestAnalyticContactAtVertexBandIsChordLocal(t *testing.T) {
+	// The identity band that decides whether a contact IS the sample vertex it was mapped
+	// to must be a property of the PAIR, not of the drawing. Bounding it by the scene's
+	// bounding-box extent alone let an unrelated object far away widen it: the two circles
+	// below cross 1.1e-10 away from the r=5 circle's own 0.125 sample vertex — a gap the
+	// pair correctly refuses when drawn alone — and one construction line parked ~100 units
+	// off flipped it to certified, publishing the sample fraction 0.125 as the exact
+	// crossing parameter. Nothing about the pair changed; only the scene did.
+	//
+	// So the verdict must be the same with and without the distant line, at every density,
+	// and it must be the refusal: the contact is not the vertex.
+	closed := []geom.ClosedCurve{
+		geom.NewCircle(geom.NewPoint(0, 0), 5),
+		geom.NewCircle(geom.NewPoint(7, 0), 4.9500025573766155),
+	}
+	for _, spt := range []int{8, 16, 64, 256} {
+		alone := geom.Regions(nil, closed, geom.WithSegmentsPerTurn(spt))
+		far := geom.Regions([]geom.Curve{geom.NewLine(geom.NewPoint(122, -1), geom.NewPoint(122, 1))},
+			closed, geom.WithSegmentsPerTurn(spt))
+
+		require.Falsef(t, alone.Degenerate, "spt=%d", spt)
+		require.Falsef(t, far.Degenerate, "spt=%d", spt)
+		require.Lenf(t, alone.Regions, 3, "spt=%d: two lune caps plus the lens", spt)
+		require.Lenf(t, far.Regions, 3, "spt=%d: the distant line bounds no region", spt)
+
+		aAreas, aExact := regionAreasDescending(alone)
+		fAreas, fExact := regionAreasDescending(far)
+		require.Falsef(t, aExact, "spt=%d: a contact 1.1e-10 off its vertex is not that vertex", spt)
+		require.Falsef(t, fExact, "spt=%d: and a line 122 units away cannot make it one", spt)
+		for k := range aAreas {
+			require.InDeltaf(t, aAreas[k], fAreas[k], 1e-12,
+				"spt=%d: region %d must not move because a distant line was drawn", spt, k)
+		}
+	}
+}
+
+func TestAnalyticArcArcCrossingCertified(t *testing.T) {
+	// The certificate is about the PAIR being two sampled curves, not about them being
+	// full circles: two arcs on different carriers, closed into a wire by two lines,
+	// carry the same exact cuts. Asserted against the arrangement's own high-density
+	// answer, which the low densities must reproduce EXACTLY once certified — the
+	// sampling-independence the lift buys.
+	c1, c2 := geom.NewPoint(0, 0), geom.NewPoint(2, 1.5)
+	at := func(c *geom.Point, ang float64) *geom.Point {
+		return geom.NewPoint(c.X+3*math.Cos(ang), c.Y+3*math.Sin(ang))
+	}
+	s1, e1 := at(c1, -2.4), at(c1, 2.4)
+	s2, e2 := at(c2, math.Pi-2.4), at(c2, math.Pi+2.4)
+	curves := []geom.Curve{
+		geom.NewArc(c1, s1, e1), geom.NewArc(c2, s2, e2),
+		geom.NewLine(e1, s2), geom.NewLine(e2, s1),
+	}
+	ref := geom.Regions(curves, nil, geom.WithSegmentsPerTurn(1024))
+	require.False(t, ref.Degenerate, "the reference sampling is clean")
+	refArea, _, _ := arrangementArea(ref)
+	require.NotEmpty(t, ref.Regions)
+
+	for _, spt := range []int{8, 16, 32, 64, 128} {
+		arr := geom.Regions(curves, nil, geom.WithSegmentsPerTurn(spt))
+		require.Falsef(t, arr.Degenerate, "spt=%d", spt)
+		requireExactBoundsReproduce(t, curves, nil, arr)
+		total, _, _ := arrangementArea(arr)
+		require.Lenf(t, arr.Regions, len(ref.Regions), "same region count as the reference at spt=%d", spt)
+		require.InDeltaf(t, refArea, total, 1e-9, "the arc/arc crossing is exact, so the area does not move with sampling (spt=%d)", spt)
 	}
 }
 

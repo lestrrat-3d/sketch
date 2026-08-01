@@ -233,6 +233,49 @@ type arranger struct {
 	events     map[[2]int][]xEvent
 	sourceSegs [][]int
 
+	// Curve/curve crossings the incidence certificate REFUSED, so the pair fell back
+	// to the sampled path (see analyticCrossingsCertified), and the contacts the
+	// SAMPLED loop actually recorded between two sources — a crossing it found, or a
+	// weld of their sample vertices. The fallback is only sound while the sampled map
+	// represents those crossings; where it does not, the map is fused and no fragment
+	// of the affected component may report an exact parameter. refuseExactOnFusedMap
+	// compares the two and fills exactRefused.
+	deferredCross   map[[2]int][]xEvent
+	sampledContacts map[[2]int][][2]float64
+
+	// exactRefused withdraws exact authority per SOURCE: split() forces every bound of
+	// such a source to exact:false, whatever its own cut records say. Nil when nothing
+	// is refused (the common case).
+	exactRefused []bool
+
+	// exactAllowed gates EVERY exact bound this arrangement emits, ahead of any
+	// per-source or per-pair reasoning: it is true only when EVERY source is a line,
+	// circle or arc (analyticKind). A scene holding any free-form source — ellipse,
+	// elliptical arc, conic, spline, closed spline, fit spline or NURBS — publishes NO
+	// exact bound anywhere, including on the lines, circles and arcs that share the
+	// scene with it, and including a free-form curve's own uncut whole edge.
+	//
+	// A free-form source reaches the planar map only as chords, and nothing bounds how
+	// far one of them leaves its chord: the sampler places vertices, it does not certify
+	// a deviation, and no per-family enclosure is computed here. A curve with a lobe
+	// between two consecutive samples can therefore cross another curve entirely between
+	// them (measured on a knot-clustered degree-3 NURBS at the default sampling: a
+	// midpoint-sampled deviation of 2.1e-05 against a true 4.7e-01 maximum deviation on
+	// the same segment). That crossing is missing from the map, the regions it separates
+	// FUSE, and the analytic pairs of the same scene — certified on their own merits and
+	// cut exactly — then publish the fused map with every bound exact. Gating on the
+	// SOURCE KINDS answers that without a threshold, a per-family deviation bound, or an
+	// estimate of any kind; in an all-analytic scene there is no sampled-only pair to
+	// reason about at all, and the only remaining reconciliation is the refused-crossing
+	// one below, whose bound errs toward withdrawing exactness.
+	//
+	// What it costs is exactness on the analytic sources sharing a scene with a
+	// free-form one. Topology, areas, degeneracy and the reported parameter ranges are
+	// untouched, and an all-analytic scene is unaffected. Lifting it needs a sampler
+	// that certifies its own deviation per source — a separate change to densify, not a
+	// wider estimate here.
+	exactAllowed bool
+
 	// Certified analytic tangency contacts (increment 3): the exact points where
 	// the rotation system must order coincident-tangent ports by curvature instead
 	// of by chord direction. Used ONLY at these vertices — at a sampled crossing the
@@ -574,6 +617,15 @@ func newArranger(curves []Curve, closed []ClosedCurve, cfg arrangeConfig) *arran
 			s.kind = srcDegenerate
 		}
 		a.sources = append(a.sources, s)
+	}
+	// Decided once, over the whole scene, before anything is sampled or classified:
+	// a free-form (or unusable) source anywhere withholds exact bounds everywhere.
+	a.exactAllowed = true
+	for i := range a.sources {
+		if !analyticKind(a.sources[i].kind) {
+			a.exactAllowed = false
+			break
+		}
 	}
 	return a
 }
@@ -984,6 +1036,7 @@ func (a *arranger) intersect() {
 			if p.sin < 1e-3 {
 				a.flagDegenerate(p.x, p.y, si.src, sj.src)
 			}
+			a.noteSampledContact(si.src, sj.src, p.x, p.y)
 			// exact:false — a sampled chord-chord crossing. Both the parameter and
 			// the point are approximations that converge with sampling density.
 			//
@@ -1016,6 +1069,7 @@ func (a *arranger) intersect() {
 			}
 		}
 	}
+	a.refuseExactOnFusedMap()
 }
 
 // analyticPrepass classifies every supported (line/circle/arc) source pair with
@@ -1030,6 +1084,8 @@ func (a *arranger) intersect() {
 func (a *arranger) analyticPrepass() {
 	a.handled = make(map[[2]int]struct{})
 	a.events = make(map[[2]int][]xEvent)
+	a.deferredCross = make(map[[2]int][]xEvent)
+	a.sampledContacts = make(map[[2]int][][2]float64)
 	a.sourceSegs = make([][]int, len(a.sources))
 	for i := range a.segs {
 		a.sourceSegs[a.segs[i].src] = append(a.sourceSegs[a.segs[i].src], i)
@@ -1066,23 +1122,42 @@ func (a *arranger) analyticPrepass() {
 			// certify a port vertex; let the separate inner/outer loops + exact hole
 			// assignment produce the annulus.
 			internalTan := nTangent > 0 && a.internalCurvedTangency(i, j)
-			// Curve/curve TRANSVERSE crossings (both sources circle/arc) are deferred
-			// to the sampled path. The sampled DCEL already resolves their topology
-			// correctly (the pre-analytic behaviour); injecting exact cuts buys exact
-			// area but, until increment 3's exact tangent-port certificate, can only be
-			// admitted by a gate that is either unsound (round-2: equal-count coarse
-			// crossings at the wrong locations fuse three regions into one) or so
-			// conservative it false-flags well-separated valid crossings (a sampled
-			// crossing one chord segment off the analytic param). Both are worse than
-			// deferring, so do not take analytic authority here: skip marking handled,
-			// flag a genuinely ambiguous verdict, and let the sampled loop run. Line-
-			// involved crossings and all tangencies keep analytic authority below.
-			if nCross > 0 && isCurvedKind(si.kind) && isCurvedKind(sj.kind) {
+			// A curve/curve TRANSVERSE crossing (both sources circle/arc) takes analytic
+			// authority only when the incidence certificate below passes. Unlike a
+			// line-involved pair — whose line operand is reproduced exactly, so its
+			// sampled crossing tracks the analytic one — BOTH polylines here are chord
+			// approximations, and an exact cut bumps each of them outward by up to its
+			// own sagitta. That is safe exactly when the bumped polylines still meet
+			// only at the injected points, and cross there; when they do not, the map
+			// would fuse regions (the round-2 bug) while reading clean.
+			//
+			// The fallback is the SAMPLED path, not a degeneracy: leave the pair
+			// unhandled and let the sampled loop resolve it exactly as before the lift.
+			// What the lift buys is the exact cut parameter (BoundaryEdge.TExact) and the
+			// exact area, so a pair too coarsely sampled to certify loses only that, and
+			// no caller that was blessed before the lift is refused after it.
+			//
+			// The sampled path resolves such a pair correctly wherever it finds the
+			// crossing at all — and below that density it does not find it, fusing the
+			// regions the crossing separates. That fusion is the sampled path's own
+			// pre-existing density limit, but the OTHER pairs of the same component,
+			// certified on their own merits, would then hand out exact bounds describing
+			// the fused map. So each refused crossing is recorded here and reconciled
+			// against the sampled map after the sampled loop (refuseExactOnFusedMap).
+			curveCrossPair := nCross > 0 && isCurvedKind(si.kind) && isCurvedKind(sj.kind)
+			if curveCrossPair && !a.analyticCrossingsCertified(i, j, events) {
 				if ambiguous {
 					rx, ry := sourceRep(si)
 					sx, sy := sourceRep(sj)
 					a.flagDegenerate((rx+sx)/2, (ry+sy)/2, i, j)
 				}
+				var crossings []xEvent
+				for _, e := range events {
+					if e.kind == evCross {
+						crossings = append(crossings, e)
+					}
+				}
+				a.deferredCross[pairKey(i, j)] = crossings
 				continue
 			}
 			a.handled[[2]int{i, j}] = struct{}{}
@@ -1104,8 +1179,12 @@ func (a *arranger) analyticPrepass() {
 			// judge — so it is exempted here; resolveCoincidentOverlap below is its own,
 			// separate, sample-density-independent soundness argument (see "Determinism"
 			// in docs/coincident-carrier-resolution-design.md).
+			// A certified curve/curve crossing pair is exempt: analyticCrossingsCertified
+			// already answered the same question directly, on the geometry the cuts
+			// actually produce, and answered it without the strict host-segment-pair
+			// requirement that a second, independently sampled curve makes fragile.
 			isOverlapPair := len(events) == 1 && events[0].kind == evOverlap
-			if (isCurvedKind(si.kind) || isCurvedKind(sj.kind)) && !internalTan && !isOverlapPair {
+			if !curveCrossPair && (isCurvedKind(si.kind) || isCurvedKind(sj.kind)) && !internalTan && !isOverlapPair {
 				if !a.analyticCrossHosted(i, j, events) ||
 					!a.contactsResolved(i, j, events) ||
 					!a.sampledCrossingsExplained(i, j, events) {
@@ -1360,6 +1439,448 @@ func (a *arranger) analyticCrossHosted(i, j int, events []xEvent) bool {
 	return true
 }
 
+// analyticCrossingsCertified reports whether the pair's exact transverse crossings
+// can be injected into the sampled map without changing its topology — the
+// incidence certificate for a CURVE/CURVE crossing, where analyticCrossHosted's
+// strict host-segment-pair witness does not carry.
+//
+// It asks the question directly, on the geometry the cut phase actually emits:
+// splice each exact crossing point into BOTH sources' polylines at the site
+// applyAnalyticCut would use (postCutPolyline, so the gate can never test something
+// the cut phase does not do), then require
+//
+//   - the two spliced polylines to meet ONLY at those points — every contact between
+//     them IS an injected crossing point (polylinesMeetOnlyAtContacts). A leftover
+//     contact has no vertex in the planar map, because a handled pair's sampled
+//     crossings are never recorded, so the face walk would run two edges through each
+//     other and fuse the regions on either side. That is the round-2 failure exactly.
+//     The membership is decided by IDENTITY with an injected point, never by where the
+//     contact sits along its host segments: an arc's own endpoint resting on the
+//     interior of the other source's chord, and a transverse pass-through that lands on
+//     a sample vertex of one polyline, are both contacts with no node — and a
+//     segment-endpoint band admits both of them.
+//   - each contact to sit AT the polyline vertex it was mapped to (contactIsVertex).
+//     A spliced point satisfies this by construction; a contact postCutPolyline mapped
+//     onto an EXISTING vertex need not, because that mapping is decided in the source's
+//     parameter and a parameter that close still admits a position gap far above
+//     round-off. Where the gap is real the vertex, not the contact, is what the
+//     remaining checks and the emitted parameter would describe; where the contact IS
+//     the vertex the two are one point and the bound is the true crossing parameter.
+//   - the four chord departures at each injected point to ALTERNATE between the two
+//     sources (portsCross), in the same rotation order buildGraph sorts by. Meeting
+//     at a point is not crossing at it: if both of one source's chords leave on the
+//     same side of the other's, the loops touch, and the face walk pairs the wrong
+//     half-edges. A contact at an open source's own ENDPOINT has only three
+//     departures and so can never pass — the sampled fallback owns that case.
+//
+// Together those are the polygonal statement of "the sampled map has the same
+// crossing incidence as the exact geometry", which is what injecting an exact cut
+// needs and all it needs. The third is threshold-free — no tolerance, no chord-length
+// bound, no crossing-angle floor — so a shallow crossing is judged by whether the
+// chords actually resolve it, not by how shallow it is. The first two decide only
+// "one point or two", and both decide it with the SAME identity band vertexCertifies
+// uses: the first to ask whether a contact IS an injected crossing point, the second
+// whether it IS the vertex it was mapped to (there additionally bounded by the vertex's
+// own chord, so a distant object cannot widen it). No crossing-angle or chord-length
+// threshold enters either verdict.
+//
+// Why analyticCrossHosted is not that statement for this pair: it requires the
+// crossing to be witnessed on the very segment pair carrying its two source
+// parameters. The sampled crossing sits off the exact one by roughly the sagitta
+// divided by the sine of the crossing angle, so whenever that offset carries it into
+// a neighbouring segment the witness is looked for in the wrong place. With a line
+// operand only one grid can be off (the line's polyline IS the line, one segment
+// covering it); with two sampled curves both can, and the miss rate stops falling
+// with density in any useful way — it aliases against the two sampling grids.
+func (a *arranger) analyticCrossingsCertified(i, j int, events []xEvent) bool {
+	var ti, tj []float64
+	var pts [][2]float64
+	for _, e := range events {
+		if e.kind != evCross {
+			continue
+		}
+		ti = append(ti, e.ti)
+		tj = append(tj, e.tj)
+		pts = append(pts, [2]float64{e.x, e.y})
+	}
+	if len(pts) == 0 {
+		return true
+	}
+	pi, ci := a.postCutPolyline(i, ti, pts)
+	pj, cj := a.postCutPolyline(j, tj, pts)
+	if pi == nil || pj == nil {
+		return false // a contact the sampled polyline has no place for
+	}
+	if !polylinesMeetOnlyAtContacts(pi, pj, pts, weldIdentEps*a.scale) {
+		return false
+	}
+	for k := range pts {
+		if !a.contactIsVertex(pi, ci[k], pts[k]) || !a.contactIsVertex(pj, cj[k], pts[k]) {
+			return false
+		}
+		if !portsCross(pi, ci[k], a.sources[i].closed, pj, cj[k], a.sources[j].closed) {
+			return false
+		}
+	}
+	return true
+}
+
+// contactIsVertex reports whether the polyline vertex a contact was mapped to IS the
+// contact point, at the round-off identity band — bounded by TWO yardsticks at once, the
+// scene's own scale and the CHORD the vertex sits on, exactly as carriersIdentical bounds
+// a carrier match by both the scene band and the carrier-local one.
+//
+// For a spliced contact this holds by construction — the vertex is the contact point, at
+// zero distance. It is load-bearing for a contact cutSite reported as already carrying a
+// vertex: that decision is made in the source's PARAMETER (within segEps of a segment
+// boundary), and a parameter that close still admits a POSITION gap of up to a few times
+// segEps·segment length, orders of magnitude above the identity band. Certifying a contact
+// with a real gap hands the sampled vertex's own parameter — a plain sample fraction i/n —
+// out as an exact bound, describing a point the crossing is not at. A curve/curve pair has
+// no second safety net here: certification exempts it from the taint passes that would
+// otherwise mark a weld inexact, so the certificate itself has to refuse. Refusing means
+// the sampled fallback, where the parameter is reported inexact and the topology is
+// unchanged. A contact that IS the vertex passes and keeps its exact bound: the sample
+// fraction and the true crossing parameter are then the same number, and evaluating it
+// reproduces the emitted point, which is all TExact claims.
+//
+// The CHORD-LOCAL band is what keeps the question about THIS contact. a.scale is the whole
+// scene's bounding-box extent, so an unrelated object far away widens it: with a circle of
+// radius 5 the verdict flips at a scene extent of about 24.5·r, so ONE construction line
+// parked 100 units away turns a contact 1.1e-10 off its vertex — a gap the same pair
+// correctly refuses when drawn alone — into a certified one, publishing the vertex's own
+// sample fraction as an exact crossing parameter. Nothing about the pair changed; only the
+// scene did. The gap is measured against the chord the vertex belongs to, which is the
+// only length the mapping decision (a segEps window on that chord's parameter) is stated
+// in, and no distant object can inflate it.
+func (a *arranger) contactIsVertex(p [][2]float64, k int, pt [2]float64) bool {
+	if k < 0 || k >= len(p) {
+		return false
+	}
+	gap := math.Hypot(p[k][0]-pt[0], p[k][1]-pt[1])
+	return gap <= weldIdentEps*a.scale && gap <= weldIdentEps*polylineChordAt(p, k)
+}
+
+// polylineChordAt returns the longer of the chords meeting at the polyline's k-th vertex —
+// the local length scale of the mapping that put a contact there. The longer of the two is
+// the one whose segEps parameter window admits the widest position gap, so it is the bound
+// the check has to be stated against; a lone vertex (no chord) has no local scale and
+// admits only an exact match.
+func polylineChordAt(p [][2]float64, k int) float64 {
+	out := 0.0
+	if k > 0 {
+		out = math.Max(out, math.Hypot(p[k][0]-p[k-1][0], p[k][1]-p[k-1][1]))
+	}
+	if k+1 < len(p) {
+		out = math.Max(out, math.Hypot(p[k+1][0]-p[k][0], p[k+1][1]-p[k][1]))
+	}
+	return out
+}
+
+// noteSampledContact records that the SAMPLED loop put a contact between two DIFFERENT
+// sources at (x,y): a chord/chord crossing, or a weld of their sample vertices (the
+// shape a crossing takes when it lands on a sample vertex of both). It is the evidence
+// refuseExactOnFusedMap reconciles a refused analytic crossing against
+// (sampledRepresents).
+func (a *arranger) noteSampledContact(i, j int, x, y float64) {
+	if i == j {
+		return
+	}
+	k := pairKey(i, j)
+	a.sampledContacts[k] = append(a.sampledContacts[k], [2]float64{x, y})
+}
+
+// refuseExactOnFusedMap withdraws exact authority from every source of a connected
+// component whose planar map may be FUSED — one carrying a crossing that is missing
+// from the sampled map the pair was handed back to.
+//
+// The pair handed back is a curve/curve crossing the incidence certificate REFUSED
+// (deferredCross). It rests on the sampled path, which is sound only while that path
+// RESOLVES the crossing. Below the density where the two chord polylines meet at all,
+// it does not: the crossing disappears, the regions it separates fuse, and nothing
+// flags it (this is the sampled path's own pre-existing sampling limit — the region
+// count changes with WithSegmentsPerTurn either way, and repairing that is not what
+// this pass is for). What this pass prevents is the fused map being published as EXACT.
+// The other pairs of the same component are certified on their own merits and cut
+// exactly, so every surviving fragment reports TExact — describing a topology that is
+// wrong. Three r=5 circles in general position show it directly: two pairs certify, the
+// third pair's shallow crossing is below the sampling, and the arrangement reports five
+// regions with every bound exact where seven is the truth.
+//
+// A SAMPLED-ONLY pair — one involving an ellipse, conic, spline or NURBS — can hide a
+// crossing the same way, and is answered a whole level up instead, by the exactAllowed
+// scene gate: such a pair only exists in a scene that publishes no exact bound at all.
+// Nothing here estimates how far a chord runs from its curve.
+//
+// The unit is the CONNECTED COMPONENT, not the offending pair: a fused crossing moves
+// the face boundaries of every cycle it takes part in, so a fragment of ANY source
+// reachable through contacts is describing the fused map. Sources are joined here by
+// CONTACT — an analytic event of a handled pair, a refused crossing, or a sampled
+// contact. A handled pair with NO event is not a contact and must not join: the kernel
+// classified those two sources and found they never meet, so an untouched cluster
+// elsewhere in the scene keeps its exactness however busy the rest of the drawing is.
+//
+// Refusal costs only the exactness FLAG. Topology, areas and degeneracy are untouched,
+// and the reported ranges stay the sampled ones, which is exactly what the same
+// geometry reported before curve/curve crossings could certify at all.
+func (a *arranger) refuseExactOnFusedMap() {
+	if len(a.deferredCross) == 0 {
+		return
+	}
+	uf := newUnionFind(len(a.sources))
+	for k, evs := range a.events {
+		if len(evs) == 0 {
+			continue // classified and found not to meet — no contact, no component edge
+		}
+		uf.union(k[0], k[1])
+	}
+	for k := range a.deferredCross {
+		uf.union(k[0], k[1])
+	}
+	for k := range a.sampledContacts {
+		uf.union(k[0], k[1])
+	}
+	fused := map[int]struct{}{}
+	for k, evs := range a.deferredCross {
+		for _, e := range evs {
+			if a.sampledRepresents(k[0], k[1], e) {
+				continue
+			}
+			fused[uf.find(k[0])] = struct{}{}
+			break
+		}
+	}
+	if len(fused) == 0 {
+		return
+	}
+	a.exactRefused = make([]bool, len(a.sources))
+	for s := range a.sources {
+		if _, bad := fused[uf.find(s)]; bad {
+			a.exactRefused[s] = true
+		}
+	}
+}
+
+// sampledRepresents reports whether the sampled map carries a contact for a refused
+// analytic crossing of the pair.
+//
+// The sampled crossing does not sit ON the exact one — it is displaced by roughly the
+// chord sagitta divided by the sine of the crossing angle — so the question is asked
+// within one chord of the two host segments (the same bound sampledCrossingsExplained
+// uses, and where the chord approximation's own error lives), floored at the vertex
+// merge tolerance for a contact the sampling recorded as a weld. Judging a represented
+// crossing unrepresented costs only the exactness flag on that component; the reverse
+// would publish a fused map as exact, so the bound is deliberately the tight one.
+func (a *arranger) sampledRepresents(i, j int, e xEvent) bool {
+	tol := a.merge
+	if si := a.segContaining(i, e.ti); si >= 0 {
+		tol = math.Max(tol, a.segLen(si))
+	}
+	if sj := a.segContaining(j, e.tj); sj >= 0 {
+		tol = math.Max(tol, a.segLen(sj))
+	}
+	for _, p := range a.sampledContacts[pairKey(i, j)] {
+		if math.Hypot(p[0]-e.x, p[1]-e.y) <= tol {
+			return true
+		}
+	}
+	return false
+}
+
+// postCutPolyline returns source src's sampled polyline with the given exact contact
+// points spliced in — the geometry split() emits once applyAnalyticCut has run — plus
+// the index each contact occupies in it.
+//
+// The splice sites come from cutSite, the same call applyAnalyticCut acts on, so the
+// polyline this builds is the one the cut phase produces and not an idealization of
+// it: a contact the sampled map already has a vertex for (a source endpoint, a sample
+// vertex) is NOT inserted — it maps to that existing vertex, exactly as
+// applyAnalyticCut records nothing there, and WHICH vertex is read off cutSite's local
+// parameter. A nil polyline means some contact sits on no sampled segment at all,
+// which no splice can represent. The mapped vertex is not assumed to BE the contact:
+// the caller checks that (contactIsVertex), because the parameter cutSite decided on
+// bounds no position gap.
+func (a *arranger) postCutPolyline(src int, ts []float64, pts [][2]float64) ([][2]float64, []int) {
+	segs := a.sourceSegs[src]
+	if len(segs) == 0 {
+		return nil, nil
+	}
+	type site struct {
+		seg   int     // index into a.segs
+		pos   int     // that segment's position along the source
+		local float64 // local chord parameter within it
+		atVtx bool    // the sampled map already carries a vertex here
+		k     int     // index into the caller's contact list
+	}
+	pos := make(map[int]int, len(segs))
+	for n, si := range segs {
+		pos[si] = n
+	}
+	sites := make([]site, 0, len(ts))
+	for k, t := range ts {
+		seg, local, atVtx := a.cutSite(src, t)
+		n, ok := pos[seg]
+		if seg < 0 || !ok {
+			return nil, nil
+		}
+		sites = append(sites, site{seg: seg, pos: n, local: local, atVtx: atVtx, k: k})
+	}
+	sort.Slice(sites, func(x, y int) bool {
+		if sites[x].pos != sites[y].pos {
+			return sites[x].pos < sites[y].pos
+		}
+		return sites[x].local < sites[y].local
+	})
+	out := make([][2]float64, 0, len(segs)+1+len(sites))
+	at := make([]int, len(ts))
+	segStart := make([]int, len(segs))
+	for n, si := range segs {
+		s := &a.segs[si]
+		segStart[n] = len(out)
+		out = append(out, [2]float64{s.ax, s.ay})
+		for _, c := range sites {
+			if c.pos == n && !c.atVtx {
+				out = append(out, pts[c.k])
+				at[c.k] = len(out) - 1
+			}
+		}
+	}
+	end := &a.segs[segs[len(segs)-1]]
+	lastIdx := len(out)
+	out = append(out, [2]float64{end.bx, end.by})
+	// A contact already carrying a vertex maps to it: the segment's own start when
+	// its local parameter sits at 0, else the vertex that begins the next segment
+	// (the last segment's end being the polyline's own end).
+	for _, c := range sites {
+		if !c.atVtx {
+			continue
+		}
+		switch {
+		case c.local <= 0.5:
+			at[c.k] = segStart[c.pos]
+		case c.pos+1 < len(segs):
+			at[c.k] = segStart[c.pos+1]
+		default:
+			at[c.k] = lastIdx
+		}
+	}
+	return out, at
+}
+
+// polylinesMeetOnlyAtContacts reports whether the two spliced polylines meet ONLY at
+// the injected contact points pts — every contact between a segment of one and a
+// segment of the other IS one of those points, within the round-off identity band eps
+// (weldIdentEps·scale, the same band contactIsVertex and vertexCertifies decide "one
+// point or two" by).
+//
+// Membership is decided by IDENTITY with an injected point. Deciding it by POSITION
+// ALONG THE HOST SEGMENTS instead — excluding a contact whose segment parameter sits
+// within segEps of either segment's end, which is what this predicate used to do — is a
+// different question, and the gap between the two admits contacts that carry no node in
+// the planar map:
+//
+//   - a source's own ENDPOINT resting on the INTERIOR of the other source's chord. The
+//     endpoint is one segment's parameter 1, so the band excused it, while the contact
+//     is a real meeting of the two polylines that the exact geometry does not have.
+//   - a genuine transverse PASS-THROUGH that happens to land on a sample vertex of one
+//     of the polylines. It is the same crossing the gate exists to refuse, waved
+//     through for sitting at a vertex of one source rather than being a vertex of both.
+//
+// PARALLEL pairs never reached the parameter test at all: segParams rejects a pair by
+// its determinant before any range test, so a collinear OVERLAP — two chords sharing a
+// whole span rather than a point — arrived as silence and was accepted with no
+// tolerance applied to it whatever. collinearOverlap is the same coincident-edge test
+// the sampled loop uses, and an overlap of positive length is never a transverse
+// crossing, so it is refused outright.
+//
+// Refusing costs the sampled fallback, which keeps the correct sampled topology and
+// reports TExact=false; accepting one of these publishes a fused map as exact.
+func polylinesMeetOnlyAtContacts(pi, pj, pts [][2]float64, eps float64) bool {
+	injected := func(x, y float64) bool {
+		for _, p := range pts {
+			if math.Hypot(p[0]-x, p[1]-y) <= eps {
+				return true
+			}
+		}
+		return false
+	}
+	for x := 0; x+1 < len(pi); x++ {
+		si := tinySeg{ax: pi[x][0], ay: pi[x][1], bx: pi[x+1][0], by: pi[x+1][1]}
+		for y := 0; y+1 < len(pj); y++ {
+			sj := tinySeg{ax: pj[y][0], ay: pj[y][1], bx: pj[y+1][0], by: pj[y+1][1]}
+			if _, _, ok := collinearOverlap(&si, &sj); ok {
+				return false
+			}
+			p, ok := segParams(&si, &sj)
+			if !ok {
+				continue
+			}
+			if !injected(p.x, p.y) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// portsCross reports whether the two polylines genuinely cross at the vertex each
+// carries the contact at: their four chord departures must alternate between the
+// sources in angular order — the rotation order buildGraph itself sorts half-edges
+// by, so this is the map's own criterion, not a proxy for it.
+//
+// Anything that is not four departures fails. An index of -1 (no such vertex) has
+// none. A vertex with a SINGLE departure is an open curve's ENDPOINT: the curve stops
+// there, so it contributes one direction, the four cannot alternate, and there is no
+// crossing here to certify — the contact is a T-junction, which the exact geometry may
+// well have but which this predicate has no evidence about. Passing it certified the
+// injected cut against nothing, and the cut then bent the other source's chord through
+// the endpoint and silently erased a region; such a contact takes the sampled fallback
+// instead. A CLOSED source's seam is not the endpoint case and must not be read as one
+// — hence the per-polyline closed flag.
+func portsCross(pi [][2]float64, a int, aClosed bool, pj [][2]float64, b int, bClosed bool) bool {
+	di := polylinePorts(pi, a, aClosed)
+	dj := polylinePorts(pj, b, bClosed)
+	if len(di) != 2 || len(dj) != 2 {
+		return false
+	}
+	angs := [4]float64{
+		math.Atan2(di[0][1], di[0][0]), math.Atan2(di[1][1], di[1][0]),
+		math.Atan2(dj[0][1], dj[0][0]), math.Atan2(dj[1][1], dj[1][0]),
+	}
+	src := [4]int{0, 0, 1, 1}
+	for x := 1; x < 4; x++ {
+		for y := x; y > 0 && angs[y] < angs[y-1]; y-- {
+			angs[y], angs[y-1] = angs[y-1], angs[y]
+			src[y], src[y-1] = src[y-1], src[y]
+		}
+	}
+	return src[0] != src[1] && src[1] != src[2] && src[2] != src[3]
+}
+
+// polylinePorts returns the chord departure vectors at the polyline's k-th vertex.
+// An interior vertex has two and an OPEN curve's endpoint has one. A CLOSED source's
+// polyline repeats its seam vertex at index 0 and at the end, so either index names
+// the one seam vertex, whose two departures are its two distinct neighbours.
+func polylinePorts(p [][2]float64, k int, closed bool) [][2]float64 {
+	if k < 0 || k >= len(p) {
+		return nil
+	}
+	if closed && len(p) >= 3 && (k == 0 || k == len(p)-1) {
+		return [][2]float64{
+			{p[1][0] - p[0][0], p[1][1] - p[0][1]},
+			{p[len(p)-2][0] - p[len(p)-1][0], p[len(p)-2][1] - p[len(p)-1][1]},
+		}
+	}
+	var out [][2]float64
+	if k > 0 {
+		out = append(out, [2]float64{p[k-1][0] - p[k][0], p[k-1][1] - p[k][1]})
+	}
+	if k+1 < len(p) {
+		out = append(out, [2]float64{p[k+1][0] - p[k][0], p[k+1][1] - p[k][1]})
+	}
+	return out
+}
+
 // crossNeedsSampledWitness reports whether an analytic transverse crossing has to
 // be witnessed by a sampled interior crossing of the two polylines.
 //
@@ -1407,9 +1928,21 @@ func (a *arranger) crossNeedsSampledWitness(i, j int, e xEvent) bool {
 // It is the single place that decision is made — applyAnalyticCut acts on it, and
 // crossNeedsSampledWitness reads it — so what the gate expects can never drift from
 // what the cut phase does.
+//
+// The local parameter is reported for a SOURCE END too, and it is the real one — 0
+// at the source's start, 1 at an open source's end — not a placeholder. postCutPolyline
+// reads it to decide WHICH sampled vertex the contact occupies, and a hardcoded 0 named
+// the far end of the last segment for a contact at t=1: the certificate then ran on a
+// vertex a whole chord away from the contact, which has the two departures the real
+// endpoint does not, and blessed a crossing the injected cut went on to erase a region
+// over.
 func (a *arranger) cutSite(src int, t float64) (int, float64, bool) {
 	if atSourceEnd(&a.sources[src], t) {
-		return a.segContaining(src, t), 0, true
+		si := a.segContaining(src, t)
+		if si < 0 {
+			return -1, 0, true
+		}
+		return si, segLocal(&a.segs[si], t), true
 	}
 	for _, si := range a.sourceSegs[src] {
 		s := &a.segs[si]
@@ -1420,10 +1953,22 @@ func (a *arranger) cutSite(src int, t float64) (int, float64, bool) {
 		if t < lo-segEps || t > hi+segEps {
 			continue
 		}
-		local := (t - s.pa) / (s.pb - s.pa)
+		local := segLocal(s, t)
 		return si, local, local <= segEps || local >= 1-segEps
 	}
 	return -1, 0, false
+}
+
+// segLocal maps a source parameter onto the segment's local chord parameter, clamped
+// to [0,1] — a source parameter reaches this a hair outside the segment's own span
+// (both the atSourceEnd band and the segEps slack in the scan admit that), and a local
+// parameter outside [0,1] names no point of the chord.
+func segLocal(s *tinySeg, t float64) float64 {
+	if s.pb == s.pa {
+		return 0
+	}
+	local := (t - s.pa) / (s.pb - s.pa)
+	return math.Min(1, math.Max(0, local))
 }
 
 // applyAnalyticCut records an exact cut at source-parameter t (event point x,y) on
@@ -1589,6 +2134,10 @@ func (a *arranger) fragmentSuppressed(src int, p0, p1 float64) bool {
 // end-to-end join between two curves stays a join.
 func (a *arranger) taintMergedEndpoints(si, sj *tinySeg) {
 	a.forEachMergedEnd(si, sj, func(e mergedEnd) {
+		// A weld IS a contact the sampled map made between the two sources — the
+		// shape a crossing takes when it lands on a sample vertex of both rather
+		// than interior to a chord of each. refuseExactOnFusedMap reads it as such.
+		a.noteSampledContact(si.src, sj.src, e.xi, e.yi)
 		a.taintSampledVertex(si.src, e.ti)
 		a.taintSampledVertex(sj.src, e.tj)
 	})
@@ -1951,10 +2500,20 @@ func (a *arranger) split() {
 		// audited: it is a fact about the source's parameterization ("this bound IS
 		// the curve's domain end"), which a weld does not change, and Whole must not
 		// be lost to one.
+		//
+		// Two withdrawals, both applied to every bound of this fragment. The SCENE gate
+		// (exactAllowed) withholds exactness from the whole arrangement when any source
+		// is free-form; the per-source one (exactRefused) withholds it from a component
+		// whose map may be fused (refuseExactOnFusedMap). Either is applied wholesale,
+		// cut records and vertex identity notwithstanding: the bounds are individually
+		// right about their own curve and may collectively describe a topology that is
+		// missing a crossing. Neither changes what is emitted — only whether its
+		// parameter is published as exact.
+		refused := !a.exactAllowed || (a.exactRefused != nil && a.exactRefused[s.src])
 		a.edges = append(a.edges, arrEdge{u: f.u, v: f.v, src: s.src,
 			pu: s.param(f.b0.t), pv: s.param(f.b1.t),
-			exactU: f.b0.exact && a.vertexCertifies(f.u, f.b0.px, f.b0.py),
-			exactV: f.b1.exact && a.vertexCertifies(f.v, f.b1.px, f.b1.py),
+			exactU: !refused && f.b0.exact && a.vertexCertifies(f.u, f.b0.px, f.b0.py),
+			exactV: !refused && f.b1.exact && a.vertexCertifies(f.v, f.b1.px, f.b1.py),
 			endU:   f.b0.srcEnd, endV: f.b1.srcEnd})
 	}
 }

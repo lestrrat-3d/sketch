@@ -4,9 +4,15 @@ Status: **in progress** — increments 1 (the analytic event kernel,
 `geom/arrange_events.go`) and 2 (the analytic-authoritative wiring,
 `geom/arrange.go`) are implemented, and increment 3 (exact tangent/port ordering)
 is **partly** in — a merged-vertex EXTERNAL circle/arc tangency is now blessed as
-two disks via curvature-ordered ports; internal/containment, osculation, and
-curve/curve crossing authority remain deferred. The rest is the roadmap below.
-Resolves the "analytic (non-sampled) arrangement" open follow-up of the
+two disks via curvature-ordered ports; internal/containment tangency is blessed
+via §7a's exact containment; osculation and line-involved merged tangency remain
+deferred. **Curve/curve transverse crossings are no longer deferred**: §7b is
+implemented, so a circle/arc × circle/arc crossing takes analytic authority
+whenever its own incidence certificate passes, and falls back to the sampled path
+otherwise. Exact parameter bounds are additionally gated on the WHOLE SCENE being
+line/circle/arc (§7b, "The all-analytic gate"), so a scene containing any
+free-form curve reports `TExact = false` everywhere. The rest is the roadmap
+below. Resolves the "analytic (non-sampled) arrangement" open follow-up of the
 Profile/region engine (`docs/verification-roadmap.md`).
 
 ## The problem
@@ -82,10 +88,10 @@ Same-component interior tangency is a **self-touch** → `SelfIntersections`, no
    is taken for **line-involved crossings and all tangencies**: the oracle no longer
    false-flags clean shallow crossings or clean tangencies (tangent line+circle → one
    disk; non-merged tangent circles → two disks) and line/circle cuts are
-   sampling-stable. **Curve/curve transverse crossings are deferred to the sampled
-   path** (see "Scope of analytic authority"): their sampled topology is already
-   correct, and exact cuts there are unsound-or-over-conservative until increment 3,
-   so injecting them is net-negative. A line-involved curved pair whose exact crossing
+   sampling-stable. Increment 2 left **curve/curve transverse crossings on the sampled
+   path**; §7b lifted that behind an incidence certificate of their own (see "Scope of
+   analytic authority", which records both the original reasoning and what replaced
+   it). A line-involved curved pair whose exact crossing
    the coarse sampled map cannot host (a sub-sample cap, or a crossing the polyline
    never reaches) is conservatively `Degenerate` via the gate, never a blessed wrong
    topology. Tangencies that would merge into a shared cycle-bearing vertex are
@@ -108,15 +114,15 @@ Same-component interior tangency is a **self-touch** → `SelfIntersections`, no
    (`exactPortVerts`), never at a sampled crossing vertex — there the edges are
    *chords*, so chord ordering is what matches the polyline geometry the face walk
    traverses; ordering those by exact tangents corrupts the map. Still `Degenerate`
-   (deferred): **internal/containment** tangency, line-involved merged tangency, a
-   genuine **osculation** (equal tangent AND equal curvature), and curve/curve
-   transverse **crossing** authority (still deferred to the sampled path — lifting it
-   needs the post-split fragment
-   certificate below). The richer per-event **hostability certificate** that would
-   bless those — fragment **incidence** (the emitted straight fragments have no
-   extra/missing crossings vs the analytic event set), full **port order** at every
-   event vertex, and **closed containment** (a nested/internally-tangent inner cycle
-   certified inside the outer) — is the remaining increment-3+ work.
+   (deferred): line-involved merged tangency and a genuine **osculation** (equal
+   tangent AND equal curvature). **Internal/containment** tangency is blessed by §7a's
+   exact containment, and curve/curve transverse **crossing** authority by §7b's
+   incidence certificate — both implemented. The richer per-event **hostability
+   certificate** once sketched here — fragment **incidence** (the emitted straight
+   fragments have no extra/missing crossings vs the analytic event set), full **port
+   order** at every event vertex, and **closed containment** (a nested/internally-
+   tangent inner cycle certified inside the outer) — was narrowed by §7b: a transverse
+   crossing needs incidence, not port order (see §7b), and containment landed in §7a.
 
    *Internal-tangency finding (why it is increment-7-level, not a focused increment).*
    The current behaviour is **sound**: the consistency gate flags EVERY internal
@@ -167,8 +173,8 @@ Same-component interior tangency is a **self-touch** → `SelfIntersections`, no
    correction (`chordArcCorrection`/`chordEllipseCorrection`/`splineBulge`) keyed on
    the fragment's natural-param range, not on the polyline density. So increment 7 is
    NOT about area; it is purely about making the **topology decisions** exact. Only
-   three topology decisions are still sampled, and the deferred cases (internal
-   tangency, curve/curve crossings) fail on exactly two of them:
+   three topology decisions are still sampled, and the cases §7a and §7b went on to
+   bless (internal tangency, curve/curve crossings) turned on exactly two of them:
    - **Crossing incidence** — for line/circle/arc this is already analytic
      (`analyticEvents`); the count/incidence gate only *flags* when the sampled
      chords disagree (a poke-out spurious crossing, a sub-sample cap). The exact
@@ -196,32 +202,107 @@ Same-component interior tangency is a **self-touch** → `SelfIntersections`, no
    one, and hole assignment uses the exact ray-cast so the inner nests into the outer
    — annulus π·(R²−r²) + inner disk π·r², exact at every sampling, tiny inner and
    merged/cardinal contact included; disjoint-nested and mixed line+curve containment
-   unchanged, the whole-uncut-circle seam handled). **§7b — designed below**: lift
-   the curve/curve crossing deferral behind the same exact-containment +
-   analytic-authority basis. §7c (only if needed) replace `BoundaryEdge.Polyline`
+   unchanged, the whole-uncut-circle seam handled). **§7b — DONE, described below**:
+   the curve/curve crossing deferral is lifted behind a per-pair incidence
+   certificate, with exact parameter bounds gated on an all-analytic scene. §7c (only
+   if needed) replace `BoundaryEdge.Polyline`
    topology with exact fragments for the residual ellipse/spline cases. Each stage
    is independently testable against the soundness invariant (blessed ⇒ correct,
    else `Degenerate`).
 
-### §7b — lift the curve/curve crossing deferral (design)
+### §7b — the curve/curve crossing lift (implemented)
 
-Status: **designed, not implemented**. Sibling design:
+Status: **implemented** (`analyticCrossingsCertified` and the `exactAllowed` scene
+gate, `geom/arrange.go`). The design reasoning below is kept because the shipped
+mechanism differs from what it proposed: reusing the line-involved three-part gate
+did NOT hold for two sampled curves, so the pair takes analytic authority behind its
+own incidence certificate instead, and exact bounds carry a whole-scene precondition
+the original design did not anticipate. Both are described under "What shipped".
+Sibling design:
 `docs/coincident-carrier-resolution-design.md` resolves the coincident-carrier
 (`evOverlap`) case this section does not touch — a transverse crossing and a
 coincident carrier are different `analyticEvents` classifications with
-different fixes. A curve/curve transverse crossing (both
-sources circle/arc) is the last case increment 2 left on the sampled path
-(the `nCross > 0 && isCurvedKind(…) && isCurvedKind(…)` deferral branch in
-`analyticPrepass`, `geom/arrange.go`; "Scope of analytic authority" above): the
-sampled topology is already correct, but every fragment either source contributes
-reports `TExact = false` (`cut.exact` stays `false` on a sampled cut —
-`geom/arrange.go:186-195`), which blocks any consumer whose admission gate
-requires `TExact` before it will record a fragment structurally. Probe case B
-in `.tmp/decad-2d-region-asks/probe/main.go` (a chord circle crossing the hub
-circle) is the concrete demonstration: right region count and areas, `TExact`
-false on every fragment of both circles.
+different fixes. A curve/curve transverse crossing (both sources circle/arc) was
+the last case increment 2 left on the sampled path: the sampled topology was
+already correct, but every fragment either source contributed reported
+`TExact = false`, which blocks any consumer whose admission gate requires
+`TExact` before it will record a fragment structurally.
 
-#### The tension in the existing text, and its resolution
+#### What shipped
+
+**The per-pair incidence certificate** (`analyticCrossingsCertified`). A
+curve/curve pair with at least one `evCross` takes analytic authority only when
+splicing its exact crossing points into BOTH sampled polylines — at the site the
+cut phase itself uses (`postCutPolyline` over `cutSite`) — leaves the sampled map
+with the same crossing incidence. Three conditions, checked on the spliced
+polylines: they meet ONLY at those points — every contact between a segment of one
+and a segment of the other IS an injected crossing point
+(`polylinesMeetOnlyAtContacts`); each contact IS the polyline vertex it was mapped
+to, within the identity band `vertexCertifies` uses, bounded by the vertex's own
+chord as well as by the scene (`contactIsVertex`); and the four chord departures at
+each injected point ALTERNATE between the sources (`portsCross`), so meeting at a
+point is distinguished from crossing at it. The third is threshold-free; the first
+two decide only "one point or two", and both decide it with that one identity band.
+A contact at an open source's own endpoint contributes three departures, not four,
+and is refused by construction at every density.
+
+The first condition is stated as IDENTITY with an injected point, never as position
+along the host segments. Excluding a contact for sitting within `segEps` of either
+segment's END is a different question, and it admits contacts that carry no node in
+the map: a source's own endpoint resting on the interior of the other's chord, and a
+transverse pass-through landing on a sample vertex of one polyline. Parallel pairs
+are covered separately — `segParams` rejects them on the determinant before any range
+test, so a collinear overlap reached that check as silence — by `collinearOverlap`,
+an overlap of positive length being no transverse crossing.
+
+The second condition's band is bounded by TWO yardsticks, the scene's extent and the
+vertex's own chord, the shape `carriersIdentical` uses in the coincident-carrier
+design and for the same reason. On the scene extent alone an unrelated distant object
+widens it: with `r = 5` the verdict flips at a scene extent of about `24.5·r`, so one
+construction line ~100 units away certified a contact `1.1e-10` off its vertex that
+the same pair refuses when drawn alone, publishing the vertex's sample fraction as an
+exact crossing parameter. The chord is the only length the mapping decision is stated
+in, and nothing outside the pair can inflate it.
+
+**The fallback is the sampled path, never a degeneracy.** An uncertified pair is
+left unhandled exactly as before the lift, so it keeps the sampled topology with
+`TExact = false`, and no arrangement blessed before the lift is refused after it.
+A refused crossing is recorded (`deferredCross`) and reconciled after the sampled
+loop against the contacts that loop actually made (`sampledRepresents`); a crossing
+the sampled map does not carry withdraws exactness from every source of its
+connected component (`refuseExactOnFusedMap`), since a fused crossing moves the
+face boundaries of every cycle it takes part in.
+
+**The all-analytic gate** (`exactAllowed`). Exact bounds are published only when
+EVERY source in the arrangement is a line, circle or arc. One ellipse, elliptical
+arc, conic, spline, closed spline, fit spline or NURBS anywhere in the scene makes
+every bound of that arrangement report `TExact = false` — the lines, circles and
+arcs beside it included, however far apart they sit, and the free-form curve's own
+uncut whole edge included.
+
+The gate exists because a free-form source reaches the map only as chords and
+nothing bounds how far it runs from them: the sampler places vertices, it does not
+certify a deviation. A curve with a lobe between two consecutive samples crosses
+another curve entirely between them — measured on a knot-clustered degree-3 NURBS
+at the default sampling: a midpoint-sampled deviation of 2.1e-05 against a true
+4.7e-01 maximum on the same segment. The crossing is then missing from the map, the
+regions it separates fuse, and the scene's certified pairs publish the fused map
+with every bound exact. Gating on the SOURCE KINDS answers that with no threshold
+and no per-family enclosure; in an all-analytic scene there is no sampled-only pair
+at all, so only the refused-crossing reconciliation above remains, and its bound
+errs toward withdrawing exactness.
+
+**The coverage cost is understood and accepted**: a scene containing any free-form
+curve loses exact bounds everywhere in that scene, so what is given up is exactness
+on the analytic sources sharing the scene with it. Topology, areas, degeneracy and
+the reported ranges are untouched. Lifting it needs a sampler that certifies its own
+per-source deviation (a change to `densify`), not a wider estimate at the point of
+use — a separate change, not planned here.
+
+#### Design record: the tension in the earlier text, and its resolution
+
+*(The remainder of this section is the design as written before implementation.
+Where it and "What shipped" disagree, "What shipped" is the code.)*
 
 Increment 3's own wording (above) says lifting this needs a richer
 "hostability certificate" — fragment incidence, full **port order** at every
@@ -266,7 +347,17 @@ refinement's narrower basis is the one the code already supports: **lift the
 deferral by routing curve/curve crossings through the SAME gate the
 line-involved path already uses**, not by building a new certificate.
 
-#### Mechanism
+#### Mechanism (proposed; superseded by the certificate)
+
+This proposal — route curve/curve crossings through the line-involved three-part
+gate unchanged — was tried and did not hold: `analyticCrossHosted` looks for the
+sampled witness on the very segment pair carrying the crossing's two source
+parameters, while the sampled crossing sits off the exact one by roughly
+sagitta/sin(crossing angle). With two sampled curves both grids can be off, so the
+miss rate aliases against them instead of falling with density (~7% of a
+well-separated angle/distance sweep flagged, isolated `spt` values failing into the
+hundreds). The shipped pair certificate asks the incidence question directly on the
+post-cut polylines instead; see "What shipped".
 
 In `analyticPrepass` (`geom/arrange.go`), the block
 
@@ -287,16 +378,17 @@ still `flagDegenerate`s, exactly as a line-involved pair does today — the
 conservative fallback is unchanged, only the *class* of pair reaching it
 grows. No change is needed to `split`, `makeCycle`, `vertexCertifies`, or
 `BoundaryEdge`/`cycFrag` construction: they already treat an exact cut on a
-circle/arc source generically (the `TExact`/`Whole` machinery documented in
-`geom/region.go:66-94` and the `CLAUDE.md` `profiles.go` row does not
+circle/arc source generically (the `TExact`/`Whole` machinery documented on
+`geom.BoundaryEdge.TExact` and in the `CLAUDE.md` `profiles.go` row does not
 distinguish "the other source was a line" from "the other source was a
 circle").
 
-#### The open question the design does not resolve by reading alone
+#### The open question the design did not resolve by reading alone (answered: no)
 
 The three-part gate is written pair-generically, but it has never been
 *exercised* against curve/curve data with analytic authority taken — the
-`round-2` regression (`TestAnalyticCircleCircleSecantDeferredToSampled`,
+`round-2` regression (`TestAnalyticCircleCircleSecantDeferredToSampled`, since
+renamed `TestAnalyticCircleCircleCrossingCertified`,
 `geom/arrange_analytic_test.go:136-186`) and the ~18%-at-spt-16 false-flag
 measurement cited in "Scope of analytic authority" above were both measured
 *before* `analyticCrossHosted`/`contactsResolved`/`sampledCrossingsExplained`
@@ -309,7 +401,15 @@ source settles; it is what implementing the mechanism above and running it
 against exactly those two adversarial cases establishes. This is recorded as
 an open decision below, not left as an unstated risk.
 
-#### Acceptance criteria (repository terms)
+*Answered by implementing it: the unmodified gate is NOT sufficient.* It kept the
+round-2 geometry sound but false-flagged well-separated crossings at a rate that did
+not fall with density, so the lift ships behind its own incidence certificate.
+
+#### Acceptance criteria (as written before implementation)
+
+The first two were written before the all-analytic gate existed and hold only for a
+scene whose every source is a line, circle or arc. In a scene containing a free-form
+curve, `TExact` stays `false` on every bound by design — see "What shipped".
 
 - `geom.Regions` on probe case B's five entities returns the same region
   count and areas it does today, with every `TExact` flipped from `false` to
@@ -336,7 +436,18 @@ an open decision below, not left as an unstated risk.
   path's baseline — a crossing that was clean before the lift must still read
   clean after it.
 
-#### Tests
+#### Tests (as proposed)
+
+What shipped, in `geom/arrange_analytic_test.go` unless noted:
+`TestAnalyticCircleCircleCrossingCertified` (the round-2 geometry, now certified),
+`TestAnalyticArcArcCrossingCertified`, `TestAnalyticCurveCrossingNeverBlessedWrong`
+(the blessed ⇒ correct sweep), `TestAnalyticFusedCurveCrossingNotBlessedExact` and
+`TestAnalyticFusedComponentLeavesUntouchedClusterExact` (the fused-map withdrawal),
+`TestFreeFormSourceWithholdsExactBoundsSceneWide` (the all-analytic gate and its
+coverage cost), `TestBoundaryEdgeExactInvariantFreeform`
+(`geom/arrange_exactness_test.go`), and the sketch-level pair in
+`profiles_params_test.go` ("a circle/circle crossing is exact" and "a free-form
+entity withholds exact bounds across the whole sketch").
 
 - `geom/arrange_analytic_test.go`: extend
   `TestAnalyticCircleCircleSecantDeferredToSampled` (or add a sibling with a
@@ -360,10 +471,12 @@ an open decision below, not left as an unstated risk.
   under the sampled path — the regression guard for the 18%-at-spt-16 number
   cited in "Scope of analytic authority".
 
-#### Open decisions
+#### Open decisions (resolved)
 
 - **Whether the existing gate, applied unmodified, is sufficient for
-  curve/curve pairs, or needs strengthening.** The code-level argument above
+  curve/curve pairs, or needs strengthening.** *Resolved: it is not; the lift
+  ships behind its own incidence certificate (see "What shipped").* The original
+  reasoning follows. The code-level argument above
   (crossings never needed port ordering; incidence/containment are already
   pair-generic) argues the unmodified gate suffices. This is not certified by
   reading; it is certified by implementing the mechanism above and running it
@@ -404,19 +517,19 @@ at the **shared exact event point** so both sources land on one canonical vertex
 into a *coarse* sampled chord is only safe when the sampled polyline can host the
 crossing. The decisive split is by operand kind:
 
-- **Curve/curve transverse crossings** (BOTH sources circle/arc, ≥1 `evCross`) are
-  **deferred to the sampled path** — they are *not* taken as analytic-authoritative
-  (not marked `handled`; the sampled loop processes them). The sampled DCEL already
-  resolves their topology correctly (the pre-analytic behaviour, byte-identical to a
-  no-wiring build), so exact cuts buy only exact *area*, and until increment 3's
-  tangent-port certificate that exactness cannot be admitted without being either
-  **unsound** (two equal-count coarse crossings at the *wrong* locations fuse three
-  regions into one — a real round-2 bug) or **over-conservative** (a valid
-  well-separated crossing whose sampled crossing sits one chord segment off the
-  analytic param gets false-flagged — an ~18%-at-spt-16 false-degenerate rate, a
-  regression versus the sampled path's 0%). Both are worse than deferring. A
-  genuinely ambiguous verdict still `flagDegenerate`s. Exact-area curve/curve
-  crossings are increment 3.
+- **Curve/curve transverse crossings** (BOTH sources circle/arc, ≥1 `evCross`) take
+  analytic authority behind **their own incidence certificate**
+  (`analyticCrossingsCertified`, §7b) — not through the three-part gate below, which
+  does not carry to a pair of sampled curves. A pair the certificate refuses is left
+  unhandled and the sampled loop processes it, exactly as increment 2 did for every
+  such pair: the sampled DCEL resolves the topology and the fragments report
+  `TExact = false`. Increment 2 deferred the whole class because injecting exact cuts
+  through that gate was either **unsound** (two equal-count coarse crossings at the
+  *wrong* locations fuse three regions into one — a real round-2 bug) or
+  **over-conservative** (a valid well-separated crossing whose sampled crossing sits
+  one chord segment off the analytic param gets false-flagged — ~7% of a
+  well-separated sweep, against the sampled path's 0%); the certificate is what
+  answers both. A genuinely ambiguous verdict still `flagDegenerate`s.
 - **Line-involved crossings + all tangencies** keep analytic authority (the wins:
   shallow line/line not degenerate, tangent line+circle → one disk, non-merged
   tangent circles → two disks, chord-through-circle exact area). A line operand is
@@ -424,8 +537,9 @@ crossing. The decisive split is by operand kind:
   wrong-location failure mode and no over-conservatism (measured ~0.3%, all genuine
   near-tangents).
 
-For a handled pair with a curved source (i.e. line/circle, line/arc, or a curved
-*tangency*) the prepass still runs a **three-part consistency gate**, to reject the
+For a handled pair with a curved source that the §7b certificate does not own (i.e.
+line/circle, line/arc, or a curved *tangency*) the prepass still runs a **three-part
+consistency gate**, to reject the
 disk-vanishing failure where a coarse polyline does not reach a crossing the exact
 geometry has. The first two parts are **threshold-free and scale-invariant**
 (parametric `segEps` only); the third measures against the sampling's own chord
@@ -498,6 +612,8 @@ hole, collinear-overlap degeneracy, spline self-intersection/fallback.
 
 - All existing profile/region/self-intersection/degenerate tests pass.
 - Supported pairs are analytic-authoritative; unsupported pairs stay sampled.
+- An exact parameter bound is published only when EVERY source in the arrangement is a
+  line, circle or arc; one free-form source withholds `TExact` scene-wide (§7b).
 - Coarse vs fine sampling gives the same topology for analytically-covered pairs —
   or, where the coarse sampled map cannot host the exact crossings, the
   count-consistency gate makes it conservatively `Degenerate`. A *blessed* curved

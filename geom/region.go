@@ -71,26 +71,71 @@ type BoundaryEdge struct {
 	// exact. A consumer that must be exact (recording the region structurally, or
 	// emitting CAD from it) MUST check this and reject rather than trust the range.
 	//
-	// A CUT bound is exact only when the closed-form kernel placed it. That kernel runs
-	// only when BOTH curves of a pair are a Line, Circle or Arc — a rule about the PAIR,
-	// not "a line was involved" and not the contact being a tangency. So every contact
-	// involving an Ellipse, EllipticalArc, Conic, Spline, ClosedSpline, FitSpline or
-	// NURBS is sampled (INCLUDING a plain line crossing one, and a plain line TANGENT to
-	// one), as is every curve/curve crossing (two circles/arcs are deferred to the
-	// sampled path); a FRAGMENT bounded by such a contact reports TExact = false.
+	// FIRST, a WHOLE-SCENE gate: exact bounds are published only when EVERY source in
+	// the arrangement is a Line, Circle or Arc. One Ellipse, EllipticalArc, Conic,
+	// Spline, ClosedSpline, FitSpline or NURBS anywhere in the scene makes every bound
+	// of that arrangement report TExact = false — the lines, circles and arcs beside it
+	// included, however far apart they sit, and the free-form curve's own uncut whole
+	// edge included.
+	//
+	// The reason is that a free-form curve reaches the arrangement only as chords, and
+	// nothing bounds how far it runs from them: it can cross another curve entirely
+	// between two samples. The crossing is then missing from the map, the regions it
+	// separates are fused, and the scene's line/circle/arc pairs — cut in closed form —
+	// would publish that fused map with every bound exact. Gating on the source kinds
+	// answers that without any deviation estimate. The cost is exactness on the
+	// analytic sources sharing a scene with a free-form one; nothing else moves —
+	// topology, areas, degeneracy and the reported ranges are unchanged.
+	//
+	// Within an all-analytic scene, a CUT bound is exact only when the closed-form
+	// kernel placed it, which it does for any pair of a Line, Circle and Arc.
+	//
+	// A crossing between two CURVED sources (circle/arc against circle/arc) additionally
+	// has to be certified against the sampling before it is taken as exact: both
+	// polylines there are chord approximations, so the arrangement checks that splicing
+	// the exact crossing points into them leaves the sampled topology unchanged. When it
+	// cannot, the pair falls back to the sampled path and its fragments report
+	// TExact = false. Four things fail that check. A sampling too coarse to resolve the
+	// crossing, which raising [WithSegmentsPerTurn] recovers. A contact at an open
+	// curve's own endpoint, where the curve stops instead of crossing — refused at every
+	// density, by construction rather than by coarseness. A contact that falls inside
+	// the sampling's parameter window of an existing sample vertex WITHOUT sitting at it:
+	// the arrangement maps such a contact onto that vertex, whose own parameter is a
+	// plain sample fraction rather than the crossing's. A contact that DOES sit at a
+	// sample vertex, to within round-off, is certified — the vertex is the crossing
+	// point, so the true crossing parameter and the sample fraction are the same number.
+	// Which contacts land in that window is a property of the density, so that one
+	// neither persists through resampling nor is reliably fixed by it. And, fourth, the
+	// two sampled polylines MEETING anywhere other than at the crossing points
+	// themselves: an endpoint of one resting on the interior of the other's chord, a
+	// transverse pass-through landing on a sample vertex, or a stretch of chord the two
+	// share. Each is a place the two curves touch in the sampled map and do not touch in
+	// the exact geometry, so taking analytic authority there would drop a contact the
+	// map has, and the answer would no longer be the sampled one. These are hairline
+	// coincidences of a particular sampling and, like the third, move with density.
+	//
+	// The sampled path that takes over normally resolves the crossing on its own, so the
+	// topology stays right. Below the density where it can, the crossing is missing from
+	// the map altogether and the regions it separates are FUSED — a limit of the sampled
+	// path itself, which [WithSegmentsPerTurn] also lifts. Exactness is then withdrawn
+	// from every fragment of the whole connected component, including the fragments of
+	// pairs the certificate did accept and cut exactly: their bounds are right about
+	// their own curve and collectively describe a map that is missing a crossing.
+	// The crossing a free-form curve can hide is covered by the scene gate above instead:
+	// a pair the closed-form kernel never classifies exists only in a scene that
+	// publishes nothing exact. So an arrangement whose every fragment reports TExact is
+	// also saying that no crossing is missing from it — a statement the region count
+	// alone does not make.
 	//
 	// A WHOLE edge (Whole = true) is bounded by the curve's own domain ends, not by a
-	// contact, so exactness turns on whether those ends were EVALUATED or PINNED:
-	//   - Line/Arc/Circle/Ellipse/Conic/Spline/ClosedSpline/FitSpline/NURBS: the domain
-	//     ends are the curve's own evaluation at t=0/t=1 (a clamped/interpolating curve
-	//     passes through them exactly, a closed curve's seam is its own point), so a
-	//     whole edge reports TExact = true — [0,1] reconstructs the curve exactly.
-	//   - EllipticalArc: its ends are PINNED to the sketch Start/End points, which lie
-	//     on the parametric ellipse only within solver tolerance. eval(t=0/t=1) misses
-	//     the pinned Polyline end (by that tolerance, e.g. ~5e-3), so even a whole
-	//     elliptical arc reports TExact = false. This is the one free-form curve whose
-	//     whole edge is inexact, and the reason exactness is decided by reproduction,
-	//     not by "is this bound the curve's own end".
+	// contact. In an all-analytic scene those ends are the curve's own evaluation at
+	// t=0/t=1, so a whole Line/Arc/Circle edge reports TExact = true and its [0,1]
+	// reconstructs the curve exactly. A whole edge of a free-form curve reports
+	// TExact = false, by the scene gate — and an EllipticalArc's would anyway: its ends
+	// are PINNED to the sketch Start/End points, which lie on the parametric ellipse only
+	// within solver tolerance, so eval(t=0/t=1) misses the emitted Polyline end (by that
+	// tolerance, e.g. ~5e-3). That is why exactness is decided by reproduction, not by
+	// "is this bound the curve's own end".
 	TExact bool
 }
 
