@@ -124,6 +124,11 @@ type BoundaryEdge struct {
 	// evaluating Entity at the reported parameter reproduces this edge's Polyline
 	// endpoint to machine precision, at BOTH bounds.
 	//
+	// "To machine precision" is measured against the entity's own size, so the verdict
+	// is a property of that entity and the contacts on it. Drawing unrelated geometry
+	// elsewhere in the sketch cannot turn a bound this reports as inexact into an exact
+	// one — though it can still withhold exactness, by the whole-sketch gate below.
+	//
 	// FIRST, a WHOLE-SKETCH gate: exact bounds are published only when EVERY entity the
 	// profile pass sees is a *Line, *Circle or *Arc. One *Ellipse, *EllipticalArc,
 	// *Conic, *Spline, *ClosedSpline, *FitSpline or *NURBS anywhere in the sketch makes
