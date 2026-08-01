@@ -797,13 +797,15 @@ func TestAnalyticCurveCrossingAtSampleVertexNotCertified(t *testing.T) {
 	// first lands three quarters of the way along chord 0 of the second.
 	//
 	// TWO regions is NOT the converged answer, and this test does not claim it is. The
-	// two arcs really cross once, so the converged figure is ONE region of area
-	// 0.0063795181473976087 — what every density from spt=48 up reports, the ADAPTIVE
-	// DEFAULT included, and what requireConvergedRegion below pins. Below that the areas
-	// swing by orders of magnitude from one density to the next; the spt=8 map recorded
-	// here is one point on that swing, the sampled path's own limit at that density. The
-	// property under test is the REFUSAL — no bound of an uncertified pair may read exact
-	// — which holds whatever the region count does.
+	// two arcs really cross twice, and the lens those two crossings bound is the
+	// converged figure — ONE region of area 0.0063795181473976087, which the ADAPTIVE
+	// DEFAULT reports along with spt=64, 256 and 1024, the densities
+	// requireConvergedRegion below pins. Coarser samplings reach it only erratically:
+	// measured over spt=9..400, isolated densities as high as spt=87 still report two
+	// regions, and across the coarse end the areas swing by orders of magnitude. The
+	// spt=8 map recorded here is one point on that swing, the sampled path's own limit
+	// at that density. The property under test is the REFUSAL — no bound of an
+	// uncertified pair may read exact — which holds whatever the region count does.
 	const spt, r = 8, 5.0
 	const qStart, qSweep = -2.4, 1.0
 	qAt := func(u float64) *geom.Point {
