@@ -264,6 +264,21 @@ the same pair refuses when drawn alone, publishing the vertex's sample fraction 
 exact crossing parameter. The chord is the only length the mapping decision is stated
 in, and nothing outside the pair can inflate it.
 
+`vertexCertifies` and `endpointReproduces` — the final exactness audit, after
+canonicalization — carry the same two yardsticks, the scene's extent and the SOURCE's
+own extent (`source.extent`, that source's polyline bounding box, the scene formula
+applied to one curve). The same defect reached them: a circle of radius 5 whose exact
+crossing welds `1e-9` onto one of its own sample vertices reports that bound inexact
+when drawn with its chord alone, and one unrelated line at `x = 1000` flipped it to
+exact — through `Sketch.Profiles()` with no options at all, publishing a parameter that
+misses its own polyline endpoint by the whole `1e-9`. The gap is a displacement along
+the curve whose parameter is being certified, so the curve's own size is what it is
+judged against (`TestExactBoundIdentityBandIsSourceLocal`, and the white-box
+`TestExactIdentityBandIsSourceLocal` / `TestEndpointReproductionBandIsSourceLocal`).
+Nothing else moves: topology, areas, `TStart`/`TEnd`, `Whole` and `Degenerate` are
+untouched, and a scene of line/circle/arc geometry with nothing distant in it keeps
+every exact bound it had.
+
 **The fallback is the sampled path, never a degeneracy.** An uncertified pair is
 left unhandled exactly as before the lift, so it keeps the sampled topology with
 `TExact = false`, and no arrangement blessed before the lift is refused after it.
