@@ -451,8 +451,8 @@ circle").
 The three-part gate is written pair-generically, but it has never been
 *exercised* against curve/curve data with analytic authority taken — the
 `round-2` regression (`TestAnalyticCircleCircleSecantDeferredToSampled`, since
-renamed `TestAnalyticCircleCircleCrossingCertified`,
-`geom/arrange_analytic_test.go:136-186`) and the ~18%-at-spt-16 false-flag
+renamed `TestAnalyticCircleCircleCrossingCertified` in
+`geom/arrange_analytic_test.go`) and the ~18%-at-spt-16 false-flag
 measurement cited in "Scope of analytic authority" above were both measured
 *before* `analyticCrossHosted`/`contactsResolved`/`sampledCrossingsExplained`
 existed in their current form (they were the reason increment 2 deferred
