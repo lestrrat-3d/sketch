@@ -287,8 +287,8 @@ still `flagDegenerate`s, exactly as a line-involved pair does today — the
 conservative fallback is unchanged, only the *class* of pair reaching it
 grows. No change is needed to `split`, `makeCycle`, `vertexCertifies`, or
 `BoundaryEdge`/`cycFrag` construction: they already treat an exact cut on a
-circle/arc source generically (the `TExact`/`Whole` machinery documented in
-`geom/region.go:66-94` and the `CLAUDE.md` `profiles.go` row does not
+circle/arc source generically (the `TExact`/`Whole` machinery documented on
+`geom.BoundaryEdge.TExact` and in the `CLAUDE.md` `profiles.go` row does not
 distinguish "the other source was a line" from "the other source was a
 circle").
 

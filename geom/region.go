@@ -83,12 +83,17 @@ type BoundaryEdge struct {
 	// polylines there are chord approximations, so the arrangement checks that splicing
 	// the exact crossing points into them leaves the sampled topology unchanged. When it
 	// cannot, the pair falls back to the sampled path and its fragments report
-	// TExact = false. Two things fail that check, and only
-	// one of them is about density: a sampling too coarse to resolve the crossing, which
-	// raising [WithSegmentsPerTurn] recovers; and a contact the chords cannot certify at
-	// ANY density — one at a curve's own endpoint, where the curve stops instead of
-	// crossing, and one landing within round-off of a sample vertex. Those stay
-	// TExact = false however finely the curve is sampled.
+	// TExact = false. Three things fail that check. A sampling too coarse to resolve the
+	// crossing, which raising [WithSegmentsPerTurn] recovers. A contact at an open
+	// curve's own endpoint, where the curve stops instead of crossing — refused at every
+	// density, by construction rather than by coarseness. And a contact that falls inside
+	// the sampling's parameter window of an existing sample vertex WITHOUT sitting at it:
+	// the arrangement maps such a contact onto that vertex, whose own parameter is a
+	// plain sample fraction rather than the crossing's. A contact that DOES sit at a
+	// sample vertex, to within round-off, is certified — the vertex is the crossing
+	// point, so the true crossing parameter and the sample fraction are the same number.
+	// Which contacts land in that window is a property of the density, so this last one
+	// neither persists through resampling nor is reliably fixed by it.
 	//
 	// The sampled path that takes over normally resolves the crossing on its own, so the
 	// topology stays right. Below the density where it can, the crossing is missing from
@@ -96,9 +101,14 @@ type BoundaryEdge struct {
 	// path itself, which [WithSegmentsPerTurn] also lifts. Exactness is then withdrawn
 	// from every fragment of the whole connected component, including the fragments of
 	// pairs the certificate did accept and cut exactly: their bounds are right about
-	// their own curve and collectively describe a map that is missing a crossing. So an
-	// arrangement whose every fragment reports TExact is also saying that no crossing is
-	// missing from it — a statement the region count alone does not make.
+	// their own curve and collectively describe a map that is missing a crossing. The
+	// same withdrawal covers a pair the closed-form kernel never classified at all (any
+	// pair involving an Ellipse, EllipticalArc, Conic, Spline, ClosedSpline, FitSpline or
+	// NURBS): where two such chords pass close enough to hide a crossing and the map
+	// records no contact between them, the component they would join loses its
+	// exactness too. So an arrangement whose every fragment reports TExact is also
+	// saying that no crossing is missing from it — a statement the region count alone
+	// does not make.
 	//
 	// A WHOLE edge (Whole = true) is bounded by the curve's own domain ends, not by a
 	// contact, so exactness turns on whether those ends were EVALUATED or PINNED:

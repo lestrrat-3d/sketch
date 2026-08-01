@@ -135,16 +135,22 @@ type BoundaryEdge struct {
 	// further case: both sides are sampled as chords there, so it is exact only when
 	// the arrangement can certify that placing the exact crossing points leaves the
 	// sampled topology unchanged. Whatever fails that check falls back to the sampled
-	// path and reports TExact = false — a sampling too coarse to resolve the crossing,
-	// and also a contact no sampling can certify: one at an arc's own endpoint, and one
-	// landing within round-off of a sample vertex.
+	// path and reports TExact = false: a sampling too coarse to resolve the crossing; a
+	// contact at an arc's own endpoint, which no density certifies; and a contact that
+	// falls inside the sampling's parameter window of a sample vertex without sitting at
+	// it, whose bound would then be that vertex's plain sample fraction. A contact that
+	// DOES sit at a sample vertex, to within round-off, stays exact — the vertex is the
+	// crossing point.
 	//
 	// Below the density at which the sampled path resolves such a crossing ITSELF, the
 	// crossing is missing from the map and the regions it separates are fused. Exactness
 	// is then withdrawn from every edge of the affected connected component, the edges of
 	// certified pairs included, so an all-exact profile set is also saying no crossing is
-	// missing from it. The region set itself is what the sampled path produced, as it was
-	// before any crossing could be certified.
+	// missing from it. A pair the closed-form kernel never classified — any pair
+	// involving an *Ellipse, *EllipticalArc, *Conic, *Spline, *ClosedSpline, *FitSpline
+	// or *NURBS — withdraws the same way when its two sampled curves pass close enough
+	// to hide a crossing the profile set does not carry. The region set itself is what
+	// the sampled path produced, as it was before any crossing could be certified.
 	//
 	// A WHOLE edge (Partial = false) is bounded by Entity's own domain ends. Those ends
 	// are the entity's exact t=0/t=1 evaluation for every curve EXCEPT *EllipticalArc,

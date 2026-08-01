@@ -175,6 +175,22 @@ type tinySeg struct {
 	ax, ay float64
 	bx, by float64
 	cuts   []cut // segment-local crossings that split it
+	// dev is how far the SOURCE CURVE runs from this chord — the band inside which
+	// the chord can hide geometry. It is 0 for a line (its polyline IS the line) and
+	// the sagitta for a circle/arc. densify measures it rather than deriving it per
+	// kind, so a free-form curve gets one too; see noteChordNearMiss, the only
+	// consumer, for what the measurement has to support and the margin it carries.
+	dev float64
+}
+
+// nearMiss is a place where two sources' chords came within their own deviation band
+// of each other: close enough that a crossing of the true curves could be hidden
+// between them. tol is the radius within which a sampled contact of the same pair
+// explains it — one chord of the two host segments, the bound the rest of this file
+// uses for "the sampled map represents that contact" (see sampledRepresents).
+type nearMiss struct {
+	x, y float64
+	tol  float64
 }
 
 // cut is a crossing that splits a tiny segment at segment-local parameter t, with
@@ -242,6 +258,15 @@ type arranger struct {
 	// compares the two and fills exactRefused.
 	deferredCross   map[[2]int][]xEvent
 	sampledContacts map[[2]int][][2]float64
+
+	// nearMisses holds, per SAMPLED-ONLY pair (one the analytic kernel never classified,
+	// so nothing exact says whether the two curves meet), the places their chords came
+	// within their own deviation band — close enough to be hiding a crossing. Such a
+	// pair can be missing a crossing exactly as a refused analytic one can, and the
+	// missing crossing is what would join the two sources into one component. So
+	// refuseExactOnFusedMap reads these alongside deferredCross, after
+	// unexplainedNearMisses drops every approach a recorded sampledContact answers for.
+	nearMisses map[[2]int][]nearMiss
 
 	// exactRefused withdraws exact authority per SOURCE: split() forces every bound of
 	// such a source to exact:false, whatever its own cut records say. Nil when nothing
@@ -836,14 +861,25 @@ func (a *arranger) densify() {
 		}
 		prev := atParam(0)
 		note(prev)
+		e0 := s.at(params[0])
+		prevPin := math.Hypot(prev[0]-e0[0], prev[1]-e0[1])
 		for i := 1; i <= last; i++ {
 			cur := atParam(i)
 			note(cur)
+			// How far the curve leaves this chord: its midpoint deviation, plus any
+			// offset a PINNED end introduces (an elliptical arc's ends are sketch
+			// points off the parametric curve, so the chord starts away from it).
+			mid := s.at((params[i-1] + params[i]) / 2)
+			ei := s.at(params[i])
+			curPin := math.Hypot(cur[0]-ei[0], cur[1]-ei[1])
+			dev := math.Hypot(mid[0]-(prev[0]+cur[0])/2, mid[1]-(prev[1]+cur[1])/2)
+			dev = math.Max(dev, math.Max(prevPin, curPin))
 			a.segs = append(a.segs, tinySeg{
 				src: si, pa: params[i-1], pb: params[i],
 				ax: prev[0], ay: prev[1], bx: cur[0], by: cur[1],
+				dev: dev,
 			})
-			prev = cur
+			prev, prevPin = cur, curPin
 		}
 	}
 	a.scale = math.Max(maxX-minX, maxY-minY)
@@ -942,6 +978,11 @@ func (a *arranger) intersect() {
 					continue
 				}
 				a.taintMergedEndpoints(si, sj)
+				// Nothing exact says whether these two curves meet, so the chords are
+				// the only evidence there is — and a chord can hide a crossing inside
+				// its own deviation band. Record the approach; refuseExactOnFusedMap
+				// reconciles it against the contacts this loop goes on to make.
+				a.noteChordNearMiss(i, j)
 			}
 			sameSpline := false
 			if si.src == sj.src {
@@ -1049,6 +1090,7 @@ func (a *arranger) analyticPrepass() {
 	a.events = make(map[[2]int][]xEvent)
 	a.deferredCross = make(map[[2]int][]xEvent)
 	a.sampledContacts = make(map[[2]int][][2]float64)
+	a.nearMisses = make(map[[2]int][]nearMiss)
 	a.sourceSegs = make([][]int, len(a.sources))
 	for i := range a.segs {
 		a.sourceSegs[a.segs[i].src] = append(a.sourceSegs[a.segs[i].src], i)
@@ -1418,11 +1460,12 @@ func (a *arranger) analyticCrossHosted(i, j int, events []xEvent) bool {
 //     recorded, so the face walk would run two edges through each other and fuse the
 //     regions on either side. That is the round-2 failure exactly.
 //   - each contact to sit AT the polyline vertex it was mapped to (contactIsVertex).
-//     A spliced point satisfies this by construction; a contact postCutPolyline
-//     mapped onto an EXISTING vertex does not, because that mapping is decided in the
-//     source's parameter and a parameter that close still leaves a position gap far
-//     above round-off. The vertex, not the contact, is what the remaining checks and
-//     the emitted parameter would then describe.
+//     A spliced point satisfies this by construction; a contact postCutPolyline mapped
+//     onto an EXISTING vertex need not, because that mapping is decided in the source's
+//     parameter and a parameter that close still admits a position gap far above
+//     round-off. Where the gap is real the vertex, not the contact, is what the
+//     remaining checks and the emitted parameter would describe; where the contact IS
+//     the vertex the two are one point and the bound is the true crossing parameter.
 //   - the four chord departures at each injected point to ALTERNATE between the two
 //     sources (portsCross), in the same rotation order buildGraph sorts by. Meeting
 //     at a point is not crossing at it: if both of one source's chords leave on the
@@ -1485,14 +1528,16 @@ func (a *arranger) analyticCrossingsCertified(i, j int, events []xEvent) bool {
 // For a spliced contact this holds by construction — the vertex is the contact point.
 // It is load-bearing for a contact cutSite reported as already carrying a vertex: that
 // decision is made in the source's PARAMETER (within segEps of a segment boundary), and
-// a parameter that close still leaves a POSITION gap of up to a few times segEps·segment
-// length, orders of magnitude above the identity band. Certifying such a contact hands
-// the sampled vertex's own parameter — a plain sample fraction i/n — out as an exact
-// bound, describing a point the crossing is not at. A curve/curve pair has no second
-// safety net here: certification exempts it from the taint passes that would otherwise
-// mark a weld inexact, so the certificate itself has to refuse. Refusing means the
-// sampled fallback, where the parameter is reported inexact and the topology is
-// unchanged.
+// a parameter that close still admits a POSITION gap of up to a few times segEps·segment
+// length, orders of magnitude above the identity band. Certifying a contact with a real
+// gap hands the sampled vertex's own parameter — a plain sample fraction i/n — out as an
+// exact bound, describing a point the crossing is not at. A curve/curve pair has no
+// second safety net here: certification exempts it from the taint passes that would
+// otherwise mark a weld inexact, so the certificate itself has to refuse. Refusing means
+// the sampled fallback, where the parameter is reported inexact and the topology is
+// unchanged. A contact that IS the vertex passes and keeps its exact bound: the sample
+// fraction and the true crossing parameter are then the same number, and evaluating it
+// reproduces the emitted point, which is all TExact claims.
 func (a *arranger) contactIsVertex(p [][2]float64, k int, pt [2]float64) bool {
 	if k < 0 || k >= len(p) {
 		return false
@@ -1503,7 +1548,8 @@ func (a *arranger) contactIsVertex(p [][2]float64, k int, pt [2]float64) bool {
 // noteSampledContact records that the SAMPLED loop put a contact between two DIFFERENT
 // sources at (x,y): a chord/chord crossing, or a weld of their sample vertices (the
 // shape a crossing takes when it lands on a sample vertex of both). It is the evidence
-// refuseExactOnFusedMap reconciles a refused analytic crossing against.
+// refuseExactOnFusedMap reconciles against — both for a refused analytic crossing
+// (sampledRepresents) and for a chord near miss (unexplainedNearMisses).
 func (a *arranger) noteSampledContact(i, j int, x, y float64) {
 	if i == j {
 		return
@@ -1512,43 +1558,175 @@ func (a *arranger) noteSampledContact(i, j int, x, y float64) {
 	a.sampledContacts[k] = append(a.sampledContacts[k], [2]float64{x, y})
 }
 
-// refuseExactOnFusedMap withdraws exact authority from every source of a connected
-// component whose planar map is FUSED — one where a curve/curve crossing the incidence
-// certificate refused is also missing from the sampled map that took over.
+// nearMissMargin widens a measured chord deviation before it is used as a
+// "a crossing could hide in here" radius (see noteChordNearMiss). The deviation is
+// measured at the segment midpoint — the extreme for a circular arc, an estimate for a
+// free-form curve whose worst deviation may sit elsewhere in the span — and this is the
+// margin that covers the estimate. Widening it costs exactness flags on the component;
+// narrowing it would publish a fused map as exact, so it errs wide.
+const nearMissMargin = 2
+
+// noteChordNearMiss records that two tiny segments of DIFFERENT sources passed within
+// the band their own curves deviate from those chords. It runs only for a pair the
+// analytic kernel never classified (analyticPrepass skips a handled pair before this),
+// where the chords are the only evidence there is about whether the curves meet.
 //
-// Refusing a crossing hands the pair back to the sampled path, which is sound only
-// while that path RESOLVES the crossing. Below the density where the two chord
-// polylines meet at all, it does not: the crossing disappears, the regions it separates
-// fuse, and nothing flags it (this is the sampled path's own pre-existing sampling
-// limit — the region count changes with WithSegmentsPerTurn either way, and repairing
-// that is not what this pass is for). What this pass prevents is the fused map being
-// published as EXACT. The other pairs of the same component are certified on their own
-// merits and cut exactly, so every surviving fragment reports TExact — describing a
-// topology that is wrong. Three r=5 circles in general position show it directly: two
-// pairs certify, the third pair's shallow crossing is below the sampling, and the
-// arrangement reports five regions with every bound exact where seven is the truth.
+// The bound is what makes it sound. If the true curves cross at P then P is within dev
+// of each chord — that is what dev measures — so the two chords come within
+// dev_i + dev_j of each other there. Contrapositive: chords farther apart than that
+// cannot be hiding a crossing, so nothing is recorded, and a curve merely passing NEAR
+// another (a hole inside a disk, an ellipse beside a circle) keeps its exactness. Only
+// a genuine near-touch is questioned, and only the exactness flag is at stake.
+//
+// A segment pair that DOES cross is recorded here too; the same loop records the
+// crossing as a sampled contact, which then explains it. So no caller has to know
+// whether the chords met — which is why the distance below is the minimum over the four
+// endpoint-to-segment distances, exact for the non-meeting case that decides anything.
+func (a *arranger) noteChordNearMiss(ii, jj int) {
+	si, sj := &a.segs[ii], &a.segs[jj]
+	reach := nearMissMargin * (si.dev + sj.dev)
+	if reach <= 0 {
+		return // both chords reproduce their curves exactly; nothing can hide between them
+	}
+	if math.Min(si.ax, si.bx)-reach > math.Max(sj.ax, sj.bx) ||
+		math.Min(sj.ax, sj.bx)-reach > math.Max(si.ax, si.bx) ||
+		math.Min(si.ay, si.by)-reach > math.Max(sj.ay, sj.by) ||
+		math.Min(sj.ay, sj.by)-reach > math.Max(si.ay, si.by) {
+		return
+	}
+	x, y, d := segsClosestApproach(si, sj)
+	if d > reach {
+		return
+	}
+	k := pairKey(si.src, sj.src)
+	tol := math.Max(a.merge, math.Max(a.segLen(ii), a.segLen(jj)))
+	// Approaches arrive in runs along the two curves. Collapse each run onto its first
+	// entry, keeping the TIGHTEST explanation radius the run asked for — a wider one
+	// would forgive the run on a contact farther away than the run's own sampling.
+	list := a.nearMisses[k]
+	if n := len(list); n > 0 && math.Hypot(list[n-1].x-x, list[n-1].y-y) <= tol {
+		if tol < list[n-1].tol {
+			list[n-1].tol = tol
+		}
+		return
+	}
+	a.nearMisses[k] = append(list, nearMiss{x: x, y: y, tol: tol})
+}
+
+// segsClosestApproach returns the midpoint of the closest approach between two tiny
+// segments and the distance there, as the minimum over the four endpoint-to-segment
+// distances. That is the true segment distance whenever the two do not meet.
+func segsClosestApproach(si, sj *tinySeg) (float64, float64, float64) {
+	best, bx, by := math.Inf(1), 0.0, 0.0
+	try := func(px, py, qx, qy float64) {
+		if d := math.Hypot(qx-px, qy-py); d < best {
+			best, bx, by = d, (px+qx)/2, (py+qy)/2
+		}
+	}
+	qx, qy := closestOnSeg(sj, si.ax, si.ay)
+	try(si.ax, si.ay, qx, qy)
+	qx, qy = closestOnSeg(sj, si.bx, si.by)
+	try(si.bx, si.by, qx, qy)
+	qx, qy = closestOnSeg(si, sj.ax, sj.ay)
+	try(sj.ax, sj.ay, qx, qy)
+	qx, qy = closestOnSeg(si, sj.bx, sj.by)
+	try(sj.bx, sj.by, qx, qy)
+	return bx, by, best
+}
+
+// closestOnSeg returns the point of tiny segment s nearest (px,py).
+func closestOnSeg(s *tinySeg, px, py float64) (float64, float64) {
+	dx, dy := s.bx-s.ax, s.by-s.ay
+	l2 := dx*dx + dy*dy
+	if l2 == 0 {
+		return s.ax, s.ay
+	}
+	t := ((px-s.ax)*dx + (py-s.ay)*dy) / l2
+	t = math.Min(1, math.Max(0, t))
+	return s.ax + t*dx, s.ay + t*dy
+}
+
+// unexplainedNearMisses returns the sampled-only pairs whose chords approached closely
+// enough to hide a crossing somewhere the sampled loop recorded no contact of that pair
+// at all. Each is a pair whose two sources may in truth be one component with a crossing
+// the map is missing — the sampled-path twin of a refused analytic crossing.
+func (a *arranger) unexplainedNearMisses() [][2]int {
+	var out [][2]int
+	for k, misses := range a.nearMisses {
+		contacts := a.sampledContacts[k]
+		for _, m := range misses {
+			explained := false
+			for _, c := range contacts {
+				if math.Hypot(c[0]-m.x, c[1]-m.y) <= m.tol {
+					explained = true
+					break
+				}
+			}
+			if !explained {
+				out = append(out, k)
+				break
+			}
+		}
+	}
+	// Order is not fixed (map iteration), and nothing downstream depends on it: every
+	// union runs before any root is read, so the partition — and therefore exactRefused
+	// — is the same whichever order the pairs arrive in.
+	return out
+}
+
+// refuseExactOnFusedMap withdraws exact authority from every source of a connected
+// component whose planar map may be FUSED — one carrying a crossing that is missing
+// from the sampled map the pair was handed back to.
+//
+// Two kinds of pair are handed back. A curve/curve crossing the incidence certificate
+// REFUSED (deferredCross), and a pair the analytic kernel never classified at all — any
+// pair involving an ellipse, conic, spline or NURBS (nearMisses, via noteChordNearMiss).
+// Both rest on the sampled path, which is sound only while that path RESOLVES the
+// crossing. Below the density where the two chord polylines meet at all, it does not:
+// the crossing disappears, the regions it separates fuse, and nothing flags it (this is
+// the sampled path's own pre-existing sampling limit — the region count changes with
+// WithSegmentsPerTurn either way, and repairing that is not what this pass is for).
+// What this pass prevents is the fused map being published as EXACT. The other pairs of
+// the same component are certified on their own merits and cut exactly, so every
+// surviving fragment reports TExact — describing a topology that is wrong. Three r=5
+// circles in general position show the refused-crossing half directly: two pairs
+// certify, the third pair's shallow crossing is below the sampling, and the arrangement
+// reports five regions with every bound exact where seven is the truth. Two crossing
+// circles beside an ellipse that clips one of them show the unclassified half: at a
+// density that misses the tiny ellipse lens, the circles' own certified fragments would
+// otherwise publish the fused four-region map as exact.
 //
 // The unit is the CONNECTED COMPONENT, not the offending pair: a fused crossing moves
 // the face boundaries of every cycle it takes part in, so a fragment of ANY source
 // reachable through contacts is describing the fused map. Sources are joined here by
-// any contact at all — an analytic event of a handled pair, a refused crossing, or a
-// sampled contact — so an untouched cluster elsewhere in the scene keeps its exactness.
+// CONTACT — an analytic event of a handled pair, a refused crossing, a sampled contact,
+// or the suspected crossing an unexplained near miss stands for. A handled pair with NO
+// event is not a contact and must not join: the kernel classified those two sources and
+// found they never meet, so an untouched cluster elsewhere in the scene keeps its
+// exactness however busy the rest of the drawing is.
 //
 // Refusal costs only the exactness FLAG. Topology, areas and degeneracy are untouched,
 // and the reported ranges stay the sampled ones, which is exactly what the same
 // geometry reported before curve/curve crossings could certify at all.
 func (a *arranger) refuseExactOnFusedMap() {
-	if len(a.deferredCross) == 0 {
+	unexplained := a.unexplainedNearMisses()
+	if len(a.deferredCross) == 0 && len(unexplained) == 0 {
 		return
 	}
 	uf := newUnionFind(len(a.sources))
-	for k := range a.events {
+	for k, evs := range a.events {
+		if len(evs) == 0 {
+			continue // classified and found not to meet — no contact, no component edge
+		}
 		uf.union(k[0], k[1])
 	}
 	for k := range a.deferredCross {
 		uf.union(k[0], k[1])
 	}
 	for k := range a.sampledContacts {
+		uf.union(k[0], k[1])
+	}
+	for _, k := range unexplained {
 		uf.union(k[0], k[1])
 	}
 	fused := map[int]struct{}{}
@@ -1560,6 +1738,9 @@ func (a *arranger) refuseExactOnFusedMap() {
 			fused[uf.find(k[0])] = struct{}{}
 			break
 		}
+	}
+	for _, k := range unexplained {
+		fused[uf.find(k[0])] = struct{}{}
 	}
 	if len(fused) == 0 {
 		return
