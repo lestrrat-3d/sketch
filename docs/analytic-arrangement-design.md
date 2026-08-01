@@ -135,7 +135,7 @@ Same-component interior tangency is a **self-touch** → `SelfIntersections`, no
    Two blessing attempts both fail, for the SAME root cause: (a) relaxing
    `externalCurvedTangency` to record an exactPortVert → the exact-ordering face walk
    double-counts the inner at tiny-inner/coarse-spt; (b) merely SUPPRESSING the
-   count-gate flag (no exact ordering, rely on hole assignment) → also double-counts at
+   consistency-gate flag (no exact ordering, rely on hole assignment) → also double-counts at
    tiny-inner/coarse-spt, because the inner's poke-out moves the hole-assignment
    containment probe outside the coarse outer polygon, so the inner is not subtracted
    (outer reads as the full disk π·R², total π·R²+π·r²). The poke-out is the load-bearing
@@ -176,7 +176,7 @@ Same-component interior tangency is a **self-touch** → `SelfIntersections`, no
    three topology decisions are still sampled, and the cases §7a and §7b went on to
    bless (internal tangency, curve/curve crossings) turned on exactly two of them:
    - **Crossing incidence** — for line/circle/arc this is already analytic
-     (`analyticEvents`); the count/incidence gate only *flags* when the sampled
+     (`analyticEvents`); the three-part consistency gate only *flags* when the sampled
      chords disagree (a poke-out spurious crossing, a sub-sample cap). The exact
      verdict already exists; the gate is a sampled cross-check.
    - **Containment for hole assignment** — `extract` assigns a hole to a face via
@@ -193,11 +193,11 @@ Same-component interior tangency is a **self-touch** → `SelfIntersections`, no
    So the tractable path to bless the deferred cases is NOT a blind `tinySeg`
    rewrite but two targeted exactness upgrades: (a) an **exact containment** test
    for hole assignment, and (b) **trusting the analytic crossing/tangency verdict**
-   for curve/curve handled pairs (suppress the sampled count-gate flag once
+   for curve/curve handled pairs (suppress the sampled consistency-gate flag once
    containment is exact, since the poke-out crossings are an artifact the exact
    verdict already classifies as a tangency/clean miss). Staged plan: **§7a — DONE**
-   (`exactPointInRegion` ray-cast containment + internal-tangency blessing: the count
-   gate and merged-vertex flag are skipped for an internal curved tangency
+   (`exactPointInRegion` ray-cast containment + internal-tangency blessing: the
+   consistency gate and merged-vertex flag are skipped for an internal curved tangency
    (`internalCurvedTangency`), the shared contact is port-ordered like an external
    one, and hole assignment uses the exact ray-cast so the inner nests into the outer
    — annulus π·(R²−r²) + inner disk π·r², exact at every sampling, tiny inner and
@@ -679,9 +679,10 @@ hole, collinear-overlap degeneracy, spline self-intersection/fallback.
   line, circle or arc; one free-form source withholds `TExact` scene-wide (§7b).
 - Coarse vs fine sampling gives the same topology for analytically-covered pairs —
   or, where the coarse sampled map cannot host the exact crossings, the
-  count-consistency gate makes it conservatively `Degenerate`. A *blessed* curved
-  pair always has the same (correct) topology across sampling; the verdict never
-  blesses a wrong/empty topology.
+  three-part consistency gate (incidence, resolution, explanation) makes it
+  conservatively `Degenerate`. A *blessed* curved pair always has the same
+  (correct) topology across sampling; the verdict never blesses a wrong/empty
+  topology.
 - Scaling geometry tiny/huge does not change classification (scale-relative bands).
 - Input order does not change region areas/counts, and neither does reversing a
   curve that HAS a reversed representation (a line, a spline). An arc does not:
