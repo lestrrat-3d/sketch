@@ -321,8 +321,12 @@ an open decision below, not left as an unstated risk.
   wide range produces the identical region count and area for a blessed
   curve/curve crossing (the existing invariant in "Invariants every increment
   must hold" below, now covering the newly-lifted case).
-- Scale and reversal invariance: unchanged from the existing invariant list,
-  now asserted for curve/curve pairs specifically.
+- Scale invariance: unchanged from the existing invariant list, now asserted for
+  curve/curve pairs specifically. Reversal invariance is not on this list and
+  cannot be: the operands here are circles and arcs, and neither has a reversed
+  representation (`geom.Arc` is `{Center, Start, End}` with no direction flag and
+  `Sweep() ∈ (0, 2π]`, so swapping an arc's endpoints builds the complementary
+  arc, a different curve).
 - The round-2 fusion regression (`TestAnalyticCircleCircleSecantDeferredToSampled`'s
   exact geometry) stays non-degenerate with the correct three regions across
   the same `spt` sweep, now via the analytic-authoritative path rather than
@@ -500,7 +504,11 @@ hole, collinear-overlap degeneracy, spline self-intersection/fallback.
   pair always has the same (correct) topology across sampling; the verdict never
   blesses a wrong/empty topology.
 - Scaling geometry tiny/huge does not change classification (scale-relative bands).
-- Input order and curve reversal do not change region areas/counts.
+- Input order does not change region areas/counts, and neither does reversing a
+  curve that HAS a reversed representation (a line, a spline). An arc does not:
+  `geom.Arc` is `{Center, Start, End}` with no direction flag and `Sweep() ∈
+  (0, 2π]`, so swapping its endpoints builds the complementary arc rather than
+  the same one authored backwards.
 - `Degenerate` always forces `ProfilesValid=false` and therefore `Trustworthy=false`.
 - A clean supported tangency does not set `Degenerate` (once the port handling lands;
   conservatively `Degenerate` at a merged cycle-bearing vertex until then).

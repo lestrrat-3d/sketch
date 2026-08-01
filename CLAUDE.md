@@ -232,8 +232,9 @@ catch it — `vertexCertifies` compares the graph vertex against the cut's own s
 point, which is where the cut put it. **The carrier-local band is what keeps the gate
 about the PAIR**: `scale` is the whole scene's bbox extent, so an unrelated object
 far away inflates it (a scene reaching `x=1e15` gives a global band of `1e3`), and on
-the global band alone an `r=2` arc and an `r=1` circle read identical and one of them
-is suppressed outright — a false bless reached with no carrier near any other. The
+the global band alone an `r=2` arc and an `r=1` circle read identical and a
+suppression window is recorded over the whole circle carrier — a resolution reached
+with no carrier near any other. The
 centre separation is the quantity under test, so it enters the offset, never the
 tolerance. Also unconditionally `Degenerate`: a
 coincident LINE carrier; a multi-window overlap (`coincidentArcOverlap` reports only
@@ -244,20 +245,23 @@ twice with no flag left to warn); and two fully-coincident COMPLETE carriers, wh
 "complete" is the GEOMETRIC question `operand.coversFullTurn` asks, never the
 `fullCircle` FLAG — `wrapSweep` maps a non-positive delta to a full turn, so
 `NewArc(c, p, p)` is a 2π arc that the flag calls partial, and keyed on the flag it
-paired with a real circle and suppressed the whole circle carrier; and an overlap
-boundary the cut phase cannot MATERIALIZE as a split, which
-`resolveCoincidentOverlap` verifies (`overlapBoundariesSplit`) instead of assuming
-before it records any window. That check is what makes the no-slop window test's
-premise a fact: `applyAnalyticCut` records nothing when `cutSite` judges — in
-PARAMETER space — that a vertex is already there, so at coarse sampling a boundary
-can sit a whole vertex-merge tolerance from the nearest sample vertex and still split
-nothing, leaving `split` to suppress a fragment that reaches outside the window. So
-the check is by DISTANCE (a cut recorded, or a segment end within the vertex table's
-own merge tolerance of the boundary point), plus `segEps` separation for two
-boundaries landing on one tiny segment. Refusing is safe in the way resolving on a
-phantom boundary is not: a refusal is a `Degenerate` flag, while the phantom deleted
-the hair that closes the region and reported `Degenerate=false` with no region at
-all. The window's two
+paired with a real circle and suppressed the whole circle carrier. **Recording a
+window is a CLAIM, and it is settled by a POSTCONDITION rather than predicted by a
+precondition** — `certifySuppression`, which runs inside `split()` after
+`splitFragments` has deduped every tiny segment's boundaries and canonicalized the
+survivors, with every cut on every segment in hand. Each window's two boundary points
+must resolve to a graph vertex bounding a fragment of the LOSING source AND one of the
+NAMED source — the SAME vertex on both, and the two DISTINCT — or the window is
+WITHDRAWN and the pair flagged `Degenerate` from there. Identity is by VERTEX, never
+by distance; the merge tolerance only locates which vertex a point belongs to. The
+prediction is what kept failing, by a different route each time: `applyAnalyticCut`
+records nothing when `cutSite` judges — in PARAMETER space — that a vertex is already
+there, and `split`'s per-segment dedup then drops any boundary a COMPETING cut from an
+unrelated pair lands within `segEps` of, a global operation over that segment that no
+per-boundary check can see. Withdrawing is safe in the way suppressing against an
+absent boundary is not: a withdrawal is a `Degenerate` flag, while the suppression
+deleted the hair that closes the region and reported `Degenerate=false` with no region
+at all. The window's two
 BOUNDARY points are this event's contact points (`eventContacts`), so the weld audit
 `auditMergedEndpoints`/`eventExplains` must read them: `xEvent.x/y` is only the
 window MIDPOINT, a locator for a degeneracy flag and never a cut site, and answering
@@ -272,8 +276,9 @@ resolution's own soundness argument is sampling-density-independent (`split`
 suppresses by the recorded ANGULAR WINDOW about the shared centre, not by segment
 count) and does not depend on that gate at all. **That window is tested EXACTLY, at
 the source EVALUATED at a fragment's PARAMETER midpoint and with NO outward slop**:
-the two boundaries are verified splits, so no emitted fragment straddles one and one
-interior point answers for the whole fragment. The fragment's CHORD midpoint is not
+a window that survives certification has two boundaries that ARE emitted fragment
+bounds, so no emitted fragment straddles one and one interior point answers for the
+whole fragment. The fragment's CHORD midpoint is not
 that point — `densify` floors a source at two tiny segments, so a coincident circle
 at a low `WithSegmentsPerTurn` is two semicircle fragments whose chords are
 diameters, putting each chord midpoint ON the carrier centre, where the window's

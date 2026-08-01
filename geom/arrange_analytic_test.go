@@ -724,16 +724,25 @@ func TestAnalyticCoincidentCarrierResolvesGearTooth(t *testing.T) {
 	}
 }
 
-// TestAnalyticCoincidentCarrierReversalInvariant is the "Curve reversal" half of
-// docs/coincident-carrier-resolution-design.md's "Determinism": reversing the root
-// arc's own authored direction (building it End-to-Start instead of Start-to-End)
-// changes only that source's own natural-parameter direction, never its position
-// in the input list — so it must not change which source is named, the region
-// count, or the areas.
-func TestAnalyticCoincidentCarrierReversalInvariant(t *testing.T) {
+// TestAnalyticCoincidentCarrierMajorArcResolves builds probe case C with the root
+// arc's two endpoints swapped. That is NOT the same arc authored backwards:
+// geom.Arc is {Center, Start, End} with no direction flag and Sweep() returns
+// wrapSweep(start,end) ∈ (0,2π], so swapping the ends yields the COMPLEMENTARY
+// major arc on the far side of the hub (0.6 rad becomes 2π−0.6 rad). A reversed arc
+// has no representation here at all, so reversal invariance is not a property this
+// package can state — the assertion below is about the major arc's own geometry.
+//
+// The overlap window is then the major arc's own near-full sweep, and the span the
+// tooth sits on falls OUTSIDE it: the hub circle is the only source covering that
+// span and correctly names it, while the coincident window elsewhere is named by
+// the arc. Both regions still come out with the same areas, since the two arcs are
+// complements and the answer either way is the hub disk plus the same tooth.
+func TestAnalyticCoincidentCarrierMajorArcResolves(t *testing.T) {
+	const rootArcIdx, hubIdx = 0, 4
 	hub := geom.NewCircle(geom.NewPoint(0, 0), 10)
 	ax, ay := 10*math.Cos(0.3), 10*math.Sin(0.3)
-	rootArc := geom.NewArc(geom.NewPoint(0, 0), geom.NewPoint(ax, ay), geom.NewPoint(ax, -ay)) // reversed vs gearProbeCaseCCurves
+	rootArc := geom.NewArc(geom.NewPoint(0, 0), geom.NewPoint(ax, ay), geom.NewPoint(ax, -ay))
+	require.InDelta(t, 2*math.Pi-0.6, rootArc.Sweep(), 1e-12, "the swapped-endpoint arc is the complementary major arc")
 	f1 := geom.NewLine(geom.NewPoint(ax, ay), geom.NewPoint(13, 1))
 	tip := geom.NewLine(geom.NewPoint(13, 1), geom.NewPoint(13, -1))
 	f2 := geom.NewLine(geom.NewPoint(13, -1), geom.NewPoint(ax, -ay))
@@ -744,11 +753,87 @@ func TestAnalyticCoincidentCarrierReversalInvariant(t *testing.T) {
 	require.False(t, arr.Degenerate)
 	require.Len(t, arr.Regions, 2)
 	requireExactBoundsReproduce(t, curves, closed, arr)
-	var total float64
+
+	var hubArea, toothArea float64
+	var toothUsesRootArc, toothUsesHub bool
 	for _, r := range arr.Regions {
-		total += r.Area
+		if r.Area > math.Pi*25 {
+			hubArea = r.Area
+			continue
+		}
+		toothArea = r.Area
+		for _, e := range r.Outer {
+			toothUsesRootArc = toothUsesRootArc || e.SourceIndex == rootArcIdx
+			toothUsesHub = toothUsesHub || e.SourceIndex == hubIdx
+		}
 	}
-	require.InDelta(t, math.Pi*100+11.864262, total, 1e-3)
+	require.InDelta(t, math.Pi*100, hubArea, 1e-6)
+	require.InDelta(t, 11.864262, toothArea, 1e-3)
+	require.False(t, toothUsesRootArc, "the major arc does not sweep the tooth's root span")
+	require.True(t, toothUsesHub, "so the hub circle is the only source covering it, and names it")
+}
+
+// TestAnalyticCoincidentCarrierCompetingCutStaysDegenerate is the postcondition
+// guard: a suppression window is acted on only when its two boundaries survive
+// split's per-segment dedup as distinct fragment bounds shared by both sources.
+//
+// The fixture puts a radial line's crossing a hair OUTSIDE the overlap window, so
+// the line's cut on the circle and the window's own lower boundary land on the same
+// tiny segment. split's dedup keeps only the first of two boundaries closer than
+// segEps in that segment's LOCAL chord parameter, so the window boundary is dropped
+// — while nothing at analytic-pass time can see it coming, since the collapse is a
+// global operation over every cut on the segment, decided by a competing cut from an
+// unrelated pair. Suppressing against the dropped boundary detached the tooth span
+// from the arc that was to represent it, and the whole arrangement pruned away:
+// zero regions with Degenerate=false, a silent false bless of a drawn unit disk.
+//
+// The separation is 5e-11 rad with a vertex merge (1e-12) below it, so the two cuts
+// cannot weld into one vertex instead; the collapse threshold is a segEps fraction
+// of one chord, so it clears at high enough density.
+func TestAnalyticCoincidentCarrierCompetingCutStaysDegenerate(t *testing.T) {
+	const theta, delta = 0.3, 5e-11
+	c := geom.NewPoint(0, 0)
+	at := func(r, ang float64) *geom.Point {
+		return geom.NewPoint(r*math.Cos(ang), r*math.Sin(ang))
+	}
+	build := func(spt int) *geom.Arrangement {
+		root := geom.NewArc(c, at(1, theta), at(1, math.Pi))
+		line := geom.NewLine(at(0.5, theta-delta), at(1.5, theta-delta))
+		return geom.Regions([]geom.Curve{root, line}, []geom.ClosedCurve{geom.NewCircle(c, 1)},
+			geom.WithVertexMerge(1e-12), geom.WithSegmentsPerTurn(spt))
+	}
+	requireDisk := func(t *testing.T, arr *geom.Arrangement, spt int) {
+		t.Helper()
+		require.Lenf(t, arr.Regions, 1, "spt=%d: the drawn unit disk must never vanish", spt)
+		require.InDeltaf(t, math.Pi, arr.Regions[0].Area, 1e-9, "spt=%d", spt)
+	}
+
+	// Below the density at which a chord is wide enough to separate the two cuts,
+	// the window boundary is deduped away and the resolution must be withdrawn.
+	for _, spt := range []int{16, 32, 64, 96} {
+		arr := build(spt)
+		require.Truef(t, arr.Degenerate,
+			"spt=%d: a window boundary a competing cut deduplicates away must be refused, not suppressed against", spt)
+		requireDisk(t, arr, spt)
+	}
+
+	// Above it both boundaries survive as distinct bounds and the pair resolves.
+	for _, spt := range []int{128, 256} {
+		arr := build(spt)
+		require.Falsef(t, arr.Degenerate, "spt=%d: both boundaries survive the dedup, so the pair resolves", spt)
+		requireDisk(t, arr, spt)
+	}
+
+	// The same line a hair INSIDE the window is unaffected: there the window's own
+	// boundary is the survivor, so the resolution stands at every density.
+	for _, spt := range []int{16, 64, 256} {
+		root := geom.NewArc(c, at(1, theta), at(1, math.Pi))
+		line := geom.NewLine(at(0.5, theta+delta), at(1.5, theta+delta))
+		arr := geom.Regions([]geom.Curve{root, line}, []geom.ClosedCurve{geom.NewCircle(c, 1)},
+			geom.WithVertexMerge(1e-12), geom.WithSegmentsPerTurn(spt))
+		require.Falsef(t, arr.Degenerate, "spt=%d: a crossing inside the window keeps the boundary", spt)
+		requireDisk(t, arr, spt)
+	}
 }
 
 // TestAnalyticCoincidentCarrierMultiWindowStaysDegenerate is the "Scope" exclusion:
@@ -877,8 +962,8 @@ func TestAnalyticCoincidentCarrierInCertifyBandStaysDegenerate(t *testing.T) {
 // circle share a centre and are a whole unit apart in radius — never the same
 // carrier — but a line far out at x=1e15 stretches the arrangement's global scale,
 // and an identity band derived from that scale grows with it. Blessing the pair
-// there let resolveCoincidentOverlap suppress the circle outright: an empty region
-// set reported with Degenerate=false, where refusal is the only sound answer.
+// there let resolveCoincidentOverlap record a suppression window over the whole
+// circle carrier, for a pair that shares no carrier at all.
 //
 // The same pair without the distant line is ordinary disjoint geometry, so the far
 // line is doing all the work — that is the point of the fixture.
