@@ -1384,17 +1384,25 @@ func (a *arranger) analyticCrossHosted(i, j int, events []xEvent) bool {
 //     vertex in the planar map, because a handled pair's sampled crossings are never
 //     recorded, so the face walk would run two edges through each other and fuse the
 //     regions on either side. That is the round-2 failure exactly.
+//   - each contact to sit AT the polyline vertex it was mapped to (contactIsVertex).
+//     A spliced point satisfies this by construction; a contact postCutPolyline
+//     mapped onto an EXISTING vertex does not, because that mapping is decided in the
+//     source's parameter and a parameter that close still leaves a position gap far
+//     above round-off. The vertex, not the contact, is what the remaining checks and
+//     the emitted parameter would then describe.
 //   - the four chord departures at each injected point to ALTERNATE between the two
 //     sources (portsCross), in the same rotation order buildGraph sorts by. Meeting
 //     at a point is not crossing at it: if both of one source's chords leave on the
 //     same side of the other's, the loops touch, and the face walk pairs the wrong
-//     half-edges.
+//     half-edges. A contact at an open source's own ENDPOINT has only three
+//     departures and so can never pass — the sampled fallback owns that case.
 //
-// Together those two are the polygonal statement of "the sampled map has the same
+// Together those are the polygonal statement of "the sampled map has the same
 // crossing incidence as the exact geometry", which is what injecting an exact cut
-// needs and all it needs. Both are threshold-free — no tolerance, no chord-length
-// bound, no crossing-angle floor — so a shallow crossing is judged by whether the
-// chords actually resolve it, not by how shallow it is.
+// needs and all it needs. The first two are threshold-free — no tolerance, no
+// chord-length bound, no crossing-angle floor — so a shallow crossing is judged by
+// whether the chords actually resolve it, not by how shallow it is; the third uses
+// the one band that already decides "same point or two", vertexCertifies'.
 //
 // Why analyticCrossHosted is not that statement for this pair: it requires the
 // crossing to be witnessed on the very segment pair carrying its two source
@@ -1427,11 +1435,36 @@ func (a *arranger) analyticCrossingsCertified(i, j int, events []xEvent) bool {
 		return false
 	}
 	for k := range pts {
+		if !a.contactIsVertex(pi, ci[k], pts[k]) || !a.contactIsVertex(pj, cj[k], pts[k]) {
+			return false
+		}
 		if !portsCross(pi, ci[k], a.sources[i].closed, pj, cj[k], a.sources[j].closed) {
 			return false
 		}
 	}
 	return true
+}
+
+// contactIsVertex reports whether the polyline vertex a contact was mapped to IS the
+// contact point, at the SAME round-off identity band vertexCertifies uses to decide the
+// same "one point or two" question about a graph vertex.
+//
+// For a spliced contact this holds by construction — the vertex is the contact point.
+// It is load-bearing for a contact cutSite reported as already carrying a vertex: that
+// decision is made in the source's PARAMETER (within segEps of a segment boundary), and
+// a parameter that close still leaves a POSITION gap of up to a few times segEps·segment
+// length, orders of magnitude above the identity band. Certifying such a contact hands
+// the sampled vertex's own parameter — a plain sample fraction i/n — out as an exact
+// bound, describing a point the crossing is not at. A curve/curve pair has no second
+// safety net here: certification exempts it from the taint passes that would otherwise
+// mark a weld inexact, so the certificate itself has to refuse. Refusing means the
+// sampled fallback, where the parameter is reported inexact and the topology is
+// unchanged.
+func (a *arranger) contactIsVertex(p [][2]float64, k int, pt [2]float64) bool {
+	if k < 0 || k >= len(p) {
+		return false
+	}
+	return math.Hypot(p[k][0]-pt[0], p[k][1]-pt[1]) <= weldIdentEps*a.scale
 }
 
 // postCutPolyline returns source src's sampled polyline with the given exact contact
@@ -1442,8 +1475,11 @@ func (a *arranger) analyticCrossingsCertified(i, j int, events []xEvent) bool {
 // polyline this builds is the one the cut phase produces and not an idealization of
 // it: a contact the sampled map already has a vertex for (a source endpoint, a sample
 // vertex) is NOT inserted — it maps to that existing vertex, exactly as
-// applyAnalyticCut records nothing there. A nil polyline means some contact sits on no
-// sampled segment at all, which no splice can represent.
+// applyAnalyticCut records nothing there, and WHICH vertex is read off cutSite's local
+// parameter. A nil polyline means some contact sits on no sampled segment at all,
+// which no splice can represent. The mapped vertex is not assumed to BE the contact:
+// the caller checks that (contactIsVertex), because the parameter cutSite decided on
+// bounds no position gap.
 func (a *arranger) postCutPolyline(src int, ts []float64, pts [][2]float64) ([][2]float64, []int) {
 	segs := a.sourceSegs[src]
 	if len(segs) == 0 {
@@ -1537,19 +1573,20 @@ func polylinesMeetOnlyAtVertices(pi, pj [][2]float64) bool {
 // sources in angular order — the rotation order buildGraph itself sorts half-edges
 // by, so this is the map's own criterion, not a proxy for it.
 //
-// An index of -1 (no such vertex) is never a crossing. A vertex with a single
-// departure is an open curve's ENDPOINT: the curve stops there, so the contact is a
-// T-junction the planar map represents with an odd-degree vertex, and there is no
-// crossing to order. A CLOSED source's seam is not that case and must not be read as
-// one — hence the per-polyline closed flag.
+// Anything that is not four departures fails. An index of -1 (no such vertex) has
+// none. A vertex with a SINGLE departure is an open curve's ENDPOINT: the curve stops
+// there, so it contributes one direction, the four cannot alternate, and there is no
+// crossing here to certify — the contact is a T-junction, which the exact geometry may
+// well have but which this predicate has no evidence about. Passing it certified the
+// injected cut against nothing, and the cut then bent the other source's chord through
+// the endpoint and silently erased a region; such a contact takes the sampled fallback
+// instead. A CLOSED source's seam is not the endpoint case and must not be read as one
+// — hence the per-polyline closed flag.
 func portsCross(pi [][2]float64, a int, aClosed bool, pj [][2]float64, b int, bClosed bool) bool {
 	di := polylinePorts(pi, a, aClosed)
 	dj := polylinePorts(pj, b, bClosed)
-	if len(di) == 0 || len(dj) == 0 {
+	if len(di) != 2 || len(dj) != 2 {
 		return false
-	}
-	if len(di) == 1 || len(dj) == 1 {
-		return true
 	}
 	angs := [4]float64{
 		math.Atan2(di[0][1], di[0][0]), math.Atan2(di[1][1], di[1][0]),
@@ -1636,9 +1673,21 @@ func (a *arranger) crossNeedsSampledWitness(i, j int, e xEvent) bool {
 // It is the single place that decision is made — applyAnalyticCut acts on it, and
 // crossNeedsSampledWitness reads it — so what the gate expects can never drift from
 // what the cut phase does.
+//
+// The local parameter is reported for a SOURCE END too, and it is the real one — 0
+// at the source's start, 1 at an open source's end — not a placeholder. postCutPolyline
+// reads it to decide WHICH sampled vertex the contact occupies, and a hardcoded 0 named
+// the far end of the last segment for a contact at t=1: the certificate then ran on a
+// vertex a whole chord away from the contact, which has the two departures the real
+// endpoint does not, and blessed a crossing the injected cut went on to erase a region
+// over.
 func (a *arranger) cutSite(src int, t float64) (int, float64, bool) {
 	if atSourceEnd(&a.sources[src], t) {
-		return a.segContaining(src, t), 0, true
+		si := a.segContaining(src, t)
+		if si < 0 {
+			return -1, 0, true
+		}
+		return si, segLocal(&a.segs[si], t), true
 	}
 	for _, si := range a.sourceSegs[src] {
 		s := &a.segs[si]
@@ -1649,10 +1698,22 @@ func (a *arranger) cutSite(src int, t float64) (int, float64, bool) {
 		if t < lo-segEps || t > hi+segEps {
 			continue
 		}
-		local := (t - s.pa) / (s.pb - s.pa)
+		local := segLocal(s, t)
 		return si, local, local <= segEps || local >= 1-segEps
 	}
 	return -1, 0, false
+}
+
+// segLocal maps a source parameter onto the segment's local chord parameter, clamped
+// to [0,1] — a source parameter reaches this a hair outside the segment's own span
+// (both the atSourceEnd band and the segEps slack in the scan admit that), and a local
+// parameter outside [0,1] names no point of the chord.
+func segLocal(s *tinySeg, t float64) float64 {
+	if s.pb == s.pa {
+		return 0
+	}
+	local := (t - s.pa) / (s.pb - s.pa)
+	return math.Min(1, math.Max(0, local))
 }
 
 // applyAnalyticCut records an exact cut at source-parameter t (event point x,y) on

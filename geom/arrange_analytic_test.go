@@ -314,6 +314,116 @@ func TestAnalyticCurveCrossingNeverBlessedWrong(t *testing.T) {
 	}
 }
 
+func TestAnalyticArcEndpointOnCrossingCircleKeepsRegion(t *testing.T) {
+	// An arc whose own ENDPOINT lies exactly on a circle it also crosses is the
+	// contact the incidence certificate cannot judge: the arc stops at the point, so
+	// it contributes ONE chord departure there and the four cannot alternate. Blessing
+	// it certified nothing, and the injected cut then bent the polylines through each
+	// other and left the disk with no region at all — an arrangement reporting
+	// degenerate=false, zero regions and zero area, which no consumer can detect.
+	//
+	// The invariant asserted is the one the collapse broke: the circle's disk survives,
+	// whole, at every density. The arc dips inside the circle by far less than one
+	// chord sagitta here, so the sub-sample sliver it carves is legitimately not
+	// resolved at these densities — the disk being the single region is the correct
+	// sampled answer, and the fault was losing it, not merging it.
+	P := geom.NewPoint(5, 0) // on the r=5 circle centred at the origin
+	for _, tc := range []struct {
+		name    string
+		rB      float64
+		psiDeg  float64 // direction of B's centre from P, off the radial direction
+		sweep   float64 // arc sweep from P; negative means the arc ENDS at P
+		density []int
+	}{
+		// The contact at the arc's t=0 end.
+		{"start-endpoint-r12", 12, 3, math.Pi / 6, []int{32, 64, 128}},
+		{"start-endpoint-r5", 5, 0.25, math.Pi / 2, []int{32, 64, 256}},
+		{"start-endpoint-r3", 3, -1, math.Pi, []int{32, 128}},
+		// The contact at the arc's t=1 end — the mirrored case, where the contact's
+		// segment-local parameter is 1 rather than 0.
+		{"end-endpoint-r5", 5, -0.25, -math.Pi / 2, []int{32, 64, 256}},
+		{"end-endpoint-r12", 12, -3, -math.Pi / 6, []int{32, 64, 128}},
+		{"end-endpoint-r3", 3, 1, -math.Pi, []int{32, 128}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			psi := tc.psiDeg * math.Pi / 180
+			cB := geom.NewPoint(P.X+tc.rB*math.Cos(psi), P.Y+tc.rB*math.Sin(psi))
+			far := geom.NewPoint(5*math.Cos(tc.sweep), 5*math.Sin(tc.sweep))
+			start, end := P, far
+			if tc.sweep < 0 {
+				start, end = far, P
+			}
+			curves := []geom.Curve{geom.NewArc(geom.NewPoint(0, 0), start, end)}
+			closed := []geom.ClosedCurve{geom.NewCircle(cB, tc.rB)}
+			for _, spt := range tc.density {
+				arr := geom.Regions(curves, closed, geom.WithSegmentsPerTurn(spt))
+				if arr.Degenerate {
+					continue // conservatively refused — sound
+				}
+				requireExactBoundsReproduce(t, curves, closed, arr)
+				total, _, _ := arrangementArea(arr)
+				require.NotEmptyf(t, arr.Regions, "the disk must not vanish at spt=%d", spt)
+				require.InDeltaf(t, math.Pi*tc.rB*tc.rB, total, 1e-3,
+					"the disk survives whole at spt=%d", spt)
+			}
+		})
+	}
+}
+
+func TestAnalyticNearSampleVertexCrossingNotBlessedExact(t *testing.T) {
+	// A crossing whose source parameter sits a hair from a sample vertex is snapped
+	// onto that vertex (the decision is made in the PARAMETER, within segEps of the
+	// segment boundary) and records no cut, so the fragment it bounds carries the
+	// VERTEX's parameter — a plain sample fraction i/n. Certifying such a contact
+	// published that fraction as an exact bound for a crossing it is not at, and a
+	// certified curve/curve pair is exempt from the taint passes that would otherwise
+	// have marked the weld inexact, so nothing downstream corrected it.
+	//
+	// Two r=5 circles crossing a hair off the 1/8 sample vertex, with the offset kept
+	// inside the snap band at every density. Every bound a fragment reports as EXACT
+	// must be the source's own domain end or a true crossing parameter — asserted
+	// against the closed form, so the test cannot be satisfied by whatever the
+	// arrangement happened to emit.
+	const r = 5.0
+	for _, spt := range []int{8, 16, 32, 64, 128, 256} {
+		delta := 2 * math.Pi * 5e-10 / float64(spt) // inside the snap band at this density
+		d := 2 * r * math.Cos(math.Pi/4-delta)
+		closed := []geom.ClosedCurve{
+			geom.NewCircle(geom.NewPoint(0, 0), r),
+			geom.NewCircle(geom.NewPoint(d, 0), r),
+		}
+		// The circles meet at x=d/2, y=±r·sin(π/4−δ): the eighth-turn parameter, minus
+		// δ. On the second circle the same two points sit half a turn away.
+		p := (math.Pi/4 - delta) / (2 * math.Pi)
+		allowed := map[int][]float64{
+			0: {0, 1, p, 1 - p},
+			1: {0, 1, 0.5 - p, 0.5 + p},
+		}
+		arr := geom.Regions(nil, closed, geom.WithSegmentsPerTurn(spt))
+		require.Falsef(t, arr.Degenerate, "a transverse crossing near a sample vertex is not degenerate (spt=%d)", spt)
+		require.Lenf(t, arr.Regions, 3, "two lune caps + lens at spt=%d", spt)
+		requireExactBoundsReproduce(t, nil, closed, arr)
+		near := func(v float64, src int) bool {
+			for _, u := range allowed[src] {
+				if math.Abs(v-u) <= 1e-13 {
+					return true
+				}
+			}
+			return false
+		}
+		for _, rg := range arr.Regions {
+			for _, e := range rg.Outer {
+				if !e.TExact {
+					continue
+				}
+				require.Truef(t, near(e.TStart, e.SourceIndex) && near(e.TEnd, e.SourceIndex),
+					"exact fragment [%.17g %.17g] of source %d at spt=%d reports a bound that is neither a domain end nor a closed-form crossing parameter",
+					e.TStart, e.TEnd, e.SourceIndex, spt)
+			}
+		}
+	}
+}
+
 func TestAnalyticArcArcCrossingCertified(t *testing.T) {
 	// The certificate is about the PAIR being two sampled curves, not about them being
 	// full circles: two arcs on different carriers, closed into a wire by two lines,

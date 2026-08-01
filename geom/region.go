@@ -82,9 +82,13 @@ type BoundaryEdge struct {
 	// has to be certified against the sampling before it is taken as exact: both
 	// polylines there are chord approximations, so the arrangement checks that splicing
 	// the exact crossing points into them leaves the sampled topology unchanged. When it
-	// cannot — at a sampling too coarse to resolve the crossing — the pair falls back to
-	// the sampled path and its fragments report TExact = false, with the topology
-	// unchanged. Raising [WithSegmentsPerTurn] is what recovers exactness there.
+	// cannot, the pair falls back to the sampled path and its fragments report
+	// TExact = false, with the topology unchanged. Two things fail that check, and only
+	// one of them is about density: a sampling too coarse to resolve the crossing, which
+	// raising [WithSegmentsPerTurn] recovers; and a contact the chords cannot certify at
+	// ANY density — one at a curve's own endpoint, where the curve stops instead of
+	// crossing, and one landing within round-off of a sample vertex. Those stay
+	// TExact = false however finely the curve is sampled.
 	//
 	// A WHOLE edge (Whole = true) is bounded by the curve's own domain ends, not by a
 	// contact, so exactness turns on whether those ends were EVALUATED or PINNED:
