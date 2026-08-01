@@ -20,7 +20,7 @@ radius) are classified `evOverlap` and unconditionally `flagDegenerate`d
 This is not a rare input: it is the **normal case** for a gear tooth, whose
 root arc is by construction an arc of the hub circle it sits on — every tooth
 in a 12–45-tooth gear repeats it. `TestAnalyticSameCarrierArcs`
-(`geom/arrange_analytic_test.go:188-214`) already exercises the same code path
+(`geom/arrange_analytic_test.go`) already exercises the same code path
 for two arcs sharing a carrier; the flag is correct there too, for the same
 reason.
 

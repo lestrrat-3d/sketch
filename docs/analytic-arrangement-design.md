@@ -211,8 +211,9 @@ Status: **designed, not implemented**. Sibling design:
 coincident carrier are different `analyticEvents` classifications with
 different fixes. A curve/curve transverse crossing (both
 sources circle/arc) is the last case increment 2 left on the sampled path
-(`geom/arrange.go:994-1012`, "Scope of analytic authority" above): the sampled
-topology is already correct, but every fragment either source contributes
+(the `nCross > 0 && isCurvedKind(…) && isCurvedKind(…)` deferral branch in
+`analyticPrepass`, `geom/arrange.go`; "Scope of analytic authority" above): the
+sampled topology is already correct, but every fragment either source contributes
 reports `TExact = false` (`cut.exact` stays `false` on a sampled cut —
 `geom/arrange.go:186-195`), which blocks any consumer whose admission gate
 requires `TExact` before it will record a fragment structurally. Probe case B
@@ -242,11 +243,11 @@ depart in four genuinely different chord directions (a `evCross` is a simple
 root, not a double one), so at ANY sampling density the four chord angles at
 the crossing vertex already order correctly — this is exactly why the sampled
 path resolves curve/curve crossings correctly today, with no analytic help at
-all. `useExactPorts` (`geom/arrange.go:1932-1950`) already encodes this scope:
+all. `useExactPorts` (`geom/arrange.go`) already encodes this scope:
 it applies exact tangent ordering only at a vertex in `exactPortVerts`, which
-`analyticPrepass` populates *only* for a certified tangency contact
-(`geom/arrange.go:1077`) — never for a crossing. So the "full port order at
-every event vertex" clause of the increment-3 certificate was written before
+`analyticPrepass` populates *only* for a certified tangency contact (its lone
+`a.exactPortVerts = append(…)` site) — never for a crossing. So the "full port
+order at every event vertex" clause of the increment-3 certificate was written before
 the tangency/crossing distinction was drawn this finely; a crossing vertex
 never needed it, and nothing here proposes adding it.
 
@@ -254,11 +255,11 @@ What a crossing DOES need — incidence (does the sampled map actually cross
 where the exact geometry does) and containment (if the crossing produces a
 nested/hole relationship, is the hole assigned correctly) — is already built,
 and built **pair-generically**: `analyticCrossHosted` / `contactsResolved` /
-`sampledCrossingsExplained` (`geom/arrange.go:1237-1300`) run today for every
-*line-involved* curved pair reaching the consistency gate
-(`geom/arrange.go:1026-1034`), and none of their logic special-cases "one
-operand is a line" — `sampledCrossingsExplained`'s per-source tolerance
-(`geom/arrange.go:1119-1146`) already takes `segLen` from EITHER source when
+`sampledCrossingsExplained` (`geom/arrange.go`) run today for every
+*line-involved* curved pair reaching the consistency gate (the `if` in
+`analyticPrepass` that calls all three, same file), and none of their logic
+special-cases "one operand is a line" — `sampledCrossingsExplained`'s per-source
+tolerance already takes `segLen` from EITHER source when
 it is curved, exactly the shape a two-curved-source pair needs. Containment is
 `exactPointInRegion` (§7a, done), also pair-generic. So the §7 scope
 refinement's narrower basis is the one the code already supports: **lift the
@@ -267,7 +268,7 @@ line-involved path already uses**, not by building a new certificate.
 
 #### Mechanism
 
-In `analyticPrepass` (`geom/arrange.go:1005-1012`), the block
+In `analyticPrepass` (`geom/arrange.go`), the block
 
     if nCross > 0 && isCurvedKind(si.kind) && isCurvedKind(sj.kind) {
         if ambiguous { ... flagDegenerate ... }
