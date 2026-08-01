@@ -35,7 +35,7 @@ type entitySwitchSite struct{ File, Func string }
 
 // entitySwitchExempt lists the entity type switches that are deliberately
 // partial, each with the reason it handles fewer than every entity type. The key
-// carries the file as well as the function so the audit FAILS CLOSED: a switch
+// carries the file as well as the function so an entry names ONE site: a switch
 // added later is exhaustive-by-default and has to be listed here to be excused,
 // rather than being excused by matching a bare function name. One entry excuses
 // exactly ONE switch, so a second, differently-partial switch dropped into an
@@ -60,6 +60,12 @@ var entitySwitchExempt = map[entitySwitchSite]string{
 // the revision fingerprint and the removal renumbering all fall through their
 // switch and drop the entity with no error anywhere, while build, vet, lint and
 // the rest of the suite stay green.
+//
+// It reads the entity contract CLAUDE.md states for the sketch.go row: an entity
+// type declares its own entity() marker directly on itself with a pointer
+// receiver, and is matched as *T. Embedding is not a supported way to become an
+// entity, and this audit is syntactic — it recognizes the contract's forms and
+// nothing else.
 func TestEntityTypeSwitchesAreExhaustive(t *testing.T) {
 	paths, err := filepath.Glob("*.go")
 	require.NoError(t, err, `failed to glob the package directory`)
@@ -307,10 +313,11 @@ type entitySwitchCoverage struct {
 }
 
 // entitySwitchCases reports what a type switch's cases cover. It is an entity
-// switch when every pointer case names an entity type and at least one case
-// does, or when a case names an interface carrying Entity — so a switch over
-// constraints, over options or over the conic adapters is left alone. A bare nil
-// case is ignored, being a test for the absent operand rather than for a type.
+// switch when at least one case names an entity type, or when a case names an
+// interface carrying Entity — so a switch over constraints, over options or over
+// the conic adapters is left alone. A case naming anything else contributes no
+// coverage and is otherwise ignored: a bare nil (a test for the absent operand
+// rather than for a type), and a pointer to a non-entity type.
 func entitySwitchCases(ts *ast.TypeSwitchStmt, facts entitySwitchFacts) entitySwitchCoverage {
 	cov := entitySwitchCoverage{covered: make(map[string]struct{})}
 	for _, stmt := range ts.Body.List {
@@ -339,7 +346,14 @@ func entitySwitchCases(ts *ast.TypeSwitchStmt, facts entitySwitchFacts) entitySw
 			}
 			name := facts.resolve(id.Name)
 			if _, ok := facts.entities[name]; !ok {
-				return entitySwitchCoverage{}
+				// A non-entity pointer case counts toward no coverage, but it does
+				// NOT take the switch out of the audit. Refusing to classify here
+				// is what let `case *Line, *Circle, *Point:` over an `any`
+				// scrutinee — ordinary Go — go unaudited entirely. A switch that
+				// legitimately mixes entity and non-entity cases is reported as
+				// partial and takes an entitySwitchExempt entry with a stated
+				// reason, like every other deliberately-partial switch.
+				continue
 			}
 			cov.covered[name] = struct{}{}
 		}
@@ -353,10 +367,11 @@ func entitySwitchCases(ts *ast.TypeSwitchStmt, facts entitySwitchFacts) entitySw
 const entitySwitchSynthFile = "synthetic.go"
 
 // entitySwitchPrelude is the shape the audit reads a package by: three types
-// carrying the sealed entity() marker, plus an interface embedding Entity. The
-// tests below are run against a synthetic package rather than against the
-// tracked source, because the audit reads the package's own files and a
-// construct planted there to prove a hole would have to be committed.
+// carrying the sealed entity() marker, one type that carries no marker, plus an
+// interface embedding Entity. The tests below are run against a synthetic
+// package rather than against the tracked source, because the audit reads the
+// package's own files and a construct planted there to prove a hole would have
+// to be committed.
 const entitySwitchPrelude = `package sketch
 
 type Entity interface{ entity() }
@@ -372,6 +387,9 @@ func (x *Beta) entity() {}
 type Gamma struct{}
 
 func (x *Gamma) entity() {}
+
+// Other is no entity, so a case naming it says nothing about entity coverage.
+type Other struct{}
 
 // Pair carries Entity, so a case naming it admits more than one concrete type.
 type Pair interface {
@@ -506,6 +524,52 @@ func withNil(e Entity) {
 }
 `, nil)
 		require.Empty(t, problems, `nil tests for the absent operand, not for a type`)
+	})
+}
+
+// TestEntitySwitchAuditKeepsNonEntityCases covers a switch that names an entity
+// type beside a type that is not one. Refusing to classify it at the non-entity
+// case took the WHOLE switch out of the audit, so `case *Alpha, *Beta, *Other:`
+// over an `any` scrutinee — ordinary Go, and the one shape of bypass a person
+// might write without meaning to — was audited by nothing at all.
+func TestEntitySwitchAuditKeepsNonEntityCases(t *testing.T) {
+	t.Run("a non-entity case does not take the switch out of the audit", func(t *testing.T) {
+		problems := auditSynthetic(t, entitySwitchPrelude+`
+func partialBesideNonEntity(v any) {
+	switch v.(type) {
+	case *Alpha:
+	case *Beta:
+	case *Other:
+	}
+}
+`, nil)
+		require.Len(t, problems, 1, `a non-entity case must not carry the whole switch out of the audit`)
+		require.Contains(t, problems[0], "partialBesideNonEntity")
+		require.Contains(t, problems[0], "does not handle Gamma")
+	})
+
+	t.Run("a non-entity case counts toward no coverage", func(t *testing.T) {
+		problems := auditSynthetic(t, entitySwitchPrelude+`
+func exhaustiveBesideNonEntity(v any) {
+	switch v.(type) {
+	case *Alpha, *Other:
+	case *Beta:
+	case *Gamma:
+	}
+}
+`, nil)
+		require.Empty(t, problems, `every entity type is handled, and the non-entity case is beside the point`)
+	})
+
+	t.Run("a switch naming no entity type is left alone", func(t *testing.T) {
+		problems := auditSynthetic(t, entitySwitchPrelude+`
+func noEntityCase(v any) {
+	switch v.(type) {
+	case *Other:
+	}
+}
+`, nil)
+		require.Empty(t, problems, `a switch naming no entity type is not an entity switch`)
 	})
 }
 
