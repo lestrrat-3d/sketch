@@ -1484,14 +1484,15 @@ func (a *arranger) analyticCrossHosted(i, j int, events []xEvent) bool {
 // the cut phase does not do), then require
 //
 //   - the two spliced polylines to meet ONLY at those points — every contact between
-//     them IS an injected crossing point (polylinesMeetOnlyAtContacts). A leftover
-//     contact has no vertex in the planar map, because a handled pair's sampled
-//     crossings are never recorded, so the face walk would run two edges through each
-//     other and fuse the regions on either side. That is the round-2 failure exactly.
-//     The membership is decided by IDENTITY with an injected point, never by where the
-//     contact sits along its host segments: an arc's own endpoint resting on the
+//     them belongs to a crossing point BOTH host segments are incident to
+//     (polylinesMeetOnlyAtSharedVertices). A leftover contact has no vertex in the
+//     planar map, because a handled pair's sampled crossings are never recorded, so the
+//     face walk would run two edges through each other and fuse the regions on either
+//     side. That is the round-2 failure exactly. The membership is decided by shared
+//     INCIDENCE — an index question, needing no tolerance and no length — never by where
+//     the contact sits along its host segments: an arc's own endpoint resting on the
 //     interior of the other source's chord, and a transverse pass-through that lands on
-//     a sample vertex of one polyline, are both contacts with no node — and a
+//     a sample vertex of one polyline, are both contacts with no node, and a
 //     segment-endpoint band admits both of them.
 //   - each contact to sit AT the polyline vertex it was mapped to (contactIsVertex).
 //     A spliced point satisfies this by construction; a contact postCutPolyline mapped
@@ -1509,14 +1510,13 @@ func (a *arranger) analyticCrossHosted(i, j int, events []xEvent) bool {
 //
 // Together those are the polygonal statement of "the sampled map has the same
 // crossing incidence as the exact geometry", which is what injecting an exact cut
-// needs and all it needs. The third is threshold-free — no tolerance, no chord-length
-// bound, no crossing-angle floor — so a shallow crossing is judged by whether the
-// chords actually resolve it, not by how shallow it is. The first two decide only
-// "one point or two", and both decide it with the SAME identity band vertexCertifies
-// uses: the first to ask whether a contact IS an injected crossing point, the second
-// whether it IS the vertex it was mapped to (there additionally bounded by the vertex's
-// own chord, as vertexCertifies is by its source's own extent, so a distant object
-// cannot widen it). No crossing-angle or chord-length threshold enters either verdict.
+// needs and all it needs. The first and third are threshold-free — no tolerance, no
+// chord-length bound, no crossing-angle floor — so a shallow crossing is judged by
+// whether the chords actually resolve it, not by how shallow it is. Only the second
+// compares a position, and it decides only "one point or two", with the same identity
+// band vertexCertifies uses, bounded by the vertex's own chord as vertexCertifies is
+// bounded by its source's own extent, so a distant object cannot widen it. No
+// crossing-angle or chord-length threshold enters any of the three.
 //
 // Why analyticCrossHosted is not that statement for this pair: it requires the
 // crossing to be witnessed on the very segment pair carrying its two source
@@ -1545,7 +1545,7 @@ func (a *arranger) analyticCrossingsCertified(i, j int, events []xEvent) bool {
 	if pi == nil || pj == nil {
 		return false // a contact the sampled polyline has no place for
 	}
-	if !polylinesMeetOnlyAtContacts(pi, pj, pts, weldIdentEps*a.scale) {
+	if !polylinesMeetOnlyAtSharedVertices(pi, ci, a.sources[i].closed, pj, cj, a.sources[j].closed) {
 		return false
 	}
 	for k := range pts {
@@ -1802,18 +1802,32 @@ func (a *arranger) postCutPolyline(src int, ts []float64, pts [][2]float64) ([][
 	return out, at
 }
 
-// polylinesMeetOnlyAtContacts reports whether the two spliced polylines meet ONLY at
-// the injected contact points pts — every contact between a segment of one and a
-// segment of the other IS one of those points, within the round-off identity band eps
-// (weldIdentEps·scale, the scene half of the band contactIsVertex and vertexCertifies
-// decide "one point or two" by; each of those adds a local yardstick of its own, and
-// this predicate has no single source or vertex to state one against).
+// polylinesMeetOnlyAtSharedVertices reports whether the two spliced polylines meet ONLY
+// at the injected contact points — every contact between a segment of one and a segment
+// of the other belongs to a contact both segments are INCIDENT to. Contact k is the
+// vertex ci[k] of pi and the vertex cj[k] of pj (postCutPolyline's second return), so a
+// contacting segment pair is admissible exactly when some k has ci[k] as an end of the
+// pi segment and cj[k] as an end of the pj segment.
 //
-// Membership is decided by IDENTITY with an injected point. Deciding it by POSITION
-// ALONG THE HOST SEGMENTS instead — excluding a contact whose segment parameter sits
-// within segEps of either segment's end, which is what this predicate used to do — is a
-// different question, and the gap between the two admits contacts that carry no node in
-// the planar map:
+// The test is COMBINATORIAL, and that is the point: no tolerance, no scene scale and no
+// chord length enters it. Two segments sharing an endpoint meet only there unless they
+// are collinear, and collinearOverlap refuses collinearity outright below, so shared
+// incidence admits exactly the contacts that ARE an injected crossing point. Comparing
+// the contact's POSITION against the injected points instead — which is what this
+// predicate used to do — needs a band to compare within, and the only one available here
+// is weldIdentEps·scale, the whole scene's bounding-box extent: unlike contactIsVertex
+// (bounded by the vertex's own chord) and vertexCertifies (bounded by the source's own
+// extent), this predicate has no single source or vertex to state a local yardstick
+// against, so a distant unrelated object widened what counts as one point HERE. The
+// chord/chord intersection segParams computes is displaced from the true crossing by
+// roughly the chord sagitta over the sine of the crossing angle, so no chord-local band
+// could replace the scene one either. Asking which vertices the segments meet at needs
+// no band at all.
+//
+// Incidence is decided by INDEX, never by where the contact sits along its host
+// segments. Excluding a contact whose segment parameter sits within segEps of either
+// segment's end — an earlier form of this part — is a different question, and the gap
+// between the two admits contacts that carry no node in the planar map:
 //
 //   - a source's own ENDPOINT resting on the INTERIOR of the other source's chord. The
 //     endpoint is one segment's parameter 1, so the band excused it, while the contact
@@ -1822,19 +1836,19 @@ func (a *arranger) postCutPolyline(src int, ts []float64, pts [][2]float64) ([][
 //     of the polylines. It is the same crossing the gate exists to refuse, waved
 //     through for sitting at a vertex of one source rather than being a vertex of both.
 //
-// PARALLEL pairs never reached the parameter test at all: segParams rejects a pair by
-// its determinant before any range test, so a collinear OVERLAP — two chords sharing a
-// whole span rather than a point — arrived as silence and was accepted with no
-// tolerance applied to it whatever. collinearOverlap is the same coincident-edge test
+// PARALLEL pairs never reach segParams at all: it rejects a pair by its determinant
+// before any range test, so a collinear OVERLAP — two chords sharing a whole span rather
+// than a point — arrives as silence. collinearOverlap is the same coincident-edge test
 // the sampled loop uses, and an overlap of positive length is never a transverse
-// crossing, so it is refused outright.
+// crossing, so it is refused outright — and refusing it first is what lets the shared
+// endpoint above stand for "these two segments meet nowhere else".
 //
 // Refusing costs the sampled fallback, which keeps the correct sampled topology and
 // reports TExact=false; accepting one of these publishes a fused map as exact.
-func polylinesMeetOnlyAtContacts(pi, pj, pts [][2]float64, eps float64) bool {
-	injected := func(x, y float64) bool {
-		for _, p := range pts {
-			if math.Hypot(p[0]-x, p[1]-y) <= eps {
+func polylinesMeetOnlyAtSharedVertices(pi [][2]float64, ci []int, iClosed bool, pj [][2]float64, cj []int, jClosed bool) bool {
+	shared := func(x, y int) bool {
+		for k := range ci {
+			if segIncident(pi, iClosed, ci[k], x) && segIncident(pj, jClosed, cj[k], y) {
 				return true
 			}
 		}
@@ -1847,16 +1861,34 @@ func polylinesMeetOnlyAtContacts(pi, pj, pts [][2]float64, eps float64) bool {
 			if _, _, ok := collinearOverlap(&si, &sj); ok {
 				return false
 			}
-			p, ok := segParams(&si, &sj)
-			if !ok {
+			if _, ok := segParams(&si, &sj); !ok {
 				continue
 			}
-			if !injected(p.x, p.y) {
+			if !shared(x, y) {
 				return false
 			}
 		}
 	}
 	return true
+}
+
+// segIncident reports whether the polyline's seg-th segment — the one spanning vertices
+// seg and seg+1 — has vertex v as one of its ends.
+//
+// A CLOSED source's polyline repeats its seam vertex at index 0 and at the end (the two
+// copies differ by round-off, so they can only be recognized as one by the flag, never by
+// comparing coordinates), and polylinePorts already reads either index as naming the one
+// seam vertex. Both segments meeting there are incident to it, so a contact the seam
+// carries must admit both — reading only the index it was reported at would refuse the
+// pair for its own second neighbour.
+func segIncident(p [][2]float64, closed bool, v, seg int) bool {
+	if v < 0 || v >= len(p) {
+		return false
+	}
+	if closed && len(p) >= 3 && (v == 0 || v == len(p)-1) {
+		return seg == 0 || seg == len(p)-2
+	}
+	return seg == v || seg+1 == v
 }
 
 // portsCross reports whether the two polylines genuinely cross at the vertex each
