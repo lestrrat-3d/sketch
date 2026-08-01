@@ -168,10 +168,16 @@ func TestBoundaryEdgeParams(t *testing.T) {
 		require.Equal(t, 4, checked, "both halves of both vertical edges")
 	})
 
-	t.Run("a sampled crossing reports TExact false", func(t *testing.T) {
-		// Two overlapping circles: a curve/curve crossing, which the arrangement
-		// deliberately resolves on the sampled polyline rather than in closed form.
-		// The fragments' parameters are therefore approximate and MUST say so.
+	t.Run("a circle/circle crossing is exact", func(t *testing.T) {
+		// SUPERSEDED EXPECTATION. This fixture used to assert the opposite — that a
+		// curve/curve crossing is resolved on the sampled polyline and so must report
+		// TExact = false. A curve/curve transverse crossing now takes analytic
+		// authority whenever the arrangement can certify that splicing the exact
+		// crossing points into both polylines leaves the sampled topology unchanged,
+		// which it can here. The general "a sampled crossing must not claim to be
+		// exact" contract is unchanged and is still covered, by the line/spline
+		// fixture below: the analytic kernel admits only line/circle/arc operands, so
+		// everything involving an ellipse, conic or spline is still sampled.
 		w := sketch.NewWorld()
 		s, err := w.CreateSketch(w.XY())
 		require.NoError(t, err)
@@ -181,15 +187,29 @@ func TestBoundaryEdgeParams(t *testing.T) {
 		profiles := s.Profiles()
 		require.NotEmpty(t, profiles)
 
+		// The circles cross at (3, ±4). Every fragment bound must therefore evaluate
+		// either to one of those two points — the closed-form answer, not a value that
+		// merely converges to it with sampling — or to the circle's own seam.
+		onExactBound := func(e sketch.BoundaryEdge, u float64) bool {
+			if u == 0 || u == 1 {
+				return true // the circle's own domain end (its seam)
+			}
+			q := evalEntityAt(t, e.Entity, u)
+			return math.Abs(q[0]-3) < 1e-12 && math.Abs(math.Abs(q[1])-4) < 1e-12
+		}
+
 		var partials int
 		for _, p := range profiles {
 			for _, e := range p.Outer {
-				requireEdgeParamsConsistent(t, e, false)
-				if e.Partial {
-					partials++
-					require.False(t, e.TExact,
-						"a circle/circle crossing is sampled — its range must not claim to be exact")
+				requireEdgeParamsConsistent(t, e, true)
+				if !e.Partial {
+					continue
 				}
+				partials++
+				require.True(t, e.TExact,
+					"a certified circle/circle crossing is analytic — its range is exact")
+				require.Truef(t, onExactBound(e, e.TStart) && onExactBound(e, e.TEnd),
+					"fragment [%v, %v] must be bounded by the closed-form crossing points", e.TStart, e.TEnd)
 			}
 		}
 		require.NotZero(t, partials, "the two circles must cut each other")

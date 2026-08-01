@@ -76,8 +76,15 @@ type BoundaryEdge struct {
 	// not "a line was involved" and not the contact being a tangency. So every contact
 	// involving an Ellipse, EllipticalArc, Conic, Spline, ClosedSpline, FitSpline or
 	// NURBS is sampled (INCLUDING a plain line crossing one, and a plain line TANGENT to
-	// one), as is every curve/curve crossing (two circles/arcs are deferred to the
-	// sampled path); a FRAGMENT bounded by such a contact reports TExact = false.
+	// one), and a FRAGMENT bounded by such a contact reports TExact = false.
+	//
+	// A crossing between two CURVED sources (circle/arc against circle/arc) additionally
+	// has to be certified against the sampling before it is taken as exact: both
+	// polylines there are chord approximations, so the arrangement checks that splicing
+	// the exact crossing points into them leaves the sampled topology unchanged. When it
+	// cannot — at a sampling too coarse to resolve the crossing — the pair falls back to
+	// the sampled path and its fragments report TExact = false, with the topology
+	// unchanged. Raising [WithSegmentsPerTurn] is what recovers exactness there.
 	//
 	// A WHOLE edge (Whole = true) is bounded by the curve's own domain ends, not by a
 	// contact, so exactness turns on whether those ends were EVALUATED or PINNED:

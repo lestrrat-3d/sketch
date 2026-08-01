@@ -1066,18 +1066,23 @@ func (a *arranger) analyticPrepass() {
 			// certify a port vertex; let the separate inner/outer loops + exact hole
 			// assignment produce the annulus.
 			internalTan := nTangent > 0 && a.internalCurvedTangency(i, j)
-			// Curve/curve TRANSVERSE crossings (both sources circle/arc) are deferred
-			// to the sampled path. The sampled DCEL already resolves their topology
-			// correctly (the pre-analytic behaviour); injecting exact cuts buys exact
-			// area but, until increment 3's exact tangent-port certificate, can only be
-			// admitted by a gate that is either unsound (round-2: equal-count coarse
-			// crossings at the wrong locations fuse three regions into one) or so
-			// conservative it false-flags well-separated valid crossings (a sampled
-			// crossing one chord segment off the analytic param). Both are worse than
-			// deferring, so do not take analytic authority here: skip marking handled,
-			// flag a genuinely ambiguous verdict, and let the sampled loop run. Line-
-			// involved crossings and all tangencies keep analytic authority below.
-			if nCross > 0 && isCurvedKind(si.kind) && isCurvedKind(sj.kind) {
+			// A curve/curve TRANSVERSE crossing (both sources circle/arc) takes analytic
+			// authority only when the incidence certificate below passes. Unlike a
+			// line-involved pair — whose line operand is reproduced exactly, so its
+			// sampled crossing tracks the analytic one — BOTH polylines here are chord
+			// approximations, and an exact cut bumps each of them outward by up to its
+			// own sagitta. That is safe exactly when the bumped polylines still meet
+			// only at the injected points, and cross there; when they do not, the map
+			// would fuse regions (the round-2 bug) while reading clean.
+			//
+			// The fallback is the SAMPLED path, not a degeneracy: leave the pair
+			// unhandled and let the sampled loop resolve it exactly as before the lift.
+			// Sampled topology for such a pair is already correct — what the lift buys
+			// is the exact cut parameter (BoundaryEdge.TExact) and the exact area, so a
+			// pair too coarsely sampled to certify loses only that, and no caller that
+			// was blessed before the lift is refused after it.
+			curveCrossPair := nCross > 0 && isCurvedKind(si.kind) && isCurvedKind(sj.kind)
+			if curveCrossPair && !a.analyticCrossingsCertified(i, j, events) {
 				if ambiguous {
 					rx, ry := sourceRep(si)
 					sx, sy := sourceRep(sj)
@@ -1104,8 +1109,12 @@ func (a *arranger) analyticPrepass() {
 			// judge — so it is exempted here; resolveCoincidentOverlap below is its own,
 			// separate, sample-density-independent soundness argument (see "Determinism"
 			// in docs/coincident-carrier-resolution-design.md).
+			// A certified curve/curve crossing pair is exempt: analyticCrossingsCertified
+			// already answered the same question directly, on the geometry the cuts
+			// actually produce, and answered it without the strict host-segment-pair
+			// requirement that a second, independently sampled curve makes fragile.
 			isOverlapPair := len(events) == 1 && events[0].kind == evOverlap
-			if (isCurvedKind(si.kind) || isCurvedKind(sj.kind)) && !internalTan && !isOverlapPair {
+			if !curveCrossPair && (isCurvedKind(si.kind) || isCurvedKind(sj.kind)) && !internalTan && !isOverlapPair {
 				if !a.analyticCrossHosted(i, j, events) ||
 					!a.contactsResolved(i, j, events) ||
 					!a.sampledCrossingsExplained(i, j, events) {
@@ -1358,6 +1367,226 @@ func (a *arranger) analyticCrossHosted(i, j int, events []xEvent) bool {
 		}
 	}
 	return true
+}
+
+// analyticCrossingsCertified reports whether the pair's exact transverse crossings
+// can be injected into the sampled map without changing its topology — the
+// incidence certificate for a CURVE/CURVE crossing, where analyticCrossHosted's
+// strict host-segment-pair witness does not carry.
+//
+// It asks the question directly, on the geometry the cut phase actually emits:
+// splice each exact crossing point into BOTH sources' polylines at the site
+// applyAnalyticCut would use (postCutPolyline, so the gate can never test something
+// the cut phase does not do), then require
+//
+//   - the two spliced polylines to meet ONLY at those points — no crossing interior
+//     to a segment of each (polylinesMeetOnlyAtVertices). A leftover crossing has no
+//     vertex in the planar map, because a handled pair's sampled crossings are never
+//     recorded, so the face walk would run two edges through each other and fuse the
+//     regions on either side. That is the round-2 failure exactly.
+//   - the four chord departures at each injected point to ALTERNATE between the two
+//     sources (portsCross), in the same rotation order buildGraph sorts by. Meeting
+//     at a point is not crossing at it: if both of one source's chords leave on the
+//     same side of the other's, the loops touch, and the face walk pairs the wrong
+//     half-edges.
+//
+// Together those two are the polygonal statement of "the sampled map has the same
+// crossing incidence as the exact geometry", which is what injecting an exact cut
+// needs and all it needs. Both are threshold-free — no tolerance, no chord-length
+// bound, no crossing-angle floor — so a shallow crossing is judged by whether the
+// chords actually resolve it, not by how shallow it is.
+//
+// Why analyticCrossHosted is not that statement for this pair: it requires the
+// crossing to be witnessed on the very segment pair carrying its two source
+// parameters. The sampled crossing sits off the exact one by roughly the sagitta
+// divided by the sine of the crossing angle, so whenever that offset carries it into
+// a neighbouring segment the witness is looked for in the wrong place. With a line
+// operand only one grid can be off (the line's polyline IS the line, one segment
+// covering it); with two sampled curves both can, and the miss rate stops falling
+// with density in any useful way — it aliases against the two sampling grids.
+func (a *arranger) analyticCrossingsCertified(i, j int, events []xEvent) bool {
+	var ti, tj []float64
+	var pts [][2]float64
+	for _, e := range events {
+		if e.kind != evCross {
+			continue
+		}
+		ti = append(ti, e.ti)
+		tj = append(tj, e.tj)
+		pts = append(pts, [2]float64{e.x, e.y})
+	}
+	if len(pts) == 0 {
+		return true
+	}
+	pi, ci := a.postCutPolyline(i, ti, pts)
+	pj, cj := a.postCutPolyline(j, tj, pts)
+	if pi == nil || pj == nil {
+		return false // a contact the sampled polyline has no place for
+	}
+	if !polylinesMeetOnlyAtVertices(pi, pj) {
+		return false
+	}
+	for k := range pts {
+		if !portsCross(pi, ci[k], a.sources[i].closed, pj, cj[k], a.sources[j].closed) {
+			return false
+		}
+	}
+	return true
+}
+
+// postCutPolyline returns source src's sampled polyline with the given exact contact
+// points spliced in — the geometry split() emits once applyAnalyticCut has run — plus
+// the index each contact occupies in it.
+//
+// The splice sites come from cutSite, the same call applyAnalyticCut acts on, so the
+// polyline this builds is the one the cut phase produces and not an idealization of
+// it: a contact the sampled map already has a vertex for (a source endpoint, a sample
+// vertex) is NOT inserted — it maps to that existing vertex, exactly as
+// applyAnalyticCut records nothing there. A nil polyline means some contact sits on no
+// sampled segment at all, which no splice can represent.
+func (a *arranger) postCutPolyline(src int, ts []float64, pts [][2]float64) ([][2]float64, []int) {
+	segs := a.sourceSegs[src]
+	if len(segs) == 0 {
+		return nil, nil
+	}
+	type site struct {
+		seg   int     // index into a.segs
+		pos   int     // that segment's position along the source
+		local float64 // local chord parameter within it
+		atVtx bool    // the sampled map already carries a vertex here
+		k     int     // index into the caller's contact list
+	}
+	pos := make(map[int]int, len(segs))
+	for n, si := range segs {
+		pos[si] = n
+	}
+	sites := make([]site, 0, len(ts))
+	for k, t := range ts {
+		seg, local, atVtx := a.cutSite(src, t)
+		n, ok := pos[seg]
+		if seg < 0 || !ok {
+			return nil, nil
+		}
+		sites = append(sites, site{seg: seg, pos: n, local: local, atVtx: atVtx, k: k})
+	}
+	sort.Slice(sites, func(x, y int) bool {
+		if sites[x].pos != sites[y].pos {
+			return sites[x].pos < sites[y].pos
+		}
+		return sites[x].local < sites[y].local
+	})
+	out := make([][2]float64, 0, len(segs)+1+len(sites))
+	at := make([]int, len(ts))
+	segStart := make([]int, len(segs))
+	for n, si := range segs {
+		s := &a.segs[si]
+		segStart[n] = len(out)
+		out = append(out, [2]float64{s.ax, s.ay})
+		for _, c := range sites {
+			if c.pos == n && !c.atVtx {
+				out = append(out, pts[c.k])
+				at[c.k] = len(out) - 1
+			}
+		}
+	}
+	end := &a.segs[segs[len(segs)-1]]
+	lastIdx := len(out)
+	out = append(out, [2]float64{end.bx, end.by})
+	// A contact already carrying a vertex maps to it: the segment's own start when
+	// its local parameter sits at 0, else the vertex that begins the next segment
+	// (the last segment's end being the polyline's own end).
+	for _, c := range sites {
+		if !c.atVtx {
+			continue
+		}
+		switch {
+		case c.local <= 0.5:
+			at[c.k] = segStart[c.pos]
+		case c.pos+1 < len(segs):
+			at[c.k] = segStart[c.pos+1]
+		default:
+			at[c.k] = lastIdx
+		}
+	}
+	return out, at
+}
+
+// polylinesMeetOnlyAtVertices reports whether two polylines have no crossing interior
+// to a segment of each. A contact at a shared vertex is not interior to either
+// polyline's segments there, so the injected crossing points — vertices of both — are
+// exactly what this permits.
+func polylinesMeetOnlyAtVertices(pi, pj [][2]float64) bool {
+	for x := 0; x+1 < len(pi); x++ {
+		si := tinySeg{ax: pi[x][0], ay: pi[x][1], bx: pi[x+1][0], by: pi[x+1][1]}
+		for y := 0; y+1 < len(pj); y++ {
+			sj := tinySeg{ax: pj[y][0], ay: pj[y][1], bx: pj[y+1][0], by: pj[y+1][1]}
+			p, ok := segParams(&si, &sj)
+			if !ok {
+				continue
+			}
+			if p.ti > segEps && p.ti < 1-segEps && p.tj > segEps && p.tj < 1-segEps {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// portsCross reports whether the two polylines genuinely cross at the vertex each
+// carries the contact at: their four chord departures must alternate between the
+// sources in angular order — the rotation order buildGraph itself sorts half-edges
+// by, so this is the map's own criterion, not a proxy for it.
+//
+// An index of -1 (no such vertex) is never a crossing. A vertex with a single
+// departure is an open curve's ENDPOINT: the curve stops there, so the contact is a
+// T-junction the planar map represents with an odd-degree vertex, and there is no
+// crossing to order. A CLOSED source's seam is not that case and must not be read as
+// one — hence the per-polyline closed flag.
+func portsCross(pi [][2]float64, a int, aClosed bool, pj [][2]float64, b int, bClosed bool) bool {
+	di := polylinePorts(pi, a, aClosed)
+	dj := polylinePorts(pj, b, bClosed)
+	if len(di) == 0 || len(dj) == 0 {
+		return false
+	}
+	if len(di) == 1 || len(dj) == 1 {
+		return true
+	}
+	angs := [4]float64{
+		math.Atan2(di[0][1], di[0][0]), math.Atan2(di[1][1], di[1][0]),
+		math.Atan2(dj[0][1], dj[0][0]), math.Atan2(dj[1][1], dj[1][0]),
+	}
+	src := [4]int{0, 0, 1, 1}
+	for x := 1; x < 4; x++ {
+		for y := x; y > 0 && angs[y] < angs[y-1]; y-- {
+			angs[y], angs[y-1] = angs[y-1], angs[y]
+			src[y], src[y-1] = src[y-1], src[y]
+		}
+	}
+	return src[0] != src[1] && src[1] != src[2] && src[2] != src[3]
+}
+
+// polylinePorts returns the chord departure vectors at the polyline's k-th vertex.
+// An interior vertex has two and an OPEN curve's endpoint has one. A CLOSED source's
+// polyline repeats its seam vertex at index 0 and at the end, so either index names
+// the one seam vertex, whose two departures are its two distinct neighbours.
+func polylinePorts(p [][2]float64, k int, closed bool) [][2]float64 {
+	if k < 0 || k >= len(p) {
+		return nil
+	}
+	if closed && len(p) >= 3 && (k == 0 || k == len(p)-1) {
+		return [][2]float64{
+			{p[1][0] - p[0][0], p[1][1] - p[0][1]},
+			{p[len(p)-2][0] - p[len(p)-1][0], p[len(p)-2][1] - p[len(p)-1][1]},
+		}
+	}
+	var out [][2]float64
+	if k > 0 {
+		out = append(out, [2]float64{p[k-1][0] - p[k][0], p[k-1][1] - p[k][1]})
+	}
+	if k+1 < len(p) {
+		out = append(out, [2]float64{p[k+1][0] - p[k][0], p[k+1][1] - p[k][1]})
+	}
+	return out
 }
 
 // crossNeedsSampledWitness reports whether an analytic transverse crossing has to

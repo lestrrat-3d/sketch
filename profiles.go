@@ -129,8 +129,13 @@ type BoundaryEdge struct {
 	// the PAIR, not "a *Line was involved" and not the contact being a tangency. So
 	// every contact involving an *Ellipse, *EllipticalArc, *Conic, *Spline,
 	// *ClosedSpline, *FitSpline or *NURBS is sampled (INCLUDING a plain *Line crossing
-	// or TANGENT to one), as is every curve/curve crossing; a fragment bounded by such a
-	// contact reports TExact = false.
+	// or TANGENT to one); a fragment bounded by such a contact reports TExact = false.
+	//
+	// A crossing between two CURVED entities (*Circle/*Arc against *Circle/*Arc) is a
+	// further case: both sides are sampled as chords there, so it is exact only when
+	// the arrangement can certify that placing the exact crossing points leaves the
+	// sampled topology unchanged. A sampling too coarse for that keeps the correct
+	// topology and reports TExact = false.
 	//
 	// A WHOLE edge (Partial = false) is bounded by Entity's own domain ends. Those ends
 	// are the entity's exact t=0/t=1 evaluation for every curve EXCEPT *EllipticalArc,
