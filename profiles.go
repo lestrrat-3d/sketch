@@ -124,12 +124,21 @@ type BoundaryEdge struct {
 	// evaluating Entity at the reported parameter reproduces this edge's Polyline
 	// endpoint to machine precision, at BOTH bounds.
 	//
-	// A CUT bound is exact only when the closed-form kernel placed it, and that kernel
-	// runs only when BOTH entities of a pair are a *Line, *Circle or *Arc — a rule about
-	// the PAIR, not "a *Line was involved" and not the contact being a tangency. So
-	// every contact involving an *Ellipse, *EllipticalArc, *Conic, *Spline,
-	// *ClosedSpline, *FitSpline or *NURBS is sampled (INCLUDING a plain *Line crossing
-	// or TANGENT to one); a fragment bounded by such a contact reports TExact = false.
+	// FIRST, a WHOLE-SKETCH gate: exact bounds are published only when EVERY entity the
+	// profile pass sees is a *Line, *Circle or *Arc. One *Ellipse, *EllipticalArc,
+	// *Conic, *Spline, *ClosedSpline, *FitSpline or *NURBS anywhere in the sketch makes
+	// every BoundaryEdge of every profile report TExact = false — the lines, circles and
+	// arcs beside it included, however far apart they sit.
+	//
+	// The reason is that a free-form entity reaches the profile pass only as chords, and
+	// nothing bounds how far it runs from them: it can cross another entity entirely
+	// between two samples. That crossing is then missing from the map, the regions it
+	// separates are fused, and the sketch's line/circle/arc pairs — cut in closed form —
+	// would publish the fused profile set with every bound exact. Only the flag is
+	// withheld: the profiles, their areas, their validity and their ranges are unchanged.
+	//
+	// Within an all line/circle/arc sketch, a CUT bound is exact only when the
+	// closed-form kernel placed it, which it does for any pair of those three.
 	//
 	// A crossing between two CURVED entities (*Circle/*Arc against *Circle/*Arc) is a
 	// further case: both sides are sampled as chords there, so it is exact only when
@@ -146,19 +155,17 @@ type BoundaryEdge struct {
 	// crossing is missing from the map and the regions it separates are fused. Exactness
 	// is then withdrawn from every edge of the affected connected component, the edges of
 	// certified pairs included, so an all-exact profile set is also saying no crossing is
-	// missing from it. A pair the closed-form kernel never classified — any pair
-	// involving an *Ellipse, *EllipticalArc, *Conic, *Spline, *ClosedSpline, *FitSpline
-	// or *NURBS — withdraws the same way when its two sampled curves pass close enough
-	// to hide a crossing the profile set does not carry. The region set itself is what
-	// the sampled path produced, as it was before any crossing could be certified.
+	// missing from it. The crossing a free-form entity can hide is covered by the
+	// whole-sketch gate above instead. The region set itself is what the sampled path
+	// produced, as it was before any crossing could be certified.
 	//
-	// A WHOLE edge (Partial = false) is bounded by Entity's own domain ends. Those ends
-	// are the entity's exact t=0/t=1 evaluation for every curve EXCEPT *EllipticalArc,
-	// which pins its ends to sketch Start/End points that lie on the parametric ellipse
-	// only within solver tolerance — so a whole *EllipticalArc edge reports
-	// TExact = false (eval(0)/eval(1) miss the pinned Polyline ends by that tolerance),
-	// while a whole *Ellipse/*Conic/*Spline/*ClosedSpline/*FitSpline/*NURBS/*Line/*Arc/
-	// *Circle edge reports TExact = true and its [0,1] reconstructs the curve exactly.
+	// A WHOLE edge (Partial = false) is bounded by Entity's own domain ends, which are
+	// the entity's exact t=0/t=1 evaluation — so in an all line/circle/arc sketch a whole
+	// edge reports TExact = true and its [0,1] reconstructs the curve exactly. A whole
+	// edge of any entity in a sketch holding a free-form one reports TExact = false, by
+	// the gate above; a whole *EllipticalArc edge would anyway, since it pins its ends to
+	// sketch Start/End points that lie on the parametric ellipse only within solver
+	// tolerance (eval(0)/eval(1) miss the emitted Polyline ends by that tolerance).
 	//
 	// The topology is still correct when this is false; only the parameter (and the
 	// Polyline, equally) converges with sampling — or was pinned — rather than being

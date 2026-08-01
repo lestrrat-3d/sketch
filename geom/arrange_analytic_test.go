@@ -540,50 +540,120 @@ func TestAnalyticFusedComponentLeavesUntouchedClusterExact(t *testing.T) {
 	}
 }
 
-func TestSampledOnlyPairMissingCrossingNotBlessedExact(t *testing.T) {
-	// A pair the analytic kernel never classified — anything involving an ellipse,
-	// conic, spline or NURBS — rests entirely on the chords, and a chord can hide a
-	// crossing inside its own deviation band. The certified pairs of the same scene are
-	// cut exactly and would then publish the FUSED map as exact, which is the failure
-	// refuseExactOnFusedMap exists to prevent for a refused analytic crossing.
+// requireNoExactBounds asserts the scene gate: not one emitted bound of the
+// arrangement reports TExact.
+func requireNoExactBounds(t *testing.T, arr *geom.Arrangement, what string) {
+	t.Helper()
+	for src, ok := range exactBySource(arr) {
+		require.Falsef(t, ok, "%s: source %d publishes an exact bound", what, src)
+	}
+}
+
+func TestFreeFormSourceWithholdsExactBoundsSceneWide(t *testing.T) {
+	// A free-form source — ellipse, elliptical arc, conic, spline, closed spline, fit
+	// spline or NURBS — reaches the planar map only as chords, and nothing bounds how
+	// far one of them runs from its chord: the sampler places vertices, it does not
+	// certify a deviation. So such a curve can cross another entirely BETWEEN two
+	// samples; the crossing is then missing from the map, the regions it separates fuse,
+	// and the scene's analytic pairs — certified on their own merits and cut exactly —
+	// publish the fused map with every bound exact.
 	//
-	// Two crossing r=5 circles, plus an ellipse whose rim clips the first circle in a
-	// lens far below 256 segments per turn. At that density the arrangement returns
-	// four regions — the lens absent — so no bound of the scene may read exact.
+	// The gate is therefore on the SOURCE KINDS, not on any estimate of how far a chord
+	// can stray: a scene holding ANY free-form source publishes NO exact bound anywhere
+	// in it, including on the lines, circles and arcs beside it, and however far apart
+	// they sit. This test pins all three halves of that — the hidden crossing, the
+	// resolved crossing, and the untouching curve — plus the all-analytic control that
+	// keeps its exactness.
 	circles := []geom.ClosedCurve{
 		geom.NewCircle(geom.NewPoint(0, 0), 5),
 		geom.NewCircle(geom.NewPoint(-6, 0), 5),
 	}
+
+	// (a) The demonstrated hazard: an ellipse whose rim clips the first circle in a lens
+	// far below 256 segments per turn. The arrangement returns four regions — the lens
+	// absent — and no bound of the scene may read exact.
 	clipping := append(append([]geom.ClosedCurve{}, circles...),
 		geom.NewEllipse(geom.NewPoint(9.9997, 0), 5, 5, math.Pi/256))
 	coarse := geom.Regions(nil, clipping, geom.WithSegmentsPerTurn(256))
 	require.False(t, coarse.Degenerate, "three clean transverse crossings")
 	requireExactBoundsReproduce(t, nil, clipping, coarse)
 	require.Len(t, coarse.Regions, 4, "the ellipse lens is below this sampling")
-	for src, ok := range exactBySource(coarse) {
-		require.Falsef(t, ok, "source %d reports exact bounds for a map missing a crossing", src)
-	}
+	requireNoExactBounds(t, coarse, "a map missing a crossing")
 
-	// Raising the density resolves the lens, and the circle the ellipse never comes
-	// near keeps its exact bounds: what withdraws exactness is the missing crossing,
-	// not the mere presence of an unclassified curve in the scene.
+	// (b) Raising the density resolves the lens. Exactness stays withheld: whether a
+	// given density happens to resolve a given free-form contact is not something the
+	// arrangement can certify, so the verdict does not turn on it.
 	fine := geom.Regions(nil, clipping, geom.WithSegmentsPerTurn(2048))
 	require.False(t, fine.Degenerate, "the finer sampling is clean too")
 	requireExactBoundsReproduce(t, nil, clipping, fine)
 	require.Len(t, fine.Regions, 5, "the lens resolves at this sampling")
-	require.True(t, exactBySource(fine)[1], "the circle the ellipse never approaches stays exact")
+	requireNoExactBounds(t, fine, "a resolved lens is still a sampled contact")
 
-	// The control: the same ellipse parked away from both circles leaves the certified
-	// circle pair exact at the density that fused the clipping scene.
-	apart := append(append([]geom.ClosedCurve{}, circles...),
-		geom.NewEllipse(geom.NewPoint(40, 0), 5, 5, math.Pi/256))
-	arr := geom.Regions(nil, apart, geom.WithSegmentsPerTurn(256))
-	require.False(t, arr.Degenerate, "the parked ellipse touches nothing")
-	requireExactBoundsReproduce(t, nil, apart, arr)
-	require.Len(t, arr.Regions, 4, "three from the circle pair plus the ellipse's disk")
-	for src, ok := range exactBySource(arr) {
-		require.Truef(t, ok, "source %d loses exactness to an ellipse it never approaches", src)
+	// (c) The accepted coverage cost, stated directly: a free-form curve that touches
+	// nothing withholds exactness from the certified circle pair just the same. Distance
+	// is not the test — the source kind is.
+	for _, tc := range []struct {
+		name   string
+		curves []geom.Curve
+		closed []geom.ClosedCurve
+	}{
+		{name: "ellipse", closed: []geom.ClosedCurve{geom.NewEllipse(geom.NewPoint(40, 0), 5, 5, math.Pi/256)}},
+		{name: "elliptical arc", curves: []geom.Curve{
+			geom.NewEllipticalArc(geom.NewPoint(40, 0), geom.NewPoint(45, 0), geom.NewPoint(40, 3), 5, 3, 0),
+		}},
+		{name: "conic", curves: []geom.Curve{
+			geom.NewConic(geom.NewPoint(37, 0), geom.NewPoint(40, 4), geom.NewPoint(43, 0), 0.6),
+		}},
+		{name: "spline", curves: []geom.Curve{mustSpline(t,
+			geom.NewPoint(36, 0), geom.NewPoint(38, 4), geom.NewPoint(42, 4), geom.NewPoint(44, 0))}},
+		{name: "closed spline", closed: []geom.ClosedCurve{mustClosedSpline(t,
+			geom.NewPoint(37, -3), geom.NewPoint(43, -3), geom.NewPoint(43, 3), geom.NewPoint(37, 3))}},
+		{name: "fit spline", curves: []geom.Curve{mustFitSpline(t,
+			geom.NewPoint(36, 0), geom.NewPoint(40, 3), geom.NewPoint(44, 0))}},
+		{name: "nurbs", curves: []geom.Curve{geom.NewNURBS(2,
+			[]*geom.Point{geom.NewPoint(37, 0), geom.NewPoint(40, 4), geom.NewPoint(43, 0)},
+			[]float64{0, 0, 0, 1, 1, 1}, []float64{1, 2, 1})}},
+	} {
+		t.Run("parked "+tc.name, func(t *testing.T) {
+			closed := append(append([]geom.ClosedCurve{}, circles...), tc.closed...)
+			arr := geom.Regions(tc.curves, closed, geom.WithSegmentsPerTurn(256))
+			require.False(t, arr.Degenerate, "the parked curve touches nothing")
+			requireExactBoundsReproduce(t, tc.curves, closed, arr)
+			requireNoExactBounds(t, arr, "a scene holding a "+tc.name)
+		})
 	}
+
+	// (d) The control: the same two circles ALONE — every source a line, circle or arc —
+	// keep every exact bound the certificate earns them. What withholds exactness is the
+	// free-form source in the scene, nothing about the circles or their crossing.
+	only := geom.Regions(nil, circles, geom.WithSegmentsPerTurn(256))
+	require.False(t, only.Degenerate, "one clean transverse crossing")
+	requireExactBoundsReproduce(t, nil, circles, only)
+	require.Len(t, only.Regions, 3, "two lune caps plus the lens")
+	for src, ok := range exactBySource(only) {
+		require.Truef(t, ok, "source %d of an all-analytic scene must keep its exact bounds", src)
+	}
+}
+
+func mustSpline(t *testing.T, ctrl ...*geom.Point) *geom.Spline {
+	t.Helper()
+	sp, err := geom.NewSpline(ctrl...)
+	require.NoError(t, err)
+	return sp
+}
+
+func mustClosedSpline(t *testing.T, ctrl ...*geom.Point) *geom.ClosedSpline {
+	t.Helper()
+	sp, err := geom.NewClosedSpline(ctrl...)
+	require.NoError(t, err)
+	return sp
+}
+
+func mustFitSpline(t *testing.T, fit ...*geom.Point) *geom.FitSpline {
+	t.Helper()
+	sp, err := geom.NewFitSpline(fit...)
+	require.NoError(t, err)
+	return sp
 }
 
 func TestAnalyticCrossingAtSampleVertexBlessedExact(t *testing.T) {

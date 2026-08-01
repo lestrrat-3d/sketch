@@ -215,6 +215,59 @@ func TestBoundaryEdgeParams(t *testing.T) {
 		require.NotZero(t, partials, "the two circles must cut each other")
 	})
 
+	t.Run("a free-form entity withholds exact bounds across the whole sketch", func(t *testing.T) {
+		// The closed-form kernel never classifies a contact involving a spline (or an
+		// ellipse, elliptical arc, conic or NURBS), and nothing bounds how far such a
+		// curve runs from the chords it is sampled into — so it can cross another entity
+		// entirely between two samples, leaving the profile set fused while the certified
+		// circle/circle crossing publishes exact bounds describing it.
+		//
+		// So the engine withholds exactness for the whole sketch whenever any free-form
+		// entity is present: every BoundaryEdge reports TExact = false, the ones bounded
+		// by the certified circle crossing included, and however far the free-form entity
+		// sits from them. Only the flag is withheld — the profiles, their areas and their
+		// ranges are what they were.
+		w := sketch.NewWorld()
+		s, err := w.CreateSketch(w.XY())
+		require.NoError(t, err)
+		s.CreateCircle(s.CreatePoint(0, 0), 5)
+		s.CreateCircle(s.CreatePoint(6, 0), 5)
+		_, err = s.CreateSpline(
+			s.CreatePoint(40, 0), s.CreatePoint(42, 4),
+			s.CreatePoint(46, 4), s.CreatePoint(48, 0),
+		)
+		require.NoError(t, err)
+
+		profiles := s.Profiles()
+		require.Len(t, profiles, 3, "two lune caps plus the lens; the spline bounds nothing")
+		var edges int
+		for _, p := range profiles {
+			for _, e := range p.Outer {
+				requireEdgeParamsConsistent(t, e, false)
+				require.Falsef(t, e.TExact,
+					"the %T fragment [%v, %v] claims exactness in a sketch holding a spline",
+					e.Entity, e.TStart, e.TEnd)
+				edges++
+			}
+		}
+		require.NotZero(t, edges, "the circles must bound the regions")
+
+		// The control: the identical circles WITHOUT the spline keep their exact bounds,
+		// so what withholds exactness is the free-form entity, not the crossing.
+		w2 := sketch.NewWorld()
+		s2, err := w2.CreateSketch(w2.XY())
+		require.NoError(t, err)
+		s2.CreateCircle(s2.CreatePoint(0, 0), 5)
+		s2.CreateCircle(s2.CreatePoint(6, 0), 5)
+		for _, p := range s2.Profiles() {
+			for _, e := range p.Outer {
+				require.Truef(t, e.TExact,
+					"an all line/circle/arc sketch keeps its exact bounds: %T [%v, %v]",
+					e.Entity, e.TStart, e.TEnd)
+			}
+		}
+	})
+
 	t.Run("a line crossing a spline is sampled, not exact", func(t *testing.T) {
 		// The analytic kernel admits only line/circle/arc operands, so even a plain
 		// LINE crossing a spline falls to the sampled path. Both the spline's and
