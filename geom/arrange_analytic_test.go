@@ -1,6 +1,7 @@
 package geom_test
 
 import (
+	"fmt"
 	"math"
 	"sort"
 	"testing"
@@ -707,6 +708,29 @@ func regionAreasDescending(arr *geom.Arrangement) ([]float64, bool) {
 	return areas, exact
 }
 
+// requireConvergedRegion asserts that the scene settles to ONE region of the given
+// area, with every bound exact, at each of the listed densities AND at the adaptive
+// default the ordinary consumer path renders at — the answer a coarse-sampling
+// fixture beside it is a limit of, so a reader can tell the artifact from the truth.
+func requireConvergedRegion(t *testing.T, curves []geom.Curve, closed []geom.ClosedCurve, area float64, spts ...int) {
+	t.Helper()
+	// A zero entry stands for the adaptive default density, no option passed at all.
+	for _, spt := range append(spts, 0) {
+		var opts []geom.Option
+		density := "the adaptive default"
+		if spt > 0 {
+			opts = append(opts, geom.WithSegmentsPerTurn(spt))
+			density = fmt.Sprintf("spt=%d", spt)
+		}
+		arr := geom.Regions(curves, closed, opts...)
+		require.Falsef(t, arr.Degenerate, "%s: the converged map is clean", density)
+		require.Lenf(t, arr.Regions, 1, "%s: the converged figure is one region", density)
+		areas, exact := regionAreasDescending(arr)
+		require.InDeltaf(t, area, areas[0], 1e-9, "%s: the converged area", density)
+		require.Truef(t, exact, "%s: the converged map publishes exact bounds", density)
+	}
+}
+
 func TestAnalyticCurveCrossingEndpointOnChordNotCertified(t *testing.T) {
 	// An arc whose own ENDPOINT rests on the INTERIOR of one of the circle's chords is a
 	// contact the pair has no analytic event for — the exact geometry puts that endpoint
@@ -722,6 +746,16 @@ func TestAnalyticCurveCrossingEndpointOnChordNotCertified(t *testing.T) {
 	// segment and 0.25 on the chord, so a check that excuses a contact for sitting at a
 	// segment END lets it through; deciding by identity with an injected crossing point
 	// does not.
+	//
+	// TWO regions is NOT the converged answer, and this test does not claim it is. The
+	// arc's endpoint sits 0.2826 units INSIDE the r=5 circle, so the true figure is the
+	// disk with a hair hanging in it — ONE region of area pi*25, the hair pruned away as
+	// the dangling spur it is. That is what every density from spt=12 up reports, the
+	// ADAPTIVE DEFAULT included, and requireConvergedRegion below pins it. What the
+	// coarse map records is the sampled path's own limit at spt=8, where the chord
+	// approximation drags that endpoint out onto the rim: the fallback this pair is sent
+	// to, not the answer. The property under test is the REFUSAL — no bound of an
+	// uncertified pair may read exact — which holds whatever the region count does.
 	const r = 5.0
 	v1x, v1y := r*math.Cos(math.Pi/4), r*math.Sin(math.Pi/4)
 	ex, ey := r+0.25*(v1x-r), 0.25*v1y
@@ -739,12 +773,14 @@ func TestAnalyticCurveCrossingEndpointOnChordNotCertified(t *testing.T) {
 	arr := geom.Regions(curves, closed, geom.WithSegmentsPerTurn(8))
 	require.False(t, arr.Degenerate,
 		"the fallback for an uncertified pair is the sampled path, never a degeneracy")
-	require.Len(t, arr.Regions, 2, "the sampled map's own regions, which the certified pair fused into one")
-	areas, exact := regionAreasDescending(arr)
-	require.InDelta(t, 78.512659246063137, areas[0], 1e-9)
-	require.InDelta(t, 0.14921088265903304, areas[1], 1e-9)
+	require.Len(t, arr.Regions, 2,
+		"the fallback was taken at spt=8, so this is the sampled path's own map — not the converged one")
+	_, exact := regionAreasDescending(arr)
 	require.False(t, exact,
 		"a pair whose polylines meet away from every injected crossing publishes no exact bound")
+
+	// The converged control: the disk, whole, with the hair pruned.
+	requireConvergedRegion(t, curves, closed, math.Pi*r*r, 12, 16, 64, 256, 1024)
 }
 
 func TestAnalyticCurveCrossingAtSampleVertexNotCertified(t *testing.T) {
@@ -759,6 +795,15 @@ func TestAnalyticCurveCrossingAtSampleVertexNotCertified(t *testing.T) {
 	// of a chord of the second: at 8 segments per turn the second arc's 1.0 rad sweep is
 	// sampled into 2 chords and the first arc's 2.0 rad sweep into 3, so vertex 1 of the
 	// first lands three quarters of the way along chord 0 of the second.
+	//
+	// TWO regions is NOT the converged answer, and this test does not claim it is. The
+	// two arcs really cross once, so the converged figure is ONE region of area
+	// 0.0063795181473976087 — what every density from spt=48 up reports, the ADAPTIVE
+	// DEFAULT included, and what requireConvergedRegion below pins. Below that the areas
+	// swing by orders of magnitude from one density to the next; the spt=8 map recorded
+	// here is one point on that swing, the sampled path's own limit at that density. The
+	// property under test is the REFUSAL — no bound of an uncertified pair may read exact
+	// — which holds whatever the region count does.
 	const spt, r = 8, 5.0
 	const qStart, qSweep = -2.4, 1.0
 	qAt := func(u float64) *geom.Point {
@@ -783,11 +828,13 @@ func TestAnalyticCurveCrossingAtSampleVertexNotCertified(t *testing.T) {
 
 	arr := geom.Regions(curves, nil, geom.WithSegmentsPerTurn(spt))
 	require.False(t, arr.Degenerate, "an uncertified pair falls back to the sampled path, not to a degeneracy")
-	require.Len(t, arr.Regions, 2, "the two regions the node-less crossing separates")
-	areas, exact := regionAreasDescending(arr)
-	require.InDelta(t, 0.022316286135887403, areas[0], 1e-9)
-	require.InDelta(t, 0.0035697752231414488, areas[1], 1e-9)
+	require.Len(t, arr.Regions, 2,
+		"the fallback was taken at spt=8, so this is the sampled path's own map — not the converged one")
+	_, exact := regionAreasDescending(arr)
 	require.False(t, exact, "a crossing the map has no node for withholds every exact bound of the pair")
+
+	// The converged control: the single region the two arcs really bound.
+	requireConvergedRegion(t, curves, nil, 0.0063795181473976087, 64, 256, 1024)
 }
 
 func TestAnalyticContactAtVertexBandIsChordLocal(t *testing.T) {
