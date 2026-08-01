@@ -835,3 +835,137 @@ func TestAnalyticCoincidentCarrierMultiTooth(t *testing.T) {
 		require.InDeltaf(t, toothAreas[0], a, 1e-9, "tooth %d: congruent teeth (rotated copies) have identical area", i)
 	}
 }
+
+// TestAnalyticCoincidentCarrierInCertifyBandStaysDegenerate is the unequal-carrier
+// regression for docs/coincident-carrier-resolution-design.md's "The refusal band".
+// A root arc CONCENTRIC with the hub circle but a hair larger in radius is still
+// classified coincident (the offset sits inside certify = scale·tangentCertify), yet
+// the two carriers are different curves: resolution would compute both window
+// boundary points on one carrier and cut BOTH sources there as exact, so the
+// surviving fragment's reported bounds would evaluate somewhere off the emitted
+// polyline. Only a carrier match at round-off (carriersIdentical) may resolve; a
+// certify-band match stays Degenerate.
+//
+// The deltas below straddle the band: each is well inside certify (scale ≈ 23 here,
+// so certify ≈ 2.3e-8) yet orders of magnitude above the weldIdentEps·scale identity
+// band (≈2.3e-11), which is exactly the region that used to resolve unsoundly.
+func TestAnalyticCoincidentCarrierInCertifyBandStaysDegenerate(t *testing.T) {
+	for _, delta := range []float64{5e-9, 1e-8, 2e-8} {
+		hub := geom.NewCircle(geom.NewPoint(0, 0), 10)
+		r := 10 + delta
+		ax, ay := r*math.Cos(0.3), r*math.Sin(0.3)
+		rootArc := geom.NewArc(geom.NewPoint(0, 0), geom.NewPoint(ax, -ay), geom.NewPoint(ax, ay))
+		f1 := geom.NewLine(geom.NewPoint(ax, ay), geom.NewPoint(13, 1))
+		tip := geom.NewLine(geom.NewPoint(13, 1), geom.NewPoint(13, -1))
+		f2 := geom.NewLine(geom.NewPoint(13, -1), geom.NewPoint(ax, -ay))
+		curves := []geom.Curve{rootArc, f1, tip, f2}
+		closed := []geom.ClosedCurve{hub}
+
+		arr := geom.Regions(curves, closed, geom.WithSegmentsPerTurn(64))
+		require.Truef(t, arr.Degenerate,
+			"delta=%g: a carrier equal only within the certify band must never resolve", delta)
+		// Whatever regions the sampled fallback still reports, no bound of them may
+		// claim an exactness it cannot reproduce.
+		requireExactBoundsReproduce(t, curves, closed, arr)
+	}
+}
+
+// TestAnalyticCoincidentCarrierFullTurnArcStaysDegenerate is the "Scope" exclusion
+// keyed on GEOMETRY rather than on the srcCircle flag: geom.NewArc(c, p, p) sweeps a
+// full turn (wrapSweep maps a non-positive delta to 2π), so it is a complete carrier
+// with no finite domain end to bound an overlap window — exactly the "two
+// fully-coincident COMPLETE carriers" case the design leaves refused. Keying the
+// exclusion on the flag instead let such an arc pair with a real circle, resolve, and
+// suppress the whole circle carrier.
+func TestAnalyticCoincidentCarrierFullTurnArcStaysDegenerate(t *testing.T) {
+	c := geom.NewPoint(0, 0)
+	p := geom.NewPoint(10, 0)
+	fullArc := func() geom.Curve { return geom.NewArc(c, p, p) }
+
+	t.Run("full-turn arc vs coincident circle", func(t *testing.T) {
+		arr := geom.Regions([]geom.Curve{fullArc()},
+			[]geom.ClosedCurve{geom.NewCircle(c, 10)}, geom.WithSegmentsPerTurn(32))
+		require.True(t, arr.Degenerate, "a 2π arc is a complete carrier, so the pair is two coincident full circles")
+	})
+
+	t.Run("full-turn arc vs full-turn arc", func(t *testing.T) {
+		arr := geom.Regions([]geom.Curve{fullArc(), fullArc()}, nil, geom.WithSegmentsPerTurn(32))
+		require.True(t, arr.Degenerate, "two complete carriers have no resolvable overlap window")
+	})
+
+	t.Run("two coincident circles still refused", func(t *testing.T) {
+		arr := geom.Regions(nil, []geom.ClosedCurve{
+			geom.NewCircle(c, 10), geom.NewCircle(c, 10),
+		}, geom.WithSegmentsPerTurn(32))
+		require.True(t, arr.Degenerate, "the flag-keyed exclusion this generalizes still holds")
+	})
+}
+
+// TestAnalyticCoincidentCarrierSubEpsilonSecondWindowStaysDegenerate pins that ANY
+// positive second overlap window makes a coincident pair multi-window, and so refused
+// (docs/coincident-carrier-resolution-design.md's "Scope"). Arc a spans [0,π]; arc b
+// spans [π/2, 2π+5e-10], so the two share [π/2,π] AND, separately, [0,5e-10]. Only
+// one suppression window is ever recorded, so treating the second — however short —
+// as absent would leave that span emitted by both sources as an un-deduplicated
+// coincident boundary, with no Degenerate flag left to warn the consumer.
+func TestAnalyticCoincidentCarrierSubEpsilonSecondWindowStaysDegenerate(t *testing.T) {
+	c := geom.NewPoint(0, 0)
+	at := func(ang float64) *geom.Point { return geom.NewPoint(5*math.Cos(ang), 5*math.Sin(ang)) }
+	for _, second := range []float64{5e-10, 1e-9, 2e-9, 1e-8} {
+		a := geom.NewArc(c, at(0), at(math.Pi))
+		b := geom.NewArc(c, at(math.Pi/2), at(second))
+		arr := geom.Regions([]geom.Curve{a, b}, nil,
+			geom.WithVertexMerge(1e-12), geom.WithSegmentsPerTurn(64))
+		require.Truef(t, arr.Degenerate,
+			"second window %g rad is positive, so the pair is multi-window and stays refused", second)
+	}
+}
+
+// TestAnalyticCoincidentCarrierBoundOnSampleVertexStaysExact covers the weld audit:
+// when an overlap boundary point lands exactly on a hub SAMPLE vertex, the two
+// sources' tiny-segment endpoints weld there, and auditMergedEndpoints asks
+// eventExplains whether an analytic contact sits at that weld. The resolvable
+// overlap's authoritative contacts are its two window BOUNDARY points — e.x/e.y is
+// only the window midpoint — so answering from the midpoint alone tainted the exact
+// cuts the resolution had just made, and the surviving hub fragment reported
+// TExact=false. All four alignments (neither / lo / hi / both bounds on a sample
+// vertex) must read exact.
+func TestAnalyticCoincidentCarrierBoundOnSampleVertexStaysExact(t *testing.T) {
+	const hubIdx = 4 // one open curve per tooth edge (4), then the closed hub
+	for _, spt := range []int{4, 8, 64} {
+		// At spt segments per turn the hub's sample vertices sit at multiples of
+		// 2π/spt; a tooth of width 0.3 rad placed at lo hits none, one or both.
+		step := 2 * math.Pi / float64(spt)
+		for _, lo := range []float64{0.15, 0, step - 0.3, step} {
+			hub := geom.NewCircle(geom.NewPoint(0, 0), 10)
+			p := func(ang float64) *geom.Point {
+				return geom.NewPoint(10*math.Cos(ang), 10*math.Sin(ang))
+			}
+			q := func(ang float64) *geom.Point {
+				return geom.NewPoint(13*math.Cos(ang), 13*math.Sin(ang))
+			}
+			rootArc := geom.NewArc(geom.NewPoint(0, 0), p(lo), p(lo+0.3))
+			f1 := geom.NewLine(p(lo+0.3), q(lo+0.25))
+			tip := geom.NewLine(q(lo+0.25), q(lo+0.05))
+			f2 := geom.NewLine(q(lo+0.05), p(lo))
+			curves := []geom.Curve{rootArc, f1, tip, f2}
+			closed := []geom.ClosedCurve{hub}
+
+			arr := geom.Regions(curves, closed, geom.WithSegmentsPerTurn(spt))
+			require.Falsef(t, arr.Degenerate, "spt=%d lo=%v", spt, lo)
+			require.Lenf(t, arr.Regions, 2, "spt=%d lo=%v: hub + tooth", spt, lo)
+			requireExactBoundsReproduce(t, curves, closed, arr)
+
+			var sawHub bool
+			for _, r := range arr.Regions {
+				for _, e := range r.Outer {
+					require.Truef(t, e.TExact,
+						"spt=%d lo=%v: src=%d t=%v..%v must stay exact through the overlap weld",
+						spt, lo, e.SourceIndex, e.TStart, e.TEnd)
+					sawHub = sawHub || e.SourceIndex == hubIdx
+				}
+			}
+			require.Truef(t, sawHub, "spt=%d lo=%v: the hub's surviving fragment is the bound under test", spt, lo)
+		}
+	}
+}

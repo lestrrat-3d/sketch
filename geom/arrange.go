@@ -1081,9 +1081,11 @@ func (a *arranger) analyticPrepass() {
 					// docs/coincident-carrier-resolution-design.md) is RESOLVED — cut,
 					// suppress the losing source's edges over the shared span, and mark
 					// handled rather than degenerate. Everything else that reaches this
-					// arm (both-full-circle, multi-window, a coincident LINE carrier)
-					// keeps the original unconditional flag — e.overlap is nil there
-					// (populated only by circleCircleEvents' in-scope branch).
+					// arm (both operands covering the full turn, multi-window, a
+					// coincident LINE carrier, or carriers equal only within the
+					// classification band rather than at round-off) keeps the original
+					// unconditional flag — e.overlap is nil there (populated only by
+					// circleCircleEvents' in-scope branch).
 					if e.overlap != nil {
 						a.resolveCoincidentOverlap(i, j, e.overlap)
 					} else {
@@ -1389,13 +1391,19 @@ func (a *arranger) applyAnalyticCut(src int, t, x, y float64) {
 }
 
 // resolveCoincidentOverlap cuts both sources of a certified, single-window
-// coincident-carrier overlap at its two boundary points (exact — each is one
-// operand's own domain end or the other's, never a solved root) and records a
+// coincident-carrier overlap at its two boundary points and records a
 // suppression window on the LOSING source (j, always the higher of the pair's
 // indices — analyticPrepass's own i<j iteration order — see "The SourceIndex
 // decision" in docs/coincident-carrier-resolution-design.md), so split() omits
 // its edges over the shared span; the NAMED source i represents it instead. The
 // caller marks the pair handled rather than degenerate.
+//
+// Both boundary points are exact — each is one operand's own domain end or the
+// other's, never a solved root — and both cuts are stamped exact:true on BOTH
+// sources even though the points are computed on ONE operand's carrier. That is
+// sound only because the event is emitted only for carriers identical at round-off
+// (carriersIdentical), which bounds how far the point can sit off the other
+// operand's own curve.
 func (a *arranger) resolveCoincidentOverlap(i, j int, ov *overlapExtent) {
 	a.applyAnalyticCut(i, ov.loTi, ov.loX, ov.loY)
 	a.applyAnalyticCut(i, ov.hiTi, ov.hiX, ov.hiY)
@@ -1482,13 +1490,36 @@ func (a *arranger) auditMergedEndpoints(si, sj *tinySeg) {
 // suppress the taint, leaving a bound that really came from a distance weld wearing
 // exact:true. The failure of that direction is a false certification, so the predicate
 // must be the canonicalization rule itself.
+//
+// An event's CONTACT POINTS are what must be tested, and for a resolvable
+// coincident-carrier overlap those are the window's two BOUNDARY points, not e.x/e.y:
+// the boundary points are where resolveCoincidentOverlap cuts both sources, while
+// e.x/e.y is only the window midpoint, a locator for the degeneracy flag and never a
+// cut site. Testing the midpoint alone tainted the very cuts the resolution had just
+// made exact, whenever an overlap boundary happened to weld onto a sample vertex.
 func (a *arranger) eventExplains(events []xEvent, m mergedEnd) bool {
 	for _, e := range events {
-		if math.Hypot(e.x-m.xi, e.y-m.yi) <= a.merge && math.Hypot(e.x-m.xj, e.y-m.yj) <= a.merge {
-			return true
+		for _, p := range eventContacts(e) {
+			if math.Hypot(p[0]-m.xi, p[1]-m.yi) <= a.merge && math.Hypot(p[0]-m.xj, p[1]-m.yj) <= a.merge {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// eventContacts returns the points an analytic event actually places a cut at: the
+// event's own point, plus — for a resolvable coincident-carrier overlap — the two
+// boundary points of its window (see resolveCoincidentOverlap).
+func eventContacts(e xEvent) [][2]float64 {
+	if e.overlap == nil {
+		return [][2]float64{{e.x, e.y}}
+	}
+	return [][2]float64{
+		{e.x, e.y},
+		{e.overlap.loX, e.overlap.loY},
+		{e.overlap.hiX, e.overlap.hiY},
+	}
 }
 
 // mergedEnd is one weld: the tiny-segment endpoints of two DIFFERENT sources that the

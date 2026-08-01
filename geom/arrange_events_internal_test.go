@@ -285,4 +285,58 @@ func TestAnalyticCoincidentArcOverlapBoundaryPoints(t *testing.T) {
 		require.Equal(t, evOverlap, ev[0].kind)
 		require.Nil(t, ev[0].overlap, "two fully-coincident full circles are out of scope for resolution")
 	})
+
+	// A 2π ARC is geometrically a complete carrier even though its operand's
+	// fullCircle flag (set only for a srcCircle) is false, so it belongs to the same
+	// out-of-scope class — see operand.coversFullTurn.
+	t.Run("full-turn arc vs full circle: no resolvable window", func(t *testing.T) {
+		ev, _, ok := analyticEvents(arcSrc(0, 0, r, 0, 2*math.Pi), circleSrc(0, 0, r), 2*r)
+		require.True(t, ok)
+		require.Len(t, ev, 1)
+		require.Equal(t, evOverlap, ev[0].kind)
+		require.Nil(t, ev[0].overlap, "a 2π arc is a complete carrier, so the pair has no bounding domain end")
+	})
+
+	t.Run("full-turn arc vs full-turn arc: no resolvable window", func(t *testing.T) {
+		ev, _, ok := analyticEvents(arcSrc(0, 0, r, 0, 2*math.Pi), arcSrc(0, 0, r, 1, 2*math.Pi), 2*r)
+		require.True(t, ok)
+		require.Len(t, ev, 1)
+		require.Equal(t, evOverlap, ev[0].kind)
+		require.Nil(t, ev[0].overlap)
+	})
+
+	// Inside the certify band the pair is still CLASSIFIED coincident, but the two
+	// carriers are different curves: resolution would compute both boundary points
+	// on one carrier and cut BOTH sources there as exact. carriersIdentical gates
+	// resolution at the identity band instead, so the extent stays nil.
+	t.Run("certify-band carrier: classified but not resolvable", func(t *testing.T) {
+		const scale = 2 * r
+		for _, delta := range []float64{scale * 1e-10, scale * 5e-10} {
+			ev, amb, ok := analyticEvents(
+				arcSrc(0, 0, r, 0, math.Pi),
+				arcSrc(0, 0, r+delta, math.Pi/4, math.Pi/2),
+				scale)
+			require.True(t, ok)
+			require.False(t, amb, "delta=%g is inside certify, so the pair classifies coincident", delta)
+			require.Len(t, ev, 1)
+			require.Equal(t, evOverlap, ev[0].kind)
+			require.Nilf(t, ev[0].overlap, "delta=%g: a carrier match only within certify must not resolve", delta)
+		}
+	})
+
+	t.Run("round-off carrier difference: still resolvable", func(t *testing.T) {
+		const scale = 2 * r
+		// A radius derived through trig (an arc built from its own endpoints, the
+		// normal authoring path) lands a couple of ulps off a literal radius. That is
+		// well inside the identity band and must still resolve.
+		derived := math.Hypot(r*math.Cos(0.3), r*math.Sin(0.3))
+		require.NotEqual(t, r, derived, "the fixture is only meaningful if the two radii differ in the last bits")
+		ev, _, ok := analyticEvents(
+			circleSrc(0, 0, r),
+			arcSrc(0, 0, derived, math.Pi/4, math.Pi/2),
+			scale)
+		require.True(t, ok)
+		require.Len(t, ev, 1)
+		require.NotNil(t, ev[0].overlap, "a few-ulp carrier difference is the same curve, and must stay resolvable")
+	})
 }

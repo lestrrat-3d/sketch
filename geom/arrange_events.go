@@ -35,8 +35,15 @@ type xEvent struct {
 	// this repository can RESOLVE (see coincident-carrier-resolution-design.md) — x
 	// /y/ti/tj above already carry the first. nil for every other event, and for an
 	// evOverlap this design leaves out of scope (a coincident LINE carrier, two
-	// fully-coincident full circles, or a multi-window overlap), which callers still
-	// treat as an unconditional degeneracy.
+	// fully-coincident COMPLETE carriers, a multi-window overlap, or a carrier match
+	// that holds only within the classification band and not at round-off — see
+	// carriersIdentical), which callers still treat as an unconditional degeneracy.
+	//
+	// When it is non-nil, its lo/hi are the event's authoritative CONTACT points —
+	// the two sites resolveCoincidentOverlap cuts both sources at. x/y is the window
+	// MIDPOINT, a locator for a degeneracy flag, and is never a cut site, so anything
+	// asking "where does this event place a contact" must read the extent too
+	// (arrange.go's eventContacts).
 	overlap *overlapExtent
 }
 
@@ -201,24 +208,24 @@ type arcOverlap struct {
 // positive-length angular overlap. Caller has already established the carriers are
 // the same circle.
 func coincidentArcOverlap(a, b operand) arcOverlap {
-	// A full circle covers every angle, so intersecting with one always yields the
-	// OTHER operand's entire own domain — computed directly, bypassing the
+	// A COMPLETE carrier covers every angle, so intersecting with one always yields
+	// the OTHER operand's entire own domain — computed directly, bypassing the
 	// wraparound-offset split below. That split represents "the other operand's
 	// domain, relative to a's own reference frame" as [rb,rb+lb] cut at rb; for a
-	// full circle b, rb is b's own arbitrary phi0=0 reference re-expressed in a's
-	// frame, not a real boundary of anything, so the loop would artificially
-	// bisect a's single true window into two ADJACENT (not disjoint) pieces at rb
-	// — indistinguishable, by length alone, from a genuine multi-window overlap.
+	// complete carrier b, rb is b's own arbitrary seam re-expressed in a's frame,
+	// not a real boundary of anything, so the loop would artificially bisect a's
+	// single true window into two ADJACENT (not disjoint) pieces at rb —
+	// indistinguishable, by length alone, from a genuine multi-window overlap.
 	switch {
-	case a.fullCircle && b.fullCircle:
-		// Two fully-coincident full circles: an overlap "window" has no meaning (the
-		// whole circle is shared), so report just enough to flag the degeneracy —
-		// resolution is out of scope for this pair regardless (both fullCircle; see
-		// the a.fullCircle==b.fullCircle exclusion at the call site).
+	case a.coversFullTurn() && b.coversFullTurn():
+		// Two fully-coincident COMPLETE carriers: an overlap "window" has no meaning
+		// (the whole circle is shared), so report just enough to flag the degeneracy —
+		// resolution is out of scope for this pair (single stays false, so the call
+		// site leaves the event's overlap extent nil and flags it).
 		return arcOverlap{midX: a.cx + a.r, midY: a.cy, over: true}
-	case a.fullCircle:
+	case a.coversFullTurn():
 		return fullCircleOverlap(b)
-	case b.fullCircle:
+	case b.coversFullTurn():
 		return fullCircleOverlap(a)
 	}
 	sa, la := a.arcSpan()
@@ -253,7 +260,15 @@ func coincidentArcOverlap(a, b operand) arcOverlap {
 		midY: a.cy + a.r*math.Sin((angLo+angHi)/2),
 		over: true,
 	}
-	if otherK := 1 - bestK; lens[otherK] > arcParamEps {
+	// ANY positive second window makes the pair multi-window. The test is against
+	// zero, never against arcParamEps: a window is recorded only when hi > lo, so a
+	// positive length here is a real second span of shared curve, however short, and
+	// resolution records ONE suppression window — so declaring the pair single would
+	// leave the second span emitted twice, as an un-deduplicated coincident boundary,
+	// with the Degenerate flag that used to warn the consumer now cleared. Dropping a
+	// sub-epsilon window is only sound for the WHOLE overlap (the lens[bestK] test
+	// above, where nothing is resolved and nothing is suppressed).
+	if otherK := 1 - bestK; lens[otherK] > 0 {
 		return res // a second, disjoint window: over, but not a single resolvable one
 	}
 	res.single = true
@@ -263,9 +278,21 @@ func coincidentArcOverlap(a, b operand) arcOverlap {
 	return res
 }
 
-// fullCircleOverlap returns the overlap between a full circle and the given (non-
-// full) arc operand: the arc's entire own domain, since a full circle covers every
-// angle. Used by coincidentArcOverlap when exactly one operand is a full circle.
+// coversFullTurn reports whether the operand sweeps the ENTIRE circle, so it has no
+// finite domain end that could bound an overlap window. Coincidence resolution must
+// ask this geometric question, never the fullCircle FLAG: geom.Arc's wrapSweep maps a
+// non-positive angular delta to a full turn, so NewArc(c, p, p) is a 2π arc — a
+// complete carrier that the flag (set only for a srcCircle) calls partial. Keying the
+// out-of-scope "two fully-coincident complete carriers" exclusion on the flag let such
+// an arc pair with a circle and suppress the whole circle.
+func (o operand) coversFullTurn() bool {
+	return o.fullCircle || math.Abs(o.sweep) >= 2*math.Pi-arcParamEps
+}
+
+// fullCircleOverlap returns the overlap between a complete carrier and the given
+// (partial) arc operand: the arc's entire own domain, since a complete carrier covers
+// every angle. Used by coincidentArcOverlap when exactly one operand covers the full
+// turn.
 func fullCircleOverlap(arc operand) arcOverlap {
 	sa, la := arc.arcSpan()
 	angLo, angHi := sa, sa+la
@@ -402,22 +429,25 @@ func circleCircleEvents(a, b operand, scale float64) ([]xEvent, bool) {
 			// disjoint, or meet only at a shared endpoint, do not overlap (mirrors the
 			// collinear-line case); no overlap returns no event, leaving disjoint arcs
 			// clean. A SINGLE-window overlap with at least one ARC operand (a finite
-			// domain to bound the resolution) is RESOLVABLE (see
+			// domain to bound the resolution) whose carriers are IDENTICAL at round-off
+			// (carriersIdentical, a far tighter test than the certify band that got us
+			// into this branch) is RESOLVABLE (see
 			// docs/coincident-carrier-resolution-design.md's "Scope"): both boundary
 			// points are reported so analyticPrepass can cut both sources and suppress
-			// the losing one over the shared span. Two fully-coincident FULL circles and
-			// a multi-window overlap stay an unconditional degeneracy — the event's
+			// the losing one over the shared span. Two fully-coincident COMPLETE
+			// carriers, a multi-window overlap, and a carrier match that holds only
+			// within the certify band stay an unconditional degeneracy — the event's
 			// overlap field is left nil, and the caller flags it exactly as before.
 			ov := coincidentArcOverlap(a, b)
 			if !ov.over {
 				return nil, false
 			}
 			e := xEvent{x: ov.midX, y: ov.midY, ti: a.circleParam(ov.midX, ov.midY), tj: b.circleParam(ov.midX, ov.midY), kind: evOverlap}
-			// ov.single is never true when both operands are full circles —
-			// coincidentArcOverlap's own a.fullCircle&&b.fullCircle case always returns
-			// single=false — so this already excludes that out-of-scope pair; no
-			// separate check needed here.
-			if ov.single {
+			// ov.single is never true when both operands cover the full turn —
+			// coincidentArcOverlap's own both-complete case always returns single=false
+			// — so this already excludes that out-of-scope pair; no separate check
+			// needed here.
+			if ov.single && carriersIdentical(a, b, scale) {
 				e.overlap = &overlapExtent{
 					loX: ov.loX, loY: ov.loY, loTi: a.circleParam(ov.loX, ov.loY), loTj: b.circleParam(ov.loX, ov.loY),
 					hiX: ov.hiX, hiY: ov.hiY, hiTi: a.circleParam(ov.hiX, ov.hiY), hiTj: b.circleParam(ov.hiX, ov.hiY),
@@ -477,6 +507,30 @@ func circleCircleEvents(a, b operand, scale float64) ([]xEvent, bool) {
 		// Transition zone near an external or internal tangency → ambiguous.
 		return nil, true
 	}
+}
+
+// carriersIdentical reports whether two circle carriers already classified coincident
+// are the SAME carrier at round-off, rather than merely equal within the wider
+// classification band. Only such a pair may be RESOLVED
+// (docs/coincident-carrier-resolution-design.md); a coincidence that holds only inside
+// the certify band stays an unresolved degeneracy.
+//
+// The bound is what makes a resolved cut's exactness honest. resolveCoincidentOverlap
+// computes both window boundary points on operand a's carrier alone and then cuts BOTH
+// sources there with exact:true. A boundary point P sits on the ray from b's center at
+// distance |P−b.center| ∈ [a.r−d, a.r+d], while b's own curve is at b.r, so P misses b's
+// carrier by exactly ||P−b.center| − b.r| ≤ d + |a.r−b.r|. Bounding that SUM by
+// weldIdentEps·scale — the identity band vertexCertifies uses to decide whether a graph
+// vertex IS a bound's own point — keeps the miss inside the band, so the reported
+// parameter really does reproduce the emitted geometry.
+//
+// The certify band (scale·tangentCertify) is three orders LOOSER, and resolving there
+// would place the cut point off BOTH true carriers by up to that amount — the
+// manufactured exactness "The refusal band" in the design forbids, and one no
+// downstream check catches (vertexCertifies compares the graph vertex against the cut's
+// own stored point, which is where the cut put it).
+func carriersIdentical(a, b operand, scale float64) bool {
+	return math.Hypot(b.cx-a.cx, b.cy-a.cy)+math.Abs(a.r-b.r) <= weldIdentEps*scale
 }
 
 // footOnLine returns the foot of the perpendicular from (px,py) to the carrier
