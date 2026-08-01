@@ -46,7 +46,7 @@ tooth's angular span and `src=4` (the hub circle) for the rest, while region
 The two regions do not share a common, consistently-named edge — each
 independently re-derives the coincident span from a DIFFERENT source, so a
 consumer mapping `SourceIndex` back to its own entity (`Sketch.Profiles()`'s
-`entityFor`, `profiles.go:279-284`) sees the root arc attributed to the hub
+`entityFor`, `profiles.go`) sees the root arc attributed to the hub
 region and hub-circle fragments attributed to the tooth region. Only the
 arrangement-wide `Degenerate` flag — which the resolution below still leaves
 in place for the genuinely unresolvable cases — stands between a consumer and
@@ -258,7 +258,7 @@ both:
   the rest of the pipeline. Reporting two would be a new, asymmetric shape
   (which of two fields is "primary"?) for exactly one situation, while every
   existing consumer — including `Sketch.Profiles()`'s `entityFor`
-  (`profiles.go:279-284`), which maps a bare `SourceIndex` straight to one
+  (`profiles.go`), which maps a bare `SourceIndex` straight to one
   `Entity` — already assumes one. The note itself says either shape works for
   its consumer ("decad can consume either... the choice is sketch's to
   specify, not decad's to infer"); naming one is the choice with no
