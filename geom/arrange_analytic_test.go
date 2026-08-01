@@ -1846,3 +1846,66 @@ func TestAnalyticCoincidentCarrierBoundOnSampleVertexStaysExact(t *testing.T) {
 		}
 	}
 }
+
+// TestAnalyticCoincidentCarrierCollapsedWindowStaysDegenerate is the third clause of
+// certifySuppression's postcondition: the two window boundaries must resolve to
+// DISTINCT graph vertices. The other two clauses — each boundary resolving to a
+// vertex that bounds a fragment of the losing source AND of the named source, and it
+// being the SAME vertex on both — are satisfied here, so this clause alone decides
+// the verdict.
+//
+// Two arcs on one carrier: arc a sweeps [0,π] and arc b sweeps [π−w,2π], so the pair
+// overlaps in the single window [π−w,π] and, taken together, the two close the unit
+// disk. With w below the vertex merge the window's two boundary points are nearer to
+// each other than the welding radius, so both canonicalize onto ONE graph vertex —
+// which is also a bound of a fragment of each source, a's endpoint at π and b's at
+// π−w having welded there too. All four lookups therefore succeed and agree across
+// the sources, and only "the two must be distinct" is left to refuse the window.
+//
+// The span between two boundaries that are one vertex was never emitted, so nothing
+// downstream could attach the named source's edge where the losing source's kept
+// fragments end. Withdrawing is the conservative answer: the pair is flagged and the
+// losing source emits its coincident span, so the disk stays drawn — a doubled sliver
+// of width w wide rather than a region silently deleted.
+func TestAnalyticCoincidentCarrierCollapsedWindowStaysDegenerate(t *testing.T) {
+	c := geom.NewPoint(0, 0)
+	at := func(ang float64) *geom.Point { return geom.NewPoint(math.Cos(ang), math.Sin(ang)) }
+	const merge = 1e-6
+	build := func(w float64, spt int) ([]geom.Curve, *geom.Arrangement) {
+		curves := []geom.Curve{
+			geom.NewArc(c, at(0), at(math.Pi)),
+			geom.NewArc(c, at(math.Pi-w), at(2*math.Pi)),
+		}
+		return curves, geom.Regions(curves, nil,
+			geom.WithVertexMerge(merge), geom.WithSegmentsPerTurn(spt))
+	}
+
+	// Window narrower than the merge: the two boundaries collapse onto one vertex.
+	// The collapse is a welding-radius fact, not a sampling one, so every density
+	// must refuse.
+	for _, w := range []float64{1e-9, 1e-8, 1e-7} {
+		for _, spt := range []int{8, 16, 64, 256, 1024} {
+			curves, arr := build(w, spt)
+			require.Truef(t, arr.Degenerate,
+				"w=%g spt=%d: a window whose boundaries are one vertex spans nothing, so it must be withdrawn", w, spt)
+			require.Lenf(t, arr.Regions, 1, "w=%g spt=%d: the drawn disk must survive the withdrawal", w, spt)
+			require.InDeltaf(t, math.Pi, arr.Regions[0].Area, 2*w,
+				"w=%g spt=%d: the disk keeps its drawn area up to the un-suppressed sliver", w, spt)
+			requireExactBoundsReproduce(t, curves, nil, arr)
+		}
+	}
+
+	// The same construction with the window wider than the merge is the control: the
+	// boundaries stay two vertices, every clause holds, and the pair resolves to the
+	// plain disk with no sliver.
+	for _, w := range []float64{1e-5, 1e-4, 1e-3} {
+		for _, spt := range []int{8, 16, 64, 256, 1024} {
+			curves, arr := build(w, spt)
+			require.Falsef(t, arr.Degenerate,
+				"w=%g spt=%d: boundaries a merge apart are distinct vertices, so the window stands", w, spt)
+			require.Lenf(t, arr.Regions, 1, "w=%g spt=%d", w, spt)
+			require.InDeltaf(t, math.Pi, arr.Regions[0].Area, 1e-9, "w=%g spt=%d", w, spt)
+			requireExactBoundsReproduce(t, curves, nil, arr)
+		}
+	}
+}
