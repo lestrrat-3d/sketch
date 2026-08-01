@@ -236,24 +236,50 @@ splicing its exact crossing points into BOTH sampled polylines — at the site t
 cut phase itself uses (`postCutPolyline` over `cutSite`) — leaves the sampled map
 with the same crossing incidence. Three conditions, checked on the spliced
 polylines: they meet ONLY at those points — every contact between a segment of one
-and a segment of the other IS an injected crossing point
-(`polylinesMeetOnlyAtContacts`); each contact IS the polyline vertex it was mapped
-to, within the identity band `vertexCertifies` uses, bounded by the vertex's own
-chord as well as by the scene (`contactIsVertex`); and the four chord departures at
-each injected point ALTERNATE between the sources (`portsCross`), so meeting at a
-point is distinguished from crossing at it. The third is threshold-free; the first
-two decide only "one point or two", and both decide it with that one identity band.
-A contact at an open source's own endpoint contributes three departures, not four,
-and is refused by construction at every density.
+and a segment of the other belongs to a crossing point BOTH segments are incident to
+(`polylinesMeetOnlyAtSharedVertices`); each contact IS the polyline vertex it was
+mapped to, within the identity band `vertexCertifies` uses, bounded by the vertex's
+own chord as well as by the scene (`contactIsVertex`); and the four chord departures
+at each injected point ALTERNATE between the sources (`portsCross`), so meeting at a
+point is distinguished from crossing at it. The first and third are threshold-free;
+only the second compares a position, and it decides only "one point or two". A
+contact at an open source's own endpoint contributes three departures, not four, and
+is refused by construction at every density.
 
-The first condition is stated as IDENTITY with an injected point, never as position
-along the host segments. Excluding a contact for sitting within `segEps` of either
-segment's END is a different question, and it admits contacts that carry no node in
-the map: a source's own endpoint resting on the interior of the other's chord, and a
-transverse pass-through landing on a sample vertex of one polyline. Parallel pairs
-are covered separately — `segParams` rejects them on the determinant before any range
-test, so a collinear overlap reached that check as silence — by `collinearOverlap`,
-an overlap of positive length being no transverse crossing.
+The first condition is decided COMBINATORIALLY, by shared incidence: contact `k` is
+the vertex `ci[k]` of one polyline and `cj[k]` of the other (`postCutPolyline`'s
+second return), and a contacting segment pair passes exactly when some `k` is an end
+of both segments. Two segments sharing an endpoint meet only there unless they are
+collinear, and `collinearOverlap` refuses collinearity first, so shared incidence
+admits exactly the contacts that ARE an injected crossing point — with no tolerance,
+no scene scale and no chord length in the verdict. Comparing the contact's POSITION
+against the injected points needs a band, and the only one available is
+`weldIdentEps·scale`, the whole scene's bounding-box extent: unlike `contactIsVertex`
+(chord-local) and `vertexCertifies` (source-local), this condition has no single
+source or vertex to state a local yardstick against, so a distant unrelated object
+widened what counted as one point here — measured, two circles crossing at 0.01 rad
+5e-13 past a sample vertex are refused alone and certified once a line is drawn 60
+units away, and the difference reaches `geom.Regions`. A chord-local band cannot
+replace it either: the chord/chord intersection `segParams` computes is displaced
+from the true crossing by roughly the sagitta over the sine of the crossing angle,
+which no chord length bounds.
+
+Deciding it by position ALONG THE HOST SEGMENTS is a third, different question — it
+admits contacts that carry no node in the map: a source's own endpoint resting on the
+interior of the other's chord, and a transverse pass-through landing on a sample
+vertex of one polyline. Parallel pairs are covered separately — `segParams` rejects
+them on the determinant before any range test, so a collinear overlap reached that
+check as silence — by `collinearOverlap`, an overlap of positive length being no
+transverse crossing.
+
+Shared incidence is not a strict superset of the position test. Where an exact
+crossing is spliced within round-off of an existing sample vertex, the splice leaves
+a near-degenerate segment, and the other polyline then meets BOTH of that vertex's
+neighbours at what the map welds into one graph vertex; incidence sees two segments
+and refuses. The refusal is on the safe side — the pair takes the sampled fallback
+and publishes no exact bound — and it was measured at 2 of 20000 evaluations in a
+sweep aimed squarely at that regime, against 133 refusals it lifts, and 0 of 5568 in
+an ordinary circle/circle and arc/arc sweep.
 
 The second condition's band is bounded by TWO yardsticks, the scene's extent and the
 vertex's own chord, the shape `carriersIdentical` uses in the coincident-carrier

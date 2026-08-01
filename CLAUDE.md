@@ -212,24 +212,43 @@ a placeholder 0 that named the far end of the last segment), then require **thre
 things. The first cut of this certificate carried (1), a weaker (3) that PASSED an
 endpoint contact, and no (2) at all, and a review found both holes.
 (1) The spliced polylines meet ONLY at those points —
-**every contact between a segment of one and a segment of the other IS an injected
-crossing point**, at the identity band (`polylinesMeetOnlyAtContacts`), since a handled
-pair's sampled crossings are never recorded, so a leftover one has no vertex and the
-face walk fuses the regions on either side (the round-2 bug). **Membership is decided by
-IDENTITY with an injected point, never by WHERE the contact sits along its host
-segments** — the hole a review found in the first form of this part, which excluded a
-contact for landing within `segEps` of either segment's END. Those are different
-questions, and the gap between them admits two shapes of contact that carry no node in
+**every contact between a segment of one and a segment of the other belongs to a
+crossing point BOTH segments are INCIDENT to** (`polylinesMeetOnlyAtSharedVertices`),
+since a handled pair's sampled crossings are never recorded, so a leftover one has no
+vertex and the face walk fuses the regions on either side (the round-2 bug).
+**Membership is decided COMBINATORIALLY, by shared incidence** — contact `k` is the
+vertex `ci[k]` of one polyline and `cj[k]` of the other (`postCutPolyline`'s second
+return), and a contacting segment pair passes exactly when some `k` is an end of both
+segments. Two segments sharing an endpoint meet only there unless they are collinear,
+and `collinearOverlap` refuses collinearity first, so shared incidence admits exactly
+the contacts that ARE an injected crossing point — **with no tolerance, no scene scale
+and no chord length in the verdict**. Comparing the contact's POSITION against the
+injected points needs a band, and the only one available here is `weldIdentEps·scale`,
+the whole SCENE's bbox extent: unlike `contactIsVertex` (chord-local) and
+`vertexCertifies` (source-local), this part has no single source or vertex to state a
+local yardstick against, so a distant unrelated object widened what counts as one point
+HERE — two circles crossing at `0.01` rad `5e-13` past a sample vertex are refused alone
+and certified once a line is drawn 60 units away, and the difference reaches
+`geom.Regions` (`TestAnalyticShallowCrossingCertificateIsSceneIndependent`). A
+chord-local band cannot replace it: `segParams`'s chord/chord intersection sits off the
+true crossing by roughly the sagitta over the sine of the crossing angle, which no chord
+length bounds. **Incidence is by INDEX, never by WHERE the contact sits along its host
+segments** — a third question, which excused a contact for landing within `segEps` of
+either segment's END and so admitted two shapes of contact that carry no node in
 the map: a source's own ENDPOINT resting on the INTERIOR of the other's chord (parameter
 1 on one segment, excused, while the polylines really do meet there —
 `TestAnalyticCurveCrossingEndpointOnChordNotCertified`, where certifying published one
 region where the sampled map has two), and a genuine transverse PASS-THROUGH that lands
 on a sample vertex of one polyline (`TestAnalyticCurveCrossingAtSampleVertexNotCertified`,
-the same fusion by the other door). PARALLEL pairs never reached that test at all —
-`segParams` rejects them on the determinant before any range test — so a **collinear
-OVERLAP** arrived as silence and was accepted with no tolerance applied to it whatever;
-`collinearOverlap` now refuses it, an overlap of positive length being no transverse
-crossing. (2) Each
+the same fusion by the other door). PARALLEL pairs never reach `segParams` at all —
+it rejects them on the determinant before any range test — so a **collinear
+OVERLAP** arrives as silence; `collinearOverlap` refuses it, an overlap of positive
+length being no transverse crossing, and refusing it FIRST is also what lets a shared
+endpoint stand for "these two segments meet nowhere else". A **CLOSED** source's seam
+vertex is repeated at index 0 and at the end of its polyline, and the two copies differ
+by round-off, so only the closed flag can recognize them as one (`segIncident`): both
+segments meeting at the seam are incident to a contact reported there, and reading only
+the index it came back as would refuse the pair for its own second neighbour. (2) Each
 contact IS the polyline vertex it was mapped to, within the same round-off identity
 band `vertexCertifies` uses (`contactIsVertex`). A spliced point satisfies this by
 construction; a contact mapped onto an EXISTING sample vertex need not, because
@@ -256,13 +275,20 @@ source's own ENDPOINT contributes ONE departure, so the four cannot alternate an
 is refused: the curve stops there, the certificate has no evidence about it, and
 blessing it certified nothing while the injected cut bent the polylines through each
 other and left a disk with **zero regions** at `degenerate=false` — the sharpest
-failure this gate exists to prevent. Part (3) is **threshold-free**: no
-tolerance, no chord bound, no crossing-angle floor. (1) and (2) decide only "one point
-or two" and both decide it with the existing identity band — no crossing-angle or
-chord-length threshold enters either verdict. The **fallback is the SAMPLED path, never a degeneracy**: an
-uncertified pair is left unhandled exactly as before, so it keeps the sampled
-topology with `TExact=false`, and no arrangement that was blessed before the lift is
-refused now. Over the transverse circle/circle band certification is still 100% from
+failure this gate exists to prevent. Parts (1) and (3) are **threshold-free**: no
+tolerance, no chord bound, no crossing-angle floor. Only (2) compares a position, and it
+decides only "one point or two", with the existing identity band — no crossing-angle or
+chord-length threshold enters any of the three. The **fallback is the SAMPLED path, never a degeneracy**: an
+uncertified pair is left unhandled, so it keeps the sampled
+topology with `TExact=false`. Shared incidence is **not a strict superset** of the
+position test it replaced: where an exact crossing is spliced within round-off of an
+existing sample vertex, the splice leaves a near-degenerate segment and the other
+polyline meets BOTH of that vertex's neighbours at what the map welds into one graph
+vertex, which incidence sees as two segments and refuses. That refusal is on the safe
+side (sampled fallback, no exact bound published), and it was measured at 2 of 20000
+evaluations in a sweep aimed squarely at that regime — against 133 refusals the same
+sweep lifts — and 0 of 5568 in an ordinary circle/circle and arc/arc sweep. Over the
+transverse circle/circle band certification is still 100% from
 `spt=16` (`Sketch.Profiles` samples at 256); an endpoint contact is refused at EVERY
 density, by construction rather than by coarseness, and a contact inside the parameter
 window of a sample vertex but away from it in position is refused at whatever densities
@@ -367,9 +393,14 @@ each family's own whole edge),
 `TestAnalyticCurveCrossingAtSampleVertexNotCertified` (the two shapes of contact a
 segment-end band waved through, each publishing one region where the sampled map has
 two), `TestAnalyticContactAtVertexBandIsChordLocal` (the same pair reaches the same
-verdict with and without a distant unrelated line) and the internal
+verdict with and without a distant unrelated line),
+`TestAnalyticShallowCrossingCertificateIsSceneIndependent` (a shallow crossing beside a
+sample vertex reaches the same verdict, region count and areas with no line, a line 60
+units away and one 200 away, and those areas are the converged ones),
+`TestAnalyticEndpointOnChordRefusalSurvivesSceneInflation` (its converse: the
+endpoint-on-chord refusal is untouched by a line 10000 units away) and the internal
 `TestPolylinesMeetOnlyAtContacts` (the incidence predicate itself, including the
-collinear overlap `segParams` never reports).
+collinear overlap `segParams` never reports and a contact at a closed source's seam).
 **Coincident-CARRIER overlaps (same center, same radius — e.g. a gear tooth's root
 arc lying exactly on its hub circle) are RESOLVED, not flagged, when at least one
 operand is a PARTIAL arc and the overlap is a single contiguous angular window**

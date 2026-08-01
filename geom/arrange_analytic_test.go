@@ -875,6 +875,99 @@ func TestAnalyticContactAtVertexBandIsChordLocal(t *testing.T) {
 	}
 }
 
+func TestAnalyticShallowCrossingCertificateIsSceneIndependent(t *testing.T) {
+	// The certificate's incidence condition must reach the same verdict for a pair
+	// however far away the rest of the drawing is. Deciding it by comparing the
+	// chord/chord contact's POSITION against the injected crossing points needed a band
+	// to compare within, and the only one available was the whole SCENE's bounding-box
+	// extent — so drawing an unrelated line 60 units away flipped this pair from refused
+	// to certified, and the difference reaches the reported regions.
+	//
+	// The pair is two circles crossing at 0.01 rad — shallow, so the chord/chord contact
+	// sits roughly gap/sin(angle) away from the true crossing — with the crossing placed
+	// 5e-13 past the first circle's 2pi/8 sample vertex. The gap itself is well inside the
+	// chord-local band contactIsVertex applies, so incidence is the sole discriminator.
+	//
+	// The certified answer is the converged one: its sliver area agrees with the same
+	// scene sampled at 16384 to 1.6e-6 relative, while the refused answer reports that
+	// sliver 531x too large. The spt=4096 reference is compared against loosely because
+	// the reference's OWN sliver bound is a sampled cut, converged only to about 1e-3
+	// there; what the tolerance has to separate is two orders of magnitude coarser.
+	const rA, rB, angle, gap = 5.0, 4.0, 0.01, 5e-13
+	phi := 2*math.Pi/8 + gap/rA
+	nax, nay := math.Cos(phi), math.Sin(phi)
+	nbx := nax*math.Cos(angle) - nay*math.Sin(angle)
+	nby := nax*math.Sin(angle) + nay*math.Cos(angle)
+	closed := []geom.ClosedCurve{
+		geom.NewCircle(geom.NewPoint(0, 0), rA),
+		geom.NewCircle(geom.NewPoint(rA*nax-rB*nbx, rA*nay-rB*nby), rB),
+	}
+
+	ref := geom.Regions(nil, closed, geom.WithSegmentsPerTurn(4096))
+	require.False(t, ref.Degenerate, "the reference sampling is clean")
+	refAreas, _ := regionAreasDescending(ref)
+	require.Len(t, refAreas, 3, "the two lune caps and the sliver")
+
+	var first []float64
+	for _, far := range []float64{0, 60, 200} {
+		var curves []geom.Curve
+		if far > 0 {
+			curves = []geom.Curve{geom.NewLine(geom.NewPoint(far, -1), geom.NewPoint(far, 1))}
+		}
+		arr := geom.Regions(curves, closed, geom.WithSegmentsPerTurn(8))
+		require.Falsef(t, arr.Degenerate, "far=%g", far)
+		require.Lenf(t, arr.Regions, 3, "far=%g: the distant line bounds no region", far)
+
+		areas, exact := regionAreasDescending(arr)
+		require.Truef(t, exact, "far=%g: the pair's certificate must not turn on how far away an unrelated line is drawn", far)
+		for k := range refAreas {
+			require.InEpsilonf(t, refAreas[k], areas[k], 1e-2, "far=%g: region %d", far, k)
+		}
+		if first == nil {
+			first = areas
+			continue
+		}
+		for k := range first {
+			require.InDeltaf(t, first[k], areas[k], 1e-12,
+				"far=%g: region %d must not move because a distant line was drawn", far, k)
+		}
+	}
+}
+
+func TestAnalyticEndpointOnChordRefusalSurvivesSceneInflation(t *testing.T) {
+	// The converse guard. The endpoint-on-chord contact of
+	// TestAnalyticCurveCrossingEndpointOnChordNotCertified is a contact the planar map has
+	// no node for, and refusing it is what keeps the pair on the sampled path with its two
+	// regions. That refusal is now an incidence verdict — the arc's endpoint is not a
+	// vertex the crossing was injected at — so no amount of scene inflation can reach it.
+	// A line parked 10000 units away raises the scene extent by three orders of magnitude
+	// and must change nothing.
+	const r = 5.0
+	v1x, v1y := r*math.Cos(math.Pi/4), r*math.Sin(math.Pi/4)
+	ex, ey := r+0.25*(v1x-r), 0.25*v1y
+
+	cx, cy := -3.0, -2.75
+	ra := math.Hypot(ex-cx, ey-cy)
+	end := math.Atan2(ey-cy, ex-cx)
+	start := end - 1.2
+	arc := geom.NewArc(
+		geom.NewPoint(cx, cy),
+		geom.NewPoint(cx+ra*math.Cos(start), cy+ra*math.Sin(start)),
+		geom.NewPoint(ex, ey))
+	closed := []geom.ClosedCurve{geom.NewCircle(geom.NewPoint(0, 0), r)}
+
+	inflated := geom.Regions(
+		[]geom.Curve{arc, geom.NewLine(geom.NewPoint(1e4, -1), geom.NewPoint(1e4, 1))},
+		closed, geom.WithSegmentsPerTurn(8))
+	require.False(t, inflated.Degenerate,
+		"the fallback for an uncertified pair is the sampled path, never a degeneracy")
+	require.Len(t, inflated.Regions, 2, "the sampled map's own regions, which certifying would fuse into one")
+	areas, exact := regionAreasDescending(inflated)
+	require.False(t, exact, "a contact at the arc's own endpoint is no crossing vertex at any scene size")
+	require.InDelta(t, 78.512659246063137, areas[0], 1e-9)
+	require.InDelta(t, 0.14921088265903304, areas[1], 1e-9)
+}
+
 func TestAnalyticArcArcCrossingCertified(t *testing.T) {
 	// The certificate is about the PAIR being two sampled curves, not about them being
 	// full circles: two arcs on different carriers, closed into a wire by two lines,
