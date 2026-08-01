@@ -238,8 +238,8 @@ with the same crossing incidence. Three conditions, checked on the spliced
 polylines: they meet ONLY at those points — every contact between a segment of one
 and a segment of the other IS an injected crossing point
 (`polylinesMeetOnlyAtContacts`); each contact IS the polyline vertex it was mapped
-to, within the identity band `vertexCertifies` uses (`contactIsVertex`); and the
-four chord departures at
+to, within the identity band `vertexCertifies` uses, bounded by the vertex's own
+chord as well as by the scene (`contactIsVertex`); and the four chord departures at
 each injected point ALTERNATE between the sources (`portsCross`), so meeting at a
 point is distinguished from crossing at it. The third is threshold-free; the first
 two decide only "one point or two", and both decide it with that one identity band.
@@ -254,6 +254,15 @@ transverse pass-through landing on a sample vertex of one polyline. Parallel pai
 are covered separately — `segParams` rejects them on the determinant before any range
 test, so a collinear overlap reached that check as silence — by `collinearOverlap`,
 an overlap of positive length being no transverse crossing.
+
+The second condition's band is bounded by TWO yardsticks, the scene's extent and the
+vertex's own chord, the shape `carriersIdentical` uses in the coincident-carrier
+design and for the same reason. On the scene extent alone an unrelated distant object
+widens it: with `r = 5` the verdict flips at a scene extent of about `24.5·r`, so one
+construction line ~100 units away certified a contact `1.1e-10` off its vertex that
+the same pair refuses when drawn alone, publishing the vertex's sample fraction as an
+exact crossing parameter. The chord is the only length the mapping decision is stated
+in, and nothing outside the pair can inflate it.
 
 **The fallback is the sampled path, never a degeneracy.** An uncertified pair is
 left unhandled exactly as before the lift, so it keeps the sampled topology with

@@ -785,6 +785,42 @@ func TestAnalyticCurveCrossingAtSampleVertexNotCertified(t *testing.T) {
 	require.False(t, exact, "a crossing the map has no node for withholds every exact bound of the pair")
 }
 
+func TestAnalyticContactAtVertexBandIsChordLocal(t *testing.T) {
+	// The identity band that decides whether a contact IS the sample vertex it was mapped
+	// to must be a property of the PAIR, not of the drawing. Bounding it by the scene's
+	// bounding-box extent alone let an unrelated object far away widen it: the two circles
+	// below cross 1.1e-10 away from the r=5 circle's own 0.125 sample vertex — a gap the
+	// pair correctly refuses when drawn alone — and one construction line parked ~100 units
+	// off flipped it to certified, publishing the sample fraction 0.125 as the exact
+	// crossing parameter. Nothing about the pair changed; only the scene did.
+	//
+	// So the verdict must be the same with and without the distant line, at every density,
+	// and it must be the refusal: the contact is not the vertex.
+	closed := []geom.ClosedCurve{
+		geom.NewCircle(geom.NewPoint(0, 0), 5),
+		geom.NewCircle(geom.NewPoint(7, 0), 4.9500025573766155),
+	}
+	for _, spt := range []int{8, 16, 64, 256} {
+		alone := geom.Regions(nil, closed, geom.WithSegmentsPerTurn(spt))
+		far := geom.Regions([]geom.Curve{geom.NewLine(geom.NewPoint(122, -1), geom.NewPoint(122, 1))},
+			closed, geom.WithSegmentsPerTurn(spt))
+
+		require.Falsef(t, alone.Degenerate, "spt=%d", spt)
+		require.Falsef(t, far.Degenerate, "spt=%d", spt)
+		require.Lenf(t, alone.Regions, 3, "spt=%d: two lune caps plus the lens", spt)
+		require.Lenf(t, far.Regions, 3, "spt=%d: the distant line bounds no region", spt)
+
+		aAreas, aExact := regionAreasDescending(alone)
+		fAreas, fExact := regionAreasDescending(far)
+		require.Falsef(t, aExact, "spt=%d: a contact 1.1e-10 off its vertex is not that vertex", spt)
+		require.Falsef(t, fExact, "spt=%d: and a line 122 units away cannot make it one", spt)
+		for k := range aAreas {
+			require.InDeltaf(t, aAreas[k], fAreas[k], 1e-12,
+				"spt=%d: region %d must not move because a distant line was drawn", spt, k)
+		}
+	}
+}
+
 func TestAnalyticArcArcCrossingCertified(t *testing.T) {
 	// The certificate is about the PAIR being two sampled curves, not about them being
 	// full circles: two arcs on different carriers, closed into a wire by two lines,

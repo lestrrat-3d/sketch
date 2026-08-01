@@ -1480,8 +1480,9 @@ func (a *arranger) analyticCrossHosted(i, j int, events []xEvent) bool {
 // chords actually resolve it, not by how shallow it is. The first two decide only
 // "one point or two", and both decide it with the SAME identity band vertexCertifies
 // uses: the first to ask whether a contact IS an injected crossing point, the second
-// whether it IS the vertex it was mapped to. No crossing-angle or chord-length threshold
-// enters either verdict.
+// whether it IS the vertex it was mapped to (there additionally bounded by the vertex's
+// own chord, so a distant object cannot widen it). No crossing-angle or chord-length
+// threshold enters either verdict.
 //
 // Why analyticCrossHosted is not that statement for this pair: it requires the
 // crossing to be witnessed on the very segment pair carrying its two source
@@ -1525,11 +1526,12 @@ func (a *arranger) analyticCrossingsCertified(i, j int, events []xEvent) bool {
 }
 
 // contactIsVertex reports whether the polyline vertex a contact was mapped to IS the
-// contact point, at the SAME round-off identity band vertexCertifies uses to decide the
-// same "one point or two" question about a graph vertex.
+// contact point, at the round-off identity band — bounded by TWO yardsticks at once, the
+// scene's own scale and the CHORD the vertex sits on, exactly as carriersIdentical bounds
+// a carrier match by both the scene band and the carrier-local one.
 //
-// For a spliced contact this holds by construction — the vertex is the contact point.
-// It is load-bearing for a contact cutSite reported as already carrying a
+// For a spliced contact this holds by construction — the vertex is the contact point, at
+// zero distance. It is load-bearing for a contact cutSite reported as already carrying a
 // vertex: that decision is made in the source's PARAMETER (within segEps of a segment
 // boundary), and a parameter that close still admits a POSITION gap of up to a few times
 // segEps·segment length, orders of magnitude above the identity band. Certifying a contact
@@ -1541,11 +1543,38 @@ func (a *arranger) analyticCrossingsCertified(i, j int, events []xEvent) bool {
 // unchanged. A contact that IS the vertex passes and keeps its exact bound: the sample
 // fraction and the true crossing parameter are then the same number, and evaluating it
 // reproduces the emitted point, which is all TExact claims.
+//
+// The CHORD-LOCAL band is what keeps the question about THIS contact. a.scale is the whole
+// scene's bounding-box extent, so an unrelated object far away widens it: with a circle of
+// radius 5 the verdict flips at a scene extent of about 24.5·r, so ONE construction line
+// parked 100 units away turns a contact 1.1e-10 off its vertex — a gap the same pair
+// correctly refuses when drawn alone — into a certified one, publishing the vertex's own
+// sample fraction as an exact crossing parameter. Nothing about the pair changed; only the
+// scene did. The gap is measured against the chord the vertex belongs to, which is the
+// only length the mapping decision (a segEps window on that chord's parameter) is stated
+// in, and no distant object can inflate it.
 func (a *arranger) contactIsVertex(p [][2]float64, k int, pt [2]float64) bool {
 	if k < 0 || k >= len(p) {
 		return false
 	}
-	return math.Hypot(p[k][0]-pt[0], p[k][1]-pt[1]) <= weldIdentEps*a.scale
+	gap := math.Hypot(p[k][0]-pt[0], p[k][1]-pt[1])
+	return gap <= weldIdentEps*a.scale && gap <= weldIdentEps*polylineChordAt(p, k)
+}
+
+// polylineChordAt returns the longer of the chords meeting at the polyline's k-th vertex —
+// the local length scale of the mapping that put a contact there. The longer of the two is
+// the one whose segEps parameter window admits the widest position gap, so it is the bound
+// the check has to be stated against; a lone vertex (no chord) has no local scale and
+// admits only an exact match.
+func polylineChordAt(p [][2]float64, k int) float64 {
+	out := 0.0
+	if k > 0 {
+		out = math.Max(out, math.Hypot(p[k][0]-p[k-1][0], p[k][1]-p[k-1][1]))
+	}
+	if k+1 < len(p) {
+		out = math.Max(out, math.Hypot(p[k+1][0]-p[k][0], p[k+1][1]-p[k][1]))
+	}
+	return out
 }
 
 // noteSampledContact records that the SAMPLED loop put a contact between two DIFFERENT

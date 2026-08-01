@@ -238,7 +238,16 @@ above round-off — certifying one with a real gap published the vertex's own sa
 fraction `i/n` as an exact bound for a crossing that is not there, with no second net,
 since certification exempts the pair from the taint passes. A contact that IS the
 vertex passes and keeps its exact bound: the sample fraction and the true crossing
-parameter are then the same number. (3) The four chord
+parameter are then the same number. **That band is bounded by the vertex's own CHORD as
+well as by the scene**, the same two-yardstick shape `carriersIdentical` uses and for the
+same reason: `a.scale` is the whole scene's bbox extent, so an unrelated object far away
+widens it — with `r=5` the verdict flips at a scene extent of about `24.5·r`, and ONE
+construction line parked ~100 units off turned a contact `1.1e-10` from its vertex, which
+the same pair correctly refuses when drawn alone, into a certified one publishing the
+sample fraction `0.125` as the exact crossing parameter, reachable through
+`Sketch.Profiles()` with no options at all
+(`TestAnalyticContactAtVertexBandIsChordLocal`). The chord is the only length the
+mapping decision is stated in, and no distant object can inflate it. (3) The four chord
 departures at each injected
 point ALTERNATE between the sources (`portsCross`), in the same rotation order
 `buildGraph` sorts by — meeting at a point is not crossing at it. A contact at an open
@@ -317,7 +326,8 @@ each family's own whole edge),
 `TestAnalyticCurveCrossingEndpointOnChordNotCertified` and
 `TestAnalyticCurveCrossingAtSampleVertexNotCertified` (the two shapes of contact a
 segment-end band waved through, each publishing one region where the sampled map has
-two) and the internal
+two), `TestAnalyticContactAtVertexBandIsChordLocal` (the same pair reaches the same
+verdict with and without a distant unrelated line) and the internal
 `TestPolylinesMeetOnlyAtContacts` (the incidence predicate itself, including the
 collinear overlap `segParams` never reports).
 **Coincident-CARRIER overlaps (same center, same radius — e.g. a gear tooth's root
