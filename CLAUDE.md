@@ -329,6 +329,13 @@ with a wrong region count). Scoped to pairs with at least one free-form source, 
 all-analytic scene is untouched and pays nothing. **The guard sets a FLAG and nothing
 else** — region counts, areas and every reported parameter range are byte-identical to
 what the same geometry produced before it (measured across 900 mixed-family scenes).
+That flag-only PROPERTY is enforced by
+`TestNearMissGuardLeavesCorrectAnswersAlone` and `TestProfilesHiddenCrossingIsInvalid`;
+what no fixture re-derives is the SAMPLE SIZE those two numbers report. **This file's
+two words for that distinction are load-bearing and used consistently**: *measured*
+marks a one-off observation nothing re-runs, *pins* marks a named test that enforces
+the claim. No figure anywhere in this file or under `docs/` carries a date, so a lone
+dated one would read as the only current number among a dozen stale ones.
 **What it does not answer**: whether the recorded crossing COUNT is right. A lens
 narrower than the band whose chords DO cross is explained by its own crossing and stays
 silent, so a sub-sample cap is still unflagged where the chords meet — 27% of wrong
