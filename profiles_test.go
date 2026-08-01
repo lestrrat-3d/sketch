@@ -394,3 +394,34 @@ func TestProfilesCoincidentCarrierGearTooth(t *testing.T) {
 		require.Truef(t, e.TExact, "tooth: %+v", e)
 	}
 }
+
+// TestProfilesHiddenCrossingIsInvalid is the sketch-level face of the near-miss
+// guard (geom/nearmiss.go): a curve whose bow between two consecutive samples is
+// larger than the thing it crosses hides the crossing from the planar map
+// entirely, and before the guard the resulting profile set was published with
+// Valid, ProfilesValid and Trustworthy() all reading clean.
+//
+// A 1000 mm spline through a 0.05 mm circle centred on the true curve. The
+// arrangement still emits the whole disk — this pass changes no topology and no
+// area — but it no longer calls it sound.
+func TestProfilesHiddenCrossingIsInvalid(t *testing.T) {
+	s := newSketch(t)
+	sp, err := s.CreateSpline(
+		s.CreatePoint(-500, 300), s.CreatePoint(-250, -400), s.CreatePoint(0, -400),
+		s.CreatePoint(250, -400), s.CreatePoint(500, 300))
+	require.NoError(t, err)
+	// The middle of one of the spline's 64 default sample spans, where its chord
+	// runs furthest from it.
+	cx, cy := sp.Eval(40.5 / 64)
+	s.CreateCircle(s.CreatePoint(cx, cy), 0.05)
+
+	profiles := s.Profiles()
+	require.Len(t, profiles, 1, "the sampled map has the disk whole")
+	require.InEpsilon(t, math.Pi*0.05*0.05, profiles[0].Area, 1e-9, "the whole disk's area")
+	require.False(t, profiles[0].Valid, "a crossing this sampling cannot rule out")
+
+	rep := s.Verify(t.Context())
+	require.False(t, rep.ProfilesValid)
+	require.False(t, rep.Trustworthy())
+	require.ErrorIs(t, rep.Check(), sketch.ErrInvalidProfile)
+}

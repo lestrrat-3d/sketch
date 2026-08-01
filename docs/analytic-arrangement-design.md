@@ -295,24 +295,72 @@ every bound of that arrangement report `TExact = false` — the lines, circles a
 arcs beside it included, however far apart they sit, and the free-form curve's own
 uncut whole edge included.
 
-The gate exists because a free-form source reaches the map only as chords and
-nothing bounds how far it runs from them: the sampler places vertices, it does not
-certify a deviation. A curve with a lobe between two consecutive samples crosses
-another curve entirely between them — measured on a knot-clustered degree-3 NURBS
-at the default sampling: a midpoint-sampled deviation of 2.1e-05 against a true
-4.7e-01 maximum on the same segment. The crossing is then missing from the map, the
-regions it separates fuse, and the scene's certified pairs publish the fused map
-with every bound exact. Gating on the SOURCE KINDS answers that with no threshold
-and no per-family enclosure; in an all-analytic scene there is no sampled-only pair
-at all, so only the refused-crossing reconciliation above remains, and its bound
-errs toward withdrawing exactness.
+The gate exists because a free-form source reaches the map only as chords. A curve
+with a lobe between two consecutive samples crosses another curve entirely between
+them — measured on a knot-clustered degree-3 NURBS at the default sampling: a
+midpoint-sampled deviation of 2.1e-05 against a true 4.7e-01 maximum on the same
+segment. The crossing is then missing from the map, the regions it separates fuse,
+and the scene's certified pairs publish the fused map with every bound exact.
+Gating on the SOURCE KINDS answers that with no threshold; in an all-analytic scene
+there is no sampled-only pair at all, so only the refused-crossing reconciliation
+above remains, and its bound errs toward withdrawing exactness.
+
+The near-miss guard below now reports that fusion as `Degenerate`, but it does not
+lift this gate: it says where a crossing CANNOT be ruled out, not that the crossing
+set is right where it stays silent, and a free-form crossing's parameter is a
+sampled one whatever the topology.
 
 **The coverage cost is understood and accepted**: a scene containing any free-form
 curve loses exact bounds everywhere in that scene, so what is given up is exactness
-on the analytic sources sharing the scene with it. Topology, areas, degeneracy and
-the reported ranges are untouched. Lifting it needs a sampler that certifies its own
-per-source deviation (a change to `densify`), not a wider estimate at the point of
-use — a separate change, not planned here.
+on the analytic sources sharing the scene with it. Topology, areas and the reported
+ranges are untouched. Lifting it needs a sampler that certifies its own per-source
+deviation (a change to `densify`), not a wider estimate at the point of use — a
+separate change, not planned here.
+
+**The near-miss guard** (`geom/nearmiss.go`, `nearMissGuard`). The gate above
+withholds *exactness* from a scene whose map may be missing a crossing; this
+reports the missing crossing itself as `Degenerate`, so `Region.Degenerate`,
+`Arrangement.Degenerate`, `Profile.Valid`, `VerificationReport.ProfilesValid` and
+`Trustworthy()` stop blessing a region set that may have lost one.
+
+Every tiny segment carries a PROVEN upper bound on how far its source departs from
+that segment's own chord (`arranger.segDev`, filled by `densify`):
+
+| family | bound | why it is sound |
+|---|---|---|
+| line | 0 | the polyline IS the line |
+| circle, arc | `r·(1−cos(Δθ/2))` | the exact sagitta; `densify` floors at two segments so `Δθ ≤ π` |
+| ellipse, elliptical arc | `Δφ²·max(rx,ry)/8` | linear-interpolation error `h²·M/8`; the second derivative in the eccentric angle is `−rx·cos φ·u − ry·sin φ·v`, norm ≤ `max(rx,ry)` everywhere |
+| conic | max distance from the sub-span's rational-quadratic control points to the chord | de Casteljau in homogeneous coordinates; positive weights make every curve point a convex combination of the projected controls |
+| spline, NURBS | same, over the sub-span's control points after inserting both bounds to multiplicity `p` | Boehm knot insertion refines the representation, not the curve; the convex hull holds for the rational curve too |
+| closed spline, fit spline | same, over each overlapped piece's cubic Bézier control points | the periodic uniform basis and the natural-cubic piece each convert to Bézier exactly |
+
+Distance to a chord segment is convex, so its maximum over a convex hull is
+attained at a hull point — that is what makes the hull bounds bounds and not
+estimates. A family that could prove none would report unbounded and flag.
+
+Two segments whose chords approach within the SUM of their bounds may have the true
+curves crossing between them — twice, so the chords need not cross and nothing is
+recorded. Where no contact the sampled map recorded (`sampledContacts`: a
+chord/chord crossing, or a weld of two sample vertices) sits within that same band
+of the approach, the pair is flagged. The window is the band, not one chord: a
+chord window forgives a grazing lens narrower than one chord, and over the hider ×
+partner matrix left the wrong region count unflagged in 30 of 45 combinations.
+
+Scoped to pairs with at least one free-form source. Line/circle/arc pairs are
+classified by the closed-form kernel and need no band, so an all-analytic scene is
+untouched and pays nothing — the loop never reaches its segments.
+
+**What it does not answer.** It asks whether a crossing was RECORDED near an
+approach, not whether the recorded crossing COUNT is right. A lens narrower than
+the band whose chords do cross is explained by its own crossing and stays silent,
+so the wrong region count that comes from a sub-sample cap is still unflagged at
+densities where the chords meet. Measured over the hider × partner matrix at 45
+separations each, 27% of the wrong region counts are flagged. Requiring the
+explaining contact to be RESOLVED as well (the `contactsResolved` rule, transposed
+to the sampled path) covers all of them, and was measured to cost an 8.5%
+false-flag rate on ordinary geometry — plain fit-spline arches closed by a chord —
+so it was not taken.
 
 #### Design record: the tension in the earlier text, and its resolution
 
