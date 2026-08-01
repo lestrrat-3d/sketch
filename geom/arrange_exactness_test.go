@@ -1,7 +1,9 @@
 package geom_test
 
 import (
+	"fmt"
 	"math"
+	"sort"
 	"testing"
 
 	"github.com/lestrrat-3d/sketch/geom"
@@ -85,9 +87,19 @@ func evalSource(t *testing.T, curves []geom.Curve, closed []geom.ClosedCurve, id
 // this invariant — now evaluating the actual EllipticalArc — catches the ~0.005 miss.
 // (An unknown Curve implementation makes evalSource return ok=false; that is a test gap
 // to fill with a new case, and the invariant fails loudly rather than skipping it.)
+//
+// The comparison is RELATIVE to the coordinates under test (reproduceTol), never a fixed
+// absolute distance. "Reproduces to machine precision" is a statement about round-off,
+// and round-off is proportional to the magnitude of the numbers involved, so a fixed
+// number is the wrong shape at both ends: on small geometry it waves through a miss that
+// is orders of magnitude above round-off — at 1e-9 absolute it passed a bound whose
+// reported parameter missed its own polyline endpoint by 1e-9 on a scene 10 units across,
+// which is the whole defect TestExactBoundIdentityBandIsSourceLocal pins — and on large
+// geometry it would fail bounds that are exact. Every TExact bound the suite emits
+// reproduces to within 1.4e-15 relative, so the 1e-12 allowance below sits three orders
+// above the observed round-off and three below the engine's merge tolerance (1e-7).
 func requireExactBoundsReproduce(t *testing.T, curves []geom.Curve, closed []geom.ClosedCurve, arr *geom.Arrangement) {
 	t.Helper()
-	const tol = 1e-9
 	check := func(e geom.BoundaryEdge) {
 		if !e.TExact {
 			return
@@ -99,13 +111,14 @@ func requireExactBoundsReproduce(t *testing.T, curves []geom.Curve, closed []geo
 			e.SourceIndex)
 		a := e.Polyline[0]
 		b := e.Polyline[len(e.Polyline)-1]
+		tol := reproduceTol(p0, p1, a, b)
 		// {eval(TStart), eval(TEnd)} must equal {polyline start, polyline end} as a set;
 		// Reversed decides which is which, so accept either pairing.
 		fwd := math.Hypot(p0[0]-a[0], p0[1]-a[1]) <= tol && math.Hypot(p1[0]-b[0], p1[1]-b[1]) <= tol
 		rev := math.Hypot(p0[0]-b[0], p0[1]-b[1]) <= tol && math.Hypot(p1[0]-a[0], p1[1]-a[1]) <= tol
 		require.Truef(t, fwd || rev,
-			"TExact bound does not reproduce its polyline endpoints: src=%d reversed=%v t=[%v %v] eval=%v,%v poly=%v,%v",
-			e.SourceIndex, e.Reversed, e.TStart, e.TEnd, p0, p1, a, b)
+			"TExact bound does not reproduce its polyline endpoints (tol %g): src=%d reversed=%v t=[%v %v] eval=%v,%v poly=%v,%v",
+			tol, e.SourceIndex, e.Reversed, e.TStart, e.TEnd, p0, p1, a, b)
 	}
 	for _, r := range arr.Regions {
 		for _, e := range r.Outer {
@@ -117,6 +130,19 @@ func requireExactBoundsReproduce(t *testing.T, curves []geom.Curve, closed []geo
 			}
 		}
 	}
+}
+
+// reproduceTol is the round-off allowance for "eval(the reported parameter) IS the
+// emitted polyline endpoint", stated relative to the largest coordinate being compared
+// — the only length floating-point evaluation error is proportional to. It is
+// deliberately independent of the arrangement's own bands: the oracle must not restate
+// what the engine did, only what a consumer is promised.
+func reproduceTol(pts ...[2]float64) float64 {
+	m := 1.0
+	for _, p := range pts {
+		m = math.Max(m, math.Max(math.Abs(p[0]), math.Abs(p[1])))
+	}
+	return 1e-12 * m
 }
 
 // TestBoundaryEdgeExactInvariant is the mechanical property test for the whole false-
@@ -433,5 +459,119 @@ func TestBoundaryEdgeExactInvariantFreeform(t *testing.T) {
 			}
 			require.NotZero(t, whole0, "source 0 must contribute a whole edge")
 		})
+	}
+}
+
+// TestExactBoundIdentityBandIsSourceLocal pins that the identity band deciding whether
+// a bound's reported parameter may be published as exact belongs to the SOURCE under
+// test, not to the drawing. The band was stated only against the arrangement's scale —
+// the whole scene's bounding-box extent — so an object with nothing to do with the
+// bound widened it.
+//
+// The fixture is the ordinary consumer path with no options at all: a circle of radius
+// 5 and a chord line crossing it a fixed distance g past one of the circle's own sample
+// vertices. g is below the merge tolerance, so the exact crossing welds ONTO that sample
+// vertex: the emitted polyline endpoint is the vertex while the reported parameter is
+// the crossing, g away. That bound is not exact, and the circle alone reports it so. Add
+// ONE unrelated line at x=1000 and the scene band grows past g, and the same bound reads
+// exact — publishing a parameter that misses its own polyline endpoint by the whole g.
+//
+// So the verdict must be the same with and without the distant line, at every extent,
+// density and gap; and it must be the refusal. Areas, region counts, parameter ranges
+// and Whole must be identical either way — only the exactness claim was ever at stake.
+func TestExactBoundIdentityBandIsSourceLocal(t *testing.T) {
+	const r = 5.0
+	// scene builds the circle plus a chord whose first crossing sits arc-distance g past
+	// the circle's sample vertex at t=0.125, optionally with an unrelated far line.
+	scene := func(g, far float64) ([]geom.Curve, []geom.ClosedCurve) {
+		aP := 2*math.Pi*0.125 + g/r
+		aR := 2*math.Pi*0.625 + 0.013
+		px, py := r*math.Cos(aP), r*math.Sin(aP)
+		qx, qy := r*math.Cos(aR), r*math.Sin(aR)
+		ux, uy := px-qx, py-qy
+		l := math.Hypot(ux, uy)
+		ux, uy = ux/l, uy/l
+		curves := []geom.Curve{geom.NewLine(
+			geom.NewPoint(px+0.7*ux, py+0.7*uy), geom.NewPoint(qx-0.7*ux, qy-0.7*uy))}
+		if far > 0 {
+			curves = append(curves, geom.NewLine(geom.NewPoint(far, -1), geom.NewPoint(far, 1)))
+		}
+		return curves, []geom.ClosedCurve{geom.NewCircle(geom.NewPoint(0, 0), r)}
+	}
+	// signature is everything a consumer reads off the arrangement, exactness last, so a
+	// difference reports which half moved. Sources are named rather than indexed: the far
+	// line takes index 1, which shifts the closed circle's own index, and that renumbering
+	// is bookkeeping about the input list, not a change in what the circle reports.
+	signature := func(arr *geom.Arrangement, nCurves int) []string {
+		var out []string
+		for _, reg := range arr.Regions {
+			for _, e := range append(append([]geom.BoundaryEdge{}, reg.Outer...), flattenHoles(reg)...) {
+				name := "chord"
+				if e.SourceIndex == nCurves {
+					name = "circle"
+				}
+				out = append(out, fmt.Sprintf("area=%.17g src=%s t=[%.17g %.17g] rev=%v whole=%v exact=%v",
+					reg.Area, name, e.TStart, e.TEnd, e.Reversed, e.Whole, e.TExact))
+			}
+		}
+		sort.Strings(out)
+		return out
+	}
+
+	for _, g := range []float64{1e-10, 1e-9, 1e-8, 1e-7} {
+		for _, spt := range []int{0, 64, 128, 256} { // 0 = the adaptive default (256)
+			var opts []geom.Option
+			if spt > 0 {
+				opts = append(opts, geom.WithSegmentsPerTurn(spt))
+			}
+			curves, closed := scene(g, 0)
+			alone := geom.Regions(curves, closed, opts...)
+			require.Falsef(t, alone.Degenerate, "g=%g spt=%d: a chord across a disk is clean", g, spt)
+			require.Lenf(t, alone.Regions, 2, "g=%g spt=%d: the chord splits the disk in two", g, spt)
+			requireExactBoundsReproduce(t, curves, closed, alone)
+			base := signature(alone, len(curves))
+
+			for _, far := range []float64{1e3, 1e4, 1e5} {
+				fc, fcl := scene(g, far)
+				got := geom.Regions(fc, fcl, opts...)
+				requireExactBoundsReproduce(t, fc, fcl, got)
+				require.Equalf(t, base, signature(got, len(fc)),
+					"g=%g spt=%d far=%g: a line %g units away changed what the circle's own bounds report",
+					g, spt, far, far)
+			}
+		}
+	}
+}
+
+// TestExactBoundIdentityBandAdmitsRoundOff is the converse guard: tightening the band to
+// the source's own size must not start refusing genuine identity. A shared corner is
+// expressed by two curves holding the same point, and each reaches the arrangement
+// through its OWN evaluation of it — a line reproduces it exactly, an arc rebuilds it
+// through trig a few ulps out — so the band has to stay above that round-off. Over a
+// battery of arc/line wires, at every density, every bound the closed-form kernel
+// produced is still published exact.
+func TestExactBoundIdentityBandAdmitsRoundOff(t *testing.T) {
+	for _, spt := range []int{0, 8, 16, 64, 256} {
+		var opts []geom.Option
+		if spt > 0 {
+			opts = append(opts, geom.WithSegmentsPerTurn(spt))
+		}
+		for _, th := range []float64{0.3, 0.9, 1.5, 2.4} {
+			// A circular segment: an arc closed by the chord between its own endpoints.
+			c := geom.NewPoint(0, 0)
+			a := geom.NewPoint(4*math.Cos(-th), 4*math.Sin(-th))
+			b := geom.NewPoint(4*math.Cos(th), 4*math.Sin(th))
+			curves := []geom.Curve{geom.NewArc(c, a, b), geom.NewLine(b, a)}
+			arr := geom.Regions(curves, nil, opts...)
+			require.Lenf(t, arr.Regions, 1, "spt=%d th=%g: the segment closes", spt, th)
+			requireExactBoundsReproduce(t, curves, nil, arr)
+			for _, reg := range arr.Regions {
+				for _, e := range reg.Outer {
+					require.Truef(t, e.TExact,
+						"spt=%d th=%g: source %d bounds a shared-endpoint join, which is identity, not tolerance",
+						spt, th, e.SourceIndex)
+				}
+			}
+		}
 	}
 }

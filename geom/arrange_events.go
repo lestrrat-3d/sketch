@@ -527,7 +527,8 @@ func circleCircleEvents(a, b operand, scale float64) ([]xEvent, bool) {
 //
 //   - The GLOBAL band, weldIdentEps·scale, ties the resolution to the downstream
 //     exactness audit: vertexCertifies decides whether a graph vertex IS a bound's own
-//     point against exactly that band, so a resolved bound's reported parameter
+//     point against that band (plus a source-local one of its own, in the same
+//     two-yardstick shape as here), so a resolved bound's reported parameter
 //     reproduces the emitted geometry only while the miss stays inside it.
 //   - The CARRIER-LOCAL band, weldIdentEps·max(a.r, b.r), is what makes the test a
 //     statement about these two carriers. The arrangement scale is the whole scene's

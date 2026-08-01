@@ -71,6 +71,11 @@ type BoundaryEdge struct {
 	// exact. A consumer that must be exact (recording the region structurally, or
 	// emitting CAD from it) MUST check this and reject rather than trust the range.
 	//
+	// "To machine precision" is measured against the SOURCE's own size, so the verdict
+	// is a property of the curve and the contacts on it. Drawing unrelated geometry
+	// elsewhere in the scene cannot turn a bound this reports as inexact into an exact
+	// one (it can still withhold exactness — see the whole-scene gate below).
+	//
 	// FIRST, a WHOLE-SCENE gate: exact bounds are published only when EVERY source in
 	// the arrangement is a Line, Circle or Arc. One Ellipse, EllipticalArc, Conic,
 	// Spline, ClosedSpline, FitSpline or NURBS anywhere in the scene makes every bound

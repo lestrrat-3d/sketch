@@ -78,6 +78,15 @@ type source struct {
 	// NURBS: the general rational B-spline (degree/knots/weights/control). The
 	// natural parameter t in [0, 1] maps linearly across the knot domain.
 	nurbs *NURBS
+	// extent is THIS source's own bounding-box extent, measured over its sampled
+	// polyline by densify with the same formula the scene scale uses. It is the
+	// SOURCE-LOCAL yardstick the identity band is stated in (vertexCertifies,
+	// endpointReproduces), so that band is a property of the curve under test and
+	// cannot be widened by geometry drawn somewhere else. Zero for a source that
+	// samples to a single point (a degenerate one contributes no segments), which
+	// admits only an exact match — the same conservative choice polylineChordAt
+	// makes for a vertex with no chord.
+	extent float64
 }
 
 type srcKind int
@@ -841,20 +850,27 @@ func (a *arranger) flagDegenerate(x, y float64, srcs ...int) {
 	a.degen = append(a.degen, degenRecord{x: x, y: y, srcs: srcs})
 }
 
-// densify samples each source into tiny segments and computes the scene scale
-// and the vertex-merge tolerance.
+// densify samples each source into tiny segments and computes the scene scale,
+// each source's own extent and the vertex-merge tolerance.
 func (a *arranger) densify() {
 	minX, minY := math.Inf(1), math.Inf(1)
 	maxX, maxY := math.Inf(-1), math.Inf(-1)
+	// Per-source bounds, accumulated from the same sample points as the scene's, so
+	// source.extent is the scene scale's formula applied to ONE source (see the field).
+	var sMinX, sMinY, sMaxX, sMaxY float64
 	note := func(p [2]float64) {
 		minX, maxX = math.Min(minX, p[0]), math.Max(maxX, p[0])
 		minY, maxY = math.Min(minY, p[1]), math.Max(maxY, p[1])
+		sMinX, sMaxX = math.Min(sMinX, p[0]), math.Max(sMaxX, p[0])
+		sMinY, sMaxY = math.Min(sMinY, p[1]), math.Max(sMaxY, p[1])
 	}
 	for si := range a.sources {
 		s := &a.sources[si]
 		if s.kind == srcDegenerate {
 			continue
 		}
+		sMinX, sMinY = math.Inf(1), math.Inf(1)
+		sMaxX, sMaxY = math.Inf(-1), math.Inf(-1)
 		params := a.sampleParams(s)
 		last := len(params) - 1
 		atParam := func(i int) [2]float64 {
@@ -881,6 +897,10 @@ func (a *arranger) densify() {
 				ax: prev[0], ay: prev[1], bx: cur[0], by: cur[1],
 			})
 			prev = cur
+		}
+		s.extent = math.Max(sMaxX-sMinX, sMaxY-sMinY)
+		if !(s.extent > 0) || math.IsInf(s.extent, 1) {
+			s.extent = 0
 		}
 	}
 	a.scale = math.Max(maxX-minX, maxY-minY)
@@ -1481,8 +1501,8 @@ func (a *arranger) analyticCrossHosted(i, j int, events []xEvent) bool {
 // "one point or two", and both decide it with the SAME identity band vertexCertifies
 // uses: the first to ask whether a contact IS an injected crossing point, the second
 // whether it IS the vertex it was mapped to (there additionally bounded by the vertex's
-// own chord, so a distant object cannot widen it). No crossing-angle or chord-length
-// threshold enters either verdict.
+// own chord, as vertexCertifies is by its source's own extent, so a distant object
+// cannot widen it). No crossing-angle or chord-length threshold enters either verdict.
 //
 // Why analyticCrossHosted is not that statement for this pair: it requires the
 // crossing to be witnessed on the very segment pair carrying its two source
@@ -1770,8 +1790,9 @@ func (a *arranger) postCutPolyline(src int, ts []float64, pts [][2]float64) ([][
 // polylinesMeetOnlyAtContacts reports whether the two spliced polylines meet ONLY at
 // the injected contact points pts — every contact between a segment of one and a
 // segment of the other IS one of those points, within the round-off identity band eps
-// (weldIdentEps·scale, the same band contactIsVertex and vertexCertifies decide "one
-// point or two" by).
+// (weldIdentEps·scale, the scene half of the band contactIsVertex and vertexCertifies
+// decide "one point or two" by; each of those adds a local yardstick of its own, and
+// this predicate has no single source or vertex to state one against).
 //
 // Membership is decided by IDENTITY with an injected point. Deciding it by POSITION
 // ALONG THE HOST SEGMENTS instead — excluding a contact whose segment parameter sits
@@ -2512,8 +2533,8 @@ func (a *arranger) split() {
 		refused := !a.exactAllowed || (a.exactRefused != nil && a.exactRefused[s.src])
 		a.edges = append(a.edges, arrEdge{u: f.u, v: f.v, src: s.src,
 			pu: s.param(f.b0.t), pv: s.param(f.b1.t),
-			exactU: !refused && f.b0.exact && a.vertexCertifies(f.u, f.b0.px, f.b0.py),
-			exactV: !refused && f.b1.exact && a.vertexCertifies(f.v, f.b1.px, f.b1.py),
+			exactU: !refused && f.b0.exact && a.vertexCertifies(&a.sources[s.src], f.u, f.b0.px, f.b0.py),
+			exactV: !refused && f.b1.exact && a.vertexCertifies(&a.sources[s.src], f.v, f.b1.px, f.b1.py),
 			endU:   f.b0.srcEnd, endV: f.b1.srcEnd})
 	}
 }
@@ -2617,9 +2638,23 @@ func (a *arranger) splitFragments() []splitFrag {
 // round-off, and five orders of magnitude BELOW the default merge (1e-7·scale), so no
 // distance weld (a gap the caller's TOLERANCE forgave, not a coincidence) can pass as
 // identity. A weld tighter than round-off is identity.
-func (a *arranger) vertexCertifies(v int, px, py float64) bool {
+//
+// The band is bounded by TWO yardsticks at once — the scene's extent and the SOURCE's
+// own — the same two-band shape carriersIdentical uses for a coincident carrier and for
+// the same reason. a.scale is the whole scene's bounding-box extent, so on the scene
+// band alone an object drawn somewhere else widens what counts as identity here: a
+// circle of radius 5 whose crossing welds 1e-9 away from a sample vertex correctly
+// reports that bound inexact when drawn with its chord alone, and ONE unrelated line
+// parked at x=1000 flips it to exact — reachable through Sketch.Profiles() with no
+// options at all, publishing a parameter that misses the emitted polyline endpoint by
+// the whole 1e-9. Nothing about the source changed; only the scene did. The gap is a
+// displacement along the curve whose parameter is being certified, so the curve's own
+// size is the length it has to be judged against, and no distant object can inflate it
+// (TestExactBoundIdentityBandIsSourceLocal).
+func (a *arranger) vertexCertifies(src *source, v int, px, py float64) bool {
 	vx, vy := a.verts.coord(v)
-	return math.Hypot(vx-px, vy-py) <= weldIdentEps*a.scale
+	gap := math.Hypot(vx-px, vy-py)
+	return gap <= weldIdentEps*a.scale && gap <= weldIdentEps*src.extent
 }
 
 // endpointReproduces reports whether evaluating source src at parameter p reproduces
@@ -2632,14 +2667,24 @@ func (a *arranger) vertexCertifies(v int, px, py float64) bool {
 // Start/End are pinned to sketch points off the parametric ellipse — s.at(p) misses
 // the pinned coordinate, so the bound is correctly inexact. The band is the same
 // round-off identity band vertexCertifies uses (five orders below the merge tolerance),
-// so a tolerance gap can never pass as exact reproduction.
+// so a tolerance gap can never pass as exact reproduction — including its SOURCE-LOCAL
+// half, which this test needs for the same reason and measures the same way: the
+// quantity here is how far this source's own evaluation lands from this source's own
+// emitted endpoint, so geometry drawn elsewhere must not decide whether that miss is
+// round-off (TestEndpointReproductionBandIsSourceLocal).
 func (a *arranger) endpointReproduces(src *source, p, x, y float64) bool {
 	q := src.at(p)
-	return math.Hypot(q[0]-x, q[1]-y) <= weldIdentEps*a.scale
+	gap := math.Hypot(q[0]-x, q[1]-y)
+	return gap <= weldIdentEps*a.scale && gap <= weldIdentEps*src.extent
 }
 
-// weldIdentEps is the round-off band, relative to the scene scale, within which two
+// weldIdentEps is the round-off band, as a fraction of a length, within which two
 // coordinates are the SAME point rather than two points a tolerance welded together.
+// Every user states it against TWO lengths and requires both: the scene's scale, and a
+// length local to the geometry the decision is about — the source's own extent
+// (vertexCertifies, endpointReproduces), the vertex's chord (contactIsVertex), the
+// carriers' radii (carriersIdentical). The scene band alone lets an unrelated distant
+// object widen a verdict about geometry it has nothing to do with.
 const weldIdentEps = 1e-12
 
 // prune iteratively drops arrangement edges that have a degree-1 endpoint, so

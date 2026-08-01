@@ -340,11 +340,15 @@ a boundary point `P` misses the other operand's carrier by
 `||P − b.center| − b.r| ≤ d + |a.r − b.r|` (with `d` the center distance).
 `carriersIdentical` bounds that SUM, and it bounds it TWICE:
 
-- by `weldIdentEps·scale` — the same identity band `vertexCertifies` uses to
-  decide whether a graph vertex IS a bound's own point — so a resolved bound's
-  reported parameter really does reproduce the emitted geometry; and
+- by `weldIdentEps·scale` — the scene half of the identity band `vertexCertifies`
+  uses to decide whether a graph vertex IS a bound's own point — so a resolved
+  bound's reported parameter really does reproduce the emitted geometry; and
 - by `weldIdentEps·max(a.r, b.r)`, a band built from the two CARRIERS
   themselves.
+
+`vertexCertifies` is now bounded by two yardsticks in the same shape and for the
+same reason (there the local one is the SOURCE's own extent), so the two gates
+still agree: neither can be widened by geometry drawn somewhere else.
 
 The second is what makes the gate a statement about the pair. `scale` is the
 whole scene's bounding-box extent, so any object anywhere inflates it: a scene
