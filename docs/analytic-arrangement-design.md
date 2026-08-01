@@ -196,11 +196,185 @@ Same-component interior tangency is a **self-touch** → `SelfIntersections`, no
    one, and hole assignment uses the exact ray-cast so the inner nests into the outer
    — annulus π·(R²−r²) + inner disk π·r², exact at every sampling, tiny inner and
    merged/cardinal contact included; disjoint-nested and mixed line+curve containment
-   unchanged, the whole-uncut-circle seam handled). §7b lift the curve/curve crossing
-   deferral behind the same exact-containment + analytic-authority basis; §7c (only
-   if needed) replace `BoundaryEdge.Polyline` topology with exact fragments for the
-   residual ellipse/spline cases. Each stage is independently testable against the
-   soundness invariant (blessed ⇒ correct, else `Degenerate`).
+   unchanged, the whole-uncut-circle seam handled). **§7b — designed below**: lift
+   the curve/curve crossing deferral behind the same exact-containment +
+   analytic-authority basis. §7c (only if needed) replace `BoundaryEdge.Polyline`
+   topology with exact fragments for the residual ellipse/spline cases. Each stage
+   is independently testable against the soundness invariant (blessed ⇒ correct,
+   else `Degenerate`).
+
+### §7b — lift the curve/curve crossing deferral (design)
+
+Status: **designed, not implemented**. Sibling design:
+`docs/coincident-carrier-resolution-design.md` resolves the coincident-carrier
+(`evOverlap`) case this section does not touch — a transverse crossing and a
+coincident carrier are different `analyticEvents` classifications with
+different fixes. A curve/curve transverse crossing (both
+sources circle/arc) is the last case increment 2 left on the sampled path
+(the `nCross > 0 && isCurvedKind(…) && isCurvedKind(…)` deferral branch in
+`analyticPrepass`, `geom/arrange.go`; "Scope of analytic authority" above): the
+sampled topology is already correct, but every fragment either source contributes
+reports `TExact = false` (`cut.exact` stays `false` on a sampled cut —
+`geom/arrange.go:186-195`), which blocks any consumer whose admission gate
+requires `TExact` before it will record a fragment structurally. Probe case B
+in `.tmp/decad-2d-region-asks/probe/main.go` (a chord circle crossing the hub
+circle) is the concrete demonstration: right region count and areas, `TExact`
+false on every fragment of both circles.
+
+#### The tension in the existing text, and its resolution
+
+Increment 3's own wording (above) says lifting this needs a richer
+"hostability certificate" — fragment incidence, full **port order** at every
+event vertex, and closed containment. The §7 scope refinement, written later,
+narrows this to two remaining exactness upgrades (containment, done in §7a;
+"trusting the analytic crossing verdict", not yet done) and explicitly folds
+port ordering into "already exact (`sortExactPorts`, increment 3)" — treating
+it as *covered*, not as a remaining requirement for the crossing case.
+
+Reading the code resolves which is right, because it answers a narrower
+question than "does the certificate hold in general": **does a transverse
+crossing ever need exact port ordering at all?** `sortExactPorts` exists to
+break a tie — at a certified tangency the two curves' chord departure angles
+from a shared vertex are equal (a double root: same point, same direction), so
+`buildGraph`'s plain chord-angle sort cannot tell which pairing of incoming/
+outgoing half-edges keeps the two loops apart, and branch-swaps them. A
+transverse crossing has no such tie: two distinct curves crossing at a point
+depart in four genuinely different chord directions (a `evCross` is a simple
+root, not a double one), so at ANY sampling density the four chord angles at
+the crossing vertex already order correctly — this is exactly why the sampled
+path resolves curve/curve crossings correctly today, with no analytic help at
+all. `useExactPorts` (`geom/arrange.go`) already encodes this scope:
+it applies exact tangent ordering only at a vertex in `exactPortVerts`, which
+`analyticPrepass` populates *only* for a certified tangency contact (its lone
+`a.exactPortVerts = append(…)` site) — never for a crossing. So the "full port
+order at every event vertex" clause of the increment-3 certificate was written before
+the tangency/crossing distinction was drawn this finely; a crossing vertex
+never needed it, and nothing here proposes adding it.
+
+What a crossing DOES need — incidence (does the sampled map actually cross
+where the exact geometry does) and containment (if the crossing produces a
+nested/hole relationship, is the hole assigned correctly) — is already built,
+and built **pair-generically**: `analyticCrossHosted` / `contactsResolved` /
+`sampledCrossingsExplained` (`geom/arrange.go`) run today for every
+*line-involved* curved pair reaching the consistency gate (the `if` in
+`analyticPrepass` that calls all three, same file), and none of their logic
+special-cases "one operand is a line" — `sampledCrossingsExplained`'s per-source
+tolerance already takes `segLen` from EITHER source when
+it is curved, exactly the shape a two-curved-source pair needs. Containment is
+`exactPointInRegion` (§7a, done), also pair-generic. So the §7 scope
+refinement's narrower basis is the one the code already supports: **lift the
+deferral by routing curve/curve crossings through the SAME gate the
+line-involved path already uses**, not by building a new certificate.
+
+#### Mechanism
+
+In `analyticPrepass` (`geom/arrange.go`), the block
+
+    if nCross > 0 && isCurvedKind(si.kind) && isCurvedKind(sj.kind) {
+        if ambiguous { ... flagDegenerate ... }
+        continue
+    }
+
+currently exits before the pair is marked `handled` and before the
+consistency gate runs. The lift removes this special case so a curve/curve
+pair with `nCross > 0` falls through to the same path a line/circle or
+line/arc pair already takes: `a.handled[[2]int{i,j}] = struct{}{}`, the
+`analyticCrossHosted`/`contactsResolved`/`sampledCrossingsExplained` gate
+(unmodified), and — for each `evCross` — `applyAnalyticCut` on both sources at
+the shared exact event point (unmodified; `applyAnalyticCut` already handles
+this generically by source index, not by kind). A pair that fails the gate
+still `flagDegenerate`s, exactly as a line-involved pair does today — the
+conservative fallback is unchanged, only the *class* of pair reaching it
+grows. No change is needed to `split`, `makeCycle`, `vertexCertifies`, or
+`BoundaryEdge`/`cycFrag` construction: they already treat an exact cut on a
+circle/arc source generically (the `TExact`/`Whole` machinery documented in
+`geom/region.go:66-94` and the `CLAUDE.md` `profiles.go` row does not
+distinguish "the other source was a line" from "the other source was a
+circle").
+
+#### The open question the design does not resolve by reading alone
+
+The three-part gate is written pair-generically, but it has never been
+*exercised* against curve/curve data with analytic authority taken — the
+`round-2` regression (`TestAnalyticCircleCircleSecantDeferredToSampled`,
+`geom/arrange_analytic_test.go:136-186`) and the ~18%-at-spt-16 false-flag
+measurement cited in "Scope of analytic authority" above were both measured
+*before* `analyticCrossHosted`/`contactsResolved`/`sampledCrossingsExplained`
+existed in their current form (they were the reason increment 2 deferred
+curve/curve crossings in the first place, and increment 2 predates the gate).
+Whether the gate — built and tuned against line-involved pairs — rejects the
+round-2 geometry and holds the false-flag rate near the sampled path's ~0%
+when applied unmodified to curve/curve pairs is not something reading the
+source settles; it is what implementing the mechanism above and running it
+against exactly those two adversarial cases establishes. This is recorded as
+an open decision below, not left as an unstated risk.
+
+#### Acceptance criteria (repository terms)
+
+- `geom.Regions` on probe case B's five entities returns the same region
+  count and areas it does today, with every `TExact` flipped from `false` to
+  `true` (mirrors the note's own acceptance statement).
+- `Sketch.Profiles()` on the equivalent sketch reports `TExact = true` on
+  every `BoundaryEdge` bounded by the newly-analytic crossing, with `Partial`
+  unchanged (topology is not supposed to move).
+- Coarse-vs-fine sampling agreement: `geom.WithSegmentsPerTurn` swept across a
+  wide range produces the identical region count and area for a blessed
+  curve/curve crossing (the existing invariant in "Invariants every increment
+  must hold" below, now covering the newly-lifted case).
+- Scale invariance: unchanged from the existing invariant list, now asserted for
+  curve/curve pairs specifically. Reversal invariance is not on this list and
+  cannot be: the operands here are circles and arcs, and neither has a reversed
+  representation (`geom.Arc` is `{Center, Start, End}` with no direction flag and
+  `Sweep() ∈ (0, 2π]`, so swapping an arc's endpoints builds the complementary
+  arc, a different curve).
+- The round-2 fusion regression (`TestAnalyticCircleCircleSecantDeferredToSampled`'s
+  exact geometry) stays non-degenerate with the correct three regions across
+  the same `spt` sweep, now via the analytic-authoritative path rather than
+  the sampled fallback it currently exercises.
+- The false-flag rate on well-separated curve/curve crossings (the sweep the
+  same test already runs at `spt >= 8`) does not regress from the sampled
+  path's baseline — a crossing that was clean before the lift must still read
+  clean after it.
+
+#### Tests
+
+- `geom/arrange_analytic_test.go`: extend
+  `TestAnalyticCircleCircleSecantDeferredToSampled` (or add a sibling with a
+  name reflecting the new behavior, e.g. `TestAnalyticCircleCircleCrossingExact`)
+  to assert `arr.Degenerate == false`, the same region/area invariants it
+  checks today, AND `TExact == true` on every returned fragment of both
+  sources — the round-2 geometry and the transverse-band sweep it already
+  exercises are the adversarial cases this lift must survive, so reuse them
+  rather than writing new geometry.
+- `geom/arrange_analytic_test.go`: a new test asserting `TExact` flips to
+  `true` on a plain, well-separated circle/circle secant (mirrors
+  `TestAnalyticCircleChordSamplingStable`'s sampling-stability assertion but
+  for a curve/curve pair) across a `WithSegmentsPerTurn` sweep.
+- `profiles_test.go` (root package): a sketch-level equivalent of probe case
+  B, asserting `Sketch.Profiles()` reports `TExact = true` — the consumer-
+  facing surface the note's admission gate actually reads.
+- `geom/arrange_analytic_test.go`: a false-flag sweep over well-separated
+  circle/circle and arc/arc crossings at varying angle/distance/`spt` (the
+  same shape as the existing internal-tangent and shallow-secant sweeps in
+  this file), asserting `Degenerate == false` for every case that was clean
+  under the sampled path — the regression guard for the 18%-at-spt-16 number
+  cited in "Scope of analytic authority".
+
+#### Open decisions
+
+- **Whether the existing gate, applied unmodified, is sufficient for
+  curve/curve pairs, or needs strengthening.** The code-level argument above
+  (crossings never needed port ordering; incidence/containment are already
+  pair-generic) argues the unmodified gate suffices. This is not certified by
+  reading; it is certified by implementing the mechanism above and running it
+  against the round-2 regression and the false-flag sweep (the two tests
+  above are the acceptance evidence, not a separate follow-up). **If either
+  fails** — the gate blesses the round-2 fusion, or the false-flag rate does
+  not return to the sampled path's baseline — the fallback is to hold the
+  deferral for the specific sub-case the failure isolates (e.g. gate the lift
+  on an additional geometric condition, such as excluding near-internal pairs
+  where the round-2 case lives) rather than abandoning the lift entirely,
+  since the acceptance tests above pin exactly which cases must stay sound.
 
 ## Wiring design (increment 2)
 
@@ -330,7 +504,11 @@ hole, collinear-overlap degeneracy, spline self-intersection/fallback.
   pair always has the same (correct) topology across sampling; the verdict never
   blesses a wrong/empty topology.
 - Scaling geometry tiny/huge does not change classification (scale-relative bands).
-- Input order and curve reversal do not change region areas/counts.
+- Input order does not change region areas/counts, and neither does reversing a
+  curve that HAS a reversed representation (a line, a spline). An arc does not:
+  `geom.Arc` is `{Center, Start, End}` with no direction flag and `Sweep() ∈
+  (0, 2π]`, so swapping its endpoints builds the complementary arc rather than
+  the same one authored backwards.
 - `Degenerate` always forces `ProfilesValid=false` and therefore `Trustworthy=false`.
 - A clean supported tangency does not set `Degenerate` (once the port handling lands;
   conservatively `Degenerate` at a merged cycle-bearing vertex until then).

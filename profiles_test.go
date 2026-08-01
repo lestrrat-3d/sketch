@@ -318,3 +318,79 @@ func TestProfilesUnattributableDegeneracyInvalidatesEveryProfile(t *testing.T) {
 	require.Equal(t, profiles[0].Area, rep.InvalidProfiles[0].Area)
 	require.Len(t, rep.InvalidProfiles, 1, "every detected profile is listed")
 }
+
+// TestProfilesCoincidentCarrierGearTooth is a sketch-level equivalent of probe
+// case C (.tmp/decad-2d-region-asks/probe/main.go, ask 2's motivating example): a
+// root arc lying EXACTLY on a hub circle's carrier, closed by two flank lines and
+// a tip line into a tooth. Before coincident-carrier resolution
+// (docs/coincident-carrier-resolution-design.md) this sketch's arrangement was
+// Degenerate and Verify(ctx).Trustworthy() read false — "gear-like sections
+// cannot even be authored directly and verified," per the design's own framing.
+// Fully constrained (DOF 0) via distances + a vertical tip, so Trustworthy()
+// isolates the coincident-carrier fix rather than an unrelated under/over-
+// constraint.
+func TestProfilesCoincidentCarrierGearTooth(t *testing.T) {
+	s := newSketch(t)
+	center := s.CreatePoint(0, 0)
+	s.Fix(center)
+	hub := s.CreateCircle(center, 10)
+	s.AddConstraint(sketch.NewRadius(hub, 10))
+
+	ax, ay := 10*math.Cos(0.3), 10*math.Sin(0.3)
+	p0 := s.CreatePoint(ax, -ay) // root arc start
+	p1 := s.CreatePoint(ax, ay)  // root arc end
+	s.Fix(p0)
+	s.AddConstraint(sketch.NewDistance(p0, p1, math.Hypot(p1.X()-p0.X(), p1.Y()-p0.Y())))
+	rootArc := s.CreateArc(center, p0, p1)
+
+	tip0 := s.CreatePoint(13, 1)
+	tip1 := s.CreatePoint(13, -1)
+	s.AddConstraint(sketch.NewDistance(p1, tip0, math.Hypot(13-ax, 1-ay)))
+	s.AddConstraint(sketch.NewDistance(tip0, tip1, 2))
+	s.AddConstraint(sketch.NewDistance(tip1, p0, math.Hypot(13-ax, -1+ay)))
+	s.AddConstraint(sketch.NewVerticalPoints(tip0, tip1))
+	s.CreateLine(p1, tip0)
+	tip := s.CreateLine(tip0, tip1)
+	s.CreateLine(tip1, p0)
+
+	if _, err := s.Solve(t.Context()); err != nil {
+		t.Fatalf("solve: %v", err)
+	}
+
+	rep := s.Verify(t.Context())
+	require.Equal(t, sketch.FullyConstrained, rep.Status)
+	require.Truef(t, rep.Trustworthy(), "%v", rep.Check())
+	require.True(t, rep.ProfilesValid)
+	require.Len(t, rep.Profiles, 2, "hub + tooth")
+
+	var hub2D, tooth2D *sketch.Profile
+	for _, p := range rep.Profiles {
+		if p.Area > 100 {
+			hub2D = p
+		} else {
+			tooth2D = p
+		}
+	}
+	require.NotNilf(t, hub2D, "profiles: %v", rep.Profiles)
+	require.NotNilf(t, tooth2D, "profiles: %v", rep.Profiles)
+	require.InDelta(t, math.Pi*100, hub2D.Area, 1e-6)
+	require.InDelta(t, 11.864262, tooth2D.Area, 1e-3)
+
+	// Both adjoining profiles must attribute the shared span to the SAME entity —
+	// the root arc — never one naming it and the other naming the hub circle (the
+	// pre-resolution bug the design's problem statement describes).
+	require.Contains(t, hub2D.Entities, sketch.Entity(rootArc), "the hub profile reuses the root arc")
+	require.Contains(t, tooth2D.Entities, sketch.Entity(rootArc), "the tooth profile uses the root arc")
+	require.Contains(t, tooth2D.Entities, sketch.Entity(tip), "the tooth profile includes its own tip line")
+	require.NotContains(t, tooth2D.Entities, sketch.Entity(hub), "the tooth profile must not fall back to the hub circle")
+
+	// Every bound of the merged (root-arc) span, and every other bound in this
+	// arrangement, is TExact: the resolved coincidence and every other contact
+	// here (line-involved cuts) are certified exact.
+	for _, e := range hub2D.Outer {
+		require.Truef(t, e.TExact, "hub: %+v", e)
+	}
+	for _, e := range tooth2D.Outer {
+		require.Truef(t, e.TExact, "tooth: %+v", e)
+	}
+}
