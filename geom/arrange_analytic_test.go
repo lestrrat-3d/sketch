@@ -206,11 +206,95 @@ func TestAnalyticSameCarrierArcs(t *testing.T) {
 	}, nil, geom.WithSegmentsPerTurn(32))
 	require.False(t, endpoint.Degenerate, "same-carrier arcs sharing only an endpoint are a clean join")
 
+	// Overlapping sweeps: docs/coincident-carrier-resolution-design.md resolves this
+	// case (a single window, at least one operand an arc) rather than flagging it —
+	// superseding the old unconditional Degenerate=true this sub-case used to assert.
+	// Neither arc closes on its own or on the other (their four endpoints are all
+	// distinct points), so the resolved boundary is one open chain from the first
+	// arc's own start to the second arc's own end — a dangling spur with nothing to
+	// bound a region, pruned away exactly like any other open curve. The interesting,
+	// CLOSED case (a real merged region, exercising SourceIndex naming and area) is
+	// TestAnalyticSameCarrierArcsResolvedRegion below.
 	overlapping := geom.Regions([]geom.Curve{
 		geom.NewArc(c, at(0), at(math.Pi)),
 		geom.NewArc(c, at(math.Pi/2), at(3*math.Pi/2)),
 	}, nil, geom.WithSegmentsPerTurn(32))
-	require.True(t, overlapping.Degenerate, "same-carrier arcs with overlapping sweeps are coincident geometry")
+	require.False(t, overlapping.Degenerate, "a resolved same-carrier arc overlap is no longer degenerate")
+	require.Empty(t, overlapping.Regions, "the merged chain has nothing closing it into a region")
+}
+
+// gearArcArcCurves builds an arc/arc analog of probe case C
+// (.tmp/decad-2d-region-asks/probe/main.go) — a "hub" that is a large, non-full
+// ARC (not a full circle, so BOTH sides of the coincident pair are genuine arcs)
+// closed into its own disk-like region by a chord, plus a small "tooth" whose root
+// arc lies exactly on the hub arc's carrier. hubFirst controls authoring order —
+// and so, per "The SourceIndex decision" in
+// docs/coincident-carrier-resolution-design.md, which of {hubArc, rootArc} ends up
+// the lower (named) index.
+func gearArcArcCurves(hubFirst bool) (curves []geom.Curve, hubArcIdx, rootArcIdx int) {
+	c := geom.NewPoint(0, 0)
+	at := func(ang float64) *geom.Point { return geom.NewPoint(10*math.Cos(ang), 10*math.Sin(ang)) }
+	deg := math.Pi / 180
+	hubArc := geom.NewArc(c, at(-170*deg), at(170*deg)) // 340° sweep, a 20° gap facing left
+	hubClose := geom.NewLine(at(170*deg), at(-170*deg))
+	ax, ay := 10*math.Cos(0.3), 10*math.Sin(0.3)
+	rootArc := geom.NewArc(c, geom.NewPoint(ax, -ay), geom.NewPoint(ax, ay))
+	f1 := geom.NewLine(geom.NewPoint(ax, ay), geom.NewPoint(13, 1))
+	tip := geom.NewLine(geom.NewPoint(13, 1), geom.NewPoint(13, -1))
+	f2 := geom.NewLine(geom.NewPoint(13, -1), geom.NewPoint(ax, -ay))
+	if hubFirst {
+		return []geom.Curve{hubArc, hubClose, rootArc, f1, tip, f2}, 0, 2
+	}
+	return []geom.Curve{rootArc, f1, tip, f2, hubClose, hubArc}, 5, 0
+}
+
+// TestAnalyticSameCarrierArcsResolvedRegion is the CLOSED counterpart of
+// TestAnalyticSameCarrierArcs's "overlapping" sub-case: an arc/arc coincident
+// carrier (docs/coincident-carrier-resolution-design.md) that DOES bound real
+// regions, so resolution produces a genuinely merged shared boundary rather than a
+// pruned open chain. Mirrors probe case C's arc/circle shape but with the hub as a
+// (non-full) arc, so both sides of the resolved pair are open curves.
+func TestAnalyticSameCarrierArcsResolvedRegion(t *testing.T) {
+	for _, hubFirst := range []bool{false, true} {
+		curves, hubIdx, rootIdx := gearArcArcCurves(hubFirst)
+		for _, spt := range []int{8, 16, 32, 64} {
+			arr := geom.Regions(curves, nil, geom.WithSegmentsPerTurn(spt))
+			require.Falsef(t, arr.Degenerate, "hubFirst=%v spt=%d", hubFirst, spt)
+			require.Lenf(t, arr.Regions, 2, "hubFirst=%v spt=%d: hub + tooth", hubFirst, spt)
+			requireExactBoundsReproduce(t, curves, nil, arr)
+
+			named, losing := rootIdx, hubIdx
+			if hubIdx < rootIdx {
+				named, losing = hubIdx, rootIdx
+			}
+			var hubArea, toothArea float64
+			var hubUsesNamed, toothUsesNamed, toothUsesLosing bool
+			for _, r := range arr.Regions {
+				usesNamed, usesLosing := false, false
+				for _, e := range r.Outer {
+					usesNamed = usesNamed || e.SourceIndex == named
+					usesLosing = usesLosing || e.SourceIndex == losing
+				}
+				if r.Area > 100 { // the hub-like region, area ~313.8; the tooth is ~11.9
+					hubArea, hubUsesNamed = r.Area, usesNamed
+					// The hub region legitimately uses the LOSING source too, for the
+					// part of its domain OUTSIDE the suppressed coincidence window (e.g.
+					// hubArc's own remaining ~306° when rootArc is named) — that is not
+					// the coincident span, so it is not a resolution failure.
+				} else {
+					toothArea, toothUsesNamed, toothUsesLosing = r.Area, usesNamed, usesLosing
+				}
+			}
+			require.InDeltaf(t, 313.80698, hubArea, 1e-3, "hubFirst=%v spt=%d", hubFirst, spt)
+			require.InDeltaf(t, 11.864262, toothArea, 1e-3, "hubFirst=%v spt=%d", hubFirst, spt)
+			require.Truef(t, hubUsesNamed, "hubFirst=%v spt=%d: hub region must use the named source", hubFirst, spt)
+			require.Truef(t, toothUsesNamed, "hubFirst=%v spt=%d: tooth region must use the named source", hubFirst, spt)
+			// The tooth's boundary is ENTIRELY inside the coincident span plus its own
+			// flank/tip lines, so the losing source — whose only contribution there was
+			// exactly that span — must never appear in the tooth region at all.
+			require.Falsef(t, toothUsesLosing, "hubFirst=%v spt=%d: the losing source must not appear in the tooth region", hubFirst, spt)
+		}
+	}
 }
 
 func TestAnalyticMergedExternalTangentBlessed(t *testing.T) {
@@ -565,4 +649,189 @@ func flattenHoles(r *geom.Region) []geom.BoundaryEdge {
 		out = append(out, h...)
 	}
 	return out
+}
+
+// gearProbeCaseCCurves builds probe case C
+// (.tmp/decad-2d-region-asks/probe/main.go, ask 2's motivating example): a root
+// arc lying EXACTLY on a hub circle's carrier, closed by two flank lines and a tip
+// line into a tooth. Mirrors the probe's own construction exactly.
+func gearProbeCaseCCurves() (curves []geom.Curve, closed []geom.ClosedCurve, rootArcIdx, hubIdx int) {
+	hub := geom.NewCircle(geom.NewPoint(0, 0), 10)
+	ax, ay := 10*math.Cos(0.3), 10*math.Sin(0.3)
+	rootArc := geom.NewArc(geom.NewPoint(0, 0), geom.NewPoint(ax, -ay), geom.NewPoint(ax, ay))
+	f1 := geom.NewLine(geom.NewPoint(ax, ay), geom.NewPoint(13, 1))
+	tip := geom.NewLine(geom.NewPoint(13, 1), geom.NewPoint(13, -1))
+	f2 := geom.NewLine(geom.NewPoint(13, -1), geom.NewPoint(ax, -ay))
+	return []geom.Curve{rootArc, f1, tip, f2}, []geom.ClosedCurve{hub}, 0, 4
+}
+
+// TestAnalyticCoincidentCarrierResolvesGearTooth is probe case C's exact geometry
+// (docs/coincident-carrier-resolution-design.md, ask 2's acceptance criteria): the
+// arrangement must stop flagging Degenerate and return the hub disk (π·10²) and the
+// tooth (≈11.864262) as two separate regions, with the coincident root-arc span
+// reported under the SAME SourceIndex (the root arc, the lower of the pair) in both
+// adjoining regions — never the hub circle in one and the arc in the other, the
+// pre-resolution bug the design's problem statement describes. Sampling-density and
+// scale independent, per "Determinism".
+func TestAnalyticCoincidentCarrierResolvesGearTooth(t *testing.T) {
+	for _, scale := range []float64{1, 0.001, 1000} {
+		curves, closed, rootArcIdx, hubIdx := gearProbeCaseCCurves()
+		if scale != 1 {
+			hub := geom.NewCircle(geom.NewPoint(0, 0), 10*scale)
+			ax, ay := 10*scale*math.Cos(0.3), 10*scale*math.Sin(0.3)
+			rootArc := geom.NewArc(geom.NewPoint(0, 0), geom.NewPoint(ax, -ay), geom.NewPoint(ax, ay))
+			f1 := geom.NewLine(geom.NewPoint(ax, ay), geom.NewPoint(13*scale, scale))
+			tip := geom.NewLine(geom.NewPoint(13*scale, scale), geom.NewPoint(13*scale, -scale))
+			f2 := geom.NewLine(geom.NewPoint(13*scale, -scale), geom.NewPoint(ax, -ay))
+			curves, closed = []geom.Curve{rootArc, f1, tip, f2}, []geom.ClosedCurve{hub}
+		}
+		for _, spt := range []int{3, 4, 5, 6, 7, 8, 16, 32, 64, 128} {
+			arr := geom.Regions(curves, closed, geom.WithSegmentsPerTurn(spt))
+			require.Falsef(t, arr.Degenerate, "scale=%g spt=%d", scale, spt)
+			require.Lenf(t, arr.Regions, 2, "scale=%g spt=%d: hub + tooth", scale, spt)
+			requireExactBoundsReproduce(t, curves, closed, arr)
+
+			var hubArea, toothArea float64
+			var hubUsesRootArc, toothUsesRootArc, anyUsesHub bool
+			for _, r := range arr.Regions {
+				usesRootArc, usesHub := false, false
+				for _, e := range r.Outer {
+					usesRootArc = usesRootArc || e.SourceIndex == rootArcIdx
+					usesHub = usesHub || e.SourceIndex == hubIdx
+					// The merged span's own bound is the root arc's WHOLE domain (both
+					// its natural ends), so it is unconditionally exact — but every
+					// OTHER bound in this arrangement (the hub's own surviving fragment,
+					// the flank/tip lines) is exact too, since every contact here is
+					// either a resolved coincidence or a line-involved cut. Assert it on
+					// every edge, not just the merged one, closing the "TExact must be
+					// true on the merged span" acceptance criterion without singling out
+					// one fragment by index.
+					require.Truef(t, e.TExact, "scale=%g spt=%d: src=%d t=%v..%v", scale, spt, e.SourceIndex, e.TStart, e.TEnd)
+				}
+				if r.Area > math.Pi*25*scale*scale { // hub (π·100·scale²) vs tooth (≈11.86·scale²)
+					hubArea, hubUsesRootArc = r.Area, usesRootArc
+				} else {
+					toothArea, toothUsesRootArc = r.Area, usesRootArc
+					anyUsesHub = anyUsesHub || usesHub
+				}
+			}
+			require.InDeltaf(t, math.Pi*100*scale*scale, hubArea, 1e-6*scale*scale, "scale=%g spt=%d", scale, spt)
+			require.InDeltaf(t, 11.864262*scale*scale, toothArea, 1e-3*scale*scale, "scale=%g spt=%d", scale, spt)
+			require.Truef(t, hubUsesRootArc, "scale=%g spt=%d: hub region must reuse the named root arc", scale, spt)
+			require.Truef(t, toothUsesRootArc, "scale=%g spt=%d: tooth region must use the named root arc", scale, spt)
+			require.Falsef(t, anyUsesHub, "scale=%g spt=%d: the tooth region must not fall back to hub-circle fragments", scale, spt)
+		}
+	}
+}
+
+// TestAnalyticCoincidentCarrierReversalInvariant is the "Curve reversal" half of
+// docs/coincident-carrier-resolution-design.md's "Determinism": reversing the root
+// arc's own authored direction (building it End-to-Start instead of Start-to-End)
+// changes only that source's own natural-parameter direction, never its position
+// in the input list — so it must not change which source is named, the region
+// count, or the areas.
+func TestAnalyticCoincidentCarrierReversalInvariant(t *testing.T) {
+	hub := geom.NewCircle(geom.NewPoint(0, 0), 10)
+	ax, ay := 10*math.Cos(0.3), 10*math.Sin(0.3)
+	rootArc := geom.NewArc(geom.NewPoint(0, 0), geom.NewPoint(ax, ay), geom.NewPoint(ax, -ay)) // reversed vs gearProbeCaseCCurves
+	f1 := geom.NewLine(geom.NewPoint(ax, ay), geom.NewPoint(13, 1))
+	tip := geom.NewLine(geom.NewPoint(13, 1), geom.NewPoint(13, -1))
+	f2 := geom.NewLine(geom.NewPoint(13, -1), geom.NewPoint(ax, -ay))
+	curves := []geom.Curve{rootArc, f1, tip, f2}
+	closed := []geom.ClosedCurve{hub}
+
+	arr := geom.Regions(curves, closed, geom.WithSegmentsPerTurn(64))
+	require.False(t, arr.Degenerate)
+	require.Len(t, arr.Regions, 2)
+	requireExactBoundsReproduce(t, curves, closed, arr)
+	var total float64
+	for _, r := range arr.Regions {
+		total += r.Area
+	}
+	require.InDelta(t, math.Pi*100+11.864262, total, 1e-3)
+}
+
+// TestAnalyticCoincidentCarrierMultiWindowStaysDegenerate is the "Scope" exclusion:
+// a pair whose sweeps overlap in more than one disjoint angular window is left
+// Degenerate — the pre-existing `coincidentArcOverlap` limit (reporting only the
+// longest contiguous overlap) means resolving just one window would silently drop
+// the other, so the design leaves the whole pair refused rather than resolve
+// unsoundly. Two near-full arcs, each covering all but a small gap, on the same
+// carrier, positioned so the gaps do not align: the sweeps overlap in two separate
+// places (on either side of the two gaps).
+func TestAnalyticCoincidentCarrierMultiWindowStaysDegenerate(t *testing.T) {
+	c := geom.NewPoint(0, 0)
+	at := func(ang float64) *geom.Point { return geom.NewPoint(5*math.Cos(ang), 5*math.Sin(ang)) }
+	// a: gap centered at angle 0 (spans 10°..350°, i.e. [10°,350°] the long way through 180°).
+	a := geom.NewArc(c, at(10*math.Pi/180), at(350*math.Pi/180))
+	// b: gap centered at angle 180° (spans 190°..170°, the long way through 0°).
+	b := geom.NewArc(c, at(190*math.Pi/180), at(170*math.Pi/180))
+	arr := geom.Regions([]geom.Curve{a, b}, nil, geom.WithSegmentsPerTurn(64))
+	require.True(t, arr.Degenerate, "a multi-window coincident overlap stays refused")
+}
+
+// TestAnalyticCoincidentCarrierNearCertifyStaysDegenerate is the refusal-band
+// regression guard for a genuine arc sweep (docs/coincident-carrier-resolution-design.md's
+// "The refusal band"): a carrier pair whose radius differs by just inside the
+// ambiguous band (between tangentCertify and tangentBand) must never be resolved —
+// only an EXACTLY certified carrier match may merge.
+func TestAnalyticCoincidentCarrierNearCertifyStaysDegenerate(t *testing.T) {
+	c := geom.NewPoint(0, 0)
+	at := func(r, ang float64) *geom.Point { return geom.NewPoint(r*math.Cos(ang), r*math.Sin(ang)) }
+	const r = 5.0
+	const offBand = 1.5e-6 * r // 1.5×tangentBand×scale — inside the ambiguous zone, not certified
+	a := geom.NewArc(c, at(r, 0), at(r, math.Pi))
+	b := geom.NewArc(c, at(r+offBand, math.Pi/2), at(r+offBand, 3*math.Pi/2))
+	arr := geom.Regions([]geom.Curve{a, b}, nil, geom.WithSegmentsPerTurn(32))
+	require.True(t, arr.Degenerate, "a near-certify (not exact) carrier match stays refused, never resolved")
+}
+
+// TestAnalyticCoincidentCarrierMultiTooth exercises a single losing source (the
+// hub circle) suppressed against SEVERAL different named sources (multiple teeth),
+// the actual gear workload (docs/coincident-carrier-resolution-design.md: "12–45
+// teeth per gear"): each tooth's root arc must independently cut and suppress its
+// own span of the hub, with no interference between teeth.
+func TestAnalyticCoincidentCarrierMultiTooth(t *testing.T) {
+	hub := geom.NewCircle(geom.NewPoint(0, 0), 10)
+	tooth := func(center float64) (arc geom.Curve, f1, tip, f2 geom.Curve) {
+		half := 0.15
+		ax0, ay0 := 10*math.Cos(center-half), 10*math.Sin(center-half)
+		ax1, ay1 := 10*math.Cos(center+half), 10*math.Sin(center+half)
+		tipx0, tipy0 := 13*math.Cos(center-half*0.6), 13*math.Sin(center-half*0.6)
+		tipx1, tipy1 := 13*math.Cos(center+half*0.6), 13*math.Sin(center+half*0.6)
+		root := geom.NewArc(geom.NewPoint(0, 0), geom.NewPoint(ax0, ay0), geom.NewPoint(ax1, ay1))
+		flank1 := geom.NewLine(geom.NewPoint(ax1, ay1), geom.NewPoint(tipx1, tipy1))
+		tipLine := geom.NewLine(geom.NewPoint(tipx1, tipy1), geom.NewPoint(tipx0, tipy0))
+		flank2 := geom.NewLine(geom.NewPoint(tipx0, tipy0), geom.NewPoint(ax0, ay0))
+		return root, flank1, tipLine, flank2
+	}
+	var curves []geom.Curve
+	const n = 5
+	centers := make([]float64, n) // evenly spaced, well clear of each tooth's own 0.3 rad width
+	for i := range centers {
+		centers[i] = float64(i) * 2 * math.Pi / n
+	}
+	for _, center := range centers {
+		root, f1, tip, f2 := tooth(center)
+		curves = append(curves, root, f1, tip, f2)
+	}
+	arr := geom.Regions(curves, []geom.ClosedCurve{hub}, geom.WithSegmentsPerTurn(64))
+	require.False(t, arr.Degenerate, "several teeth on the same hub all resolve")
+	require.Len(t, arr.Regions, n+1, "one region per tooth, plus the hub")
+	requireExactBoundsReproduce(t, curves, []geom.ClosedCurve{hub}, arr)
+
+	var hubArea float64
+	var toothAreas []float64
+	for _, r := range arr.Regions {
+		if r.Area > 50 { // the hub disk is π·100; each tooth is a couple of square units
+			hubArea = r.Area
+			continue
+		}
+		toothAreas = append(toothAreas, r.Area)
+	}
+	require.InDelta(t, math.Pi*100, hubArea, 1e-6, "the hub disk area is unaffected by how many teeth cut into it")
+	require.Lenf(t, toothAreas, n, "every tooth produced its own region")
+	for i, a := range toothAreas {
+		require.InDeltaf(t, toothAreas[0], a, 1e-9, "tooth %d: congruent teeth (rotated copies) have identical area", i)
+	}
 }

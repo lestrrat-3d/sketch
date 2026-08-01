@@ -210,3 +210,79 @@ func TestAnalyticCollinearEndpointTouchNoOverlap(t *testing.T) {
 	require.Len(t, ov, 1)
 	require.Equal(t, evOverlap, ov[0].kind)
 }
+
+// TestAnalyticCoincidentArcOverlapBoundaryPoints white-box-tests the extended
+// coincidentArcOverlap (docs/coincident-carrier-resolution-design.md's "Extend
+// coincidentArcOverlap"): for a finite (single-window) coincident-carrier overlap,
+// both reported boundary points must be EXACT — one operand's own domain end (its
+// phi0 or phi0+sweep), never a solved root.
+func TestAnalyticCoincidentArcOverlapBoundaryPoints(t *testing.T) {
+	const r = 5.0
+
+	t.Run("nested: window is the inner arc's entire domain", func(t *testing.T) {
+		outer := arcSrc(0, 0, r, 0, math.Pi)           // [0, π]
+		inner := arcSrc(0, 0, r, math.Pi/4, math.Pi/2) // [π/4, 3π/4] ⊂ outer
+
+		ev, amb, ok := analyticEvents(outer, inner, 2*r)
+		require.True(t, ok)
+		require.False(t, amb)
+		require.Len(t, ev, 1)
+		require.Equal(t, evOverlap, ev[0].kind)
+		require.NotNil(t, ev[0].overlap)
+
+		wantLoX, wantLoY := r*math.Cos(math.Pi/4), r*math.Sin(math.Pi/4)
+		wantHiX, wantHiY := r*math.Cos(3*math.Pi/4), r*math.Sin(3*math.Pi/4)
+		require.InDelta(t, wantLoX, ev[0].overlap.loX, 1e-9)
+		require.InDelta(t, wantLoY, ev[0].overlap.loY, 1e-9)
+		require.InDelta(t, wantHiX, ev[0].overlap.hiX, 1e-9)
+		require.InDelta(t, wantHiY, ev[0].overlap.hiY, 1e-9)
+		require.InDelta(t, math.Pi/2, ev[0].overlap.width, 1e-9)
+	})
+
+	t.Run("staggered: one boundary from each operand's own domain end", func(t *testing.T) {
+		a := arcSrc(0, 0, r, 0, math.Pi)         // [0, π]
+		b := arcSrc(0, 0, r, math.Pi/2, math.Pi) // [π/2, 3π/2]; window = [π/2, π]
+
+		ev, amb, ok := analyticEvents(a, b, 2*r)
+		require.True(t, ok)
+		require.False(t, amb)
+		require.Len(t, ev, 1)
+		require.NotNil(t, ev[0].overlap)
+
+		// The window's low end is b's own start (π/2); its high end is a's own end (π).
+		wantLoX, wantLoY := r*math.Cos(math.Pi/2), r*math.Sin(math.Pi/2)
+		wantHiX, wantHiY := r*math.Cos(math.Pi), r*math.Sin(math.Pi)
+		require.InDelta(t, wantLoX, ev[0].overlap.loX, 1e-9)
+		require.InDelta(t, wantLoY, ev[0].overlap.loY, 1e-9)
+		require.InDelta(t, wantHiX, ev[0].overlap.hiX, 1e-9)
+		require.InDelta(t, wantHiY, ev[0].overlap.hiY, 1e-9)
+		require.InDelta(t, math.Pi/2, ev[0].overlap.width, 1e-9)
+	})
+
+	t.Run("full circle operand: window is the arc's entire domain", func(t *testing.T) {
+		full := circleSrc(0, 0, r)
+		arc := arcSrc(0, 0, r, 0.3, 0.9) // an arbitrary sub-sweep, entirely inside the full circle
+
+		ev, amb, ok := analyticEvents(full, arc, 2*r)
+		require.True(t, ok)
+		require.False(t, amb)
+		require.Len(t, ev, 1)
+		require.NotNil(t, ev[0].overlap)
+		require.InDelta(t, 0.9, ev[0].overlap.width, 1e-9)
+		wantLoX, wantLoY := r*math.Cos(0.3), r*math.Sin(0.3)
+		wantHiX, wantHiY := r*math.Cos(1.2), r*math.Sin(1.2)
+		require.InDelta(t, wantLoX, ev[0].overlap.loX, 1e-9)
+		require.InDelta(t, wantLoY, ev[0].overlap.loY, 1e-9)
+		require.InDelta(t, wantHiX, ev[0].overlap.hiX, 1e-9)
+		require.InDelta(t, wantHiY, ev[0].overlap.hiY, 1e-9)
+	})
+
+	t.Run("two full circles: no resolvable window", func(t *testing.T) {
+		ev, amb, ok := analyticEvents(circleSrc(0, 0, r), circleSrc(0, 0, r), 2*r)
+		require.True(t, ok)
+		require.False(t, amb)
+		require.Len(t, ev, 1)
+		require.Equal(t, evOverlap, ev[0].kind)
+		require.Nil(t, ev[0].overlap, "two fully-coincident full circles are out of scope for resolution")
+	})
+}

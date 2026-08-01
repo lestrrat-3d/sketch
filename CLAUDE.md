@@ -189,10 +189,47 @@ an **exact point-in-region** test (`exactPointInRegion`: a ray-cast with closed-
 circle/arc crossings, immune to the chord poke-out that defeated the sampled
 `pointInPolygon` near the contact), so the inner cycle nests into the outer as an
 annulus + inner disk — exact at every sampling, tiny inner included. Line-involved
-merged tangency, genuine osculation, and curve/curve crossing authority stay
-conservatively `Degenerate`/deferred. Ellipse/spline pairs keep the sampled fallback
-(exact containment falls back to the chord polygon for them). `Sketch.Profiles()` is
-its consumer.
+merged tangency and genuine osculation stay conservatively `Degenerate`. Ellipse/
+spline pairs keep the sampled fallback (exact containment falls back to the chord
+polygon for them). `Sketch.Profiles()` is its consumer.
+**Curve/curve TRANSVERSE crossing authority (§7b) stays deferred to the sampled
+path** — tried and measured, not merely left alone. Lifting the deferral (routing a
+circle/arc-vs-circle/arc crossing through the SAME `analyticCrossHosted`/
+`contactsResolved`/`sampledCrossingsExplained` gate a line-involved pair already
+uses, per `docs/analytic-arrangement-design.md`'s §7b design) is SOUND — it never
+blessed a wrong topology in either the round-2 regression or a broad
+angle/distance/`WithSegmentsPerTurn` sweep — but it is measurably OVER-CONSERVATIVE
+in a way that does not confine to a narrow geometric sub-case: the round-2 pair
+stayed `Degenerate` up to `spt=128` (clearing only at `spt=256`), and the
+well-separated sweep read `Degenerate` on ~7% of cases, with individual (angle,
+distance) pairs still occasionally flagging at `spt` in the hundreds — an
+intermittent aliasing pattern (traced to `analyticCrossHosted`'s strict-interior
+witness requirement, fragile when BOTH sources are independently sampled curves,
+unlike a line whose single segment tracks the line exactly) rather than a
+convergent one. So the gate — built and tuned for line-involved pairs — does not
+carry over to curve/curve pairs, and the deferral in `geom/arrange.go`'s
+`analyticPrepass` (the `nCross > 0 && isCurvedKind(...) && isCurvedKind(...)`
+branch) is unchanged.
+**Coincident-CARRIER overlaps (same center, same radius — e.g. a gear tooth's root
+arc lying exactly on its hub circle) are RESOLVED, not flagged, when at least one
+operand is an arc and the overlap is a single contiguous angular window** (design
+in `docs/coincident-carrier-resolution-design.md`): both sources are cut at the
+window's two boundary points (exact — each is one operand's own domain end or the
+other's) and the LOSING (higher-indexed) source's edges over that window are
+suppressed in `split()` in favor of the NAMED (lower-indexed) source, which —
+because `Regions` indexes every open curve before every closed one — is the arc
+whenever the pair is arc-vs-full-circle. Two fully-coincident full circles, a
+coincident LINE carrier, and a multi-window overlap (the pre-existing
+`coincidentArcOverlap` limit of reporting only the longest window, inherited
+rather than fixed) stay unconditionally `Degenerate`, as does a near-but-not-
+exactly-equal carrier (the existing `tangentCertify`/`tangentBand` bands, reused
+unchanged). The three-part crossing-consistency gate above is exempted for a
+resolved-overlap pair (`isOverlapPair` in `analyticPrepass`): the two sources'
+sampled polylines cross each other constantly along the whole shared arc, an
+artifact of the coincidence itself that the gate was never built to judge — the
+resolution's own soundness argument is sampling-density-independent (`split`
+suppresses by natural-parameter RANGE, not segment count) and does not depend on
+that gate at all.
 
 ### The `r3` module (an external dependency)
 

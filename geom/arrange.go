@@ -239,6 +239,36 @@ type arranger struct {
 	// edges are chords, so chord ordering (not exact tangents) matches the geometry
 	// the face walk traverses.
 	exactPortVerts [][2]float64
+
+	// suppressed holds, per LOSING source of a resolved coincident-carrier overlap
+	// (see resolveCoincidentOverlap and docs/coincident-carrier-resolution-design.md),
+	// the angular windows to omit from split()'s emitted edges — the span the NAMED
+	// (lower-indexed) source of the pair represents instead. A single source can lose
+	// against several different named sources (e.g. one hub circle coincident with
+	// every tooth's root arc in a gear), so each source maps to a slice of windows.
+	suppressed map[int][]angularWindow
+}
+
+// angularWindow is a suppression range on a source that shares a coincident carrier
+// with a lower-indexed source: the portion of the source's own sweep, expressed as
+// an absolute angle around the shared carrier's center (so it needs no per-source
+// natural-parameter sign/wrap bookkeeping — see "The SourceIndex decision" in
+// docs/coincident-carrier-resolution-design.md), to omit from split()'s emitted
+// edges.
+type angularWindow struct {
+	cx, cy       float64
+	angLo, width float64
+}
+
+// contains reports whether the point (x,y) — evaluated on the shared carrier —
+// falls inside the window, wrapping by a full turn.
+func (w angularWindow) contains(x, y float64) bool {
+	ang := math.Atan2(y-w.cy, x-w.cx)
+	d := math.Mod(ang-w.angLo, 2*math.Pi)
+	if d < 0 {
+		d += 2 * math.Pi
+	}
+	return d <= w.width+arcParamEps
 }
 
 // arrEdge is an undirected arrangement edge between two canonical vertices,
@@ -1023,7 +1053,14 @@ func (a *arranger) analyticPrepass() {
 			// ONE chord put a whole cap below the sampling (contactsResolved). Failing
 			// either, conservatively flag degeneracy. Pure line/line pairs are exact
 			// (sample == geometry), so a clean shallow crossing is never false-flagged.
-			if (isCurvedKind(si.kind) || isCurvedKind(sj.kind)) && !internalTan {
+			// A coincident-carrier OVERLAP pair carries no crossing to witness — the two
+			// sources' sampled polylines cross each other all along the shared arc, an
+			// artifact of the coincidence itself, not something this gate can or should
+			// judge — so it is exempted here; resolveCoincidentOverlap below is its own,
+			// separate, sample-density-independent soundness argument (see "Determinism"
+			// in docs/coincident-carrier-resolution-design.md).
+			isOverlapPair := len(events) == 1 && events[0].kind == evOverlap
+			if (isCurvedKind(si.kind) || isCurvedKind(sj.kind)) && !internalTan && !isOverlapPair {
 				if !a.analyticCrossHosted(i, j, events) ||
 					!a.contactsResolved(i, j, events) ||
 					!a.sampledCrossingsExplained(i, j, events) {
@@ -1040,7 +1077,18 @@ func (a *arranger) analyticPrepass() {
 			for _, e := range events {
 				switch e.kind {
 				case evOverlap:
-					a.flagDegenerate(e.x, e.y, i, j)
+					// A certified, single-window, at-least-one-arc coincidence (see
+					// docs/coincident-carrier-resolution-design.md) is RESOLVED — cut,
+					// suppress the losing source's edges over the shared span, and mark
+					// handled rather than degenerate. Everything else that reaches this
+					// arm (both-full-circle, multi-window, a coincident LINE carrier)
+					// keeps the original unconditional flag — e.overlap is nil there
+					// (populated only by circleCircleEvents' in-scope branch).
+					if e.overlap != nil {
+						a.resolveCoincidentOverlap(i, j, e.overlap)
+					} else {
+						a.flagDegenerate(e.x, e.y, i, j)
+					}
 				case evCross:
 					a.applyAnalyticCut(i, e.ti, e.x, e.y)
 					a.applyAnalyticCut(j, e.tj, e.x, e.y)
@@ -1338,6 +1386,38 @@ func (a *arranger) applyAnalyticCut(src int, t, x, y float64) {
 		return
 	}
 	a.segs[si].cuts = append(a.segs[si].cuts, cut{t: local, px: x, py: y, exact: true})
+}
+
+// resolveCoincidentOverlap cuts both sources of a certified, single-window
+// coincident-carrier overlap at its two boundary points (exact — each is one
+// operand's own domain end or the other's, never a solved root) and records a
+// suppression window on the LOSING source (j, always the higher of the pair's
+// indices — analyticPrepass's own i<j iteration order — see "The SourceIndex
+// decision" in docs/coincident-carrier-resolution-design.md), so split() omits
+// its edges over the shared span; the NAMED source i represents it instead. The
+// caller marks the pair handled rather than degenerate.
+func (a *arranger) resolveCoincidentOverlap(i, j int, ov *overlapExtent) {
+	a.applyAnalyticCut(i, ov.loTi, ov.loX, ov.loY)
+	a.applyAnalyticCut(i, ov.hiTi, ov.hiX, ov.hiY)
+	a.applyAnalyticCut(j, ov.loTj, ov.loX, ov.loY)
+	a.applyAnalyticCut(j, ov.hiTj, ov.hiX, ov.hiY)
+	if a.suppressed == nil {
+		a.suppressed = map[int][]angularWindow{}
+	}
+	a.suppressed[j] = append(a.suppressed[j], angularWindow{
+		cx: a.sources[j].cx, cy: a.sources[j].cy, angLo: ov.angLo, width: ov.width,
+	})
+}
+
+// sourceSuppressed reports whether the point (x,y) on source src falls inside any
+// suppression window recorded for it.
+func (a *arranger) sourceSuppressed(src int, x, y float64) bool {
+	for _, w := range a.suppressed[src] {
+		if w.contains(x, y) {
+			return true
+		}
+	}
+	return false
 }
 
 // taintMergedEndpoints taints the sample vertices of two DIFFERENT sources whose
@@ -1692,6 +1772,19 @@ func (a *arranger) split() {
 			v := a.verts.canon(b1.px, b1.py)
 			if u == v {
 				continue // collapsed to a point
+			}
+			// A fragment inside a resolved coincident-carrier overlap's suppression
+			// window belongs to the LOSING source (see resolveCoincidentOverlap): the
+			// NAMED source's own edge over the identical span already covers it, so
+			// this one is omitted rather than emitted as a duplicate boundary. The two
+			// boundary points are canonicalized above regardless (both sources were cut
+			// at the SAME exact event point), so the named source's edge still has valid
+			// endpoints to attach to. The midpoint of the fragment's chord is exactly on
+			// the shared carrier's angular bisector of its two endpoints (the chord's
+			// perpendicular bisector passes through the center), so it needs no
+			// densification to test.
+			if a.sourceSuppressed(s.src, (b0.px+b1.px)/2, (b0.py+b1.py)/2) {
+				continue
 			}
 			// Exactness is decided HERE, against the vertex the boundary actually
 			// canonicalized to — see vertexCertifies. A bound whose graph vertex sits
