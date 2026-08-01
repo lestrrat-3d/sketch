@@ -208,10 +208,12 @@ func (s *Sketch) Constraints() []Constraint { return slices.Clone(s.cons) }
 // worldPolylineSegments is the per-curve sampling density of [Sketch.WorldPolyline].
 const worldPolylineSegments = 32
 
-// WorldPolyline samples entity e in world space: its plane-local polyline (the
-// same curve-sampling math the exporters use) lifted through the sketch plane's
-// frame. It is the additive 3D read path for placing 2D geometry in 3D; it does
-// not change what the 2D exporters emit. e must be a live entity of this sketch
+// WorldPolyline samples entity e in world space: its plane-local polyline
+// (sampled through the geom samplers, so it agrees with what the exporters draw,
+// though each exporter carries its own type switch rather than calling this
+// path) lifted through the sketch plane's frame. It is the additive 3D read path
+// for placing 2D geometry in 3D; it does not change what the 2D exporters emit.
+// e must be a live entity of this sketch
 // ([ErrForeignEntity] otherwise); it errors for a degenerate or removed plane
 // (well-formed planes never error) and for an unsupported entity type.
 func (s *Sketch) WorldPolyline(e Entity) ([]r3.Vec, error) {
