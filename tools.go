@@ -39,8 +39,10 @@ var (
 	ErrReferenceGeometry = errors.New("sketch: cannot modify reference geometry")
 )
 
-// foreignInput reports whether any of the entities is not a live entity of this
-// sketch — nil, a removed (dead) handle, or one belonging to a different sketch.
+// foreignInput reports whether any of the entities is unusable as a tool input —
+// the entity itself not live in this sketch (nil, a removed handle, or one
+// belonging to a different sketch), or any of its DEFINING POINTS not a live
+// point of this sketch.
 //
 // Every tool below must call it before touching its inputs. The tools work by
 // build-then-replace: they read the entity's defining points and manufacture new
@@ -48,10 +50,33 @@ var (
 // would splice another sketch's points into this one — a handle Verify reports
 // as ErrForeignHandle and MarshalJSON refuses to write. Fed a removed one they
 // would resurrect deleted geometry, which nothing downstream flags at all.
+//
+// The POINT half is not covered by the entity half, and is the sharper case.
+// Entity fields (Line.Start, …) are exported, so an entity this sketch owns can
+// have a point rewired to another sketch's *Point and still pass ownsEntity,
+// which is positional over s.ents and never looks at points. Most tools then
+// carry that point into the new geometry, where Verify and MarshalJSON still
+// catch it — but Trim consuming the trimmed-away end, and CreateFillet /
+// CreateChamfer consuming the shared corner, REPLACE the foreign point with
+// fresh local points and retire the originals, so the evidence is erased: a
+// sketch the oracle rejected becomes one it accepts, built from another
+// sketch's coordinates with nothing left to flag.
+//
+// The scan goes through entityPoints, the ONE definition of an entity's
+// defining points, so a new entity type or a new point slot is screened with no
+// second list to keep in step. Ownership is s.owns, the same predicate Verify's
+// integrity scan and MarshalJSON use — it carries the origin exception, so
+// geometry drawn from [Sketch.Origin] (deliberately absent from s.points) stays
+// a valid tool input.
 func (s *Sketch) foreignInput(ents ...Entity) bool {
 	for _, e := range ents {
 		if !s.ownsEntity(e) {
 			return true
+		}
+		for _, p := range entityPoints(e) {
+			if !s.owns(p) {
+				return true
+			}
 		}
 	}
 	return false
@@ -62,7 +87,8 @@ func (s *Sketch) foreignInput(ents ...Entity) bool {
 // the split and reporting them. It returns false (changing nothing) when e is
 // not a line or arc, or the projection falls outside the segment / arc sweep.
 // It also returns false when e is not a live entity of this sketch (nil, dead,
-// or foreign). The original entity handle and any constraints that referenced it
+// or foreign) or is defined by a point that is not a live point of this sketch.
+// The original entity handle and any constraints that referenced it
 // are gone; constraints on the surviving endpoints remain.
 func (s *Sketch) Break(e Entity, x, y float64) (Entity, Entity, bool) {
 	if s.foreignInput(e) {
@@ -104,7 +130,8 @@ func (s *Sketch) Break(e Entity, x, y float64) (Entity, Entity, bool) {
 // (changing nothing) when l has no crossing on the picked side, or the pick
 // sits on an interior portion bounded by crossings on both sides (which would
 // split the line — use Break instead), or when l is not a live line of this
-// sketch (nil, dead, or foreign). The original handle is dead.
+// sketch (nil, dead, or foreign) or has an endpoint that is not a live point of
+// this sketch. The original handle is dead.
 func (s *Sketch) Trim(l *Line, x, y float64) (*Line, bool) {
 	if s.foreignInput(l) {
 		return nil, false // nil, removed, or another sketch's line
@@ -147,9 +174,9 @@ func (s *Sketch) Trim(l *Line, x, y float64) (*Line, bool) {
 // Extend lengthens line l from the given endpoint (l.Start or l.End) to its
 // nearest crossing with another entity beyond that end, replacing l and
 // returning the lengthened line. It returns false (changing nothing) when end
-// is neither endpoint or no entity lies beyond it, and when l or end is not a
-// live handle of this sketch (nil, dead, or foreign). The original handle is
-// dead.
+// is neither endpoint or no entity lies beyond it, and when l, either of its
+// endpoints, or end is not a live handle of this sketch (nil, dead, or
+// foreign). The original handle is dead.
 func (s *Sketch) Extend(l *Line, end *Point) (*Line, bool) {
 	if s.foreignInput(l) || !s.owns(end) {
 		return nil, false // nil, removed, or another sketch's handle
@@ -258,9 +285,9 @@ type Fillet struct {
 // as entities — horizontal, angle, …) are replaced; re-apply such constraints
 // to the returned [Fillet.L1]/[Fillet.L2] if needed. Constraints on the
 // surviving far endpoints are kept. Returns [ErrForeignEntity] when either line
-// is not a live entity of this sketch (nil, dead, or foreign),
-// [ErrNoSharedCorner] or [ErrFilletInfeasible] — in each case without modifying
-// the sketch.
+// is not a live entity of this sketch (nil, dead, or foreign) or has an
+// endpoint that is not a live point of this sketch, [ErrNoSharedCorner] or
+// [ErrFilletInfeasible] — in each case without modifying the sketch.
 func (s *Sketch) CreateFillet(l1, l2 *Line, r float64) (*Fillet, error) {
 	if s.foreignInput(l1, l2) {
 		return nil, ErrForeignEntity
@@ -320,7 +347,8 @@ type Chamfer struct {
 // distance dimensions from the far endpoints (D1/D2), so editing them and
 // re-solving moves the chamfer parametrically. Constraint handling matches
 // [Sketch.CreateFillet]. Returns [ErrForeignEntity] when either line is not a
-// live entity of this sketch (nil, dead, or foreign), [ErrNoSharedCorner] or
+// live entity of this sketch (nil, dead, or foreign) or has an endpoint that is
+// not a live point of this sketch, [ErrNoSharedCorner] or
 // [ErrChamferInfeasible] — in each case without modifying the sketch.
 func (s *Sketch) CreateChamfer(l1, l2 *Line, d float64) (*Chamfer, error) {
 	if s.foreignInput(l1, l2) {
@@ -431,10 +459,11 @@ func containsReference(ents []Entity) bool {
 // source point and its copy are tied with [NewSymmetric] (about axis); circles
 // additionally get [NewEqualRadius], and arcs are reversed to stay
 // counter-clockwise. The sources are left untouched. Returns nil if any source
-// or the axis is reference geometry, or is not a live entity of this sketch
-// (nil, dead, or foreign).
+// or the axis is reference geometry, is not a live entity of this sketch (nil,
+// dead, or foreign), or is defined by a point that is not a live point of this
+// sketch.
 func (s *Sketch) CreateMirror(ents []Entity, axis *Line) *Mirror {
-	if s.foreignInput(ents...) || !s.ownsEntity(axis) {
+	if s.foreignInput(ents...) || s.foreignInput(axis) {
 		return nil // nil, removed, or another sketch's entity
 	}
 	if containsReference(ents) || axis.IsReference() {
@@ -479,8 +508,9 @@ type Pattern struct {
 // holds a copy whose points are tied to the seed's corresponding points by
 // horizontal and vertical distance dimensions (and an equal-radius constraint
 // per circle), so the whole grid follows when the seed is moved or resized.
-// It returns [ErrForeignEntity] if a seed entity is not live in this sketch, and
-// [ErrInvalidShape] if nx or ny is below 1. Supports lines, circles and arcs.
+// It returns [ErrForeignEntity] if a seed entity, or a point defining one, is
+// not live in this sketch, and [ErrInvalidShape] if nx or ny is below 1.
+// Supports lines, circles and arcs.
 func (s *Sketch) CreatePatternRect(ents []Entity, nx, ny int, dx, dy float64) (*Pattern, error) {
 	if s.foreignInput(ents...) {
 		return nil, ErrForeignEntity
@@ -521,8 +551,9 @@ func (s *Sketch) CreatePatternRect(ents []Entity, nx, ny int, dx, dy float64) (*
 // (2π/n) about center; cell 0 is the seed. Each copy point is tied to its
 // source by a construction spoke from center constrained equal in length and at
 // the instance's angle, so the ring follows when the seed is moved. It returns
-// [ErrForeignEntity] if a seed entity or the center is not a live handle of this
-// sketch, and [ErrInvalidShape] if n is below 2. Supports lines, circles and arcs.
+// [ErrForeignEntity] if a seed entity, a point defining one, or the center is
+// not a live handle of this sketch, and [ErrInvalidShape] if n is below 2.
+// Supports lines, circles and arcs.
 func (s *Sketch) CreatePatternCircular(ents []Entity, center *Point, n int) (*Pattern, error) {
 	if s.foreignInput(ents...) || !s.owns(center) {
 		return nil, ErrForeignEntity
@@ -600,9 +631,10 @@ func (g *OffsetGroup) Set(d float64) {
 // constraint; offset segments that meet at a shared source corner share a
 // single offset point, which the two constraints pull to the offset
 // intersection — so editing the distance keeps a mitred chain. Non-line
-// entities in ents are skipped. It returns [ErrForeignEntity] if a source entity
-// is not live in this sketch, and [ErrInvalidShape] if a source line has zero
-// length (no defined offset direction).
+// entities in ents are skipped. It returns [ErrForeignEntity] if a source
+// entity, or a point defining one, is not live in this sketch, and
+// [ErrInvalidShape] if a source line has zero length (no defined offset
+// direction).
 func (s *Sketch) CreateOffset(ents []Entity, d float64) (*OffsetGroup, error) {
 	if s.foreignInput(ents...) {
 		return nil, ErrForeignEntity
