@@ -222,13 +222,20 @@ whenever the pair is arc-vs-full-circle. **Classification and resolution have
 different gates, and conflating them is the trap.** A pair is CLASSIFIED
 coincident by the existing scale-relative `tangentCertify`/`tangentBand` bands,
 reused unchanged; it is admitted for RESOLUTION only by `carriersIdentical`, which
-requires `centerDistance + |Δr| ≤ weldIdentEps·scale` — the SAME identity band
-`vertexCertifies` uses. That is load-bearing, not belt-and-braces:
+bounds `centerDistance + |Δr|` by TWO bands at once — `weldIdentEps·scale` (the SAME
+identity band `vertexCertifies` uses) AND the carrier-local `weldIdentEps·max(r_a,
+r_b)`. That is load-bearing, not belt-and-braces:
 `resolveCoincidentOverlap` computes both boundary points on ONE operand's carrier
 and stamps the cuts `exact:true` on BOTH sources, so the certify band (three orders
 looser) would place a cut off both true carriers and no downstream check would
 catch it — `vertexCertifies` compares the graph vertex against the cut's own stored
-point, which is where the cut put it. Also unconditionally `Degenerate`: a
+point, which is where the cut put it. **The carrier-local band is what keeps the gate
+about the PAIR**: `scale` is the whole scene's bbox extent, so an unrelated object
+far away inflates it (a scene reaching `x=1e15` gives a global band of `1e3`), and on
+the global band alone an `r=2` arc and an `r=1` circle read identical and one of them
+is suppressed outright — a false bless reached with no carrier near any other. The
+centre separation is the quantity under test, so it enters the offset, never the
+tolerance. Also unconditionally `Degenerate`: a
 coincident LINE carrier; a multi-window overlap (`coincidentArcOverlap` reports only
 the longest window, a limit inherited rather than fixed, so it refuses on ANY second
 window of positive length — tested against zero, never against `arcParamEps`, since
@@ -249,8 +256,15 @@ resolved-overlap pair (`isOverlapPair` in `analyticPrepass`): the two sources'
 sampled polylines cross each other constantly along the whole shared arc, an
 artifact of the coincidence itself that the gate was never built to judge — the
 resolution's own soundness argument is sampling-density-independent (`split`
-suppresses by natural-parameter RANGE, not segment count) and does not depend on
-that gate at all.
+suppresses by the recorded ANGULAR WINDOW about the shared centre, not by segment
+count) and does not depend on that gate at all. **That window is tested EXACTLY, at
+the midpoint of a fragment's chord and with NO outward slop**: the two boundaries are
+cut sites, so no emitted fragment straddles one and one interior point answers for
+the whole fragment — while a fragment OUTSIDE the window can sit arbitrarily close to
+it, since the losing source's gap beyond the overlap is a real span of any width and
+is the only thing left to close a region when the overlap covers nearly the whole
+carrier. An outward slop of `arcParamEps` deleted exactly that fragment for every gap
+up to twice it, and the region vanished with `Degenerate=false`.
 
 ### The `r3` module (an external dependency)
 

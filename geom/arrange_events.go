@@ -519,18 +519,37 @@ func circleCircleEvents(a, b operand, scale float64) ([]xEvent, bool) {
 // computes both window boundary points on operand a's carrier alone and then cuts BOTH
 // sources there with exact:true. A boundary point P sits on the ray from b's center at
 // distance |P−b.center| ∈ [a.r−d, a.r+d], while b's own curve is at b.r, so P misses b's
-// carrier by exactly ||P−b.center| − b.r| ≤ d + |a.r−b.r|. Bounding that SUM by
-// weldIdentEps·scale — the identity band vertexCertifies uses to decide whether a graph
-// vertex IS a bound's own point — keeps the miss inside the band, so the reported
-// parameter really does reproduce the emitted geometry.
+// carrier by exactly ||P−b.center| − b.r| ≤ d + |a.r−b.r| — the offset both bands below
+// bound.
 //
-// The certify band (scale·tangentCertify) is three orders LOOSER, and resolving there
-// would place the cut point off BOTH true carriers by up to that amount — the
-// manufactured exactness "The refusal band" in the design forbids, and one no
-// downstream check catches (vertexCertifies compares the graph vertex against the cut's
-// own stored point, which is where the cut put it).
+// TWO bands must hold, and they answer different questions.
+//
+//   - The GLOBAL band, weldIdentEps·scale, ties the resolution to the downstream
+//     exactness audit: vertexCertifies decides whether a graph vertex IS a bound's own
+//     point against exactly that band, so a resolved bound's reported parameter
+//     reproduces the emitted geometry only while the miss stays inside it.
+//   - The CARRIER-LOCAL band, weldIdentEps·max(a.r, b.r), is what makes the test a
+//     statement about these two carriers. The arrangement scale is the whole scene's
+//     bounding-box extent, so ANY distant object inflates it — a scene reaching to
+//     1e15 carries a global band of 1e3, wide enough to call an r=2 carrier and an r=1
+//     carrier identical and suppress one of them entirely. Real coincident geometry
+//     (an arc whose radius is derived as hypot(start−center) against a literal hub
+//     radius) differs by a couple of ulps of its own radius, so it clears a band scaled
+//     to that radius by orders of magnitude; a pair a visible fraction of its own
+//     radius apart never does, whatever else is in the scene.
+//
+// The centre separation d is the quantity under test, so it enters the offset, never
+// the tolerance: a band that grew with d would bless carriers in proportion to how far
+// apart they are.
+//
+// The certify band (scale·tangentCertify) is three orders LOOSER than the global band
+// alone, and resolving there would place the cut point off BOTH true carriers by up to
+// that amount — the manufactured exactness "The refusal band" in the design forbids,
+// and one no downstream check catches (vertexCertifies compares the graph vertex
+// against the cut's own stored point, which is where the cut put it).
 func carriersIdentical(a, b operand, scale float64) bool {
-	return math.Hypot(b.cx-a.cx, b.cy-a.cy)+math.Abs(a.r-b.r) <= weldIdentEps*scale
+	off := math.Hypot(b.cx-a.cx, b.cy-a.cy) + math.Abs(a.r-b.r)
+	return off <= weldIdentEps*scale && off <= weldIdentEps*math.Max(a.r, b.r)
 }
 
 // footOnLine returns the foot of the perpendicular from (px,py) to the carrier

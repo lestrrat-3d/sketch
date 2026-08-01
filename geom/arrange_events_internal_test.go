@@ -339,4 +339,25 @@ func TestAnalyticCoincidentArcOverlapBoundaryPoints(t *testing.T) {
 		require.Len(t, ev, 1)
 		require.NotNil(t, ev[0].overlap, "a few-ulp carrier difference is the same curve, and must stay resolvable")
 	})
+
+	// The identity gate is CARRIER-LOCAL as well as scale-relative: the arrangement
+	// scale is the whole scene's extent, so a distant object inflates it without
+	// telling us anything about these two carriers. Probing carriersIdentical
+	// directly pins that, one decision at a time, where the Regions-level regression
+	// (TestAnalyticCoincidentCarrierDistantSceneStaysDegenerate) sees only the verdict.
+	t.Run("a distant scene does not widen the identity band", func(t *testing.T) {
+		outer, inner := operandOf(arcSrc(0, 0, 2, 0, math.Pi/2)), operandOf(circleSrc(0, 0, 1))
+		for _, scale := range []float64{2, 1e6, 1e12, 1e15} {
+			require.Falsef(t, carriersIdentical(outer, inner, scale),
+				"scale=%g: r=2 and r=1 are a unit apart, never the same carrier", scale)
+		}
+
+		// The local band still admits a genuine round-off difference at any scale.
+		derived := math.Hypot(r*math.Cos(0.3), r*math.Sin(0.3))
+		same := operandOf(arcSrc(0, 0, derived, 0, 1))
+		for _, scale := range []float64{2 * r, 1e15} {
+			require.Truef(t, carriersIdentical(operandOf(circleSrc(0, 0, r)), same, scale),
+				"scale=%g: a few-ulp difference stays inside both bands", scale)
+		}
+	})
 }

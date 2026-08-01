@@ -137,20 +137,53 @@ classification band. See "The refusal band" for why, and for the exact bound.
    `TExact = false` on the surviving merged fragment — conservative, but a
    direct miss of the acceptance criterion below.
 3. **Name one source** for the shared span (see "The `SourceIndex` decision"
-   below) and record, on the arranger, a suppressed natural-parameter range
-   `[tLo, tHi]` for the OTHER (losing) source.
-4. **Suppress the losing source's edge over that range in `split()`.** `split`
-   (`geom/arrange.go:1648-1710`) already canonicalizes both boundary points of
-   every tiny-segment sub-range into vertices before appending an `arrEdge`;
-   the only new step is a check, immediately before that append, for whether
-   the fragment's natural-parameter sub-range falls inside a suppressed range
-   recorded for `s.src` — if so, skip the append. The two boundary points are
-   canonicalized regardless (both sources were cut at the SAME exact `(x,y)`
-   event point in step 2, so `vertexTable.canon` welds them to one shared
-   vertex whether or not an edge is ultimately kept for this source there),
-   so the named source's own edge over the identical span still has valid
-   endpoints to attach to. No change to `prune`, `buildGraph`, or `extract`:
-   they see exactly the edge set `split` hands them, exactly as today.
+   below) and record, on the arranger, a suppressed **angular window**
+   (`angularWindow{cx, cy, angLo, width}`, `geom/arrange.go`) for the OTHER
+   (losing) source — the window's extent as an absolute angle about the shared
+   carrier's centre, which `coincidentArcOverlap` already computes and
+   `overlapExtent` already carries.
+
+   The window is recorded in ANGLE space rather than as the losing source's own
+   natural-parameter range `[tLo, tHi]`, and the two are not interchangeable in
+   the direction that matters here. A natural-parameter range needs per-source
+   sign and wrap bookkeeping — the two sources sweep independently, and a closed
+   carrier's range wraps through its seam — while the angle is one physical
+   quantity both sources agree on, because the resolution already requires them
+   to share a centre. One source can also lose against SEVERAL named sources (a
+   hub circle against every tooth's root arc), so the record is a slice of
+   windows per losing source, each tested independently.
+4. **Suppress the losing source's edge over that window in `split()`.** `split`
+   (`geom/arrange.go`) already canonicalizes both boundary points of every
+   tiny-segment sub-range into vertices before appending an `arrEdge`; the only
+   new step is a check, immediately before that append, for whether the fragment
+   lies inside a window recorded for `s.src` — if so, skip the append. The
+   fragment is tested at the midpoint of its chord, which is exactly on the
+   shared carrier's angular bisector of the fragment's two ends (the chord's
+   perpendicular bisector passes through the centre), so no densification is
+   needed to place it.
+
+   **The window is tested exactly, with no outward slop, and testing one
+   interior point is equivalent to testing the whole sub-range** — but only
+   because of step 2. Both window boundaries are cut sites on the losing source,
+   so no emitted fragment straddles one: every fragment is wholly inside the
+   window or wholly outside it, and its midpoint answers for all of it. Slop
+   breaks that equivalence in the unsafe direction. A fragment inside the window
+   sits at least half its own angular extent clear of either end and needs no
+   margin to be recognised, while a fragment OUTSIDE can be arbitrarily close:
+   the losing source's own gap beyond the overlap is a real span of any width,
+   and when the overlap covers nearly the whole carrier that gap fragment is the
+   only thing left to close the region. An outward slop of `arcParamEps`
+   swallowed exactly that fragment for every gap up to twice it, and the region
+   vanished with `Degenerate = false` — the failure this step is written against
+   (`TestAnalyticCoincidentCarrierNearFullGapStaysClosed`).
+
+   The two boundary points are canonicalized regardless (both sources were cut
+   at the SAME exact `(x,y)` event point in step 2, so `vertexTable.canon` welds
+   them to one shared vertex whether or not an edge is ultimately kept for this
+   source there), so the named source's own edge over the identical span still
+   has valid endpoints to attach to. No change to `prune`, `buildGraph`, or
+   `extract`: they see exactly the edge set `split` hands them, exactly as
+   today.
 5. **Mark the pair `handled`, do not `flagDegenerate`.** This is the same
    bookkeeping an ordinary `evCross`/`evTangent` pair already gets; only the
    `evOverlap` arm of `analyticPrepass`'s event-kind switch
@@ -251,18 +284,36 @@ The bound is exact, not a heuristic. `resolveCoincidentOverlap` computes both
 window boundary points on ONE operand's carrier and cuts both sources there, so
 a boundary point `P` misses the other operand's carrier by
 `||P − b.center| − b.r| ≤ d + |a.r − b.r|` (with `d` the center distance).
-`carriersIdentical` bounds that SUM by `weldIdentEps·scale` — the same identity
-band `vertexCertifies` uses to decide whether a graph vertex IS a bound's own
-point — so a resolved bound's reported parameter really does reproduce the
-emitted geometry.
+`carriersIdentical` bounds that SUM, and it bounds it TWICE:
+
+- by `weldIdentEps·scale` — the same identity band `vertexCertifies` uses to
+  decide whether a graph vertex IS a bound's own point — so a resolved bound's
+  reported parameter really does reproduce the emitted geometry; and
+- by `weldIdentEps·max(a.r, b.r)`, a band built from the two CARRIERS
+  themselves.
+
+The second is what makes the gate a statement about the pair. `scale` is the
+whole scene's bounding-box extent, so any object anywhere inflates it: a scene
+that also reaches out to `x = 1e15` carries a global band of `1e3`, at which an
+`r = 2` carrier and an `r = 1` carrier — a whole unit apart, and classified
+coincident because the certify band grew with the same scale — read as the same
+curve, and resolution suppresses one of them outright. That is the false bless
+this whole section forbids, reached without any carrier being near any other
+(`TestAnalyticCoincidentCarrierDistantSceneStaysDegenerate`). A band scaled to
+the carriers' own radius cannot be widened from across the scene.
+
+The centre separation `d` is the quantity under test, so it belongs in the
+offset and never in the tolerance: a band that grew with `d` would admit
+carriers in proportion to how far apart they are.
 
 The conservative direction is sound because the alternative — resolving a
 near-but-not-equal pair as if it were exact — cannot be distinguished downstream
 from a genuine coincidence once written into a `TExact = true` fragment, while
 a false refusal costs only a `Degenerate` verdict a caller can act on (loosen
-the geometry, or accept the flag). Real coincident geometry clears the identity
-band comfortably: a hub circle of radius `r` and a root arc whose radius is
-derived as `hypot(start − center)` differ by a couple of ulps, ~4 orders inside
+the geometry, or accept the flag). Real coincident geometry clears both halves
+of the identity gate comfortably: a hub circle of radius `r` and a root arc
+whose radius is derived as `hypot(start − center)` differ by a couple of ulps of
+`r`, ~4 orders inside `weldIdentEps·r` and further still inside
 `weldIdentEps·scale`. `TestAnalyticNearCoincidentCirclesAmbiguous`
 (`geom/arrange_events_internal_test.go`) already pins the outer band's behavior
 at the event-kernel level for concentric circles; this design adds the analogous
@@ -282,12 +333,12 @@ case with a genuine arc sweep, plus an in-certify-band case (see "Tests").
   input list, so it never changes which source is named.
 - **Sampling density:** the resolution is analytic end to end — the overlap
   boundary points come from closed-form angles, not samples, and suppression
-  in `split()` acts on a natural-parameter RANGE, not a segment count. A
+  in `split()` acts on the recorded ANGULAR WINDOW, not a segment count. A
   finer `WithSegmentsPerTurn` changes how many tiny-segment pieces the losing
-  source's overlap range is chopped into before suppression, but every one of
-  those pieces falls inside the same recorded `[tLo, tHi]` and is dropped —
-  the resolved topology, the named source, and the reported area do not move
-  with sampling density.
+  source's overlap span is chopped into before suppression, but every one of
+  those pieces falls inside the same window and is dropped — the resolved
+  topology, the named source, and the reported area do not move with sampling
+  density.
 
 ## Acceptance criteria (repository terms)
 
@@ -310,6 +361,19 @@ case with a genuine arc sweep, plus an in-certify-band case (see "Tests").
 - A carrier pair equal within noise but not at round-off still reports
   `arrangementDegenerate=true`, both in the outer ambiguous band and INSIDE the
   certify band — the resolution never fires outside the identity band.
+- Adding an unrelated, distant curve to a scene never turns a refusal into a
+  resolution: a pair whose carriers differ by a visible fraction of their own
+  radius stays `arrangementDegenerate=true` however far the rest of the scene
+  reaches (the carrier-local half of the identity gate).
+- An overlap window covering all but a hair of the losing source still leaves
+  that hair emitted, so the region closes: a unit circle and a coincident arc
+  with a real angular gap report one disk of area π and
+  `arrangementDegenerate=false`, for gaps down to `arcParamEps` (below which the
+  arc is a complete carrier and the pair is refused instead). The lower end
+  additionally needs the gap's two cuts to survive `split`'s segment-parameter
+  dedup as distinct boundaries — a `segEps` fraction of one chord, which sits
+  below `arcParamEps` from 16 segments per turn up, and is a pre-existing limit
+  of the cut machinery rather than of this resolution.
 - A full-turn operand (a 2π `Arc` as much as a `Circle`) paired with another
   full carrier still reports `arrangementDegenerate=true`.
 - A pair with a second overlap window of any positive length, however far below
@@ -345,8 +409,8 @@ case with a genuine arc sweep, plus an in-certify-band case (see "Tests").
   `Degenerate == true` — the outer refusal-band regression guard
   (`TestAnalyticCoincidentCarrierNearCertifyStaysDegenerate`).
 - `geom/arrange_analytic_test.go`: probe case C's geometry with the root arc's
-  radius offset by a delta INSIDE the certify band but well above
-  `weldIdentEps*scale`, asserting `Degenerate == true` and that no surviving
+  radius offset by a delta INSIDE the certify band but well above either half of
+  the identity band, asserting `Degenerate == true` and that no surviving
   bound claims an exactness it cannot reproduce — the identity-band guard for
   the case classification alone would let through
   (`TestAnalyticCoincidentCarrierInCertifyBandStaysDegenerate`).
@@ -362,6 +426,16 @@ case with a genuine arc sweep, plus an in-certify-band case (see "Tests").
   put neither / one / both overlap boundaries on a hub SAMPLE vertex, asserting
   `TExact` on every bound — the weld-audit guard for step 2's contact points
   (`TestAnalyticCoincidentCarrierBoundOnSampleVertexStaysExact`).
+- `geom/arrange_analytic_test.go`: an `r=2` arc and an `r=1` circle sharing a
+  centre, with and without a distant line stretching the scene to `x = 1e15`,
+  asserting `Degenerate == true` with the line and an ordinary unit disk without
+  it — the carrier-local half of the identity gate
+  (`TestAnalyticCoincidentCarrierDistantSceneStaysDegenerate`).
+- `geom/arrange_analytic_test.go`: a unit circle and a coincident arc leaving a
+  real angular gap, swept from just above `arcParamEps` upward, asserting one
+  region of area π at every gap — the no-slop suppression guard, plus the
+  sub-`arcParamEps` gap asserted still refused as a complete carrier
+  (`TestAnalyticCoincidentCarrierNearFullGapStaysClosed`).
 - `profiles_test.go` (root package): a sketch-level equivalent of probe case
   C, asserting `Verify(ctx).Trustworthy()` and consistent `Entity` attribution
   across the hub and tooth profiles.

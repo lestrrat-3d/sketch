@@ -847,8 +847,9 @@ func TestAnalyticCoincidentCarrierMultiTooth(t *testing.T) {
 // certify-band match stays Degenerate.
 //
 // The deltas below straddle the band: each is well inside certify (scale ≈ 23 here,
-// so certify ≈ 2.3e-8) yet orders of magnitude above the weldIdentEps·scale identity
-// band (≈2.3e-11), which is exactly the region that used to resolve unsoundly.
+// so certify ≈ 2.3e-8) yet orders of magnitude above either half of the identity band
+// carriersIdentical applies (weldIdentEps·scale ≈ 2.3e-11, and the carrier-local
+// weldIdentEps·r = 1e-11), which is exactly the region that used to resolve unsoundly.
 func TestAnalyticCoincidentCarrierInCertifyBandStaysDegenerate(t *testing.T) {
 	for _, delta := range []float64{5e-9, 1e-8, 2e-8} {
 		hub := geom.NewCircle(geom.NewPoint(0, 0), 10)
@@ -868,6 +869,69 @@ func TestAnalyticCoincidentCarrierInCertifyBandStaysDegenerate(t *testing.T) {
 		// claim an exactness it cannot reproduce.
 		requireExactBoundsReproduce(t, curves, closed, arr)
 	}
+}
+
+// TestAnalyticCoincidentCarrierDistantSceneStaysDegenerate pins that the identity
+// gate admitting a coincident pair for resolution is CARRIER-LOCAL: it may not be
+// widened by geometry that has nothing to do with the pair. An r=2 arc and an r=1
+// circle share a centre and are a whole unit apart in radius — never the same
+// carrier — but a line far out at x=1e15 stretches the arrangement's global scale,
+// and an identity band derived from that scale grows with it. Blessing the pair
+// there let resolveCoincidentOverlap suppress the circle outright: an empty region
+// set reported with Degenerate=false, where refusal is the only sound answer.
+//
+// The same pair without the distant line is ordinary disjoint geometry, so the far
+// line is doing all the work — that is the point of the fixture.
+func TestAnalyticCoincidentCarrierDistantSceneStaysDegenerate(t *testing.T) {
+	c := geom.NewPoint(0, 0)
+	at := func(r, ang float64) *geom.Point { return geom.NewPoint(r*math.Cos(ang), r*math.Sin(ang)) }
+	arc := func() geom.Curve { return geom.NewArc(c, at(2, 0), at(2, math.Pi/2)) }
+	circle := func() geom.ClosedCurve { return geom.NewCircle(c, 1) }
+
+	far := geom.NewLine(geom.NewPoint(1e15, 0), geom.NewPoint(1e15, 1))
+	stretched := geom.Regions([]geom.Curve{arc(), far}, []geom.ClosedCurve{circle()},
+		geom.WithVertexMerge(1e-9))
+	require.True(t, stretched.Degenerate,
+		"carriers a unit apart must stay refused however far the rest of the scene reaches")
+
+	alone := geom.Regions([]geom.Curve{arc()}, []geom.ClosedCurve{circle()},
+		geom.WithVertexMerge(1e-9))
+	require.False(t, alone.Degenerate, "the pair on its own is plain concentric geometry")
+	require.Len(t, alone.Regions, 1, "the unit disk survives; the arc is a pruned spur")
+	require.InDelta(t, math.Pi, alone.Regions[0].Area, 1e-9)
+}
+
+// TestAnalyticCoincidentCarrierNearFullGapStaysClosed covers a coincident overlap
+// whose window leaves only a hair of the losing source outside it: a unit circle and
+// an exactly coincident arc sweeping all but `gap` radians. The circle's exterior
+// fragment over that gap is the ONLY thing left to close the disk, so suppression
+// must act on the overlap window itself and carry no outward slop — a slop of
+// `arcParamEps` swallowed the gap fragment for every gap up to twice it, and the
+// region vanished with no degeneracy flag to warn anyone.
+func TestAnalyticCoincidentCarrierNearFullGapStaysClosed(t *testing.T) {
+	c := geom.NewPoint(0, 0)
+	at := func(ang float64) *geom.Point { return geom.NewPoint(math.Cos(ang), math.Sin(ang)) }
+	// The gap is centred on angle 0, a sample vertex at every density below, so the
+	// two cuts straddle a segment boundary — the alignment that leaves them least room.
+	for _, spt := range []int{16, 64, 256} {
+		for _, gap := range []float64{1.2e-9, 1.5e-9, 2e-9, 2.5e-9, 1e-7, 1e-3} {
+			arc := geom.NewArc(c, at(gap/2), at(-gap/2)) // sweep 2π−gap, coincident with the circle
+			closed := []geom.ClosedCurve{geom.NewCircle(c, 1)}
+			arr := geom.Regions([]geom.Curve{arc}, closed,
+				geom.WithVertexMerge(1e-10), geom.WithSegmentsPerTurn(spt))
+			require.Falsef(t, arr.Degenerate, "spt=%d gap=%g resolves like any other single-window overlap", spt, gap)
+			require.Lenf(t, arr.Regions, 1, "spt=%d gap=%g: the disk closes over the arc plus the circle's gap fragment", spt, gap)
+			require.InDeltaf(t, math.Pi, arr.Regions[0].Area, 1e-9, "spt=%d gap=%g", spt, gap)
+		}
+	}
+
+	// Below arcParamEps the arc is a COMPLETE carrier (coversFullTurn), which is the
+	// separate out-of-scope exclusion — refused, not resolved. That boundary is
+	// unchanged; it is asserted here so the two thresholds are not confused.
+	tiny := geom.NewArc(c, at(5e-10), at(-5e-10))
+	arr := geom.Regions([]geom.Curve{tiny}, []geom.ClosedCurve{geom.NewCircle(c, 1)},
+		geom.WithVertexMerge(1e-10), geom.WithSegmentsPerTurn(64))
+	require.True(t, arr.Degenerate, "a 2π-within-arcParamEps arc is a complete carrier, so the pair stays refused")
 }
 
 // TestAnalyticCoincidentCarrierFullTurnArcStaysDegenerate is the "Scope" exclusion

@@ -252,7 +252,9 @@ type arranger struct {
 // angularWindow is a suppression range on a source that shares a coincident carrier
 // with a lower-indexed source: the portion of the source's own sweep, expressed as
 // an absolute angle around the shared carrier's center (so it needs no per-source
-// natural-parameter sign/wrap bookkeeping — see "The SourceIndex decision" in
+// natural-parameter sign/wrap bookkeeping — the two sources sweep independently and
+// a closed carrier's parameter range wraps through its seam, while the angle is one
+// quantity both agree on; see step 3 of "Resolution" in
 // docs/coincident-carrier-resolution-design.md), to omit from split()'s emitted
 // edges.
 type angularWindow struct {
@@ -262,13 +264,24 @@ type angularWindow struct {
 
 // contains reports whether the point (x,y) — evaluated on the shared carrier —
 // falls inside the window, wrapping by a full turn.
+//
+// The window is tested EXACTLY, with no outward slop, and the asymmetry is
+// load-bearing. A fragment that genuinely lies inside the window is separated from
+// either end of it by at least half its own angular extent, because both window
+// boundaries are cut sites (resolveCoincidentOverlap cuts the losing source at both,
+// so no emitted fragment straddles one) — so it needs no margin to be recognised.
+// A fragment OUTSIDE the window, by contrast, can sit arbitrarily close to it: the
+// losing source's own gap beyond the overlap is a real span of any width, and it is
+// the only thing left to close a region when the overlap covers nearly the whole
+// carrier. An outward slop of arcParamEps deleted exactly that fragment for every
+// gap up to twice it, taking the region with it and leaving nothing flagged.
 func (w angularWindow) contains(x, y float64) bool {
 	ang := math.Atan2(y-w.cy, x-w.cx)
 	d := math.Mod(ang-w.angLo, 2*math.Pi)
 	if d < 0 {
 		d += 2 * math.Pi
 	}
-	return d <= w.width+arcParamEps
+	return d <= w.width
 }
 
 // arrEdge is an undirected arrangement edge between two canonical vertices,
@@ -1813,7 +1826,10 @@ func (a *arranger) split() {
 			// endpoints to attach to. The midpoint of the fragment's chord is exactly on
 			// the shared carrier's angular bisector of its two endpoints (the chord's
 			// perpendicular bisector passes through the center), so it needs no
-			// densification to test.
+			// densification to test — and testing that ONE point answers for the whole
+			// fragment because both window boundaries are cut sites, so no emitted
+			// fragment straddles one (see angularWindow.contains, which is why the
+			// window is tested with no slop).
 			if a.sourceSuppressed(s.src, (b0.px+b1.px)/2, (b0.py+b1.py)/2) {
 				continue
 			}
