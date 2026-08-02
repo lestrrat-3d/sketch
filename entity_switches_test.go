@@ -327,6 +327,12 @@ func entitySwitchCases(ts *ast.TypeSwitchStmt, facts entitySwitchFacts) entitySw
 		}
 		// A clause may name several types (`case *Line, *Arc:`); each counts.
 		for _, expr := range cc.List {
+			// Go reads `(T)` and `T` as the same type, so parentheses around a
+			// case are redundant grouping and the case is still the supported
+			// `*T` form. Left wrapped, the case classifies as neither an
+			// identifier nor a pointer, and a switch whose entity cases are ALL
+			// parenthesized names no entity type at all and is skipped.
+			expr = ast.Unparen(expr)
 			if id, ok := expr.(*ast.Ident); ok {
 				if id.Name == "nil" {
 					continue
@@ -340,7 +346,7 @@ func entitySwitchCases(ts *ast.TypeSwitchStmt, facts entitySwitchFacts) entitySw
 			if !ok {
 				continue
 			}
-			id, ok := star.X.(*ast.Ident)
+			id, ok := ast.Unparen(star.X).(*ast.Ident)
 			if !ok {
 				continue
 			}
@@ -570,6 +576,55 @@ func noEntityCase(v any) {
 }
 `, nil)
 		require.Empty(t, problems, `a switch naming no entity type is not an entity switch`)
+	})
+}
+
+// TestEntitySwitchAuditSeesThroughParenthesizedCases covers a case written with
+// redundant parentheses. Go reads `(T)` and `T` as the same type, so such a case
+// is the contract's `*T` form; unwrapped it classified as neither an identifier
+// nor a pointer, and a switch whose entity cases are ALL parenthesized named no
+// entity type, which took the whole switch out of the audit.
+func TestEntitySwitchAuditSeesThroughParenthesizedCases(t *testing.T) {
+	t.Run("partial with every case parenthesized is still reported", func(t *testing.T) {
+		problems := auditSynthetic(t, entitySwitchPrelude+`
+func partialAllParenthesized(e Entity) {
+	switch e.(type) {
+	case (*Alpha):
+	case (*Beta):
+	}
+}
+`, nil)
+		require.Len(t, problems, 1, `parentheses around every case must not take the switch out of the audit`)
+		require.Contains(t, problems[0], "partialAllParenthesized")
+		require.Contains(t, problems[0], "does not handle Gamma")
+	})
+
+	t.Run("partial with one case parenthesized is still reported", func(t *testing.T) {
+		problems := auditSynthetic(t, entitySwitchPrelude+`
+func partialOneParenthesized(e Entity) {
+	switch e.(type) {
+	case (*Alpha):
+	case *Beta:
+	}
+}
+`, nil)
+		require.Len(t, problems, 1)
+		require.Contains(t, problems[0], "partialOneParenthesized")
+		require.Contains(t, problems[0], "does not handle Gamma",
+			`the parenthesized case covers Alpha, so naming it unhandled states something untrue`)
+	})
+
+	t.Run("a parenthesized case completes coverage", func(t *testing.T) {
+		problems := auditSynthetic(t, entitySwitchPrelude+`
+func exhaustiveThroughParentheses(e Entity) {
+	switch e.(type) {
+	case (*Alpha):
+	case *(Beta):
+	case *Gamma:
+	}
+}
+`, nil)
+		require.Empty(t, problems, `parentheses are grouping, so each case covers the type it names`)
 	})
 }
 
