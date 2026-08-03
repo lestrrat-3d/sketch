@@ -213,7 +213,86 @@ the open-spline arrangement path — sampled area, same-source self-crossing —
 fit points join adjacent geometry by shared-`*Point` identity. Serialized as a
 distinct `"fit_spline"` type; exported as a sampled path (SVG/PNG) and an open
 `LWPOLYLINE` (DXF — the derived controls are not clamped-uniform, so no native
-`SPLINE`). Point-on / tangent constraints on a fit spline are a deferred follow-up
+`SPLINE`).
+
+The built interpolant is **exported**, not only sampleable: `geom.FitInterpolant`
+(`geom.FitSpline.Interpolant`, `sketch.FitSpline.Interpolant`,
+`geom.NewFitInterpolant`, each returning `(*FitInterpolant, error)`) carries the
+active points, their cumulative chord
+parameters and the natural-cubic second derivatives, and `FitInterpolant.Spans`
+converts those to per-span monomial cubics in closed form, each stated in the
+span's own **normalized** parameter `u = (p − PStart)/h`. A consumer that must
+integrate or record the EXACT curve — a solid modeller that will not re-run
+another layer's interpolation solve — reads the curve's defining data there
+instead of chording it. Four properties the export must keep. The **dedup** is
+visible: the exported points are the ACTIVE ones (`fitChordEps` collapses a
+zero-length chord), so the spans describe the curve actually evaluated rather
+than the raw fit list. The **chord parameterization** comes out with them, so the
+normalized `t ∈ [0,1]` the rest of the API is stated in maps onto the same spans
+(`p = t·total`). The values are **copied from the built evaluator**, never
+recomputed on the side, so they cannot drift from `Eval` — and
+`FitInterpolant.Eval` runs that same evaluator, so a reconstruction through it
+reproduces `FitSpline.Eval` bit for bit. `Spans` is the one derived shape: it is
+algebraically the same cubic in a different summation order, so it agrees to
+rounding rather than bit for bit, which its doc comment states. **The
+normalized parameter is what makes "to rounding" a RELATIVE bound at every span
+width**, and it is why the published coefficients are not the plain
+`(p − PStart)^k` ones. In the absolute parameter the higher coefficients carry
+`1/h` and `1/h²`; on a wide span those underflow to zero while the curve they
+describe stays perfectly ordinary, so `Spans` publishes a polynomial missing a
+whole term with no coefficient going non-finite and nothing anywhere to flag it
+(a fit set reaching `4e307` disagreed with `Eval` by 11.6% at a span's own
+midpoint, a term of `−3.57e306` dropped from a value of `3.07e307`). In `u`
+every coefficient is on the scale of the curve's own displacement across the
+span, and the same cubic reproduces `Eval` exactly on the same fixtures. The
+conversion multiplies by `h²`; each product is associated as `h·(h·term)` and
+never as `(h·h)·term`, since the bare `h·h` is already `+Inf` at those widths
+while the answer is representable, and the overflow reaches the caller as an
+infinite coefficient or as a NaN wherever the term is zero. Fourth, the
+fields are exported, so a **hand-built** value can violate the parallel-slice and
+strictly-increasing-`Params` precondition; `Eval`, `EvalDeriv` and `Spans` then
+all read the same **coherent prefix** of it rather than each dividing by its own
+bad span width — the leading run whose `Params` start at 0, stay finite and
+strictly increase, whose coordinates are finite, and **whose spans have finite
+coefficients**. That last clause carries its own weight: a span width that is
+positive, finite and increasing can still be wide enough for `h²·m` to overflow
+(`Params{0, 1e200}` over a nonzero second derivative), and a coefficient that is
+not a number describes no curve at all. The clause judges the coefficients
+`Spans` actually publishes — `spanFinite` runs the same conversion — so it can
+never bless a form the caller does not read. `FitInterpolant`'s doc
+comment defines the prefix, and the one unexported `size` helper all three go
+through computes it, so two exported views of one value can never describe
+different curves.
+
+What the prefix bounds is the **data** a reader reads, never the **value** it
+computes from that data, and the doc comments state the difference rather than
+claiming more: `Spans` cannot publish a coefficient that is not a number, while
+`Eval` and `EvalDeriv` can still return an infinity. A curve's own value leaves
+floating point while every number it is built from is inside it — a coordinate
+plus its span's cubic term, or `Eval`'s `(term·h)·h`, which is 1.5 times the
+`h²·m₀/2` coefficient the same span publishes at the middle of a span whose two
+second derivatives are equal. A **tangent** leaves it far sooner, since
+`dS/dt = total·dS/dp` and the total chord parameter multiplies: the `4e307`
+zig-zag fixture above has whole stretches whose tangent no double holds, and the
+pre-existing `EvalFitSplineDeriv` returns the same infinity from the same fit
+points. That is a fact about the curve, so **tightening `size` until the readers
+cannot return an infinity is not open**: it would cut a constructor-built curve
+whose `Eval` and spans are exact down to one point, which is the truncation
+`ErrNonFiniteFitInterpolant` exists to prevent.
+
+The prefix is for **hand-built** values, and it must never silently shorten data
+the evaluator itself produced. So the constructors **refuse rather than truncate**:
+`newFitEvaluator` accumulates chord length in floating point, so fit coordinates
+that are each finite can still overflow a parameter (two points `1e308` apart) or
+leave it not increasing (a `1e-6` chord after a `1e300` one), and the interpolant
+built from them would describe its first point alone while `FitSpline.Eval` still
+evaluates the whole curve — zero area out of an integrating consumer, with no error
+anywhere. All three constructors export through one gate that checks the built
+value against the prefix rule and returns `geom.ErrNonFiniteFitInterpolant` when it
+would shorten it, which is what makes "a value the constructors return is read
+whole" a fact rather than a hope.
+
+Point-on / tangent constraints on a fit spline are a deferred follow-up
 (the interpolation solve and chord parameters shift as the solver moves the fit
 points — real solver work, not just an overload).
 

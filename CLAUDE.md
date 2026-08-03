@@ -935,6 +935,65 @@ These are unsettled. If you resolve one, record the decision here.
   coordinates per evaluation, so the curve keeps interpolating them as the solver
   moves them — no new solver vars. An open `Curve` (endpoints = first/last fit
   point) participating in profiles like the open spline, `fit_spline` serialization.
+  The built interpolant is **exported** (`geom.FitInterpolant` via
+  `geom.FitSpline.Interpolant`/`sketch.FitSpline.Interpolant`/`geom.NewFitInterpolant`;
+  active points + cumulative chord parameters + natural-cubic second derivatives,
+  with `Spans` converting them to per-span monomial cubics), so a consumer that
+  integrates or records the EXACT curve reads its defining data instead of chording
+  it. The values are COPIED from the built evaluator rather than recomputed, and
+  `FitInterpolant.Eval` runs that same evaluator, so the export cannot drift from
+  `Eval`; `Spans` is the same cubic summed differently, so it agrees to rounding
+  rather than bit for bit. **A span is published in its own NORMALIZED parameter**
+  `u = (p − PStart)/h`, evaluated as `X[0] + u·(X[1] + u·(X[2] + u·X[3]))` over
+  `u ∈ [0,1]`, and that is what makes "to rounding" a bound RELATIVE to the curve at
+  every span width. In the absolute `p − PStart` the higher coefficients carry `1/h`
+  and `1/h²`: on a wide span they underflow to zero while the curve stays perfectly
+  ordinary, so `Spans` describes a different curve from `Eval` with every coefficient
+  finite and nothing to flag it (measured on constructor-built fit points reaching
+  `4e307`: an 11.6% disagreement at a span's own midpoint, one term of `−3.57e306`
+  dropped from a value of `3.07e307`, and a whole span whose x coefficients are zero
+  while `Eval` returns `5e-101`). The conversion multiplies by `h²`, and each product
+  is associated as `h·(h·term)`, NEVER as `(h·h)·term` — the bare `h·h` is already
+  `+Inf` at those widths while the answer is representable, and it returns as an
+  infinite coefficient or, where the term is zero, as a NaN.
+  **Its fields are exported, so a hand-built value can
+  violate the precondition**, and `Eval`, `EvalDeriv` and `Spans` must then all read
+  ONE coherent prefix of it — the unexported `size` helper, whose rule
+  `FitInterpolant`'s own doc comment defines: the leading run whose `Params` start at
+  0, stay finite and strictly increase, whose coordinates are finite, and **whose
+  spans have finite coefficients**. A reader that computed its own bound
+  instead would let two exported views of one value describe different curves, and a
+  bad span width reaches a consumer as a `+Inf` coefficient or a NaN parameter it
+  integrates with no signal. The coefficient clause is not implied by the parameter
+  one: a positive, finite and increasing `h` can still be wide enough for `h²·m` to
+  overflow (`Params{0, 1e200}` over a nonzero second derivative), and a coefficient
+  that is not a number describes no curve at all. **The clause judges the coefficients
+  `Spans` PUBLISHES** — `spanFinite` runs that same conversion — so a change to the
+  published form cannot leave the gate certifying a form no caller reads.
+  **The prefix bounds the DATA a reader reads, never the VALUE it computes from that
+  data, and the doc comments say so rather than claiming more**: `Spans` cannot publish
+  a coefficient that is not a number, while `Eval` and `EvalDeriv` can still return an
+  infinity — a coordinate plus its span's cubic term, `Eval`'s own `(term·h)·h` (1.5x
+  the `h²·m₀/2` coefficient the same span publishes, at the middle of a span whose two
+  second derivatives are equal), and above all a TANGENT, since `dS/dt = total·dS/dp`
+  and the total chord parameter multiplies. **Tightening `size` until no reader can
+  return an infinity is NOT open**: the `4e307` zig-zag fixture is CONSTRUCTOR-built,
+  its `Eval` and spans are exact, its tangent is out of range over whole stretches, and
+  the pre-existing `EvalFitSplineDeriv` returns the same infinity from the same fit
+  points — so the value is a fact about the curve, and refusing it would cut a whole
+  curve to one point, the truncation `ErrNonFiniteFitInterpolant` exists to prevent
+  (`TestFitInterpolantValueOutsideFloatingPointReadsInfinite` pins all four cases).
+  **The prefix rule is for HAND-BUILT values and must
+  never shorten what the evaluator produced**, so all three constructors export
+  through ONE gate that refuses — `geom.ErrNonFiniteFitInterpolant`, hence the
+  `(*FitInterpolant, error)` signature on every one of them — any built value the rule
+  would shorten. `newFitEvaluator` accumulates chord length in floating point, so
+  coordinates that are each finite (two fit points `1e308` apart, reachable through
+  `s.CreatePoint`/`s.CreateFitSpline` with every call returning nil) can overflow a
+  parameter or leave it not increasing; truncating there publishes a ONE-POINT
+  interpolant, no spans and a zero tangent for a curve `FitSpline.Eval` still
+  evaluates whole, so a consumer integrating `Spans()` reads zero area with no error
+  anywhere.
   A point can be confined to it with `NewPointOnFitSpline` (the bounded foot
   parameter `t∈[0,1]` with a slack box, exactly like `NewPointOnSpline`, since the
   curve has endpoints). A line can be made tangent to it with

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/lestrrat-3d/sketch"
+	"github.com/lestrrat-3d/sketch/geom"
 	"github.com/stretchr/testify/require"
 )
 
@@ -60,6 +61,35 @@ func TestFitSplineInterpolatesAfterSolve(t *testing.T) {
 	x, y := sp.Eval(frac[1])
 	require.InDelta(t, p1.X(), x, 1e-9, "curve still passes through the moved middle fit point")
 	require.InDelta(t, p1.Y(), y, 1e-9)
+}
+
+func TestFitSplineInterpolantFollowsTheSolve(t *testing.T) {
+	// A consumer that integrates the exact curve reads the interpolant, so it must
+	// describe the SOLVED geometry — and describe it as Eval does.
+	s := newSketch(t)
+	p0 := s.CreatePoint(0, 0)
+	p1 := s.CreatePoint(3, 2)
+	p2 := s.CreatePoint(6, 0)
+	s.Fix(p0)
+	s.Fix(p2)
+	sp, err := s.CreateFitSpline(p0, p1, p2)
+	require.NoError(t, err)
+	s.AddConstraint(sketch.NewVerticalDistance(p0, p1, 5))
+	_, err = s.Solve(t.Context())
+	require.NoError(t, err)
+
+	fi, err := sp.Interpolant()
+	require.NoError(t, err)
+	require.Len(t, fi.Points, 3)
+	require.Equal(t, [2]float64{p1.X(), p1.Y()}, fi.Points[1], "the interpolant carries the solved coordinates")
+	require.Len(t, fi.Spans(), 2)
+	for i := 0; i <= 10; i++ {
+		u := float64(i) / 10
+		wantX, wantY := sp.Eval(u)
+		gotX, gotY := fi.Eval(u)
+		require.Equal(t, wantX, gotX, "the interpolant reproduces Eval at t=%v", u)
+		require.Equal(t, wantY, gotY)
+	}
 }
 
 func TestFitSplineBoundsProfile(t *testing.T) {
@@ -211,4 +241,22 @@ func TestFitSplineTypedNilEntity(t *testing.T) {
 	s := newSketch(t)
 	_, err := s.WorldPolyline((*sketch.FitSpline)(nil))
 	require.ErrorIs(t, err, sketch.ErrForeignEntity)
+}
+
+func TestFitSplineInterpolantRefusesIndescribableCurve(t *testing.T) {
+	// Every coordinate here is finite and every call below returns a nil error, yet
+	// the chord between the two fit points is not representable. The interpolant
+	// would then describe the FIRST POINT while Eval describes the whole curve, so
+	// the sketch method surfaces the refusal rather than a truncated description.
+	s := newSketch(t)
+	sp, err := s.CreateFitSpline(s.CreatePoint(-1e308, 0), s.CreatePoint(1e308, 1))
+	require.NoError(t, err)
+
+	x, y := sp.Eval(1)
+	require.Equal(t, 1e308, x, "the spline still evaluates its own last fit point")
+	require.Equal(t, 1.0, y)
+
+	fi, err := sp.Interpolant()
+	require.ErrorIs(t, err, geom.ErrNonFiniteFitInterpolant)
+	require.Nil(t, fi, "a refused interpolant is not handed back at all")
 }
