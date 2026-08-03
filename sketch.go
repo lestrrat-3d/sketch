@@ -523,6 +523,12 @@ type shapeVar struct {
 // probe perturbs a radius as if it were a coordinate) with the build, vet, lint
 // and test gates all green. A new entity type owning any scalar variable of its
 // own MUST get a case here, each variable with its kind.
+//
+// The entity set here is exactly the one the predecessor entitySizeVars carried,
+// a conic's rho included (`git log -S entitySizeVars -- sketch.go` reaches it),
+// so pairing each variable with its kind changed which variables an entity
+// grounds for no type: a free conic reaches DOF() == 0 under FixEntity, which
+// TestFixEntityGroundsEveryVariable pins.
 func entityShapeVars(e Entity) []shapeVar {
 	switch t := e.(type) {
 	case *Circle:

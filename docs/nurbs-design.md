@@ -129,8 +129,8 @@ flagged `SelfIntersecting`.
   `Polyline`/`Endpoints`; arrange.go `srcNURBS` + `at` + kind-assignment + area
   case + `nurbsBulgeSpan` + the self-crossing self-test entry.
 - **sketch.go**: `NURBS` entity + `CreateNURBS` + `ClampedUniformKnots` + accessors;
-  `localPolyline`, `entityPoints` (all control points), `entitySizeVars` (none —
-  no shape vars).
+  `localPolyline`, `entityPoints` (all control points), `entityShapeVars` (none —
+  no shape vars, so no variable-kind pair to carry either).
 - **json.go**: marshal/rebuild `"nurbs"` (control ids + degree + knots + weights).
 - **Exporters**: svg.go/png.go sampled draw + bounds; **dxf.go** a **native
   `SPLINE`** — degree (71), knots (40×, count 72), control points (10/20/30,
@@ -140,9 +140,9 @@ flagged `SelfIntersecting`.
 - **removal.go**: `renumberEntity`, `entityUsesPoint` (any control point),
   `RemoveEntity` (no vars to retire — control points are shared sketch points,
   kept like a line's).
-- **tools.go**: no `varKind` entry (no shape vars).
 - **reference.go**: `isNilEntity`.
-- **conditioning.go / probe.go**: no new var kind (no shape vars), untouched.
+- **conditioning.go / probe.go**: no new var kind — `varKinds` reads kinds from
+  `entityShapeVars`, which has no NURBS entry (no shape vars) — untouched.
 
 ## Deferred (explicit follow-ups)
 
