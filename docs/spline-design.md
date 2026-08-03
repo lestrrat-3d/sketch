@@ -222,7 +222,7 @@ parameters and the natural-cubic second derivatives, and `FitInterpolant.Spans`
 converts those to per-span monomial cubics in closed form. A consumer that must
 integrate or record the EXACT curve — a solid modeller that will not re-run
 another layer's interpolation solve — reads the curve's defining data there
-instead of chording it. Three properties the export must keep. The **dedup** is
+instead of chording it. Four properties the export must keep. The **dedup** is
 visible: the exported points are the ACTIVE ones (`fitChordEps` collapses a
 zero-length chord), so the spans describe the curve actually evaluated rather
 than the raw fit list. The **chord parameterization** comes out with them, so the
@@ -232,7 +232,14 @@ recomputed on the side, so they cannot drift from `Eval` — and
 `FitInterpolant.Eval` runs that same evaluator, so a reconstruction through it
 reproduces `FitSpline.Eval` bit for bit. `Spans` is the one derived shape: it is
 algebraically the same cubic in a different summation order, so it agrees to
-rounding rather than bit for bit, which its doc comment states.
+rounding rather than bit for bit, which its doc comment states. Fourth, the
+fields are exported, so a **hand-built** value can violate the parallel-slice and
+strictly-increasing-`Params` precondition the constructors guarantee; `Eval`,
+`EvalDeriv` and `Spans` then all read the same **coherent prefix** of it rather
+than each dividing by its own bad span width — `FitInterpolant`'s doc comment
+defines that prefix, and the one unexported `size` helper all three go through
+computes it, so two exported views of one value can never describe different
+curves.
 
 Point-on / tangent constraints on a fit spline are a deferred follow-up
 (the interpolation solve and chord parameters shift as the solver moves the fit

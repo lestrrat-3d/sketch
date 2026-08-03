@@ -169,6 +169,108 @@ func TestFitInterpolantAllCoincidentIsOnePoint(t *testing.T) {
 	require.Equal(t, 0.0, dy)
 }
 
+// requireFinite fails unless v is an ordinary number — the point of the coherent
+// prefix is that no exported reader hands back NaN or an infinity.
+func requireFinite(t *testing.T, what string, v float64) {
+	t.Helper()
+	require.False(t, math.IsNaN(v), "%s is NaN", what)
+	require.False(t, math.IsInf(v, 0), "%s is infinite", what)
+}
+
+func TestFitInterpolantHandBuiltParamsReadCoherentPrefix(t *testing.T) {
+	// The exported fields let a caller build a value whose Params violate the
+	// strictly-increasing precondition. Every exported reader must then describe the
+	// same finite curve — the leading run of Params that IS one — instead of dividing
+	// by a zero, negative or NaN span width and publishing the result.
+	for _, tc := range []struct {
+		name   string
+		params []float64
+		prefix int
+	}{
+		{name: "repeated parameter", params: []float64{0, 0}, prefix: 1},
+		{name: "decreasing parameter", params: []float64{0, -1}, prefix: 1},
+		{name: "NaN parameter", params: []float64{0, math.NaN()}, prefix: 1},
+		{name: "infinite parameter", params: []float64{0, math.Inf(1)}, prefix: 1},
+		{name: "non-monotone after one good span", params: []float64{0, 5, 3}, prefix: 2},
+		{name: "repeated parameter after one good span", params: []float64{0, 5, 5}, prefix: 2},
+		{name: "does not start at zero", params: []float64{1, 2}, prefix: 0},
+		{name: "starts at NaN", params: []float64{math.NaN(), 1}, prefix: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			points := make([][2]float64, len(tc.params))
+			derivs := make([][2]float64, len(tc.params))
+			for i := range points {
+				points[i] = [2]float64{float64(i) * 3, float64(i%2) * 4}
+				if i > 0 && i < len(points)-1 {
+					derivs[i] = [2]float64{0.5, -0.25} // a real cubic term on the good span
+				}
+			}
+			fi := &geom.FitInterpolant{Params: tc.params, Points: points, SecondDerivs: derivs}
+
+			spans := fi.Spans()
+			require.Len(t, spans, max(tc.prefix-1, 0), "spans cover the coherent prefix and nothing else")
+			for i, s := range spans {
+				requireFinite(t, "TStart", s.TStart)
+				requireFinite(t, "TEnd", s.TEnd)
+				requireFinite(t, "PStart", s.PStart)
+				requireFinite(t, "PEnd", s.PEnd)
+				for k := range s.X {
+					requireFinite(t, "X coefficient", s.X[k])
+					requireFinite(t, "Y coefficient", s.Y[k])
+				}
+				require.Less(t, s.TStart, s.TEnd, "span %d runs forward", i)
+				require.GreaterOrEqual(t, s.TStart, 0.0, "span %d starts inside [0,1]", i)
+				require.LessOrEqual(t, s.TEnd, 1.0, "span %d ends inside [0,1]", i)
+				require.Equal(t, tc.params[i], s.PStart)
+				require.Equal(t, tc.params[i+1], s.PEnd)
+			}
+
+			for i := 0; i <= 10; i++ {
+				u := float64(i) / 10
+				x, y := fi.Eval(u)
+				requireFinite(t, "Eval x", x)
+				requireFinite(t, "Eval y", y)
+				dx, dy := fi.EvalDeriv(u)
+				requireFinite(t, "EvalDeriv x", dx)
+				requireFinite(t, "EvalDeriv y", dy)
+			}
+
+			switch {
+			case tc.prefix == 0:
+				x, y := fi.Eval(0.5)
+				require.Equal(t, 0.0, x, "an empty prefix reads like an empty interpolant")
+				require.Equal(t, 0.0, y)
+				dx, dy := fi.EvalDeriv(0.5)
+				require.Equal(t, 0.0, dx)
+				require.Equal(t, 0.0, dy)
+			case tc.prefix == 1:
+				x, y := fi.Eval(0.5)
+				require.Equal(t, points[0], [2]float64{x, y}, "a one-point prefix evaluates as that point")
+				x, y = fi.Eval(1)
+				require.Equal(t, points[0], [2]float64{x, y}, "at every parameter, including the end")
+				dx, dy := fi.EvalDeriv(0.5)
+				require.Equal(t, 0.0, dx, "a one-point prefix has no tangent")
+				require.Equal(t, 0.0, dy)
+			default:
+				// Eval and the spans must describe the SAME curve: the two exported
+				// views disagreed at t=1 while a bad parameter was still read.
+				total := tc.params[tc.prefix-1]
+				x, y := fi.Eval(1)
+				require.Equal(t, points[tc.prefix-1], [2]float64{x, y}, "the prefix's last point ends the curve")
+				for _, s := range spans {
+					for k := 0; k <= 8; k++ {
+						p := s.PStart + (s.PEnd-s.PStart)*float64(k)/8
+						wantX, wantY := fi.Eval(p / total)
+						gotX, gotY := evalFitSpan(s, p)
+						require.InDelta(t, wantX, gotX, 1e-9, "span and Eval agree at p=%v", p)
+						require.InDelta(t, wantY, gotY, 1e-9)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestFitInterpolantEmpty(t *testing.T) {
 	_, err := geom.NewFitInterpolant([][2]float64{{0, 0}})
 	require.ErrorIs(t, err, geom.ErrTooFewFitPoints)

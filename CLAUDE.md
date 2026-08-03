@@ -943,7 +943,13 @@ These are unsettled. If you resolve one, record the decision here.
   it. The values are COPIED from the built evaluator rather than recomputed, and
   `FitInterpolant.Eval` runs that same evaluator, so the export cannot drift from
   `Eval`; `Spans` is the same cubic summed differently, so it agrees to rounding
-  rather than bit for bit.
+  rather than bit for bit. **Its fields are exported, so a hand-built value can
+  violate the precondition the constructors guarantee**, and `Eval`, `EvalDeriv`
+  and `Spans` must then all read ONE coherent prefix of it — the unexported `size`
+  helper, whose rule `FitInterpolant`'s own doc comment defines. A reader that
+  computed its own bound instead would let two exported views of one value describe
+  different curves, and a bad span width reaches a consumer as a `+Inf` coefficient
+  or a NaN parameter it integrates with no signal.
   A point can be confined to it with `NewPointOnFitSpline` (the bounded foot
   parameter `t∈[0,1]` with a slack box, exactly like `NewPointOnSpline`, since the
   curve has endpoints). A line can be made tangent to it with

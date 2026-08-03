@@ -116,9 +116,16 @@ func SampleFitSpline(fit [][2]float64, segments int) ([][2]float64, error) {
 // arrangement [FitInterpolant.Eval] itself computes, so a reconstruction using it
 // reproduces [FitSpline.Eval] bit for bit.
 //
-// The three slices are parallel and Params is strictly increasing; the constructors
-// guarantee both. A hand-built value whose slices differ in length is evaluated over
-// the shortest.
+// The three slices are parallel and Params is strictly increasing from Params[0] == 0;
+// the constructors guarantee both, so a value they built is read whole. A hand-built
+// value that violates either is read over its COHERENT PREFIX: the longest leading run
+// of Params that starts at 0, stays finite and strictly increases, bounded by the
+// shortest of the three slices. Everything from the first violation onward is not part
+// of the curve. [FitInterpolant.Eval], [FitInterpolant.EvalDeriv] and
+// [FitInterpolant.Spans] all read exactly that prefix, so no two of them can describe
+// different curves; a one-point prefix evaluates as that point with a zero tangent and
+// no spans, and an empty prefix evaluates as zero with no spans, exactly as an empty
+// interpolant does.
 type FitInterpolant struct {
 	// Params holds the cumulative chord-length parameter of each point in Points,
 	// with Params[0] == 0.
@@ -166,8 +173,9 @@ func (fi *FitInterpolant) Eval(t float64) (float64, float64) {
 }
 
 // EvalDeriv returns the tangent dS/dt at normalized parameter t ∈ [0, 1] (clamped),
-// matching [EvalFitSplineDeriv]. A degenerate (single-point) interpolant has zero
-// tangent.
+// matching [EvalFitSplineDeriv]. A degenerate interpolant — a single point, or a
+// hand-built value whose coherent prefix (see [FitInterpolant]) is one point — has
+// zero tangent.
 func (fi *FitInterpolant) EvalDeriv(t float64) (float64, float64) {
 	e := fi.evaluator()
 	if len(e.x) == 0 {
@@ -198,7 +206,8 @@ type FitSpan struct {
 
 // Spans returns the interpolant's cubic pieces in monomial form, one per interval
 // between consecutive [FitInterpolant.Points], in order. A degenerate (single-point)
-// interpolant has none.
+// interpolant has none. A hand-built value is spanned over its coherent prefix only
+// (see [FitInterpolant]), the same prefix [FitInterpolant.Eval] evaluates.
 func (fi *FitInterpolant) Spans() []FitSpan {
 	k := fi.size()
 	if k < 2 {
@@ -237,14 +246,31 @@ func cubicSpanCoeffs(h, v0, v1, m0, m1 float64) [4]float64 {
 	}
 }
 
-// size returns the number of points the interpolant is coherent over: the shortest
-// of its three parallel slices (equal for any value the constructors built).
+// size returns the number of points the interpolant is coherent over: the longest
+// LEADING run of Params that starts at 0, stays finite and strictly increases,
+// bounded by the shortest of its three parallel slices. A value the constructors
+// built satisfies both rules over its whole length, so this is that length; a
+// hand-built one is read over the prefix alone, and it is the ONE definition every
+// exported reader uses, so they cannot describe different curves.
 func (fi *FitInterpolant) size() int {
-	return min(len(fi.Params), len(fi.Points), len(fi.SecondDerivs))
+	k := min(len(fi.Params), len(fi.Points), len(fi.SecondDerivs))
+	if k == 0 || fi.Params[0] != 0 {
+		return 0
+	}
+	for i := 1; i < k; i++ {
+		p := fi.Params[i]
+		// A non-finite or non-increasing parameter has no span: h would be zero,
+		// negative or NaN, and the coefficients it produces are not on any curve.
+		// NaN fails every comparison, so it is rejected explicitly.
+		if math.IsNaN(p) || math.IsInf(p, 0) || p <= fi.Params[i-1] {
+			return i
+		}
+	}
+	return k
 }
 
-// evaluator rebuilds the internal evaluator over the interpolant's own values, so
-// evaluation reads exactly the data the caller sees.
+// evaluator rebuilds the internal evaluator over the coherent prefix of the
+// interpolant's own values, so evaluation reads exactly the data the caller sees.
 func (fi *FitInterpolant) evaluator() *fitEvaluator {
 	k := fi.size()
 	e := &fitEvaluator{
