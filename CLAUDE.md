@@ -935,6 +935,15 @@ These are unsettled. If you resolve one, record the decision here.
   coordinates per evaluation, so the curve keeps interpolating them as the solver
   moves them — no new solver vars. An open `Curve` (endpoints = first/last fit
   point) participating in profiles like the open spline, `fit_spline` serialization.
+  The built interpolant is **exported** (`geom.FitInterpolant` via
+  `geom.FitSpline.Interpolant`/`sketch.FitSpline.Interpolant`/`geom.NewFitInterpolant`;
+  active points + cumulative chord parameters + natural-cubic second derivatives,
+  with `Spans` converting them to per-span monomial cubics), so a consumer that
+  integrates or records the EXACT curve reads its defining data instead of chording
+  it. The values are COPIED from the built evaluator rather than recomputed, and
+  `FitInterpolant.Eval` runs that same evaluator, so the export cannot drift from
+  `Eval`; `Spans` is the same cubic summed differently, so it agrees to rounding
+  rather than bit for bit.
   A point can be confined to it with `NewPointOnFitSpline` (the bounded foot
   parameter `t∈[0,1]` with a slack box, exactly like `NewPointOnSpline`, since the
   curve has endpoints). A line can be made tangent to it with

@@ -62,6 +62,34 @@ func TestFitSplineInterpolatesAfterSolve(t *testing.T) {
 	require.InDelta(t, p1.Y(), y, 1e-9)
 }
 
+func TestFitSplineInterpolantFollowsTheSolve(t *testing.T) {
+	// A consumer that integrates the exact curve reads the interpolant, so it must
+	// describe the SOLVED geometry — and describe it as Eval does.
+	s := newSketch(t)
+	p0 := s.CreatePoint(0, 0)
+	p1 := s.CreatePoint(3, 2)
+	p2 := s.CreatePoint(6, 0)
+	s.Fix(p0)
+	s.Fix(p2)
+	sp, err := s.CreateFitSpline(p0, p1, p2)
+	require.NoError(t, err)
+	s.AddConstraint(sketch.NewVerticalDistance(p0, p1, 5))
+	_, err = s.Solve(t.Context())
+	require.NoError(t, err)
+
+	fi := sp.Interpolant()
+	require.Len(t, fi.Points, 3)
+	require.Equal(t, [2]float64{p1.X(), p1.Y()}, fi.Points[1], "the interpolant carries the solved coordinates")
+	require.Len(t, fi.Spans(), 2)
+	for i := 0; i <= 10; i++ {
+		u := float64(i) / 10
+		wantX, wantY := sp.Eval(u)
+		gotX, gotY := fi.Eval(u)
+		require.Equal(t, wantX, gotX, "the interpolant reproduces Eval at t=%v", u)
+		require.Equal(t, wantY, gotY)
+	}
+}
+
 func TestFitSplineBoundsProfile(t *testing.T) {
 	s := newSketch(t)
 	a := s.CreatePoint(0, 0)

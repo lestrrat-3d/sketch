@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 )
 
@@ -97,6 +98,184 @@ func SampleFitSpline(fit [][2]float64, segments int) ([][2]float64, error) {
 	return pts, nil
 }
 
+// FitInterpolant is the built natural-cubic interpolant a [FitSpline] evaluates:
+// the curve's DEFINING data rather than points on it. A consumer that has to
+// integrate, record or re-express the exact curve — rather than sample it — reads
+// it here, or reads the same curve in per-span polynomial form from [FitInterpolant.Spans].
+//
+// Its parameter p is CUMULATIVE CHORD LENGTH, running from Params[0] == 0 to the
+// total Params[len(Params)-1]. The normalized t ∈ [0, 1] that [FitSpline.Eval] and
+// the arrangement's fragment bounds are stated in maps to it as p = t·total.
+//
+// On span i (Params[i] ≤ p ≤ Params[i+1], with h = Params[i+1]−Params[i],
+// a = (Params[i+1]−p)/h and b = (p−Params[i])/h) each coordinate v of the curve is
+//
+//	v(p) = a·v[i] + b·v[i+1] + ((a³−a)·m[i] + (b³−b)·m[i+1])·h²/6
+//
+// with v the coordinate's Points column and m its SecondDerivs column. That is the
+// arrangement [FitInterpolant.Eval] itself computes, so a reconstruction using it
+// reproduces [FitSpline.Eval] bit for bit.
+//
+// The three slices are parallel and Params is strictly increasing; the constructors
+// guarantee both. A hand-built value whose slices differ in length is evaluated over
+// the shortest.
+type FitInterpolant struct {
+	// Params holds the cumulative chord-length parameter of each point in Points,
+	// with Params[0] == 0.
+	Params []float64
+	// Points holds the ACTIVE fit positions: consecutive coincident fit points are
+	// collapsed, so these are the points the evaluated curve interpolates rather
+	// than the raw fit list. An all-coincident fit set leaves one point and no span.
+	Points [][2]float64
+	// SecondDerivs holds the natural-cubic second derivatives d²/dp² at Points, per
+	// coordinate. Both ends are zero — the natural end condition.
+	SecondDerivs [][2]float64
+}
+
+// Interpolant returns the interpolant [FitSpline.Eval] evaluates, built from the fit
+// points' current coordinates. Each call builds a fresh one, so the caller owns the
+// returned slices. A spline with no fit points returns an empty interpolant.
+func (sp *FitSpline) Interpolant() *FitInterpolant {
+	if len(sp.Fit) == 0 {
+		return &FitInterpolant{}
+	}
+	return newFitEvaluator(controlCoords(sp.Fit)).interpolant()
+}
+
+// NewFitInterpolant builds the natural-cubic interpolant through the given fit
+// coordinates — the same one [EvalFitSpline] and [SampleFitSpline] evaluate. It
+// returns [ErrTooFewFitPoints] with fewer than 2 fit points.
+func NewFitInterpolant(fit [][2]float64) (*FitInterpolant, error) {
+	if err := tooFewPoints(len(fit), 2, ErrTooFewFitPoints); err != nil {
+		return nil, err
+	}
+	return newFitEvaluator(fit).interpolant(), nil
+}
+
+// Eval returns the curve point at normalized parameter t ∈ [0, 1] (clamped). It is
+// the same computation on the same values as [FitSpline.Eval], so the two agree bit
+// for bit. It rebuilds the internal evaluator per call — sample many points with
+// [SampleFitSpline] instead.
+func (fi *FitInterpolant) Eval(t float64) (float64, float64) {
+	e := fi.evaluator()
+	if len(e.x) == 0 {
+		return 0, 0
+	}
+	p := e.at(t)
+	return p[0], p[1]
+}
+
+// EvalDeriv returns the tangent dS/dt at normalized parameter t ∈ [0, 1] (clamped),
+// matching [EvalFitSplineDeriv]. A degenerate (single-point) interpolant has zero
+// tangent.
+func (fi *FitInterpolant) EvalDeriv(t float64) (float64, float64) {
+	e := fi.evaluator()
+	if len(e.x) == 0 {
+		return 0, 0
+	}
+	d := e.derivAt(t)
+	return d[0], d[1]
+}
+
+// FitSpan is one cubic piece of a [FitInterpolant] in monomial form: over
+// PStart ≤ p ≤ PEnd the curve is
+//
+//	x(p) = Σ X[k]·(p−PStart)^k    y(p) = Σ Y[k]·(p−PStart)^k
+//
+// with p the cumulative chord parameter and TStart/TEnd the same bounds normalized
+// to the [0, 1] the rest of the API is stated in. Derivatives are per unit p;
+// multiply by the total chord length (the interpolant's last Params entry) for
+// d/dt.
+//
+// The polynomial is algebraically the cubic [FitInterpolant.Eval] evaluates, in a
+// different summation order — so it agrees to rounding, not bit for bit. Use Eval
+// where bit-identity matters.
+type FitSpan struct {
+	TStart, TEnd float64
+	PStart, PEnd float64
+	X, Y         [4]float64
+}
+
+// Spans returns the interpolant's cubic pieces in monomial form, one per interval
+// between consecutive [FitInterpolant.Points], in order. A degenerate (single-point)
+// interpolant has none.
+func (fi *FitInterpolant) Spans() []FitSpan {
+	k := fi.size()
+	if k < 2 {
+		return nil
+	}
+	total := fi.Params[k-1]
+	spans := make([]FitSpan, 0, k-1)
+	for i := 0; i < k-1; i++ {
+		h := fi.Params[i+1] - fi.Params[i]
+		spans = append(spans, FitSpan{
+			TStart: fi.Params[i] / total,
+			TEnd:   fi.Params[i+1] / total,
+			PStart: fi.Params[i],
+			PEnd:   fi.Params[i+1],
+			X:      cubicSpanCoeffs(h, fi.Points[i][0], fi.Points[i+1][0], fi.SecondDerivs[i][0], fi.SecondDerivs[i+1][0]),
+			Y:      cubicSpanCoeffs(h, fi.Points[i][1], fi.Points[i+1][1], fi.SecondDerivs[i][1], fi.SecondDerivs[i+1][1]),
+		})
+	}
+	return spans
+}
+
+// cubicSpanCoeffs converts one natural-cubic span from second-derivative form to
+// monomial coefficients c0..c3 in u = p − pStart, over a span of length h between
+// values v0, v1 whose second derivatives are m0, m1:
+//
+//	c0 = v0
+//	c1 = (v1−v0)/h − h·(2·m0 + m1)/6
+//	c2 = m0/2
+//	c3 = (m1−m0)/(6·h)
+func cubicSpanCoeffs(h, v0, v1, m0, m1 float64) [4]float64 {
+	return [4]float64{
+		v0,
+		(v1-v0)/h - h*(2*m0+m1)/6,
+		m0 / 2,
+		(m1 - m0) / (6 * h),
+	}
+}
+
+// size returns the number of points the interpolant is coherent over: the shortest
+// of its three parallel slices (equal for any value the constructors built).
+func (fi *FitInterpolant) size() int {
+	return min(len(fi.Params), len(fi.Points), len(fi.SecondDerivs))
+}
+
+// evaluator rebuilds the internal evaluator over the interpolant's own values, so
+// evaluation reads exactly the data the caller sees.
+func (fi *FitInterpolant) evaluator() *fitEvaluator {
+	k := fi.size()
+	e := &fitEvaluator{
+		t:  fi.Params[:k],
+		x:  make([]float64, k),
+		y:  make([]float64, k),
+		mx: make([]float64, k),
+		my: make([]float64, k),
+	}
+	for i := 0; i < k; i++ {
+		e.x[i], e.y[i] = fi.Points[i][0], fi.Points[i][1]
+		e.mx[i], e.my[i] = fi.SecondDerivs[i][0], fi.SecondDerivs[i][1]
+	}
+	return e
+}
+
+// interpolant exports the built evaluator's values as the public [FitInterpolant],
+// copying them rather than recomputing so the two can never disagree.
+func (e *fitEvaluator) interpolant() *FitInterpolant {
+	fi := &FitInterpolant{
+		Params:       slices.Clone(e.t),
+		Points:       make([][2]float64, len(e.x)),
+		SecondDerivs: make([][2]float64, len(e.x)),
+	}
+	for i := range e.x {
+		fi.Points[i] = [2]float64{e.x[i], e.y[i]}
+		fi.SecondDerivs[i] = [2]float64{e.mx[i], e.my[i]}
+	}
+	return fi
+}
+
 // fitEvaluator holds a built natural-cubic interpolant: the active (deduplicated)
 // fit positions, their cumulative chord parameters, and the per-coordinate second
 // derivatives. Build it once and reuse it across samples.
@@ -124,6 +303,7 @@ func newFitEvaluator(fit [][2]float64) *fitEvaluator {
 	if k == 0 { // every fit point coincided away (caller guards len(fit) >= 1)
 		e.x, e.y = []float64{fit[0][0]}, []float64{fit[0][1]}
 		e.t = []float64{0}
+		e.mx, e.my = []float64{0}, []float64{0}
 		return e
 	}
 	e.t = make([]float64, k)

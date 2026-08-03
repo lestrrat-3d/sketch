@@ -213,7 +213,28 @@ the open-spline arrangement path — sampled area, same-source self-crossing —
 fit points join adjacent geometry by shared-`*Point` identity. Serialized as a
 distinct `"fit_spline"` type; exported as a sampled path (SVG/PNG) and an open
 `LWPOLYLINE` (DXF — the derived controls are not clamped-uniform, so no native
-`SPLINE`). Point-on / tangent constraints on a fit spline are a deferred follow-up
+`SPLINE`).
+
+The built interpolant is **exported**, not only sampleable: `geom.FitInterpolant`
+(`geom.FitSpline.Interpolant`, `sketch.FitSpline.Interpolant`,
+`geom.NewFitInterpolant`) carries the active points, their cumulative chord
+parameters and the natural-cubic second derivatives, and `FitInterpolant.Spans`
+converts those to per-span monomial cubics in closed form. A consumer that must
+integrate or record the EXACT curve — a solid modeller that will not re-run
+another layer's interpolation solve — reads the curve's defining data there
+instead of chording it. Three properties the export must keep. The **dedup** is
+visible: the exported points are the ACTIVE ones (`fitChordEps` collapses a
+zero-length chord), so the spans describe the curve actually evaluated rather
+than the raw fit list. The **chord parameterization** comes out with them, so the
+normalized `t ∈ [0,1]` the rest of the API is stated in maps onto the same spans
+(`p = t·total`). The values are **copied from the built evaluator**, never
+recomputed on the side, so they cannot drift from `Eval` — and
+`FitInterpolant.Eval` runs that same evaluator, so a reconstruction through it
+reproduces `FitSpline.Eval` bit for bit. `Spans` is the one derived shape: it is
+algebraically the same cubic in a different summation order, so it agrees to
+rounding rather than bit for bit, which its doc comment states.
+
+Point-on / tangent constraints on a fit spline are a deferred follow-up
 (the interpolation solve and chord parameters shift as the solver moves the fit
 points — real solver work, not just an overload).
 
