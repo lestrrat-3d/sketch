@@ -1152,9 +1152,11 @@ func (a *arranger) analyticPrepass() {
 			// the outer, resolved by the exact point-in-region test in hole assignment.
 			// The inner's chord polygon pokes outside the outer near the contact (so the
 			// consistency gate would flag it, and a sampled containment would miss the
-			// hole) — both artifacts the exact path is immune to. So neither flag it nor
-			// certify a port vertex; let the separate inner/outer loops + exact hole
-			// assignment produce the annulus.
+			// hole) — both artifacts the exact path is immune to. So exempt it from the
+			// consistency gate below and certify its shared contact for exact
+			// tangent-port ordering (the merged-contact branch further down), which
+			// separates the inner cycle from the outer; exact hole assignment then nests
+			// them into the annulus + inner disk.
 			internalTan := nTangent > 0 && a.internalCurvedTangency(i, j)
 			// A curve/curve TRANSVERSE crossing (both sources circle/arc) takes analytic
 			// authority only when the incidence certificate below passes. Unlike a
@@ -1277,10 +1279,12 @@ func (a *arranger) analyticPrepass() {
 					// An interior clean contact is no cut, no degeneracy — UNLESS it
 					// would canonicalize as a shared vertex between two cycle-bearing
 					// sources, where the rotation system must order coincident-tangent
-					// ports. buildGraph's exact tangent-port ordering now certifies an
-					// EXTERNAL circle/arc tangency there (the two loops separate by
-					// opposite curvature sign); internal/containment and line-involved
-					// tangencies stay conservatively degenerate pending later increments.
+					// ports. buildGraph's exact tangent-port ordering now certifies both
+					// CURVED cases there — an EXTERNAL circle/arc tangency (the two loops
+					// separate by opposite curvature sign) and an INTERNAL one (the outer
+					// cycle and the inner, which exact hole assignment nests). A
+					// line-involved merged tangency stays conservatively degenerate
+					// pending later increments.
 					if a.core[i] && a.core[j] &&
 						a.sourceHasVertexNear(i, e.x, e.y) && a.sourceHasVertexNear(j, e.x, e.y) {
 						switch {
@@ -2914,12 +2918,6 @@ func (a *arranger) useExactPorts(v int, ring []int) bool {
 	return true
 }
 
-// externalCurvedTangency reports whether sources i and j are two circle/arc
-// carriers in EXTERNAL tangency (centre distance beyond the larger radius). Their
-// loops separate cleanly under exact tangent-port ordering (opposite curvature
-// sign at the contact), so the merged shared vertex no longer needs a conservative
-// degeneracy flag. Internal tangency (containment) still does — its hole
-// assignment is not yet certified — so it is excluded here.
 // internalCurvedTangency reports whether sources i and j are two circle/arc
 // carriers in INTERNAL tangency — one inside the other (centre distance below the
 // larger radius), touching at one point (d = |R−r|). The inner is a hole of the
@@ -2933,6 +2931,12 @@ func (a *arranger) internalCurvedTangency(i, j int) bool {
 	return d < math.Max(si.r, sj.r)
 }
 
+// externalCurvedTangency reports whether sources i and j are two circle/arc
+// carriers in EXTERNAL tangency (centre distance beyond the larger radius). Their
+// loops separate cleanly under exact tangent-port ordering (opposite curvature
+// sign at the contact), so the merged shared vertex no longer needs a conservative
+// degeneracy flag. An INTERNAL tangency is certified at that vertex too, by
+// internalCurvedTangency above — this predicate answers only the external case.
 func (a *arranger) externalCurvedTangency(i, j int) bool {
 	si, sj := &a.sources[i], &a.sources[j]
 	if !isCurvedKind(si.kind) || !isCurvedKind(sj.kind) {
