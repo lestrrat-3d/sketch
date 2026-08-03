@@ -1151,7 +1151,7 @@ func (a *arranger) analyticPrepass() {
 			// at one point) is blessed via exact containment: the inner is a hole of
 			// the outer, resolved by the exact point-in-region test in hole assignment.
 			// The inner's chord polygon pokes outside the outer near the contact (so the
-			// sampled count gate would flag it, and a sampled containment would miss the
+			// consistency gate would flag it, and a sampled containment would miss the
 			// hole) — both artifacts the exact path is immune to. So neither flag it nor
 			// certify a port vertex; let the separate inner/outer loops + exact hole
 			// assignment produce the annulus.
@@ -1199,13 +1199,18 @@ func (a *arranger) analyticPrepass() {
 			// Consistency gate (curved pairs only): the sampled polyline must host
 			// the analytic contacts faithfully, or injecting exact cuts would warp
 			// the planar map (a vanished disk, a tangled face) while reading clean.
-			// Two conditions, one per kind of contact. (1) A crossing that INSERTS a
-			// vertex on both sources must be WITNESSED on its own host segment-pair —
-			// a coarse chord that never reaches the true crossing hosts nothing
-			// (analyticCrossHosted). (2) A contact the sampled map already carries a
-			// vertex for needs no witness, and cannot have one, but two of them inside
-			// ONE chord put a whole cap below the sampling (contactsResolved). Failing
-			// either, conservatively flag degeneracy. Pure line/line pairs are exact
+			// Three parts, and which of the first two applies to a contact turns on
+			// whether it INSERTS a vertex (crossNeedsSampledWitness). (1) A crossing
+			// that inserts one on both sources must be WITNESSED on its own host
+			// segment-pair — a coarse chord that never reaches the true crossing hosts
+			// nothing (analyticCrossHosted). (2) A contact the sampled map already
+			// carries a vertex for needs no witness, and cannot have one, but two of
+			// them inside ONE chord put a whole cap below the sampling
+			// (contactsResolved). (3) Every crossing of the two sampled polylines must
+			// be EXPLAINED by an analytic contact within one curved chord of it — a
+			// leftover one is the chords disagreeing with the geometry, and the face
+			// walk has no vertex for it (sampledCrossingsExplained). Failing any,
+			// conservatively flag degeneracy. Pure line/line pairs are exact
 			// (sample == geometry), so a clean shallow crossing is never false-flagged.
 			// A coincident-carrier OVERLAP pair carries no crossing to witness — the two
 			// sources' sampled polylines cross each other all along the shared arc, an
@@ -1311,7 +1316,8 @@ func isCurvedKind(k srcKind) bool {
 }
 
 // sampledCrossingsExplained reports whether every crossing of the two sampled
-// polylines answers to an analytic contact — the count half of the gate.
+// polylines answers to an analytic contact — the third part of the consistency
+// gate.
 //
 // The exact map is built from the kernel's contacts, so a sampled crossing with no
 // contact behind it is the chord approximation disagreeing with the geometry: two

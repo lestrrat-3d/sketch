@@ -119,9 +119,12 @@ func TestRegionsHalfDiskArcLoop(t *testing.T) {
 func TestRegionsLineArcCornerJoinNotDegenerate(t *testing.T) {
 	// A line meeting an arc at a SHARED ENDPOINT is a loop corner (a join), not a
 	// transverse crossing: it splits neither edge and must not flag the
-	// arrangement degenerate. Regression for the consistency gate counting the
-	// endpoint join against the sampled interior-crossing count, which
-	// false-flagged every circular segment / slot / pie slice / gear-tooth loop.
+	// arrangement degenerate. Regression for the consistency gate demanding a
+	// sampled transverse witness for a contact the sampled map ALREADY has a vertex
+	// for, which false-flagged every circular segment / slot / pie slice /
+	// gear-tooth loop. Such a contact inserts no vertex, so it is exempt from the
+	// witness (crossNeedsSampledWitness, via cutSite) and is held to
+	// contactsResolved instead.
 	t.Run("circular segments across the full angle range", func(t *testing.T) {
 		for _, halfDeg := range []float64{10, 15, 45, 90, 135, 179} {
 			a := halfDeg * math.Pi / 180.0

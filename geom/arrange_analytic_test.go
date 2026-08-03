@@ -110,11 +110,11 @@ func TestAnalyticInternalTangentNeverBlessedWrong(t *testing.T) {
 	// Internally tangent circles (inner disk a hole in the outer): a blessed
 	// result must net to the outer disk area; otherwise it must be Degenerate.
 	// Coarse sampling (the inner circle a triangle) once blessed a wrong total
-	// (inner counted as a separate disk). The count-consistency gate now flags
-	// these conservatively (the near-tangent sampled polygons cross transversally
-	// near the contact, disagreeing with the analytic tangency), so in practice
-	// every sampling is Degenerate — but the invariant asserted is the general one:
-	// blessed ⇒ correct net area.
+	// (inner counted as a separate disk). Internal tangency is now blessed at every
+	// sampling (increment 7 §7a): the pair is exempt from the consistency gate, and
+	// hole assignment uses the exact point-in-region test, so the inner nests into
+	// the outer instead of being counted twice. The invariant asserted stays the
+	// general one: blessed ⇒ correct net area.
 	const R, r = 3.0, 1.0
 	for _, ang := range []float64{0.13, 0.41, math.Pi / 4, 1.1, 2.3} {
 		cx, cy := (R-r)*math.Cos(ang), (R-r)*math.Sin(ang) // inner center: contact lies on the outer circle
