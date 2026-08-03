@@ -36,9 +36,9 @@ or unit.
 with `L` the bounding-box diagonal of the geometry (floored to 1):
 
 - **Column scale `Dcol`** — `L` for length-kind variables (point coordinates,
-  circle radii / ellipse semi-axes, and the conic-tangency contact-witness
-  coordinates), `1` for dimensionless variables (ellipse rotation, every slack /
-  spline-parameter aux).
+  circle radii, ellipse and elliptical-arc semi-axes, and the conic-tangency
+  contact-witness coordinates), `1` for dimensionless variables (ellipse and
+  elliptical-arc rotation, a conic's rho, every slack / spline-parameter aux).
 - **Row scale `Drow`** — `1/L` for length-kind residual rows, `1` for
   dimensionless rows.
 
@@ -107,7 +107,8 @@ unit-invariant gating one.
 ## Row- and column-kind classification
 
 - **Variable kinds.** Point coordinates and `varKinds`' radius/semi-axis vars are
-  length (scale `L`); ellipse rotation is dimensionless. Aux variables default to
+  length (scale `L`); the rotation and bounded-ratio vars it reports are
+  dimensionless. Aux variables default to
   dimensionless — correct for every slack and curve-parameter aux. The **only**
   length-kind aux variables are the conic-tangency contact-witness coordinates
   (`tangentConics.px/py`, literal positions), tagged explicitly.

@@ -46,8 +46,9 @@ func containsConstraint(cs []Constraint, c Constraint) bool {
 
 // RemoveEntity removes an entity and every constraint referencing it
 // (including auto-added internal ones), and reports whether the entity was
-// present. The entity's own scalar variables (circle radius, ellipse
-// axes/rotation) are retired. Its points are NOT removed — points are
+// present. The entity's own scalar variables are retired: whichever ones
+// entityShapeVars reports for its type, a circle's radius being one example.
+// Its points are NOT removed — points are
 // first-class and may be shared; remove orphans explicitly with
 // [Sketch.RemovePoint]. Re-adding the same generic geometry afterwards
 // creates a fresh, independent instance.
@@ -70,8 +71,9 @@ func (s *Sketch) RemoveEntity(e Entity) bool {
 	// dead handle) change. See Sketch.addEntity.
 	delete(s.entUIDs, e)
 	// Retire scalar variables owned by the entity itself, read from the one
-	// definition of what those are (entityShapeVars). Line/Arc/Spline own none —
-	// their coordinates belong to their points, which survive.
+	// definition of what those are (entityShapeVars). A line, an arc and the
+	// spline families own none — their coordinates belong to their points, which
+	// survive.
 	for _, v := range entityShapeVars(e) {
 		s.retireVar(v.index)
 	}

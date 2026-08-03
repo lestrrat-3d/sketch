@@ -56,10 +56,12 @@ func (s *Sketch) RemovePoint(p *Point) bool
   removed first; the entity's own scalar vars are retired; the entity is
   spliced, later entities renumbered, and a type switch deletes the entry
   from the matching generic→bound map (`lnOf`/`cirOf`/`arcOf`/`elOf`/
-  `splOf`). **Var ownership, exhaustively**: only `*Circle` (`ri`) and
-  `*Ellipse` (`rxi`, `ryi`, `roti`) own entity vars to retire; `*Line`,
-  `*Arc` and `*Spline` own none — their coordinates belong to their points,
-  which survive removal. **Its points are not removed** — points are
+  `splOf`). **Which vars those are is `entityShapeVars`'s answer, not a list
+  restated here**: that function is the one definition of the scalar variables
+  an entity owns beyond its points, and a copy of its cases would go stale the
+  next time an entity type gains one. A line, an arc and the spline families own
+  none, so removing one of those retires nothing — their coordinates belong to
+  their points, which survive. **Its points are not removed** — points are
   first-class and may be shared; orphaned points are harmless and can be
   removed explicitly.
 - `RemovePoint` is conservative: it **fails (returns false) when any entity
