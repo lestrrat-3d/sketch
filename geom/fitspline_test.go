@@ -2,6 +2,7 @@ package geom_test
 
 import (
 	"math"
+	"strconv"
 	"testing"
 
 	"github.com/lestrrat-3d/sketch/geom"
@@ -79,7 +80,8 @@ func TestFitInterpolantDescribesTheEvaluatedCurve(t *testing.T) {
 	fit := []*geom.Point{geom.NewPoint(0, 0), geom.NewPoint(1, 2), geom.NewPoint(3, -1), geom.NewPoint(5, 1), geom.NewPoint(6, 0)}
 	sp, err := geom.NewFitSpline(fit...)
 	require.NoError(t, err)
-	fi := sp.Interpolant()
+	fi, err := sp.Interpolant()
+	require.NoError(t, err)
 
 	require.Len(t, fi.Points, len(fit), "no fit point coincides, so none collapses")
 	require.Len(t, fi.Params, len(fit))
@@ -119,7 +121,8 @@ func TestFitInterpolantSpansReconstructCurve(t *testing.T) {
 	fit := []*geom.Point{geom.NewPoint(0, 0), geom.NewPoint(1, 2), geom.NewPoint(3, -1), geom.NewPoint(5, 1), geom.NewPoint(6, 0)}
 	sp, err := geom.NewFitSpline(fit...)
 	require.NoError(t, err)
-	fi := sp.Interpolant()
+	fi, err := sp.Interpolant()
+	require.NoError(t, err)
 	spans := fi.Spans()
 	require.Len(t, spans, len(fit)-1, "one cubic piece per interval")
 
@@ -150,7 +153,8 @@ func TestFitInterpolantCollapsesCoincidentFitPoints(t *testing.T) {
 	fit := []*geom.Point{geom.NewPoint(0, 0), geom.NewPoint(2, 3), geom.NewPoint(2, 3), geom.NewPoint(6, 0)}
 	sp, err := geom.NewFitSpline(fit...)
 	require.NoError(t, err)
-	fi := sp.Interpolant()
+	fi, err := sp.Interpolant()
+	require.NoError(t, err)
 	require.Len(t, fi.Points, 3, "the repeated fit point collapses away")
 	require.Equal(t, [2]float64{2, 3}, fi.Points[1])
 	require.Len(t, fi.Spans(), 2)
@@ -280,5 +284,161 @@ func TestFitInterpolantEmpty(t *testing.T) {
 	require.Equal(t, 0.0, x, "an empty interpolant evaluates without panicking")
 	require.Equal(t, 0.0, y)
 	require.Empty(t, empty.Spans())
-	require.Empty(t, (&geom.FitSpline{}).Interpolant().Points)
+	bare, err := (&geom.FitSpline{}).Interpolant()
+	require.NoError(t, err)
+	require.Empty(t, bare.Points)
+}
+
+func TestFitInterpolantConstructorsRefuseIndescribableCurve(t *testing.T) {
+	// Every coordinate here is an ordinary finite number, but the chord length
+	// between them is not representable. The prefix rule would then read the
+	// interpolant as its FIRST POINT while the spline it came from still evaluates
+	// the whole curve, so the constructors refuse instead of describing a different
+	// curve with no error anywhere.
+	for _, tc := range []struct {
+		name string
+		fit  [][2]float64
+	}{
+		{name: "chord length overflows", fit: [][2]float64{{-1e308, 0}, {1e308, 1}}},
+		{name: "cumulative parameter stops increasing", fit: [][2]float64{{0, 0}, {1e300, 0}, {1e300, 1e-6}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fi, err := geom.NewFitInterpolant(tc.fit)
+			require.ErrorIs(t, err, geom.ErrNonFiniteFitInterpolant)
+			require.Nil(t, fi, "a refused interpolant is not handed back at all")
+
+			pts := make([]*geom.Point, len(tc.fit))
+			for i, p := range tc.fit {
+				pts[i] = geom.NewPoint(p[0], p[1])
+			}
+			sp, err := geom.NewFitSpline(pts...)
+			require.NoError(t, err)
+			fi, err = sp.Interpolant()
+			require.ErrorIs(t, err, geom.ErrNonFiniteFitInterpolant, "the spline method refuses through the same gate")
+			require.Nil(t, fi)
+
+			// The spline itself is unchanged: it still evaluates its own last fit
+			// point, which is exactly what a truncated interpolant would have lost.
+			x, y := sp.Eval(1)
+			last := tc.fit[len(tc.fit)-1]
+			require.Equal(t, last[0], x, "the spline still ends at its last fit point")
+			require.Equal(t, last[1], y)
+		})
+	}
+}
+
+func TestFitInterpolantConstructorBuiltValueIsReadWhole(t *testing.T) {
+	// The prefix rule exists for hand-built values; it must never shorten one the
+	// evaluator produced. Across coordinate scales, everything the constructors
+	// return is read over its full length by all three readers.
+	for _, scale := range []float64{1e-12, 1e-6, 1, 1e6, 1e100, 1e300} {
+		t.Run(strconv.FormatFloat(scale, 'g', -1, 64), func(t *testing.T) {
+			fit := [][2]float64{{0, 0}, {scale, scale / 2}, {2 * scale, 0}, {3 * scale, scale}}
+			fi, err := geom.NewFitInterpolant(fit)
+			require.NoError(t, err)
+			require.Len(t, fi.Points, len(fit), "no point is dropped")
+
+			spans := fi.Spans()
+			require.Len(t, spans, len(fit)-1, "the whole value is spanned, not a prefix of it")
+			for i, s := range spans {
+				for k := range s.X {
+					requireFinite(t, "X coefficient", s.X[k])
+					requireFinite(t, "Y coefficient", s.Y[k])
+				}
+				require.Equal(t, fi.Params[i], s.PStart)
+				require.Equal(t, fi.Params[i+1], s.PEnd)
+			}
+
+			total := fi.Params[len(fi.Params)-1]
+			for i, p := range fi.Points {
+				x, y := fi.Eval(fi.Params[i] / total)
+				require.InDelta(t, p[0], x, math.Abs(p[0])*1e-12+scale*1e-12, "Eval interpolates point %d", i)
+				require.InDelta(t, p[1], y, math.Abs(p[1])*1e-12+scale*1e-12)
+			}
+			x, y := fi.Eval(1)
+			require.Equal(t, fi.Points[len(fi.Points)-1], [2]float64{x, y}, "the curve ends at the last point, not at a truncated one")
+		})
+	}
+}
+
+func TestFitInterpolantHandBuiltOverflowingSpanIsOutsidePrefix(t *testing.T) {
+	// A strictly increasing, finite Params can still give a span width small enough
+	// (or values large enough) for a monomial coefficient to overflow. Eval's
+	// barycentric form stays finite there, so without this rule Spans and Eval
+	// describe different curves. Such a span is outside the prefix, and the two
+	// readers agree over what is left.
+	for _, tc := range []struct {
+		name   string
+		params []float64
+		points [][2]float64
+		prefix int
+	}{
+		{
+			name:   "denormal span width",
+			params: []float64{0, 5e-324},
+			points: [][2]float64{{0, 0}, {1, 1}},
+			prefix: 1,
+		},
+		{
+			name:   "tiny span width with no denormal",
+			params: []float64{0, 1e-300},
+			points: [][2]float64{{0, 0}, {1e100, 0}},
+			prefix: 1,
+		},
+		{
+			name:   "overflow after one describable span",
+			params: []float64{0, 1e-300, 2e-300},
+			points: [][2]float64{{0, 0}, {1, 1}, {1e100, 0}},
+			prefix: 2,
+		},
+		{
+			name:   "non-finite coordinate",
+			params: []float64{0, 1, 2},
+			points: [][2]float64{{0, 0}, {3, 4}, {math.Inf(1), 0}},
+			prefix: 2,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			derivs := make([][2]float64, len(tc.params))
+			fi := &geom.FitInterpolant{Params: tc.params, Points: tc.points, SecondDerivs: derivs}
+
+			spans := fi.Spans()
+			require.Len(t, spans, tc.prefix-1, "only describable spans are part of the curve")
+			for _, s := range spans {
+				for k := range s.X {
+					requireFinite(t, "X coefficient", s.X[k])
+					requireFinite(t, "Y coefficient", s.Y[k])
+				}
+			}
+
+			for i := 0; i <= 10; i++ {
+				u := float64(i) / 10
+				x, y := fi.Eval(u)
+				requireFinite(t, "Eval x", x)
+				requireFinite(t, "Eval y", y)
+				dx, dy := fi.EvalDeriv(u)
+				requireFinite(t, "EvalDeriv x", dx)
+				requireFinite(t, "EvalDeriv y", dy)
+			}
+
+			x, y := fi.Eval(1)
+			require.Equal(t, tc.points[tc.prefix-1], [2]float64{x, y}, "the curve ends at the prefix's last point")
+			if tc.prefix == 1 {
+				dx, dy := fi.EvalDeriv(0.5)
+				require.Equal(t, 0.0, dx, "a one-point prefix has no tangent")
+				require.Equal(t, 0.0, dy)
+				return
+			}
+			total := tc.params[tc.prefix-1]
+			for _, s := range spans {
+				for k := 0; k <= 8; k++ {
+					p := s.PStart + (s.PEnd-s.PStart)*float64(k)/8
+					wantX, wantY := fi.Eval(p / total)
+					gotX, gotY := evalFitSpan(s, p)
+					require.InDelta(t, wantX, gotX, 1e-9, "span and Eval agree at p=%v", p)
+					require.InDelta(t, wantY, gotY, 1e-9)
+				}
+			}
+		})
+	}
 }

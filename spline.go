@@ -235,13 +235,15 @@ func (sp *FitSpline) Eval(t float64) (float64, float64) {
 // the solved fit-point coordinates — the curve's defining data rather than points
 // on it, for a consumer that has to integrate or record the exact curve. It is a
 // snapshot like [FitSpline.Geometry]: it does not follow later solves.
-func (sp *FitSpline) Interpolant() *geom.FitInterpolant {
-	fi, err := geom.NewFitInterpolant(sp.fitCoords())
-	if err != nil {
-		// fit-point count is guaranteed >=2 by CreateFitSpline.
-		return &geom.FitInterpolant{}
-	}
-	return fi
+//
+// It returns [geom.ErrNonFiniteFitInterpolant] when the solved coordinates — finite
+// though they are — put the cumulative chord length or a span coefficient beyond
+// floating point, since the interpolant would then describe less than the curve
+// [FitSpline.Eval] evaluates.
+func (sp *FitSpline) Interpolant() (*geom.FitInterpolant, error) {
+	// fit-point count is guaranteed >=2 by CreateFitSpline, so ErrTooFewFitPoints
+	// is unreachable here.
+	return geom.NewFitInterpolant(sp.fitCoords())
 }
 
 // Polyline samples the solved interpolating curve at segments+1 evenly spaced

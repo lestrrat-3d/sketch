@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/lestrrat-3d/sketch"
+	"github.com/lestrrat-3d/sketch/geom"
 	"github.com/stretchr/testify/require"
 )
 
@@ -77,7 +78,8 @@ func TestFitSplineInterpolantFollowsTheSolve(t *testing.T) {
 	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 
-	fi := sp.Interpolant()
+	fi, err := sp.Interpolant()
+	require.NoError(t, err)
 	require.Len(t, fi.Points, 3)
 	require.Equal(t, [2]float64{p1.X(), p1.Y()}, fi.Points[1], "the interpolant carries the solved coordinates")
 	require.Len(t, fi.Spans(), 2)
@@ -239,4 +241,22 @@ func TestFitSplineTypedNilEntity(t *testing.T) {
 	s := newSketch(t)
 	_, err := s.WorldPolyline((*sketch.FitSpline)(nil))
 	require.ErrorIs(t, err, sketch.ErrForeignEntity)
+}
+
+func TestFitSplineInterpolantRefusesIndescribableCurve(t *testing.T) {
+	// Every coordinate here is finite and every call below returns a nil error, yet
+	// the chord between the two fit points is not representable. The interpolant
+	// would then describe the FIRST POINT while Eval describes the whole curve, so
+	// the sketch method surfaces the refusal rather than a truncated description.
+	s := newSketch(t)
+	sp, err := s.CreateFitSpline(s.CreatePoint(-1e308, 0), s.CreatePoint(1e308, 1))
+	require.NoError(t, err)
+
+	x, y := sp.Eval(1)
+	require.Equal(t, 1e308, x, "the spline still evaluates its own last fit point")
+	require.Equal(t, 1.0, y)
+
+	fi, err := sp.Interpolant()
+	require.ErrorIs(t, err, geom.ErrNonFiniteFitInterpolant)
+	require.Nil(t, fi, "a refused interpolant is not handed back at all")
 }

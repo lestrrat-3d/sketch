@@ -217,7 +217,8 @@ distinct `"fit_spline"` type; exported as a sampled path (SVG/PNG) and an open
 
 The built interpolant is **exported**, not only sampleable: `geom.FitInterpolant`
 (`geom.FitSpline.Interpolant`, `sketch.FitSpline.Interpolant`,
-`geom.NewFitInterpolant`) carries the active points, their cumulative chord
+`geom.NewFitInterpolant`, each returning `(*FitInterpolant, error)`) carries the
+active points, their cumulative chord
 parameters and the natural-cubic second derivatives, and `FitInterpolant.Spans`
 converts those to per-span monomial cubics in closed form. A consumer that must
 integrate or record the EXACT curve — a solid modeller that will not re-run
@@ -234,12 +235,30 @@ reproduces `FitSpline.Eval` bit for bit. `Spans` is the one derived shape: it is
 algebraically the same cubic in a different summation order, so it agrees to
 rounding rather than bit for bit, which its doc comment states. Fourth, the
 fields are exported, so a **hand-built** value can violate the parallel-slice and
-strictly-increasing-`Params` precondition the constructors guarantee; `Eval`,
-`EvalDeriv` and `Spans` then all read the same **coherent prefix** of it rather
-than each dividing by its own bad span width — `FitInterpolant`'s doc comment
-defines that prefix, and the one unexported `size` helper all three go through
-computes it, so two exported views of one value can never describe different
-curves.
+strictly-increasing-`Params` precondition; `Eval`, `EvalDeriv` and `Spans` then
+all read the same **coherent prefix** of it rather than each dividing by its own
+bad span width — the leading run whose `Params` start at 0, stay finite and
+strictly increase, whose coordinates are finite, and **whose spans have finite
+monomial coefficients**. That last clause carries its own weight: a span width
+that is positive and finite can still be small enough (`Params{0, 5e-324}`) for
+`(v1−v0)/h` to overflow, and `Eval`'s barycentric form stays finite exactly where
+`Spans`' monomial one does not, so without it the two readers still describe
+different curves at the seam the prefix exists to close. `FitInterpolant`'s doc
+comment defines the prefix, and the one unexported `size` helper all three go
+through computes it, so two exported views of one value can never describe
+different curves.
+
+The prefix is for **hand-built** values, and it must never silently shorten data
+the evaluator itself produced. So the constructors **refuse rather than truncate**:
+`newFitEvaluator` accumulates chord length in floating point, so fit coordinates
+that are each finite can still overflow a parameter (two points `1e308` apart) or
+leave it not increasing (a `1e-6` chord after a `1e300` one), and the interpolant
+built from them would describe its first point alone while `FitSpline.Eval` still
+evaluates the whole curve — zero area out of an integrating consumer, with no error
+anywhere. All three constructors export through one gate that checks the built
+value against the prefix rule and returns `geom.ErrNonFiniteFitInterpolant` when it
+would shorten it, which is what makes "a value the constructors return is read
+whole" a fact rather than a hope.
 
 Point-on / tangent constraints on a fit spline are a deferred follow-up
 (the interpolation solve and chord parameters shift as the solver moves the fit

@@ -27,7 +27,11 @@ func Example_sketch_fitSplineInterpolant() {
 		return
 	}
 
-	fi := flank.Interpolant()
+	fi, err := flank.Interpolant()
+	if err != nil {
+		fmt.Printf("failed to read the interpolant: %s\n", err)
+		return
+	}
 	total := fi.Params[len(fi.Params)-1]
 	fmt.Printf("interpolated points: %d, cubic spans: %d, chord length: %.4f\n",
 		len(fi.Points), len(fi.Spans()), total)

@@ -944,12 +944,27 @@ These are unsettled. If you resolve one, record the decision here.
   `FitInterpolant.Eval` runs that same evaluator, so the export cannot drift from
   `Eval`; `Spans` is the same cubic summed differently, so it agrees to rounding
   rather than bit for bit. **Its fields are exported, so a hand-built value can
-  violate the precondition the constructors guarantee**, and `Eval`, `EvalDeriv`
-  and `Spans` must then all read ONE coherent prefix of it — the unexported `size`
-  helper, whose rule `FitInterpolant`'s own doc comment defines. A reader that
-  computed its own bound instead would let two exported views of one value describe
-  different curves, and a bad span width reaches a consumer as a `+Inf` coefficient
-  or a NaN parameter it integrates with no signal.
+  violate the precondition**, and `Eval`, `EvalDeriv` and `Spans` must then all read
+  ONE coherent prefix of it — the unexported `size` helper, whose rule
+  `FitInterpolant`'s own doc comment defines: the leading run whose `Params` start at
+  0, stay finite and strictly increase, whose coordinates are finite, and **whose
+  spans have finite monomial coefficients**. A reader that computed its own bound
+  instead would let two exported views of one value describe different curves, and a
+  bad span width reaches a consumer as a `+Inf` coefficient or a NaN parameter it
+  integrates with no signal. The coefficient clause is not implied by the parameter
+  one: a positive finite `h` can still be small enough for `(v1−v0)/h` to overflow
+  (`Params{0, 5e-324}`), and `Eval`'s barycentric form stays finite exactly where
+  `Spans`' monomial form does not. **The prefix rule is for HAND-BUILT values and must
+  never shorten what the evaluator produced**, so all three constructors export
+  through ONE gate that refuses — `geom.ErrNonFiniteFitInterpolant`, hence the
+  `(*FitInterpolant, error)` signature on every one of them — any built value the rule
+  would shorten. `newFitEvaluator` accumulates chord length in floating point, so
+  coordinates that are each finite (two fit points `1e308` apart, reachable through
+  `s.CreatePoint`/`s.CreateFitSpline` with every call returning nil) can overflow a
+  parameter or leave it not increasing; truncating there publishes a ONE-POINT
+  interpolant, no spans and a zero tangent for a curve `FitSpline.Eval` still
+  evaluates whole, so a consumer integrating `Spans()` reads zero area with no error
+  anywhere.
   A point can be confined to it with `NewPointOnFitSpline` (the bounded foot
   parameter `t∈[0,1]` with a slack box, exactly like `NewPointOnSpline`, since the
   curve has endpoints). A line can be made tangent to it with

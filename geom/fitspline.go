@@ -116,16 +116,23 @@ func SampleFitSpline(fit [][2]float64, segments int) ([][2]float64, error) {
 // arrangement [FitInterpolant.Eval] itself computes, so a reconstruction using it
 // reproduces [FitSpline.Eval] bit for bit.
 //
-// The three slices are parallel and Params is strictly increasing from Params[0] == 0;
-// the constructors guarantee both, so a value they built is read whole. A hand-built
-// value that violates either is read over its COHERENT PREFIX: the longest leading run
-// of Params that starts at 0, stays finite and strictly increases, bounded by the
-// shortest of the three slices. Everything from the first violation onward is not part
-// of the curve. [FitInterpolant.Eval], [FitInterpolant.EvalDeriv] and
-// [FitInterpolant.Spans] all read exactly that prefix, so no two of them can describe
-// different curves; a one-point prefix evaluates as that point with a zero tangent and
-// no spans, and an empty prefix evaluates as zero with no spans, exactly as an empty
-// interpolant does.
+// The three slices are parallel and Params is strictly increasing from Params[0] == 0.
+// A value the constructors return is read WHOLE: [NewFitInterpolant], [FitSpline.Interpolant]
+// and the sketch layer's own FitSpline.Interpolant refuse with [ErrNonFiniteFitInterpolant]
+// rather than hand back a value the rule below would shorten, so an interpolant they
+// returned never describes less than the curve it was built from.
+//
+// A HAND-BUILT value that violates the preconditions is read over its COHERENT PREFIX:
+// the longest leading run of points, bounded by the shortest of the three slices, whose
+// Params start at 0, stay finite and strictly increase, whose own coordinates are finite,
+// and whose spans have finite monomial coefficients (see [FitSpan]) — a span width that is
+// positive and finite can still be small enough for (v[i+1]−v[i])/h to overflow, and the
+// barycentric form below stays finite where the monomial one does not. Everything from the
+// first violation onward is not part of the curve. [FitInterpolant.Eval],
+// [FitInterpolant.EvalDeriv] and [FitInterpolant.Spans] all read exactly that prefix, so no
+// two of them can describe different curves and none of them can return an infinity or a
+// NaN; a one-point prefix evaluates as that point with a zero tangent and no spans, and an
+// empty prefix evaluates as zero with no spans, exactly as an empty interpolant does.
 type FitInterpolant struct {
 	// Params holds the cumulative chord-length parameter of each point in Points,
 	// with Params[0] == 0.
@@ -139,24 +146,37 @@ type FitInterpolant struct {
 	SecondDerivs [][2]float64
 }
 
+// ErrNonFiniteFitInterpolant is returned by [NewFitInterpolant] and
+// [FitSpline.Interpolant] when the fit coordinates give an interpolant that cannot be
+// described: a cumulative chord length that overflows to a non-finite parameter, or a
+// span whose monomial coefficients do. Such an interpolant would be read over a
+// shortened prefix (see [FitInterpolant]), describing a different — usually much
+// shorter — curve than the fit points do, so it is refused instead of returned.
+var ErrNonFiniteFitInterpolant = errors.New("geom: the fit coordinates give a non-finite interpolant")
+
 // Interpolant returns the interpolant [FitSpline.Eval] evaluates, built from the fit
 // points' current coordinates. Each call builds a fresh one, so the caller owns the
-// returned slices. A spline with no fit points returns an empty interpolant.
-func (sp *FitSpline) Interpolant() *FitInterpolant {
+// returned slices. A spline with no fit points returns an empty interpolant. It returns
+// [ErrNonFiniteFitInterpolant] when the fit coordinates give an interpolant that cannot
+// be described — one whose cumulative chord length or span coefficients overflow — since
+// a shortened description of the curve would be worse than none.
+func (sp *FitSpline) Interpolant() (*FitInterpolant, error) {
 	if len(sp.Fit) == 0 {
-		return &FitInterpolant{}
+		return &FitInterpolant{}, nil
 	}
-	return newFitEvaluator(controlCoords(sp.Fit)).interpolant()
+	return newFitEvaluator(controlCoords(sp.Fit)).checkedInterpolant()
 }
 
 // NewFitInterpolant builds the natural-cubic interpolant through the given fit
 // coordinates — the same one [EvalFitSpline] and [SampleFitSpline] evaluate. It
-// returns [ErrTooFewFitPoints] with fewer than 2 fit points.
+// returns [ErrTooFewFitPoints] with fewer than 2 fit points, and
+// [ErrNonFiniteFitInterpolant] when the coordinates — finite though they are — give
+// an interpolant that cannot be described (see [FitInterpolant]).
 func NewFitInterpolant(fit [][2]float64) (*FitInterpolant, error) {
 	if err := tooFewPoints(len(fit), 2, ErrTooFewFitPoints); err != nil {
 		return nil, err
 	}
-	return newFitEvaluator(fit).interpolant(), nil
+	return newFitEvaluator(fit).checkedInterpolant()
 }
 
 // Eval returns the curve point at normalized parameter t ∈ [0, 1] (clamped). It is
@@ -175,7 +195,8 @@ func (fi *FitInterpolant) Eval(t float64) (float64, float64) {
 // EvalDeriv returns the tangent dS/dt at normalized parameter t ∈ [0, 1] (clamped),
 // matching [EvalFitSplineDeriv]. A degenerate interpolant — a single point, or a
 // hand-built value whose coherent prefix (see [FitInterpolant]) is one point — has
-// zero tangent.
+// zero tangent. Like the other two readers it reads that prefix and nothing beyond it,
+// so it never returns an infinity or a NaN.
 func (fi *FitInterpolant) EvalDeriv(t float64) (float64, float64) {
 	e := fi.evaluator()
 	if len(e.x) == 0 {
@@ -207,7 +228,9 @@ type FitSpan struct {
 // Spans returns the interpolant's cubic pieces in monomial form, one per interval
 // between consecutive [FitInterpolant.Points], in order. A degenerate (single-point)
 // interpolant has none. A hand-built value is spanned over its coherent prefix only
-// (see [FitInterpolant]), the same prefix [FitInterpolant.Eval] evaluates.
+// (see [FitInterpolant]), the same prefix [FitInterpolant.Eval] evaluates. So every
+// coefficient returned here is finite: a span whose coefficients are not finite is
+// outside that prefix, and is no more part of the curve for Eval than it is here.
 func (fi *FitInterpolant) Spans() []FitSpan {
 	k := fi.size()
 	if k < 2 {
@@ -247,14 +270,15 @@ func cubicSpanCoeffs(h, v0, v1, m0, m1 float64) [4]float64 {
 }
 
 // size returns the number of points the interpolant is coherent over: the longest
-// LEADING run of Params that starts at 0, stays finite and strictly increases,
-// bounded by the shortest of its three parallel slices. A value the constructors
-// built satisfies both rules over its whole length, so this is that length; a
-// hand-built one is read over the prefix alone, and it is the ONE definition every
-// exported reader uses, so they cannot describe different curves.
+// LEADING run of points, bounded by the shortest of its three parallel slices, whose
+// Params start at 0, stay finite and strictly increase, whose coordinates are finite,
+// and whose spans have finite monomial coefficients. The constructors refuse to return
+// a value this would shorten, so for one of theirs it is the whole length; a hand-built
+// one is read over the prefix alone, and it is the ONE definition every exported reader
+// uses, so they cannot describe different curves.
 func (fi *FitInterpolant) size() int {
 	k := min(len(fi.Params), len(fi.Points), len(fi.SecondDerivs))
-	if k == 0 || fi.Params[0] != 0 {
+	if k == 0 || fi.Params[0] != 0 || !finitePair(fi.Points[0]) {
 		return 0
 	}
 	for i := 1; i < k; i++ {
@@ -265,8 +289,40 @@ func (fi *FitInterpolant) size() int {
 		if math.IsNaN(p) || math.IsInf(p, 0) || p <= fi.Params[i-1] {
 			return i
 		}
+		// A positive finite h is not enough: (v1−v0)/h and (m1−m0)/(6·h) can still
+		// overflow, and Spans would then publish an infinite coefficient for a span
+		// Eval computes finitely off the barycentric form — the two exported readers
+		// describing different curves. A non-finite coordinate lands in c0 the same way.
+		if !finitePair(fi.Points[i]) || !fi.spanFinite(i-1) {
+			return i
+		}
 	}
 	return k
+}
+
+// spanFinite reports whether span i — between Points[i] and Points[i+1] — has finite
+// monomial coefficients in both coordinates, i.e. whether [FitInterpolant.Spans] can
+// describe it at all.
+func (fi *FitInterpolant) spanFinite(i int) bool {
+	h := fi.Params[i+1] - fi.Params[i]
+	x := cubicSpanCoeffs(h, fi.Points[i][0], fi.Points[i+1][0], fi.SecondDerivs[i][0], fi.SecondDerivs[i+1][0])
+	y := cubicSpanCoeffs(h, fi.Points[i][1], fi.Points[i+1][1], fi.SecondDerivs[i][1], fi.SecondDerivs[i+1][1])
+	for k := range x {
+		if !finiteVal(x[k]) || !finiteVal(y[k]) {
+			return false
+		}
+	}
+	return true
+}
+
+// finitePair reports whether both coordinates of p are ordinary numbers.
+func finitePair(p [2]float64) bool {
+	return finiteVal(p[0]) && finiteVal(p[1])
+}
+
+// finiteVal reports whether v is an ordinary number — neither NaN nor an infinity.
+func finiteVal(v float64) bool {
+	return !math.IsNaN(v) && !math.IsInf(v, 0)
 }
 
 // evaluator rebuilds the internal evaluator over the coherent prefix of the
@@ -285,6 +341,20 @@ func (fi *FitInterpolant) evaluator() *fitEvaluator {
 		e.mx[i], e.my[i] = fi.SecondDerivs[i][0], fi.SecondDerivs[i][1]
 	}
 	return e
+}
+
+// checkedInterpolant exports the built evaluator's values, refusing an interpolant the
+// coherent-prefix rule would shorten. The evaluator accumulates chord length in
+// floating point, so fit coordinates that are each finite can still overflow a
+// parameter or a span coefficient; truncating the export there would describe a
+// single point (or a short leading piece) of a curve the same fit points evaluate
+// whole, with no error anywhere. It is the ONE gate every constructor exports through.
+func (e *fitEvaluator) checkedInterpolant() (*FitInterpolant, error) {
+	fi := e.interpolant()
+	if n := fi.size(); n != len(fi.Params) {
+		return nil, fmt.Errorf("%w: describable over %d of its %d points", ErrNonFiniteFitInterpolant, n, len(fi.Params))
+	}
+	return fi, nil
 }
 
 // interpolant exports the built evaluator's values as the public [FitInterpolant],
