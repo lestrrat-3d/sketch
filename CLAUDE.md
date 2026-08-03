@@ -970,6 +970,19 @@ These are unsettled. If you resolve one, record the decision here.
   that is not a number describes no curve at all. **The clause judges the coefficients
   `Spans` PUBLISHES** — `spanFinite` runs that same conversion — so a change to the
   published form cannot leave the gate certifying a form no caller reads.
+  **The prefix bounds the DATA a reader reads, never the VALUE it computes from that
+  data, and the doc comments say so rather than claiming more**: `Spans` cannot publish
+  a coefficient that is not a number, while `Eval` and `EvalDeriv` can still return an
+  infinity — a coordinate plus its span's cubic term, `Eval`'s own `(term·h)·h` (1.5x
+  the `h²·m₀/2` coefficient the same span publishes, at the middle of a span whose two
+  second derivatives are equal), and above all a TANGENT, since `dS/dt = total·dS/dp`
+  and the total chord parameter multiplies. **Tightening `size` until no reader can
+  return an infinity is NOT open**: the `4e307` zig-zag fixture is CONSTRUCTOR-built,
+  its `Eval` and spans are exact, its tangent is out of range over whole stretches, and
+  the pre-existing `EvalFitSplineDeriv` returns the same infinity from the same fit
+  points — so the value is a fact about the curve, and refusing it would cut a whole
+  curve to one point, the truncation `ErrNonFiniteFitInterpolant` exists to prevent
+  (`TestFitInterpolantValueOutsideFloatingPointReadsInfinite` pins all four cases).
   **The prefix rule is for HAND-BUILT values and must
   never shorten what the evaluator produced**, so all three constructors export
   through ONE gate that refuses — `geom.ErrNonFiniteFitInterpolant`, hence the

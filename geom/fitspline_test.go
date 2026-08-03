@@ -197,8 +197,11 @@ func TestFitInterpolantAllCoincidentIsOnePoint(t *testing.T) {
 	require.Equal(t, 0.0, dy)
 }
 
-// requireFinite fails unless v is an ordinary number — the point of the coherent
-// prefix is that no exported reader hands back NaN or an infinity.
+// requireFinite fails unless v is an ordinary number. The coherent prefix bounds the
+// DATA every exported reader reads — its parameters, its coordinates and the
+// coefficients Spans publishes — so those are finite whatever the caller built. The
+// VALUE Eval and EvalDeriv compute from that data is a separate question, pinned by
+// TestFitInterpolantValueOutsideFloatingPointReadsInfinite.
 func requireFinite(t *testing.T, what string, v float64) {
 	t.Helper()
 	require.False(t, math.IsNaN(v), "%s is NaN", what)
@@ -549,4 +552,95 @@ func TestFitInterpolantHandBuiltNarrowSpanIsDescribable(t *testing.T) {
 			require.Equal(t, tc.points[1][1], gotY)
 		})
 	}
+}
+
+func TestFitInterpolantValueOutsideFloatingPointReadsInfinite(t *testing.T) {
+	// The coherent prefix bounds the DATA a reader reads, never the VALUE it computes
+	// from that data. In every case here the curve is described WHOLE — no point is cut
+	// from the prefix and every published coefficient is an ordinary number — and a
+	// reader still hands back an infinity, because the number it was asked for is not in
+	// the range of a float64. This is the bound [geom.FitInterpolant] states, and it is
+	// pinned so that neither the behaviour nor the doc comment can drift back to an
+	// absolute claim.
+	t.Run("Eval's own h squared product", func(t *testing.T) {
+		// The span publishes h·(h·(m/2)) = 1.438e308, an ordinary number. The term Eval
+		// sums is ((a³−a)m₀+(b³−b)m₁)·h·h, which at the middle of this span is 1.5 times
+		// that — past the top of the range, while the description of the span is right.
+		fi := &geom.FitInterpolant{
+			Params:       []float64{0, 1e150},
+			Points:       [][2]float64{{0, 0}, {0, 0}},
+			SecondDerivs: [][2]float64{{2.876e8, 0}, {2.876e8, 0}},
+		}
+		spans := fi.Spans()
+		require.Len(t, spans, 1, "the span is described, so it is part of the curve")
+		for k := range spans[0].X {
+			requireFinite(t, "X coefficient", spans[0].X[k])
+			requireFinite(t, "Y coefficient", spans[0].Y[k])
+		}
+		x, y := fi.Eval(0.5)
+		require.True(t, math.IsInf(x, -1), "Eval reports the value it cannot represent, got %v", x)
+		require.Equal(t, 0.0, y, "the other coordinate is unaffected")
+	})
+
+	t.Run("coordinate plus the cubic term", func(t *testing.T) {
+		// Nothing here overflows in h² at all: the point's own coordinate plus the
+		// span's finite cubic term is what leaves the range.
+		fi := &geom.FitInterpolant{
+			Params:       []float64{0, 1e150},
+			Points:       [][2]float64{{1.7e308, 0}, {1.7e308, 0}},
+			SecondDerivs: [][2]float64{{-1e8, 0}, {-1e8, 0}},
+		}
+		spans := fi.Spans()
+		require.Len(t, spans, 1)
+		for k := range spans[0].X {
+			requireFinite(t, "X coefficient", spans[0].X[k])
+		}
+		x, _ := fi.Eval(0.5)
+		require.True(t, math.IsInf(x, 1), "Eval reports the value it cannot represent, got %v", x)
+	})
+
+	t.Run("tangent of a constructor-built curve", func(t *testing.T) {
+		// The sharpest case, and the reason the prefix rule cannot close this: the
+		// interpolant is CONSTRUCTOR-built from ordinary finite fit points, its Eval and
+		// its spans are exact, and dS/dt = total·dS/dp simply does not fit. Refusing it
+		// would cut a curve the same fit points still evaluate whole, which is what
+		// ErrNonFiniteFitInterpolant exists to prevent.
+		fit := [][2]float64{{0, 0}, {0, 4e307}, {0, 0}, {0, 4e307}, {0, 0}}
+		fi, err := geom.NewFitInterpolant(fit)
+		require.NoError(t, err, "the curve is describable, so it is not refused")
+		require.Len(t, fi.Points, len(fit), "and it is described whole")
+		for _, s := range fi.Spans() {
+			for k := range s.X {
+				requireFinite(t, "X coefficient", s.X[k])
+				requireFinite(t, "Y coefficient", s.Y[k])
+			}
+		}
+		x, y := fi.Eval(0.1)
+		requireFinite(t, "Eval x", x)
+		requireFinite(t, "Eval y", y)
+
+		dx, dy := fi.EvalDeriv(0)
+		require.Equal(t, 0.0, dx)
+		require.True(t, math.IsInf(dy, 1), "the tangent is not representable, got %v", dy)
+
+		// It is the curve's tangent that is out of range, not this reader's arithmetic:
+		// the kernel every other consumer calls returns the same value.
+		kx, ky, err := geom.EvalFitSplineDeriv(fit, 0)
+		require.NoError(t, err)
+		require.Equal(t, kx, dx, "the reader agrees with the kernel")
+		require.Equal(t, ky, dy)
+	})
+
+	t.Run("NaN parameter", func(t *testing.T) {
+		// A parameter outside [0,1] is clamped; a NaN is the one input the clamp cannot
+		// place, so it passes through both readers.
+		fi, err := geom.NewFitInterpolant([][2]float64{{0, 0}, {1, 1}, {2, 0}})
+		require.NoError(t, err)
+		x, y := fi.Eval(math.NaN())
+		require.True(t, math.IsNaN(x), "a NaN parameter answers with a NaN, got %v", x)
+		require.True(t, math.IsNaN(y))
+		dx, dy := fi.EvalDeriv(math.NaN())
+		require.True(t, math.IsNaN(dx))
+		require.True(t, math.IsNaN(dy))
+	})
 }

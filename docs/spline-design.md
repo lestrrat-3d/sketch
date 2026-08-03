@@ -264,6 +264,22 @@ comment defines the prefix, and the one unexported `size` helper all three go
 through computes it, so two exported views of one value can never describe
 different curves.
 
+What the prefix bounds is the **data** a reader reads, never the **value** it
+computes from that data, and the doc comments state the difference rather than
+claiming more: `Spans` cannot publish a coefficient that is not a number, while
+`Eval` and `EvalDeriv` can still return an infinity. A curve's own value leaves
+floating point while every number it is built from is inside it — a coordinate
+plus its span's cubic term, or `Eval`'s `(term·h)·h`, which is 1.5 times the
+`h²·m₀/2` coefficient the same span publishes at the middle of a span whose two
+second derivatives are equal. A **tangent** leaves it far sooner, since
+`dS/dt = total·dS/dp` and the total chord parameter multiplies: the `4e307`
+zig-zag fixture above has whole stretches whose tangent no double holds, and the
+pre-existing `EvalFitSplineDeriv` returns the same infinity from the same fit
+points. That is a fact about the curve, so **tightening `size` until the readers
+cannot return an infinity is not open**: it would cut a constructor-built curve
+whose `Eval` and spans are exact down to one point, which is the truncation
+`ErrNonFiniteFitInterpolant` exists to prevent.
+
 The prefix is for **hand-built** values, and it must never silently shorten data
 the evaluator itself produced. So the constructors **refuse rather than truncate**:
 `newFitEvaluator` accumulates chord length in floating point, so fit coordinates

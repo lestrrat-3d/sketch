@@ -130,9 +130,26 @@ func SampleFitSpline(fit [][2]float64, segments int) ([][2]float64, error) {
 // that is not a number describes no curve at all. Everything from the
 // first violation onward is not part of the curve. [FitInterpolant.Eval],
 // [FitInterpolant.EvalDeriv] and [FitInterpolant.Spans] all read exactly that prefix, so no
-// two of them can describe different curves and none of them can return an infinity or a
-// NaN; a one-point prefix evaluates as that point with a zero tangent and no spans, and an
+// two of them can describe different curves, no reader divides by a bad span width, and
+// [FitInterpolant.Spans] cannot publish a coefficient that is not a number;
+// a one-point prefix evaluates as that point with a zero tangent and no spans, and an
 // empty prefix evaluates as zero with no spans, exactly as an empty interpolant does.
+//
+// What the prefix bounds is the DATA a reader reads, never the VALUE it computes from
+// that data, so [FitInterpolant.Eval] and [FitInterpolant.EvalDeriv] can still return an
+// infinity, and a caller integrating either must branch on it. A curve's own value leaves
+// floating point while every number it is built from is inside it: a point coordinate plus
+// its span's cubic term, or Eval's own h² product, which is associated as (term·h)·h and
+// is 1.5 times the h²·m₀/2 coefficient the same span publishes at the middle of a span
+// whose two second derivatives are equal — so a span whose published coefficients are
+// inside the range can put the product Eval sums outside it. A TANGENT leaves the range
+// far sooner, since dS/dt is total·dS/dp and the total chord parameter multiplies:
+// fit points zig-zagging across 4e307 give a curve with whole stretches whose tangent no
+// double holds, and [EvalFitSplineDeriv] returns the same infinity from the same fit
+// points — so it is a fact about the curve rather than about a hand-built value, and not
+// one the constructors may refuse, since what they must describe is the curve
+// [FitSpline.Eval] evaluates. Both readers also answer a NaN parameter with a NaN: a
+// parameter outside [0, 1] is clamped, and a NaN is the one input the clamp cannot place.
 type FitInterpolant struct {
 	// Params holds the cumulative chord-length parameter of each point in Points,
 	// with Params[0] == 0.
@@ -196,7 +213,10 @@ func (fi *FitInterpolant) Eval(t float64) (float64, float64) {
 // matching [EvalFitSplineDeriv]. A degenerate interpolant — a single point, or a
 // hand-built value whose coherent prefix (see [FitInterpolant]) is one point — has
 // zero tangent. Like the other two readers it reads that prefix and nothing beyond it,
-// so it never returns an infinity or a NaN.
+// so it never divides by a bad span width — but it CAN return an infinity, and does so
+// for an ordinary curve sooner than [FitInterpolant.Eval] does, since dS/dt is
+// total·dS/dp and neither the prefix nor any published coefficient bounds that product
+// (see [FitInterpolant]). A NaN parameter answers with a NaN.
 func (fi *FitInterpolant) EvalDeriv(t float64) (float64, float64) {
 	e := fi.evaluator()
 	if len(e.x) == 0 {
