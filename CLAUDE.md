@@ -918,7 +918,16 @@ These are unsettled. If you resolve one, record the decision here.
   (`CreateClosedSpline`, ≥3 control points) over an exact cyclic uniform cubic basis
   (`geom.EvalPeriodicCubicBSpline`) — a smooth C2 loop that bounds a region on its
   own (a sealed `geom.ClosedCurve`, not a `Curve`), with periodic-ring
-  self-crossing detection and `closed_spline` serialization. A point can be
+  self-crossing detection and `closed_spline` serialization. **The modulo-1
+  reduction has ONE owner, `periodicSpan`**, which every periodic evaluator reads
+  its span index and span-local parameter from, and it CLAMPS that index into
+  `[0, n)`: the upper bound is the floating-point seam (a tiny negative `t` reduces
+  to exactly 1), the lower bound is what makes a parameter the reduction cannot
+  place — a NaN, or an infinity, whose reduction is a NaN — an in-range index
+  instead of an out-of-range one. Since the span-local parameter is NaN whatever
+  index such a `t` lands on, the evaluators answer NaN, the answer the open
+  `Spline`, the `FitSpline`, the `NURBS` and the `Conic` all give a NaN parameter,
+  and the one a public `Eval` with no error return can give at all. A point can be
   confined to it with `NewPointOnClosedSpline`: the **periodic witness** — a single
   foot parameter `t` aux variable with NO `[0,1]` box (a loop has no endpoints, so
   `t` is unbounded and `S(t)=S(t+1)`), committed residual just the two length

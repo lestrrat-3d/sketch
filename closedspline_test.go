@@ -2,6 +2,7 @@ package sketch_test
 
 import (
 	"encoding/json"
+	"math"
 	"testing"
 
 	"github.com/lestrrat-3d/sketch"
@@ -142,6 +143,37 @@ func TestClosedSplineForeignControlNotTrustworthy(t *testing.T) {
 	rep := s.Verify(t.Context())
 	require.True(t, rep.ForeignHandles, "a foreign control point is reachable and detected")
 	require.False(t, rep.Trustworthy(), "the oracle must not bless geometry built from a foreign handle")
+}
+
+func TestClosedSplineEvalNonFiniteParam(t *testing.T) {
+	// The sketch-level evaluator reads the same periodic kernel, so a parameter
+	// the modulo-1 reduction cannot place answers NaN rather than panicking, and
+	// an ordinary parameter is unaffected.
+	s := newSketch(t)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(4, 0)
+	c := s.CreatePoint(4, 4)
+	d := s.CreatePoint(0, 4)
+	sp, err := s.CreateClosedSpline(a, b, c, d)
+	require.NoError(t, err)
+
+	for name, bad := range map[string]float64{
+		"NaN":  math.NaN(),
+		"+Inf": math.Inf(1),
+		"-Inf": math.Inf(-1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.NotPanics(t, func() {
+				x, y := sp.Eval(bad)
+				require.True(t, math.IsNaN(x))
+				require.True(t, math.IsNaN(y))
+			})
+		})
+	}
+
+	x, y := sp.Eval(0.125)
+	require.InDelta(t, 23.0/6, x, 1e-12, "an ordinary parameter is unchanged")
+	require.InDelta(t, 2.0, y, 1e-12)
 }
 
 func TestClosedSplineTypedNilEntity(t *testing.T) {
