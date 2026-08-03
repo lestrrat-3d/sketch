@@ -123,7 +123,9 @@ cannot self-cross, so (like an arc) it is not its own self-crossing source.
 ## The integration sites (each a new `case`, mechanical — mirrors elliptical arc)
 
 - **sketch.go**: struct + `CreateConic` + accessors; `localPolyline`,
-  `entityPoints` (Start/Apex/End), `entitySizeVars` (rho).
+  `entityPoints` (Start/Apex/End), `entityShapeVars` (rho, paired with that
+  variable's physical kind — dimensionless — which is what `varKinds` reads, so
+  DOF/conditioning are right).
 - **geom**: `Conic` type (geom.go) + `Eval`/`EvalDeriv`/`Polyline` (sample.go) +
   `Endpoints` (loops.go); arrangement `srcConic` + `at` + kind-assignment +
   `makeCycle` area case + `conicBulge`.
@@ -138,7 +140,6 @@ cannot self-cross, so (like an arc) it is not its own self-crossing source.
 - **profiles.go**: feed it into `curves []geom.Curve` (open), like `Arc`.
 - **removal.go**: `renumberEntity`, `entityUsesPoint`, `RemoveEntity` rho-var
   retirement. (No constraint-ref case — no conic constraint yet.)
-- **tools.go**: `varKind` (rho → dimensionless) so DOF/conditioning are right.
 - **reference.go**: `isNilEntity` (no reference conic).
 - **conditioning.go**: no new constraint rows (rho is a free var, not a residual
   row), so `condRowKinds` is untouched; the rho **column** is dimensionless and

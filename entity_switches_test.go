@@ -42,15 +42,12 @@ type entitySwitchSite struct{ File, Func string }
 // already-exempted function is reported rather than riding on the first one's
 // reason.
 var entitySwitchExempt = map[entitySwitchSite]string{
-	{"tools.go", "Break"}:              "splitting is defined for a line and an arc only; every other type is the documented false return",
-	{"tools.go", "lineCrossings"}:      "only line/circle/arc cutters have a closed-form line intersection in geom; a curve contributes no crossing",
-	{"tools.go", "instantiate"}:        "mirror/pattern copies need the transform applied to a shape the point-relinking interface does not carry, so only line/circle/arc are copied",
-	{"probe.go", "varKinds"}:           "classifies the variables an entity owns BEYOND its points; line/arc and the spline family own none",
-	{"diagnose.go", "entityShapeVars"}: "intrinsic shape variables only; line/arc and the spline family have none, their shape being fixed by their points",
-	{"sketch.go", "entitySizeVars"}:    "size variables only; line/arc and the spline family own no scalar variable beyond their points",
-	{"removal.go", "RemoveEntity"}:     "retires entity-owned scalar variables; line/arc and the spline family own none, and their points survive removal",
-	{"svg.go", "bounds"}:               "extends the box past the defining points; a line lies within its two endpoints, which the point loop above already added",
-	{"constraint.go", "conicOf"}:       "adapts the sealed Circular/Elliptical operands only; the spline family and the conic entity are not conic-adaptable operands",
+	{"tools.go", "Break"}:            "splitting is defined for a line and an arc only; every other type is the documented false return",
+	{"tools.go", "lineCrossings"}:    "only line/circle/arc cutters have a closed-form line intersection in geom; a curve contributes no crossing",
+	{"tools.go", "instantiate"}:      "mirror/pattern copies need the transform applied to a shape the point-relinking interface does not carry, so only line/circle/arc are copied",
+	{"sketch.go", "entityShapeVars"}: "intrinsic shape variables only; line/arc and the spline family own no scalar variable beyond their points",
+	{"svg.go", "bounds"}:             "extends the box past the defining points; a line lies within its two endpoints, which the point loop above already added",
+	{"constraint.go", "conicOf"}:     "adapts the sealed Circular/Elliptical operands only; the spline family and the conic entity are not conic-adaptable operands",
 }
 
 // TestEntityTypeSwitchesAreExhaustive audits every entity type switch in the
@@ -537,7 +534,7 @@ func withDefault(e Entity) {
 	}
 }
 `, nil)
-		require.Len(t, problems, 1, `a default clause is the nine exempted sites' own shape and must stay a finding`)
+		require.Len(t, problems, 1, `a default clause is the exempted sites' own shape and must stay a finding`)
 		require.Contains(t, problems[0], "does not handle Beta, Gamma")
 	})
 
