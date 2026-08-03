@@ -114,8 +114,13 @@ easy one to forget: it releases every defining point of an entity, so an entity
 with the origin as an endpoint is a second door onto the same variables, and it
 refuses the origin for the same reason `Unfix` does.
 
-`Fix` is deliberately still allowed and is simply redundant — it is already
-fixed — rather than being made an error for one point.
+`Fix` is deliberately still allowed on the sketch's own origin and is simply
+redundant — it is already fixed — rather than being made an error for one point.
+That is `owns` answering, not an exception carved into `Fix`: the whole grounding
+API (`Fix`/`Unfix`/`FixEntity`/`UnfixEntity`/`EntityFixed`) screens its handle
+through `owns` / `foreignInput` first, and `owns` carries the origin exception, so
+this sketch's origin and geometry drawn from it stay groundable while ANOTHER
+sketch's origin is refused like any other borrowed point.
 
 ### Each sketch owns its own origin
 

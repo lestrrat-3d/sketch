@@ -379,6 +379,28 @@ func (p *Point) MoveTo(x, y float64) {
 	p.s.vars[p.yi] = y
 }
 
+// The grounding-guard note. Fix/Unfix/FixEntity/UnfixEntity/EntityFixed index
+// s.fixed by a handle's own variable indices, so they must screen the handle
+// first. Those indices are only meaningful in the sketch that allocated them: a
+// LARGE foreign index runs off s.fixed and panics, and a SMALL one is worse — it
+// silently grounds or releases THIS sketch's unrelated variable while the passed
+// handle is untouched, with nothing anywhere to flag it. A nil handle panics on
+// the dereference.
+//
+// The predicate is s.owns for a point and [Sketch.foreignInput] for an entity —
+// the same ones scanReferenceIntegrity, checkNoForeignRefs and the modification
+// tools use, so the grounding API cannot diverge from what [Sketch.Verify]
+// reports and MarshalJSON refuses. owns carries the origin exception, so
+// [Sketch.Origin] and geometry drawn from it stay groundable; foreignInput
+// screens an entity's DEFINING POINTS as well as the entity, since entity fields
+// are exported and a point can be rewired to another sketch's *Point behind an
+// entity this sketch owns.
+//
+// The refusal is a silent no-op (false for the reporting EntityFixed) because
+// none of the five has an error return, and it matches the shape already used
+// for handles these methods cannot act on — [Point.MoveTo], Unfix and
+// [Point.SetConstruction] on the origin.
+
 // Fix grounds a point at its current location so the solver will not move it.
 // To ground a point at a specific location, move it first: p.MoveTo(x, y) then
 // s.Fix(p).
@@ -391,16 +413,26 @@ func (p *Point) MoveTo(x, y float64) {
 // it cannot be driven by a parameter (see [Sketch.Bind]) and will not reflow
 // when a driving dimension changes. Fixing interior or non-origin points — or
 // more than the single origin anchor — is a non-parametric anti-pattern.
+//
+// It is a no-op on a point this sketch does not own — nil, a removed handle, or
+// another sketch's point.
 func (s *Sketch) Fix(p *Point) {
+	if !s.owns(p) {
+		return // nil, dead, or another sketch's point: see the grounding-guard note
+	}
 	s.fixed[p.xi] = true
 	s.fixed[p.yi] = true
 }
 
 // Unfix releases a previously grounded point so the solver may move it again. It
-// is a no-op on reference geometry, whose lock cannot be lifted through the
-// grounding API, and on the sketch's [Sketch.Origin], which is grounded for the
-// sketch's whole life.
+// is a no-op on a point this sketch does not own (nil, a removed handle, or
+// another sketch's point), on reference geometry, whose lock cannot be lifted
+// through the grounding API, and on the sketch's [Sketch.Origin], which is
+// grounded for the sketch's whole life.
 func (s *Sketch) Unfix(p *Point) {
+	if !s.owns(p) {
+		return // nil, dead, or another sketch's point: see the grounding-guard note
+	}
 	if p.reference || p.isOrigin() {
 		return
 	}
@@ -471,7 +503,14 @@ func (s *Sketch) entitySizeVars(e Entity) []int {
 // size variables (a circle's radius, an ellipse's semi-axes and rotation) — so
 // the solver holds the whole entity rigid at its current shape and location. It
 // is the entity-level counterpart of [Sketch.Fix].
+//
+// It is a no-op on an entity this sketch does not own — nil, a removed handle,
+// another sketch's entity, or one of this sketch's entities with a defining
+// point rewired to a point this sketch does not own.
 func (s *Sketch) FixEntity(e Entity) {
+	if s.foreignInput(e) {
+		return // see the grounding-guard note above [Sketch.Fix]
+	}
 	for _, p := range entityPoints(e) {
 		s.fixed[p.xi] = true
 		s.fixed[p.yi] = true
@@ -486,8 +525,14 @@ func (s *Sketch) FixEntity(e Entity) {
 // untouched any point the entity shares whose grounding the grounding API cannot
 // lift — a reference-locked point (locked externally) and the sketch's
 // [Sketch.Origin] (grounded for the sketch's whole life), exactly as
-// [Sketch.Unfix] refuses both.
+// [Sketch.Unfix] refuses both. It is likewise a no-op on an entity this sketch
+// does not own — nil, a removed handle, another sketch's entity, or one of this
+// sketch's entities with a defining point rewired to a point this sketch does
+// not own.
 func (s *Sketch) UnfixEntity(e Entity) {
+	if s.foreignInput(e) {
+		return // see the grounding-guard note above [Sketch.Fix]
+	}
 	if e.IsReference() {
 		return
 	}
@@ -503,8 +548,15 @@ func (s *Sketch) UnfixEntity(e Entity) {
 	}
 }
 
-// EntityFixed reports whether all of an entity's variables are grounded.
+// EntityFixed reports whether all of an entity's variables are grounded. It
+// reports false for an entity this sketch does not own — nil, a removed handle,
+// another sketch's entity, or one of this sketch's entities with a defining
+// point rewired to a point this sketch does not own — the same answer it already
+// gives for an entity with no variables at all.
 func (s *Sketch) EntityFixed(e Entity) bool {
+	if s.foreignInput(e) {
+		return false // see the grounding-guard note above [Sketch.Fix]
+	}
 	pts := entityPoints(e)
 	sz := s.entitySizeVars(e)
 	if len(pts) == 0 && len(sz) == 0 {
