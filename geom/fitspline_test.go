@@ -68,12 +68,36 @@ func TestNewFitSplineMinTwo(t *testing.T) {
 	require.ErrorIs(t, err, geom.ErrTooFewFitPoints)
 }
 
-// evalFitSpan evaluates one monomial span at chord parameter p.
+// evalFitSpan evaluates one published span at chord parameter p, in the span's own
+// normalized local parameter u = (p−PStart)/(PEnd−PStart).
 func evalFitSpan(sp geom.FitSpan, p float64) (float64, float64) {
-	u := p - sp.PStart
+	u := (p - sp.PStart) / (sp.PEnd - sp.PStart)
 	x := sp.X[0] + u*(sp.X[1]+u*(sp.X[2]+u*sp.X[3]))
 	y := sp.Y[0] + u*(sp.Y[1]+u*(sp.Y[2]+u*sp.Y[3]))
 	return x, y
+}
+
+// requireSpanReproducesEval checks that a published span reproduces Eval across its
+// own range. The tolerance is relative to the span's own COEFFICIENT scale rather
+// than to the curve value: a coordinate that passes through zero inside the span has
+// no relative scale of its own, while the coefficients state the size of the
+// displacement the polynomial describes there.
+func requireSpanReproducesEval(t *testing.T, fi *geom.FitInterpolant, s geom.FitSpan, total, rel float64) {
+	t.Helper()
+	var scaleX, scaleY float64
+	for k := range s.X {
+		scaleX = math.Max(scaleX, math.Abs(s.X[k]))
+		scaleY = math.Max(scaleY, math.Abs(s.Y[k]))
+	}
+	for k := 0; k <= 8; k++ {
+		// The fraction is applied to the width, not multiplied into it: at the top
+		// of the range the intermediate product would overflow the sample itself.
+		p := s.PStart + (s.PEnd-s.PStart)*(float64(k)/8)
+		wantX, wantY := fi.Eval(p / total)
+		gotX, gotY := evalFitSpan(s, p)
+		require.InDelta(t, wantX, gotX, rel*scaleX, "span x reproduces Eval at p=%v", p)
+		require.InDelta(t, wantY, gotY, rel*scaleY, "span y reproduces Eval at p=%v", p)
+	}
 }
 
 func TestFitInterpolantDescribesTheEvaluatedCurve(t *testing.T) {
@@ -138,7 +162,7 @@ func TestFitInterpolantSpansReconstructCurve(t *testing.T) {
 		}
 		// The polynomial reproduces the curve across its own span, endpoints included.
 		for k := 0; k <= 8; k++ {
-			p := s.PStart + (s.PEnd-s.PStart)*float64(k)/8
+			p := s.PStart + (s.PEnd-s.PStart)*(float64(k)/8)
 			wantX, wantY := sp.Eval(p / total)
 			gotX, gotY := evalFitSpan(s, p)
 			require.InDelta(t, wantX, gotX, 1e-9, "span %d at p=%v", i, p)
@@ -263,7 +287,7 @@ func TestFitInterpolantHandBuiltParamsReadCoherentPrefix(t *testing.T) {
 				require.Equal(t, points[tc.prefix-1], [2]float64{x, y}, "the prefix's last point ends the curve")
 				for _, s := range spans {
 					for k := 0; k <= 8; k++ {
-						p := s.PStart + (s.PEnd-s.PStart)*float64(k)/8
+						p := s.PStart + (s.PEnd-s.PStart)*(float64(k)/8)
 						wantX, wantY := fi.Eval(p / total)
 						gotX, gotY := evalFitSpan(s, p)
 						require.InDelta(t, wantX, gotX, 1e-9, "span and Eval agree at p=%v", p)
@@ -330,14 +354,18 @@ func TestFitInterpolantConstructorsRefuseIndescribableCurve(t *testing.T) {
 func TestFitInterpolantConstructorBuiltValueIsReadWhole(t *testing.T) {
 	// The prefix rule exists for hand-built values; it must never shorten one the
 	// evaluator produced. Across coordinate scales, everything the constructors
-	// return is read over its full length by all three readers.
-	for _, scale := range []float64{1e-12, 1e-6, 1, 1e6, 1e100, 1e300} {
+	// return is read over its full length by all three readers — and each published
+	// span RECONSTRUCTS Eval over its own range, which finiteness alone never showed:
+	// a coefficient stated in the absolute parameter underflows to zero at the wide
+	// scales here, dropping a term of the cubic while staying perfectly finite.
+	for _, scale := range []float64{1e-12, 1e-6, 1, 1e6, 1e100, 1e160, 1e170, 1e300} {
 		t.Run(strconv.FormatFloat(scale, 'g', -1, 64), func(t *testing.T) {
 			fit := [][2]float64{{0, 0}, {scale, scale / 2}, {2 * scale, 0}, {3 * scale, scale}}
 			fi, err := geom.NewFitInterpolant(fit)
 			require.NoError(t, err)
 			require.Len(t, fi.Points, len(fit), "no point is dropped")
 
+			total := fi.Params[len(fi.Params)-1]
 			spans := fi.Spans()
 			require.Len(t, spans, len(fit)-1, "the whole value is spanned, not a prefix of it")
 			for i, s := range spans {
@@ -347,9 +375,9 @@ func TestFitInterpolantConstructorBuiltValueIsReadWhole(t *testing.T) {
 				}
 				require.Equal(t, fi.Params[i], s.PStart)
 				require.Equal(t, fi.Params[i+1], s.PEnd)
+				requireSpanReproducesEval(t, fi, s, total, 1e-12)
 			}
 
-			total := fi.Params[len(fi.Params)-1]
 			for i, p := range fi.Points {
 				x, y := fi.Eval(fi.Params[i] / total)
 				require.InDelta(t, p[0], x, math.Abs(p[0])*1e-12+scale*1e-12, "Eval interpolates point %d", i)
@@ -361,46 +389,90 @@ func TestFitInterpolantConstructorBuiltValueIsReadWhole(t *testing.T) {
 	}
 }
 
+func TestFitInterpolantSpanHoldsAtLargeChordParameters(t *testing.T) {
+	// Two constructor-built curves whose chord parameter is large enough that a
+	// coefficient stated in the absolute parameter p underflows to zero: it carries
+	// 1/h or 1/h², the term it belongs to is silently dropped, and the published
+	// polynomial then describes a different curve from Eval while every coefficient
+	// stays finite. Stated in the span's own parameter both are ordinary numbers.
+	for _, tc := range []struct {
+		name string
+		fit  [][2]float64
+	}{
+		{
+			name: "zig-zag across the top of the range",
+			fit:  [][2]float64{{0, 0}, {0, 4e307}, {0, 0}, {0, 4e307}, {0, 0}},
+		},
+		{
+			name: "one span the whole width of the range",
+			fit:  [][2]float64{{0, 0}, {1e-100, math.MaxFloat64}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fi, err := geom.NewFitInterpolant(tc.fit)
+			require.NoError(t, err, "the curve is describable, so it is not refused")
+			spans := fi.Spans()
+			require.Len(t, spans, len(tc.fit)-1)
+
+			total := fi.Params[len(fi.Params)-1]
+			for i, s := range spans {
+				// The comparison stays inside the span: its own midpoint is a
+				// parameter Eval answers from this very span.
+				p := s.PStart + (s.PEnd-s.PStart)/2
+				wantX, wantY := fi.Eval(p / total)
+				gotX, gotY := evalFitSpan(s, p)
+				require.InDelta(t, wantX, gotX, math.Abs(wantX)*1e-12, "span %d reproduces Eval in x", i)
+				require.InDelta(t, wantY, gotY, math.Abs(wantY)*1e-12, "span %d reproduces Eval in y", i)
+				requireSpanReproducesEval(t, fi, s, total, 1e-12)
+			}
+		})
+	}
+}
+
 func TestFitInterpolantHandBuiltOverflowingSpanIsOutsidePrefix(t *testing.T) {
-	// A strictly increasing, finite Params can still give a span width small enough
-	// (or values large enough) for a monomial coefficient to overflow. Eval's
-	// barycentric form stays finite there, so without this rule Spans and Eval
-	// describe different curves. Such a span is outside the prefix, and the two
-	// readers agree over what is left.
+	// A strictly increasing, finite Params can still give a span whose published
+	// coefficients overflow: in the normalized parameter the cubic terms carry h²,
+	// so a wide span with a real second derivative describes a displacement no
+	// double holds. Such a span is outside the prefix, and the readers that are
+	// left agree over what remains.
 	for _, tc := range []struct {
 		name   string
 		params []float64
 		points [][2]float64
+		derivs [][2]float64
 		prefix int
 	}{
 		{
-			name:   "denormal span width",
-			params: []float64{0, 5e-324},
-			points: [][2]float64{{0, 0}, {1, 1}},
+			name:   "wide span with a second derivative",
+			params: []float64{0, 1e200},
+			points: [][2]float64{{0, 0}, {1, 0}},
+			derivs: [][2]float64{{1, 0}, {0, 0}},
 			prefix: 1,
 		},
 		{
-			name:   "tiny span width with no denormal",
-			params: []float64{0, 1e-300},
-			points: [][2]float64{{0, 0}, {1e100, 0}},
+			name:   "wide span whose second derivative is only at its far end",
+			params: []float64{0, 1e200},
+			points: [][2]float64{{0, 0}, {0, 1}},
+			derivs: [][2]float64{{0, 0}, {0, 1}},
 			prefix: 1,
 		},
 		{
 			name:   "overflow after one describable span",
-			params: []float64{0, 1e-300, 2e-300},
-			points: [][2]float64{{0, 0}, {1, 1}, {1e100, 0}},
+			params: []float64{0, 1, 1e200},
+			points: [][2]float64{{0, 0}, {1, 1}, {2, 2}},
+			derivs: [][2]float64{{0, 0}, {1, 1}, {0, 0}},
 			prefix: 2,
 		},
 		{
 			name:   "non-finite coordinate",
 			params: []float64{0, 1, 2},
 			points: [][2]float64{{0, 0}, {3, 4}, {math.Inf(1), 0}},
+			derivs: [][2]float64{{0, 0}, {0, 0}, {0, 0}},
 			prefix: 2,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			derivs := make([][2]float64, len(tc.params))
-			fi := &geom.FitInterpolant{Params: tc.params, Points: tc.points, SecondDerivs: derivs}
+			fi := &geom.FitInterpolant{Params: tc.params, Points: tc.points, SecondDerivs: tc.derivs}
 
 			spans := fi.Spans()
 			require.Len(t, spans, tc.prefix-1, "only describable spans are part of the curve")
@@ -431,14 +503,50 @@ func TestFitInterpolantHandBuiltOverflowingSpanIsOutsidePrefix(t *testing.T) {
 			}
 			total := tc.params[tc.prefix-1]
 			for _, s := range spans {
-				for k := 0; k <= 8; k++ {
-					p := s.PStart + (s.PEnd-s.PStart)*float64(k)/8
-					wantX, wantY := fi.Eval(p / total)
-					gotX, gotY := evalFitSpan(s, p)
-					require.InDelta(t, wantX, gotX, 1e-9, "span and Eval agree at p=%v", p)
-					require.InDelta(t, wantY, gotY, 1e-9)
-				}
+				requireSpanReproducesEval(t, fi, s, total, 1e-12)
 			}
+		})
+	}
+}
+
+func TestFitInterpolantHandBuiltNarrowSpanIsDescribable(t *testing.T) {
+	// The converse of the case above, and the class the normalized parameter ends:
+	// a span this narrow puts 1/h and 1/h² factors far beyond floating point, so an
+	// absolute local parameter cannot describe it at all. In u the same cubic is an
+	// ordinary polynomial, so the span is published rather than cut from the curve.
+	for _, tc := range []struct {
+		name   string
+		params []float64
+		points [][2]float64
+		want   [4]float64
+	}{
+		{
+			name:   "denormal span width",
+			params: []float64{0, 5e-324},
+			points: [][2]float64{{0, 0}, {1, 1}},
+			want:   [4]float64{0, 1, 0, 0},
+		},
+		{
+			name:   "narrow span across a large displacement",
+			params: []float64{0, 1e-300},
+			points: [][2]float64{{0, 0}, {1e100, 0}},
+			want:   [4]float64{0, 1e100, 0, 0},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fi := &geom.FitInterpolant{
+				Params:       tc.params,
+				Points:       tc.points,
+				SecondDerivs: make([][2]float64, len(tc.params)),
+			}
+			spans := fi.Spans()
+			require.Len(t, spans, 1, "the span is describable, so it is part of the curve")
+			require.Equal(t, tc.want, spans[0].X, "the x cubic is stated in the span's own parameter")
+			x, y := fi.Eval(1)
+			require.Equal(t, tc.points[1], [2]float64{x, y}, "and Eval reads the same whole curve")
+			gotX, gotY := evalFitSpan(spans[0], spans[0].PEnd)
+			require.Equal(t, tc.points[1][0], gotX, "the span reproduces that endpoint")
+			require.Equal(t, tc.points[1][1], gotY)
 		})
 	}
 }

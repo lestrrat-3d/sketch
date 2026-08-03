@@ -220,7 +220,8 @@ The built interpolant is **exported**, not only sampleable: `geom.FitInterpolant
 `geom.NewFitInterpolant`, each returning `(*FitInterpolant, error)`) carries the
 active points, their cumulative chord
 parameters and the natural-cubic second derivatives, and `FitInterpolant.Spans`
-converts those to per-span monomial cubics in closed form. A consumer that must
+converts those to per-span monomial cubics in closed form, each stated in the
+span's own **normalized** parameter `u = (p − PStart)/h`. A consumer that must
 integrate or record the EXACT curve — a solid modeller that will not re-run
 another layer's interpolation solve — reads the curve's defining data there
 instead of chording it. Four properties the export must keep. The **dedup** is
@@ -233,17 +234,32 @@ recomputed on the side, so they cannot drift from `Eval` — and
 `FitInterpolant.Eval` runs that same evaluator, so a reconstruction through it
 reproduces `FitSpline.Eval` bit for bit. `Spans` is the one derived shape: it is
 algebraically the same cubic in a different summation order, so it agrees to
-rounding rather than bit for bit, which its doc comment states. Fourth, the
+rounding rather than bit for bit, which its doc comment states. **The
+normalized parameter is what makes "to rounding" a RELATIVE bound at every span
+width**, and it is why the published coefficients are not the plain
+`(p − PStart)^k` ones. In the absolute parameter the higher coefficients carry
+`1/h` and `1/h²`; on a wide span those underflow to zero while the curve they
+describe stays perfectly ordinary, so `Spans` publishes a polynomial missing a
+whole term with no coefficient going non-finite and nothing anywhere to flag it
+(a fit set reaching `4e307` disagreed with `Eval` by 11.6% at a span's own
+midpoint, a term of `−3.57e306` dropped from a value of `3.07e307`). In `u`
+every coefficient is on the scale of the curve's own displacement across the
+span, and the same cubic reproduces `Eval` exactly on the same fixtures. The
+conversion multiplies by `h²`; each product is associated as `h·(h·term)` and
+never as `(h·h)·term`, since the bare `h·h` is already `+Inf` at those widths
+while the answer is representable, and the overflow reaches the caller as an
+infinite coefficient or as a NaN wherever the term is zero. Fourth, the
 fields are exported, so a **hand-built** value can violate the parallel-slice and
 strictly-increasing-`Params` precondition; `Eval`, `EvalDeriv` and `Spans` then
 all read the same **coherent prefix** of it rather than each dividing by its own
 bad span width — the leading run whose `Params` start at 0, stay finite and
 strictly increase, whose coordinates are finite, and **whose spans have finite
-monomial coefficients**. That last clause carries its own weight: a span width
-that is positive and finite can still be small enough (`Params{0, 5e-324}`) for
-`(v1−v0)/h` to overflow, and `Eval`'s barycentric form stays finite exactly where
-`Spans`' monomial one does not, so without it the two readers still describe
-different curves at the seam the prefix exists to close. `FitInterpolant`'s doc
+coefficients**. That last clause carries its own weight: a span width that is
+positive, finite and increasing can still be wide enough for `h²·m` to overflow
+(`Params{0, 1e200}` over a nonzero second derivative), and a coefficient that is
+not a number describes no curve at all. The clause judges the coefficients
+`Spans` actually publishes — `spanFinite` runs the same conversion — so it can
+never bless a form the caller does not read. `FitInterpolant`'s doc
 comment defines the prefix, and the one unexported `size` helper all three go
 through computes it, so two exported views of one value can never describe
 different curves.

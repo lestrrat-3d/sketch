@@ -38,17 +38,22 @@ func Example_sketch_fitSplineInterpolant() {
 	// A natural cubic: the second derivative vanishes at both ends.
 	fmt.Printf("end second derivatives: %v %v\n", fi.SecondDerivs[0], fi.SecondDerivs[len(fi.SecondDerivs)-1])
 
-	// Each span is an ordinary cubic in u = p - PStart, so a consumer can
-	// integrate or differentiate it in closed form.
+	// Each span is an ordinary cubic in its own normalized parameter
+	// u = (p - PStart)/(PEnd - PStart), running over [0, 1] across the span, so a
+	// consumer can integrate or differentiate it in closed form. Normalized is what
+	// keeps every coefficient on the scale of the curve itself: in the absolute
+	// p - PStart the cubic term carries 1/h², which underflows to zero on a wide
+	// span and drops the term without any coefficient going non-finite.
 	span := fi.Spans()[1]
-	u := (span.PEnd - span.PStart) / 2
+	h := span.PEnd - span.PStart
+	u := 0.5
 	x := span.X[0] + u*(span.X[1]+u*(span.X[2]+u*span.X[3]))
 	y := span.Y[0] + u*(span.Y[1]+u*(span.Y[2]+u*span.Y[3]))
 	fmt.Printf("span 1 spans t %.4f..%.4f\n", span.TStart, span.TEnd)
 	fmt.Printf("reconstructed midpoint: (%.6f, %.6f)\n", x, y)
 
 	// The same point the sampling API reports, because it is the same curve.
-	ex, ey := flank.Eval((span.PStart + u) / total)
+	ex, ey := flank.Eval((span.PStart + u*h) / total)
 	fmt.Printf("Eval at the same parameter: (%.6f, %.6f)\n", ex, ey)
 
 	// Output:

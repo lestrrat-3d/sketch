@@ -943,18 +943,34 @@ These are unsettled. If you resolve one, record the decision here.
   it. The values are COPIED from the built evaluator rather than recomputed, and
   `FitInterpolant.Eval` runs that same evaluator, so the export cannot drift from
   `Eval`; `Spans` is the same cubic summed differently, so it agrees to rounding
-  rather than bit for bit. **Its fields are exported, so a hand-built value can
+  rather than bit for bit. **A span is published in its own NORMALIZED parameter**
+  `u = (p − PStart)/h`, evaluated as `X[0] + u·(X[1] + u·(X[2] + u·X[3]))` over
+  `u ∈ [0,1]`, and that is what makes "to rounding" a bound RELATIVE to the curve at
+  every span width. In the absolute `p − PStart` the higher coefficients carry `1/h`
+  and `1/h²`: on a wide span they underflow to zero while the curve stays perfectly
+  ordinary, so `Spans` describes a different curve from `Eval` with every coefficient
+  finite and nothing to flag it (measured on constructor-built fit points reaching
+  `4e307`: an 11.6% disagreement at a span's own midpoint, one term of `−3.57e306`
+  dropped from a value of `3.07e307`, and a whole span whose x coefficients are zero
+  while `Eval` returns `5e-101`). The conversion multiplies by `h²`, and each product
+  is associated as `h·(h·term)`, NEVER as `(h·h)·term` — the bare `h·h` is already
+  `+Inf` at those widths while the answer is representable, and it returns as an
+  infinite coefficient or, where the term is zero, as a NaN.
+  **Its fields are exported, so a hand-built value can
   violate the precondition**, and `Eval`, `EvalDeriv` and `Spans` must then all read
   ONE coherent prefix of it — the unexported `size` helper, whose rule
   `FitInterpolant`'s own doc comment defines: the leading run whose `Params` start at
   0, stay finite and strictly increase, whose coordinates are finite, and **whose
-  spans have finite monomial coefficients**. A reader that computed its own bound
+  spans have finite coefficients**. A reader that computed its own bound
   instead would let two exported views of one value describe different curves, and a
   bad span width reaches a consumer as a `+Inf` coefficient or a NaN parameter it
   integrates with no signal. The coefficient clause is not implied by the parameter
-  one: a positive finite `h` can still be small enough for `(v1−v0)/h` to overflow
-  (`Params{0, 5e-324}`), and `Eval`'s barycentric form stays finite exactly where
-  `Spans`' monomial form does not. **The prefix rule is for HAND-BUILT values and must
+  one: a positive, finite and increasing `h` can still be wide enough for `h²·m` to
+  overflow (`Params{0, 1e200}` over a nonzero second derivative), and a coefficient
+  that is not a number describes no curve at all. **The clause judges the coefficients
+  `Spans` PUBLISHES** — `spanFinite` runs that same conversion — so a change to the
+  published form cannot leave the gate certifying a form no caller reads.
+  **The prefix rule is for HAND-BUILT values and must
   never shorten what the evaluator produced**, so all three constructors export
   through ONE gate that refuses — `geom.ErrNonFiniteFitInterpolant`, hence the
   `(*FitInterpolant, error)` signature on every one of them — any built value the rule

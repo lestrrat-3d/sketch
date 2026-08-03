@@ -125,9 +125,9 @@ func SampleFitSpline(fit [][2]float64, segments int) ([][2]float64, error) {
 // A HAND-BUILT value that violates the preconditions is read over its COHERENT PREFIX:
 // the longest leading run of points, bounded by the shortest of the three slices, whose
 // Params start at 0, stay finite and strictly increase, whose own coordinates are finite,
-// and whose spans have finite monomial coefficients (see [FitSpan]) — a span width that is
-// positive and finite can still be small enough for (v[i+1]−v[i])/h to overflow, and the
-// barycentric form below stays finite where the monomial one does not. Everything from the
+// and whose spans have finite coefficients (see [FitSpan]) — a span width that is positive
+// and finite can still be wide enough to put h²·m beyond floating point, and a coefficient
+// that is not a number describes no curve at all. Everything from the
 // first violation onward is not part of the curve. [FitInterpolant.Eval],
 // [FitInterpolant.EvalDeriv] and [FitInterpolant.Spans] all read exactly that prefix, so no
 // two of them can describe different curves and none of them can return an infinity or a
@@ -149,7 +149,7 @@ type FitInterpolant struct {
 // ErrNonFiniteFitInterpolant is returned by [NewFitInterpolant] and
 // [FitSpline.Interpolant] when the fit coordinates give an interpolant that cannot be
 // described: a cumulative chord length that overflows to a non-finite parameter, or a
-// span whose monomial coefficients do. Such an interpolant would be read over a
+// span whose published coefficients do. Such an interpolant would be read over a
 // shortened prefix (see [FitInterpolant]), describing a different — usually much
 // shorter — curve than the fit points do, so it is refused instead of returned.
 var ErrNonFiniteFitInterpolant = errors.New("geom: the fit coordinates give a non-finite interpolant")
@@ -206,31 +206,39 @@ func (fi *FitInterpolant) EvalDeriv(t float64) (float64, float64) {
 	return d[0], d[1]
 }
 
-// FitSpan is one cubic piece of a [FitInterpolant] in monomial form: over
-// PStart ≤ p ≤ PEnd the curve is
+// FitSpan is one cubic piece of a [FitInterpolant] in monomial form over the span's
+// own NORMALIZED local parameter: with h = PEnd−PStart and u = (p−PStart)/h running
+// over [0, 1] as p runs over [PStart, PEnd], the curve is
 //
-//	x(p) = Σ X[k]·(p−PStart)^k    y(p) = Σ Y[k]·(p−PStart)^k
+//	x(p) = X[0] + u·(X[1] + u·(X[2] + u·X[3]))
+//	y(p) = Y[0] + u·(Y[1] + u·(Y[2] + u·Y[3]))
 //
 // with p the cumulative chord parameter and TStart/TEnd the same bounds normalized
-// to the [0, 1] the rest of the API is stated in. Derivatives are per unit p;
-// multiply by the total chord length (the interpolant's last Params entry) for
-// d/dt.
+// to the [0, 1] the rest of the API is stated in. The coefficients are per unit u,
+// so the polynomial's derivative is too: divide it by h for d/dp, and multiply that
+// by the total chord length (the interpolant's last Params entry) for d/dt.
 //
-// The polynomial is algebraically the cubic [FitInterpolant.Eval] evaluates, in a
-// different summation order — so it agrees to rounding, not bit for bit. Use Eval
-// where bit-identity matters.
+// The polynomial is algebraically the cubic [FitInterpolant.Eval] evaluates, summed
+// in a different order — so it agrees to rounding, not bit for bit. The bound that
+// holds is a RELATIVE one at every span width: in u each coefficient is on the scale
+// of the curve's own displacement across the span, so no term is lost to the span's
+// width. (In the absolute parameter p the higher coefficients carry 1/h and 1/h²
+// factors, which underflow to zero on a wide span and silently drop whole terms of
+// an otherwise ordinary curve.) Use Eval where bit-identity matters.
 type FitSpan struct {
 	TStart, TEnd float64
 	PStart, PEnd float64
 	X, Y         [4]float64
 }
 
-// Spans returns the interpolant's cubic pieces in monomial form, one per interval
-// between consecutive [FitInterpolant.Points], in order. A degenerate (single-point)
-// interpolant has none. A hand-built value is spanned over its coherent prefix only
-// (see [FitInterpolant]), the same prefix [FitInterpolant.Eval] evaluates. So every
-// coefficient returned here is finite: a span whose coefficients are not finite is
-// outside that prefix, and is no more part of the curve for Eval than it is here.
+// Spans returns the interpolant's cubic pieces in monomial form — each in its own
+// normalized local parameter, see [FitSpan] for the evaluation formula — one per
+// interval between consecutive [FitInterpolant.Points], in order. A degenerate
+// (single-point) interpolant has none. A hand-built value is spanned over its
+// coherent prefix only (see [FitInterpolant]), the same prefix
+// [FitInterpolant.Eval] evaluates. So every coefficient returned here is finite: a
+// span whose coefficients are not finite is outside that prefix, and is no more part
+// of the curve for Eval than it is here.
 func (fi *FitInterpolant) Spans() []FitSpan {
 	k := fi.size()
 	if k < 2 {
@@ -253,26 +261,33 @@ func (fi *FitInterpolant) Spans() []FitSpan {
 }
 
 // cubicSpanCoeffs converts one natural-cubic span from second-derivative form to
-// monomial coefficients c0..c3 in u = p − pStart, over a span of length h between
-// values v0, v1 whose second derivatives are m0, m1:
+// monomial coefficients c0..c3 in the span's own normalized parameter
+// u = (p − pStart)/h, over a span of length h between values v0, v1 whose second
+// derivatives are m0, m1:
 //
 //	c0 = v0
-//	c1 = (v1−v0)/h − h·(2·m0 + m1)/6
-//	c2 = m0/2
-//	c3 = (m1−m0)/(6·h)
+//	c1 = (v1−v0) − h²·(2·m0 + m1)/6
+//	c2 = h²·m0/2
+//	c3 = h²·(m1−m0)/6
+//
+// Every h² product is associated as h·(h·term), NEVER as (h·h)·term: on a span of
+// width ~1e307 the bare h·h is already +Inf while the answer is perfectly ordinary
+// (the terms of a real interpolant are ~1/h² there), and the overflow never comes
+// back — it reaches the caller as an infinite coefficient, or as a NaN wherever the
+// term is zero.
 func cubicSpanCoeffs(h, v0, v1, m0, m1 float64) [4]float64 {
 	return [4]float64{
 		v0,
-		(v1-v0)/h - h*(2*m0+m1)/6,
-		m0 / 2,
-		(m1 - m0) / (6 * h),
+		(v1 - v0) - h*(h*((2*m0+m1)/6)),
+		h * (h * (m0 / 2)),
+		h * (h * ((m1 - m0) / 6)),
 	}
 }
 
 // size returns the number of points the interpolant is coherent over: the longest
 // LEADING run of points, bounded by the shortest of its three parallel slices, whose
 // Params start at 0, stay finite and strictly increase, whose coordinates are finite,
-// and whose spans have finite monomial coefficients. The constructors refuse to return
+// and whose spans have finite coefficients. The constructors refuse to return
 // a value this would shorten, so for one of theirs it is the whole length; a hand-built
 // one is read over the prefix alone, and it is the ONE definition every exported reader
 // uses, so they cannot describe different curves.
@@ -289,10 +304,10 @@ func (fi *FitInterpolant) size() int {
 		if math.IsNaN(p) || math.IsInf(p, 0) || p <= fi.Params[i-1] {
 			return i
 		}
-		// A positive finite h is not enough: (v1−v0)/h and (m1−m0)/(6·h) can still
-		// overflow, and Spans would then publish an infinite coefficient for a span
-		// Eval computes finitely off the barycentric form — the two exported readers
-		// describing different curves. A non-finite coordinate lands in c0 the same way.
+		// A positive finite h is not enough: h²·m0/2 and h²·(m1−m0)/6 can still
+		// overflow, and Spans would then publish an infinite coefficient — a span
+		// no polynomial describes, so it is no more part of the curve than a bad
+		// parameter is. A non-finite coordinate lands in c0 the same way.
 		if !finitePair(fi.Points[i]) || !fi.spanFinite(i-1) {
 			return i
 		}
@@ -301,8 +316,9 @@ func (fi *FitInterpolant) size() int {
 }
 
 // spanFinite reports whether span i — between Points[i] and Points[i+1] — has finite
-// monomial coefficients in both coordinates, i.e. whether [FitInterpolant.Spans] can
-// describe it at all.
+// coefficients in both coordinates, i.e. whether [FitInterpolant.Spans] can describe it
+// at all. It runs the SAME conversion Spans publishes, so it judges the coefficients a
+// caller actually reads rather than an equivalent form of them.
 func (fi *FitInterpolant) spanFinite(i int) bool {
 	h := fi.Params[i+1] - fi.Params[i]
 	x := cubicSpanCoeffs(h, fi.Points[i][0], fi.Points[i+1][0], fi.SecondDerivs[i][0], fi.SecondDerivs[i+1][0])
