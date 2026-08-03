@@ -84,7 +84,14 @@ func TestNURBSValidation(t *testing.T) {
 		{"unclamped start", 2, p(3), nil, []float64{0, 0.1, 0.2, 1, 1, 1}},
 		{"unclamped end", 2, p(3), nil, []float64{0, 0, 0, 1, 1, 2}},
 		{"wrong weight count", 2, p(3), []float64{1, 1}, []float64{0, 0, 0, 1, 1, 1}},
-		{"non-positive weight", 2, p(3), []float64{1, 0, 1}, []float64{0, 0, 0, 1, 1, 1}},
+		{"zero weight", 2, p(3), []float64{1, 0, 1}, []float64{0, 0, 0, 1, 1, 1}},
+		{"negative weight", 2, p(3), []float64{1, -2, 1}, []float64{0, 0, 0, 1, 1, 1}},
+		// +Inf passes an ordered "> 0" compare, so finiteness is checked on its
+		// own account: an infinite weight makes both sums of the rational
+		// quotient infinite and Eval answers NaN at every parameter.
+		{"positive infinite weight", 2, p(3), []float64{1, math.Inf(1), 1}, []float64{0, 0, 0, 1, 1, 1}},
+		{"negative infinite weight", 2, p(3), []float64{1, math.Inf(-1), 1}, []float64{0, 0, 0, 1, 1, 1}},
+		{"NaN weight", 2, p(3), []float64{1, math.NaN(), 1}, []float64{0, 0, 0, 1, 1, 1}},
 		{"empty domain", 2, p(3), nil, []float64{0, 0, 0, 0, 0, 0}},
 	}
 	for _, tc := range cases {
@@ -100,6 +107,55 @@ func TestNURBSValidation(t *testing.T) {
 	// A well-formed curve is accepted.
 	_, err = s.CreateNURBS(2, p(3), nil, []float64{0, 0, 0, 1, 1, 1})
 	require.NoError(t, err)
+
+	// The finiteness check is narrow: ordinary finite positive weights, tiny and
+	// huge ones included, are still accepted.
+	for _, w := range [][]float64{
+		{1, 1 / math.Sqrt2, 1},
+		{2, 0.5, 3},
+		{1, 1e-12, 1},
+		{1, 1e12, 1},
+	} {
+		_, err := s.CreateNURBS(2, p(3), w, []float64{0, 0, 0, 1, 1, 1})
+		require.NoErrorf(t, err, "finite positive weights %v accepted", w)
+	}
+}
+
+// TestNURBSAcceptedWeightsEvaluateFinitely pins the PURPOSE of the weight
+// validation, not merely its refusal: a curve CreateNURBS accepts evaluates to
+// finite coordinates across its whole domain, the clamped endpoints included.
+// An infinite weight is what broke this — it made every evaluation NaN — so the
+// property is asserted here rather than left implied by the rejection table.
+func TestNURBSAcceptedWeightsEvaluateFinitely(t *testing.T) {
+	s := newSketch(t)
+	p0 := s.CreatePoint(1, 0)
+	p1 := s.CreatePoint(1, 1)
+	p2 := s.CreatePoint(0, 1)
+
+	for _, w := range [][]float64{
+		nil,
+		{1, 1 / math.Sqrt2, 1},
+		{1, 1e-9, 1},
+		{1, 1e9, 1},
+	} {
+		c, err := s.CreateNURBS(2, []*sketch.Point{p0, p1, p2}, w, []float64{0, 0, 0, 1, 1, 1})
+		require.NoErrorf(t, err, "weights %v accepted", w)
+		for i := 0; i <= 20; i++ {
+			u := float64(i) / 20
+			x, y := c.Eval(u)
+			require.Falsef(t, math.IsNaN(x) || math.IsNaN(y), "weights %v: Eval(%v) = (%v, %v) is NaN", w, u, x, y)
+			require.Falsef(t, math.IsInf(x, 0) || math.IsInf(y, 0), "weights %v: Eval(%v) = (%v, %v) is infinite", w, u, x, y)
+		}
+	}
+
+	// The exact rational quarter circle is unchanged by the added check: it still
+	// builds and still traces the unit circle.
+	c := quarterCircleNURBS(t, s)
+	for i := 0; i <= 20; i++ {
+		u := float64(i) / 20
+		x, y := c.Eval(u)
+		require.InDeltaf(t, 1, math.Hypot(x, y), 1e-12, "quarter circle radius at t=%v", u)
+	}
 }
 
 func TestNURBSFreeDOF(t *testing.T) {

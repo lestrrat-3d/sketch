@@ -31,7 +31,8 @@ C(t) = ──────────────────────── 
 
 - `P_i` — control points (n+1 of them): ordinary **sketch points** (the durable
   solver handles, exactly like `Spline`).
-- `w_i` — per-control weights (> 0). `w_i ≡ 1` ⇒ non-rational (a plain B-spline).
+- `w_i` — per-control weights (finite and > 0). `w_i ≡ 1` ⇒ non-rational (a plain
+  B-spline).
 - `N_{i,p}` — degree-`p` B-spline basis over the knot vector `U` (length
   `m+1 = n+p+2`), **clamped** (first and last `p+1` knots equal) so the curve is
   an OPEN curve with endpoints `C(t_first)=P_0`, `C(t_last)=P_n`.
@@ -55,8 +56,13 @@ type NURBS struct {
 
 - Validates: `degree ≥ 1`; `len(control) ≥ degree+1`; `len(knots) =
   len(control)+degree+1`; knots non-decreasing and **clamped**; `len(weights) =
-  len(control)` with every `w_i > 0` (or `weights == nil` ⇒ all 1); no nil point.
-  Any violation → `ErrInvalidShape` (no panic).
+  len(control)` with every `w_i` **finite** and `> 0` (or `weights == nil` ⇒ all
+  1); no nil point. Any violation → `ErrInvalidShape` (no panic). Finiteness is
+  its own clause because an ordered `w_i > 0` compare admits `+Inf`, and one
+  infinite weight makes the rational quotient's numerator and denominator both
+  infinite, so `Eval` and `EvalDeriv` answer NaN at every parameter — the clamped
+  endpoints included. (A NaN weight fails the ordered compare and is rejected by
+  it.) The bare `geom.NewNURBS` kernel still validates nothing, by design.
 - A convenience `ClampedUniformKnots(n, degree)` helper generates the common
   knot vector so callers rarely hand-write one.
 
@@ -167,8 +173,10 @@ kernel is a possible later cleanup, not part of this increment.
   doubling); SVG/PNG/DXF export contains it; DXF carries degree/knots/weights and
   rebuilds to the same curve; world-space DXF round-trips control points.
 - `CreateNURBS` validation table (bad degree / knot count / unclamped / non-monotone
-  knots / non-positive or wrong-count weights / too-few control points / nil) →
-  `ErrInvalidShape`. Free-NURBS DOF = `2(n+1)`. `RemoveEntity` keeps the points.
+  knots / zero, negative, infinite, NaN or wrong-count weights / too-few control
+  points / nil) → `ErrInvalidShape`, plus the converse that an accepted curve
+  evaluates finitely across its domain. Free-NURBS DOF = `2(n+1)`. `RemoveEntity`
+  keeps the points.
 - An executable `examples/` example with `// Output:`.
 
 ## Verification
