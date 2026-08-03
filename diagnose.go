@@ -381,12 +381,34 @@ func (p *Point) IsFullyConstrained() bool {
 // [EllipticalArc] or [Conic] also requires its radius / semi-axes / rotation /
 // rho to be pinned. It is the per-entity companion to [Point.IsFullyConstrained]
 // — the answer to "which curve would a GUI color as under-constrained".
+//
+// It reports false for an entity this sketch does not own — nil, a removed
+// handle, another sketch's entity, or one of this sketch's entities with a
+// defining point rewired to a point this sketch does not own — matching
+// [Sketch.EntityFixed], the other bare-bool entity read.
 func (s *Sketch) EntityIsFullyConstrained(e Entity) bool {
+	// A variable index means something only in the sketch that allocated it, so an
+	// unscreened handle is read against THIS sketch's null-space support: a foreign
+	// entity's indices name unrelated local variables (a genuinely free foreign
+	// circle read fully constrained through a DOF-0 sketch), a nil or typed-nil one
+	// panics in entityPoints, and a removed one is answered from retired variables.
+	// Every one of those errs toward BLESSING a handle the sketch never examined,
+	// which is the direction an oracle must never fail in. The screen is
+	// foreignInput — the same predicate the grounding API and the modification tools
+	// use, so this cannot diverge from what Verify reports — and the refusal is
+	// false, the only answer that does not certify "nothing here can move".
+	if s.foreignInput(e) {
+		return false
+	}
 	return !entityMovable(e, s.movableVars())
 }
 
 // entityMovable reports whether any of an entity's defining-point coordinates or
 // intrinsic shape variables is in movable (the Jacobian null-space support).
+//
+// It is deliberately UNSCREENED: its callers are [Sketch.EntityIsFullyConstrained],
+// which screens first, and the DOF colouring in annotate.go, which iterates the
+// sketch's own s.ents. Screening here would be dead weight on the render path.
 func entityMovable(e Entity, movable map[int]struct{}) bool {
 	for _, p := range entityPoints(e) {
 		if _, ok := movable[p.xi]; ok {
