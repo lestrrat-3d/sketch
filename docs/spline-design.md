@@ -175,6 +175,18 @@ the clamped basis an augmented control list is *not* periodic — the clamped
 evaluator pins the ends — so a real cyclic basis is used instead.) It carries no
 solver vars and no internal constraints, like the open spline.
 
+The reduction has **one owner**, `periodicSpan`, which every periodic evaluator
+goes through for both its span index and its span-local parameter, so none carries
+its own copy of the index rule. It **clamps** that index into `[0, n)`: the upper
+bound is the floating-point seam (a tiny negative `t` reduces to exactly 1) and
+the lower bound is what makes a parameter the reduction cannot place — a NaN, or
+an infinity, whose reduction is a NaN — an in-range index. The span-local
+parameter is then NaN whatever index such a `t` lands on, so the evaluators answer
+NaN, the same answer the open `Spline`, the `FitSpline`, the `NURBS` and the
+`Conic` give a NaN parameter. The lower bound is the load-bearing half:
+`int(math.Floor(NaN))` is an out-of-range index, and a public `Eval` with no error
+return has nothing to refuse such a parameter through.
+
 Because it bounds a region on its own it is a `geom.ClosedCurve`, **not** a
 `geom.Curve` — it has no `Endpoints()`. `ClosedCurve` is sealed with an unexported
 marker so the open `*Spline` (which also has a `Polyline` method) cannot

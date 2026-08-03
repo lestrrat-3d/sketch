@@ -31,7 +31,8 @@ func NewClosedSpline(control ...*Point) (*ClosedSpline, error) {
 func (sp *ClosedSpline) closedCurve() {}
 
 // Eval returns the curve point at parameter t, reduced modulo 1 into the periodic
-// domain (so Eval(0) == Eval(1)).
+// domain (so Eval(0) == Eval(1)). A parameter the reduction cannot place — a NaN,
+// or an infinity, whose reduction is a NaN — evaluates to NaN.
 func (sp *ClosedSpline) Eval(t float64) (float64, float64) {
 	// control-point count is guaranteed >=3 by the ClosedSpline constructor.
 	x, y, _ := EvalPeriodicCubicBSpline(controlCoords(sp.Control), t)
@@ -45,24 +46,45 @@ func (sp *ClosedSpline) Polyline(segments int) [][2]float64 {
 	return pts
 }
 
+// periodicSpan places parameter t in the periodic domain over n control points:
+// it reduces t modulo 1 and returns the span index i ∈ [0, n) together with the
+// span-local parameter v = n·t − i. It is the ONE owner of that reduction — every
+// periodic evaluator here goes through it, so none can carry its own copy of the
+// index rule.
+//
+// The index is CLAMPED into range. The upper bound is the floating-point seam (a
+// tiny negative t reduces to exactly 1); the lower bound is what makes a
+// parameter the reduction cannot place — a NaN, or an infinity, whose reduction
+// is a NaN — an in-range index rather than an out-of-range panic. v is NaN
+// whatever index such a parameter lands on, so the evaluators answer it with NaN,
+// the answer the open [Spline], the [FitSpline], the [NURBS] and the [Conic] all
+// give a NaN parameter. A finite t is untouched: it reduces into [0,1] and the
+// clamp is a no-op away from the seam.
+func periodicSpan(t float64, n int) (int, float64) {
+	t -= math.Floor(t) // reduce to [0,1); handles t=1 -> 0 and negative t
+	u := t * float64(n)
+	i := int(math.Floor(u))
+	if i >= n {
+		i = n - 1
+	} else if i < 0 {
+		i = 0
+	}
+	return i, u - float64(i)
+}
+
 // EvalPeriodicCubicBSpline evaluates a closed (periodic) uniform cubic B-spline
 // over the control coordinates at parameter t. t is reduced modulo 1, so the
 // curve is a smooth closed loop: over n control points each unit-length span i ∈
 // [0,n) blends the four cyclic controls P[i..i+3] (indices mod n) with the
-// standard uniform cubic basis. It returns [ErrTooFewClosedControlPoints] with
-// fewer than 3 control points.
+// standard uniform cubic basis. A parameter the reduction cannot place — a NaN,
+// or an infinity, whose reduction is a NaN — evaluates to NaN. It returns
+// [ErrTooFewClosedControlPoints] with fewer than 3 control points.
 func EvalPeriodicCubicBSpline(ctrl [][2]float64, t float64) (float64, float64, error) {
 	n := len(ctrl)
 	if err := tooFewPoints(n, 3, ErrTooFewClosedControlPoints); err != nil {
 		return 0, 0, err
 	}
-	t -= math.Floor(t) // reduce to [0,1); handles t=1 -> 0 and negative t
-	u := t * float64(n)
-	i := int(math.Floor(u))
-	if i >= n { // floating-point guard at the seam
-		i = n - 1
-	}
-	v := u - float64(i)
+	i, v := periodicSpan(t, n)
 	v2, v3 := v*v, v*v*v
 	b0 := (1 - 3*v + 3*v2 - v3) / 6
 	b1 := (3*v3 - 6*v2 + 4) / 6
@@ -78,20 +100,15 @@ func EvalPeriodicCubicBSpline(ctrl [][2]float64, t float64) (float64, float64, e
 // (periodic) uniform cubic B-spline at parameter t (reduced modulo 1). Within
 // span i ∈ [0,n) the curve blends the four cyclic controls P[i..i+3] with the
 // uniform cubic basis in v = n·t − i; differentiating the basis in v and scaling
-// by dv/dt = n gives the analytic tangent. It returns
-// [ErrTooFewClosedControlPoints] with fewer than 3 control points.
+// by dv/dt = n gives the analytic tangent. A parameter the reduction cannot
+// place — a NaN, or an infinity, whose reduction is a NaN — evaluates to NaN. It
+// returns [ErrTooFewClosedControlPoints] with fewer than 3 control points.
 func EvalPeriodicCubicBSplineDeriv(ctrl [][2]float64, t float64) (float64, float64, error) {
 	n := len(ctrl)
 	if err := tooFewPoints(n, 3, ErrTooFewClosedControlPoints); err != nil {
 		return 0, 0, err
 	}
-	t -= math.Floor(t)
-	u := t * float64(n)
-	i := int(math.Floor(u))
-	if i >= n {
-		i = n - 1
-	}
-	v := u - float64(i)
+	i, v := periodicSpan(t, n)
 	v2 := v * v
 	// derivatives of the uniform cubic basis with respect to v
 	db0 := (-3 + 6*v - 3*v2) / 6

@@ -139,7 +139,9 @@ func (sp *ClosedSpline) Geometry() *geom.ClosedSpline {
 }
 
 // Eval returns the curve point at parameter t (reduced modulo 1 into the periodic
-// domain), using the solved control-point coordinates.
+// domain), using the solved control-point coordinates. A parameter the reduction
+// cannot place — a NaN, or an infinity, whose reduction is a NaN — evaluates to
+// NaN.
 func (sp *ClosedSpline) Eval(t float64) (float64, float64) {
 	x, y, _ := geom.EvalPeriodicCubicBSpline(sp.controlCoords(), t)
 	return x, y
