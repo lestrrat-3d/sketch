@@ -29,7 +29,26 @@ func (s *Sketch) RemoveConstraint(c Constraint) bool {
 // retireConstraintVars grounds any auxiliary variables a constraint owns (e.g.
 // an arc tangency's sweep slack) when its last occurrence is removed, mirroring
 // how entity-owned variables are retired.
+//
+// It is skipped for a constraint referencing geometry this sketch does not own —
+// the same screen [Sketch.AddConstraint] applies to allocVars, and for the same
+// reason. A foreign constraint is committed unparameterized, so this sketch
+// never allocated the variables its indices name: retiring them here would
+// ground an unrelated variable of THIS sketch (or run off its vector) while
+// resetting the donor's indices, silently dropping a row from a constraint the
+// donor still holds.
+//
+// The screen is by reference ownership rather than by "which sketch allocated
+// it", which is state no hook exposes. The two agree wherever the engine itself
+// removes a constraint: the removal cascade runs before its entity or point is
+// spliced out, so a constraint being cascaded still owns every reference. They
+// part only for a constraint whose exported operand field was rewired to another
+// sketch's handle after it was committed here, which leaks one aux variable
+// (a phantom free DOF in this sketch) rather than corrupting the other one.
 func (s *Sketch) retireConstraintVars(c Constraint) {
+	if s.foreignConstraint(c) {
+		return
+	}
 	if r, ok := c.(interface{ retireVars(*Sketch) }); ok {
 		r.retireVars(s)
 	}

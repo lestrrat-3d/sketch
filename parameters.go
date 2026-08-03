@@ -78,11 +78,57 @@ func (s *Sketch) unitFor(k units.Kind) units.Unit {
 	}
 }
 
+// foreignConstraint reports whether c references a point or entity this sketch
+// does not own — another sketch's handle, or a dead one this sketch removed.
+//
+// It is the screen the constraint-parameterizing hooks (resolveUnit, allocVars,
+// retireVars) must pass first. Those hooks WRITE to the constraint: allocVars
+// binds the constraint's sketch pointer before its own idempotence guard runs,
+// so it rebinds even when it allocates nothing, while the constraint's stored
+// variable indices still address the sketch that allocated them. Run on a handle
+// another sketch already committed, that hands the donor's constraint this
+// sketch's variable vector — a large index runs off it and panics the donor's
+// DOF and Verify, and a small one silently reads a stranger's coordinates, both
+// in a sketch that owns every one of its own handles and so has nothing in its
+// own report to flag.
+//
+// The screen is the pair the rest of the engine already uses: constraintRefs for
+// the operands, then [Sketch.owns] for a point and [Sketch.ownsEntity] for an
+// entity — the SAME predicates scanReferenceIntegrity sets ForeignHandles from,
+// checkNoForeignRefs refuses to marshal, and foreignInput screens tool inputs
+// with, so this guard cannot diverge from what [Sketch.Verify] reports. `owns`
+// carries the origin exception, so a constraint to [Sketch.Origin] (deliberately
+// absent from s.points) is not foreign.
+//
+// A nil operand is skipped rather than reported foreign: [Sketch.Verify] splits
+// a nil reference out as a corrupt one, not a foreign one, and neither hook
+// dereferences it.
+func (s *Sketch) foreignConstraint(c Constraint) bool {
+	pts, ents := constraintRefs(c)
+	for _, p := range pts {
+		if p != nil && !s.owns(p) {
+			return true
+		}
+	}
+	for _, e := range ents {
+		if !isNilEntity(e) && !s.ownsEntity(e) {
+			return true
+		}
+	}
+	return false
+}
+
 // AddConstraint commits one or more constraints to the sketch. Constraints
 // reference solver-bound geometry (the [Point]/[Line]/[Circle] handles returned
 // by the Add methods), which is therefore already committed. Dimensional
 // constraints created from a bare float adopt the sketch's default unit for
 // their kind here.
+//
+// A constraint referencing another sketch's geometry is committed as written but
+// never parameterized (see foreignConstraint), so committing it cannot corrupt
+// the sketch that owns the geometry. This sketch then reports it exactly as
+// before: [Sketch.Verify] flags ForeignHandles and [Sketch.MarshalJSON] refuses
+// to write it.
 func (s *Sketch) AddConstraint(cs ...Constraint) {
 	for _, c := range cs {
 		// Re-adding an already-committed handle is a no-op: a constraint must
@@ -91,14 +137,25 @@ func (s *Sketch) AddConstraint(cs ...Constraint) {
 		if containsConstraint(s.cons, c) {
 			continue
 		}
-		if d, ok := c.(interface{ resolveUnit(*Sketch) }); ok {
-			d.resolveUnit(s)
-		}
-		// A constraint that needs auxiliary solver variables (e.g. an arc
-		// tangency's sweep slack) allocates them here — the same hook shape as
-		// resolveUnit. It runs on load too, since rebuild goes through AddConstraint.
-		if a, ok := c.(interface{ allocVars(*Sketch) }); ok {
-			a.allocVars(s)
+		// The constraint is appended either way. Dropping a foreign one instead
+		// would erase the ErrForeignHandle this sketch's report carries and make
+		// the constraint vanish with nothing anywhere to flag it; skipping only the
+		// hooks leaves the donor's state alone AND keeps this sketch loud. An
+		// unparameterized constraint contributes only its unparameterized rows —
+		// every aux-var residual gates on its own index — and Verify stops at the
+		// reference-integrity scan before reading residuals at all.
+		if !s.foreignConstraint(c) {
+			if d, ok := c.(interface{ resolveUnit(*Sketch) }); ok {
+				d.resolveUnit(s)
+			}
+			// A constraint that needs auxiliary solver variables (e.g. an arc
+			// tangency's sweep slack) allocates them here — the same hook shape as
+			// resolveUnit. It runs on load too, since rebuild goes through
+			// AddConstraint; the loader builds every reference against the receiving
+			// sketch, so a rebuilt constraint is never foreign.
+			if a, ok := c.(interface{ allocVars(*Sketch) }); ok {
+				a.allocVars(s)
+			}
 		}
 		s.cons = append(s.cons, c)
 	}

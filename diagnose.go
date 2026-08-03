@@ -276,11 +276,23 @@ func rowCombo(basis, accRows [][]float64, target []float64) []int {
 // an equation the sketch can use. Driven dimensions contribute no equations
 // and always pass.
 //
+// It returns an error wrapping [ErrForeignHandle] for a candidate referencing
+// geometry this sketch does not own, without probing it. The probe parameterizes
+// the candidate against THIS sketch's variable vector, which for a constraint
+// another sketch already committed would rebind it away from its owner — so the
+// refusal is what makes the documented "leaves the sketch untouched" true of the
+// other sketch too.
+//
 // Like [Sketch.DOF], the analysis is local to the call-time configuration;
 // check against solved geometry (after [Sketch.Solve]) for the most reliable
 // verdict. A caller that wants Fusion's behavior — refuse the gesture, leave
 // the sketch untouched — calls this before [Sketch.AddConstraint].
 func (s *Sketch) CheckConstraint(c Constraint) error {
+	// Screened before the driven-dimension shortcut so the verdict on a foreign
+	// handle does not depend on whether the candidate happens to drive anything.
+	if s.foreignConstraint(c) {
+		return fmt.Errorf("%w: the candidate references geometry this sketch does not own", ErrForeignHandle)
+	}
 	if d, ok := c.(Dimension); ok && d.Driven() {
 		return nil // measures the geometry, constrains nothing
 	}
@@ -289,6 +301,16 @@ func (s *Sketch) CheckConstraint(c Constraint) error {
 	// arc sweep slack. Probe it in its committed form: temporarily allocate those
 	// variables (so the rank analysis sees the real rows and counts them as free
 	// unknowns), then roll back, keeping the check non-mutating.
+	//
+	// The rollback is installed only when the probe actually allocated, and that
+	// gate is load-bearing: allocVars is idempotent, so a candidate already
+	// committed to this sketch returns without allocating, and retiring
+	// unconditionally would strip the COMMITTED constraint's real aux variables
+	// (dropping a row from a live residual). allocVars also binds the
+	// constraint's sketch pointer ahead of that idempotence guard, which the
+	// rollback cannot undo — harmless only because the foreign screen above
+	// leaves this sketch as the sole one that can own the candidate's geometry,
+	// so the pointer it binds is the one a commit would bind anyway.
 	if av, ok := c.(interface{ allocVars(*Sketch) }); ok {
 		n := len(s.vars)
 		av.allocVars(s)
