@@ -69,21 +69,11 @@ func (s *Sketch) RemoveEntity(e Entity) bool {
 	// FRESH uid — which is what makes the revision (and any Profile holding the
 	// dead handle) change. See Sketch.addEntity.
 	delete(s.entUIDs, e)
-	// Retire scalar variables owned by the entity itself. Line/Arc/Spline own
-	// none — their coordinates belong to their points, which survive.
-	switch t := e.(type) {
-	case *Circle:
-		s.retireVar(t.ri)
-	case *Ellipse:
-		s.retireVar(t.rxi)
-		s.retireVar(t.ryi)
-		s.retireVar(t.roti)
-	case *EllipticalArc:
-		s.retireVar(t.rxi)
-		s.retireVar(t.ryi)
-		s.retireVar(t.roti)
-	case *Conic:
-		s.retireVar(t.rhoi)
+	// Retire scalar variables owned by the entity itself, read from the one
+	// definition of what those are (entityShapeVars). Line/Arc/Spline own none —
+	// their coordinates belong to their points, which survive.
+	for _, v := range entityShapeVars(e) {
+		s.retireVar(v.index)
 	}
 	s.ents = append(s.ents[:idx], s.ents[idx+1:]...)
 	for i := idx; i < len(s.ents); i++ {

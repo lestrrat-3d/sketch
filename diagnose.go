@@ -396,31 +396,12 @@ func entityMovable(e Entity, movable map[int]struct{}) bool {
 			return true
 		}
 	}
-	for _, vi := range entityShapeVars(e) {
-		if _, ok := movable[vi]; ok {
+	for _, v := range entityShapeVars(e) {
+		if _, ok := movable[v.index]; ok {
 			return true
 		}
 	}
 	return false
-}
-
-// entityShapeVars returns the solver-variable indices an entity owns beyond its
-// defining points — the intrinsic shape degrees of freedom. Lines, arcs and the
-// spline families own none (their shape is fixed by their points); a circle owns
-// its radius, an ellipse/elliptical arc its semi-axes and rotation, a conic its
-// fullness rho.
-func entityShapeVars(e Entity) []int {
-	switch t := e.(type) {
-	case *Circle:
-		return []int{t.ri}
-	case *Ellipse:
-		return []int{t.rxi, t.ryi, t.roti}
-	case *EllipticalArc:
-		return []int{t.rxi, t.ryi, t.roti}
-	case *Conic:
-		return []int{t.rhoi}
-	}
-	return nil
 }
 
 // movableVars identifies the free variables with a nonzero component in some

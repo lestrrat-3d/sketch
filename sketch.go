@@ -455,10 +455,6 @@ func (p *Point) IsFixed() bool { return p.s.fixed[p.xi] && p.s.fixed[p.yi] }
 // and the consumers of the forgotten copy fail SILENTLY (Verify stops flagging
 // a foreign point, Revision stops moving, so a stale Profile reads fresh). A
 // new entity type MUST get a case here.
-//
-// entitySizeVars returns the extra solver variables an entity owns beyond its
-// points — a circle's radius, an ellipse's semi-axes and rotation. An arc's
-// radius is derived from its points, so it owns no size variable.
 func entityPoints(e Entity) []*Point {
 	switch t := e.(type) {
 	case *Line:
@@ -485,22 +481,64 @@ func entityPoints(e Entity) []*Point {
 	return nil
 }
 
-func (s *Sketch) entitySizeVars(e Entity) []int {
+// varKind is the physical kind of the quantity a solver variable holds. The
+// ambiguity probe perturbs by it and measures configuration distance in it
+// ([Sketch.varKinds], configSep), and the conditioning gate scales the
+// Jacobian's columns by it (condVarScales).
+type varKind uint8
+
+const (
+	varCoordinate    varKind = iota // point x/y (the default)
+	varRadius                       // circle radius, ellipse semi-axes
+	varAngle                        // ellipse rotation
+	varDimensionless                // a bounded ratio: a conic's fullness rho ∈ (0, 1)
+)
+
+// shapeVar is one intrinsic shape variable of an entity: its index into the
+// sketch's variable vector, and the kind of quantity it holds.
+type shapeVar struct {
+	index int
+	kind  varKind
+}
+
+// entityShapeVars returns the intrinsic shape variables an entity owns beyond
+// its defining points — a circle's radius, an ellipse's or elliptical arc's
+// semi-axes and rotation, a conic's fullness rho — each with the physical kind
+// of the quantity it holds. A line, an arc and the spline families own none:
+// their shape is fixed by their points, an arc's radius being the derived
+// distance from its center to its start.
+//
+// It is the SINGLE definition of "which scalar variables does this entity own",
+// and every consumer goes through it: grounding
+// ([Sketch.FixEntity]/[Sketch.UnfixEntity]/[Sketch.EntityFixed]), the removal
+// cascade's variable retirement, per-entity DOF attribution
+// (entityMovable, behind [Sketch.EntityIsFullyConstrained]) and the
+// variable-kind table ([Sketch.varKinds]) the ambiguity probe perturbs by and
+// the conditioning gate scales columns by. Keeping one definition is
+// load-bearing in the same way it is for entityPoints: a second copy agreeing
+// today would let a new entity type — or a new variable on an existing one — be
+// added to one and forgotten in the other, and the forgotten copy's consumers
+// fail SILENTLY (FixEntity leaves a grounded entity able to change shape,
+// RemoveEntity leaves a dead entity's variable free in the rank analysis, the
+// probe perturbs a radius as if it were a coordinate) with the build, vet, lint
+// and test gates all green. A new entity type owning any scalar variable of its
+// own MUST get a case here, each variable with its kind.
+func entityShapeVars(e Entity) []shapeVar {
 	switch t := e.(type) {
 	case *Circle:
-		return []int{t.ri}
+		return []shapeVar{{t.ri, varRadius}}
 	case *Ellipse:
-		return []int{t.rxi, t.ryi, t.roti}
+		return []shapeVar{{t.rxi, varRadius}, {t.ryi, varRadius}, {t.roti, varAngle}}
 	case *EllipticalArc:
-		return []int{t.rxi, t.ryi, t.roti}
+		return []shapeVar{{t.rxi, varRadius}, {t.ryi, varRadius}, {t.roti, varAngle}}
 	case *Conic:
-		return []int{t.rhoi}
+		return []shapeVar{{t.rhoi, varDimensionless}}
 	}
 	return nil
 }
 
 // FixEntity grounds all of an entity's variables — its defining points and any
-// size variables (a circle's radius, an ellipse's semi-axes and rotation) — so
+// shape variables (a circle's radius, an ellipse's semi-axes and rotation) — so
 // the solver holds the whole entity rigid at its current shape and location. It
 // is the entity-level counterpart of [Sketch.Fix].
 //
@@ -515,8 +553,8 @@ func (s *Sketch) FixEntity(e Entity) {
 		s.fixed[p.xi] = true
 		s.fixed[p.yi] = true
 	}
-	for _, i := range s.entitySizeVars(e) {
-		s.fixed[i] = true
+	for _, v := range entityShapeVars(e) {
+		s.fixed[v.index] = true
 	}
 }
 
@@ -543,8 +581,8 @@ func (s *Sketch) UnfixEntity(e Entity) {
 		s.fixed[p.xi] = false
 		s.fixed[p.yi] = false
 	}
-	for _, i := range s.entitySizeVars(e) {
-		s.fixed[i] = false
+	for _, v := range entityShapeVars(e) {
+		s.fixed[v.index] = false
 	}
 }
 
@@ -558,8 +596,8 @@ func (s *Sketch) EntityFixed(e Entity) bool {
 		return false // see the grounding-guard note above [Sketch.Fix]
 	}
 	pts := entityPoints(e)
-	sz := s.entitySizeVars(e)
-	if len(pts) == 0 && len(sz) == 0 {
+	shape := entityShapeVars(e)
+	if len(pts) == 0 && len(shape) == 0 {
 		return false
 	}
 	for _, p := range pts {
@@ -567,8 +605,8 @@ func (s *Sketch) EntityFixed(e Entity) bool {
 			return false
 		}
 	}
-	for _, i := range sz {
-		if !s.fixed[i] {
+	for _, v := range shape {
+		if !s.fixed[v.index] {
 			return false
 		}
 	}

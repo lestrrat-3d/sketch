@@ -379,35 +379,16 @@ func (s *Sketch) probeAxes(baseline []float64) []*geom.Line {
 	return axes
 }
 
-// varKind classifies a solver variable for perturbation and distance purposes.
-type varKind uint8
-
-const (
-	varCoordinate    varKind = iota // point x/y (the default)
-	varRadius                       // circle radius, ellipse semi-axes
-	varAngle                        // ellipse rotation
-	varDimensionless                // a bounded ratio: a conic's fullness rho ∈ (0, 1)
-)
-
 // varKinds classifies every variable index by walking the entities that own
-// non-coordinate variables. Variables retired by removal are fixed and never
-// free, so their (stale) classification is never read.
+// non-coordinate variables, reading each one's kind from entityShapeVars — the
+// one definition of which variables those are — so a new entity type cannot be
+// given a shape variable here and forgotten there. Variables retired by removal
+// are fixed and never free, so their (stale) classification is never read.
 func (s *Sketch) varKinds() []varKind {
 	kinds := make([]varKind, len(s.vars))
 	for _, e := range s.ents {
-		switch t := e.(type) {
-		case *Circle:
-			kinds[t.ri] = varRadius
-		case *Ellipse:
-			kinds[t.rxi] = varRadius
-			kinds[t.ryi] = varRadius
-			kinds[t.roti] = varAngle
-		case *EllipticalArc:
-			kinds[t.rxi] = varRadius
-			kinds[t.ryi] = varRadius
-			kinds[t.roti] = varAngle
-		case *Conic:
-			kinds[t.rhoi] = varDimensionless
+		for _, v := range entityShapeVars(e) {
+			kinds[v.index] = v.kind
 		}
 	}
 	return kinds
