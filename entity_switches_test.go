@@ -146,6 +146,18 @@ func entitySwitchFactsOf(parsed map[string]*ast.File, names []string) entitySwit
 				if fd.Name.Name != "entity" || fd.Recv == nil || len(fd.Recv.List) != 1 {
 					continue
 				}
+				// The marker must carry the interface's own signature — no
+				// parameters and no results. A same-package method merely NAMED
+				// entity, `func (x *Helper) entity(bool)`, implements nothing, and
+				// counting its receiver as an entity type makes the audit demand a
+				// case for a type that is not one: a correct package failing, the
+				// opposite direction from a switch slipping through unaudited.
+				if params := fd.Type.Params; params != nil && len(params.List) != 0 {
+					continue
+				}
+				if results := fd.Type.Results; results != nil && len(results.List) != 0 {
+					continue
+				}
 				star, ok := fd.Recv.List[0].Type.(*ast.StarExpr)
 				if !ok {
 					continue
@@ -415,6 +427,17 @@ func auditSynthetic(t *testing.T, src string, exempt map[entitySwitchSite]string
 	return auditEntitySwitches(fset, parsed, names, entitySwitchFactsOf(parsed, names), exempt)
 }
 
+// syntheticFacts derives one synthetic package's naming, so a test can assert
+// on the entity set itself rather than only on the problems it produces.
+func syntheticFacts(t *testing.T, src string) entitySwitchFacts {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, entitySwitchSynthFile, src, 0)
+	require.NoError(t, err, `failed to parse the synthetic package`)
+	parsed := map[string]*ast.File{entitySwitchSynthFile: f}
+	return entitySwitchFactsOf(parsed, []string{entitySwitchSynthFile})
+}
+
 // TestEntitySwitchAuditResolvesAliases covers a switch written against a
 // same-package alias of an entity type. Left unresolved, the alias name misses
 // the entity set, which de-classifies the whole switch as "not an entity switch"
@@ -625,6 +648,52 @@ func exhaustiveThroughParentheses(e Entity) {
 }
 `, nil)
 		require.Empty(t, problems, `parentheses are grouping, so each case covers the type it names`)
+	})
+}
+
+// TestEntitySwitchAuditIgnoresMismatchedMarkers covers a same-package method
+// merely NAMED entity, one whose signature is not the sealed interface's. Its
+// receiver implements nothing, so taking it for an entity type makes the audit
+// demand a case for a type that is not one — a correct package failing, the
+// opposite direction from a switch slipping through unaudited.
+func TestEntitySwitchAuditIgnoresMismatchedMarkers(t *testing.T) {
+	const takesParameter = `
+// Helper is no entity: its entity method takes a parameter, so it does not
+// implement the sealed interface.
+type Helper struct{}
+
+func (x *Helper) entity(bool) {}
+`
+
+	const returnsValue = `
+// Helper is no entity: its entity method returns a value, so it does not
+// implement the sealed interface.
+type Helper struct{}
+
+func (x *Helper) entity() bool { return true }
+`
+
+	t.Run("a marker taking a parameter names no entity type", func(t *testing.T) {
+		facts := syntheticFacts(t, entitySwitchPrelude+takesParameter)
+		require.Equal(t, []string{"Alpha", "Beta", "Gamma"}, sortedKeys(facts.entities))
+	})
+
+	t.Run("a marker returning a value names no entity type", func(t *testing.T) {
+		facts := syntheticFacts(t, entitySwitchPrelude+returnsValue)
+		require.Equal(t, []string{"Alpha", "Beta", "Gamma"}, sortedKeys(facts.entities))
+	})
+
+	t.Run("an exhaustive switch is not asked for a case for it", func(t *testing.T) {
+		problems := auditSynthetic(t, entitySwitchPrelude+takesParameter+`
+func exhaustiveWithoutHelper(e Entity) {
+	switch e.(type) {
+	case *Alpha:
+	case *Beta:
+	case *Gamma:
+	}
+}
+`, nil)
+		require.Empty(t, problems, `a switch handling every entity type must not be asked for a case for a type that is not one`)
 	})
 }
 
