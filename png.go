@@ -60,6 +60,34 @@ func finitePixelDim(v float64) bool {
 	return !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0 && v <= math.MaxInt32
 }
 
+// pngMaxPixelBytes bounds the RGBA pixel buffer PNG allocates (4 bytes per
+// pixel, image.NewNRGBA's own layout), not just each dimension. Two pixel
+// dimensions can each pass [finitePixelDim] — both within int32 — while their
+// PRODUCT still doesn't fit: on ordinary finite 10x10 geometry with the
+// default margin, WithScale(7e7) alone reaches that regime, and
+// image.NewNRGBA's internal overflow check (mul3NonNeg) panics before any
+// allocation happens — a documented non-panicking exporter call panicking. A
+// narrower gap is worse: a pair whose byte count fits int64 but not available
+// memory reaches make() and dies with the runtime's unrecoverable
+// out-of-memory fatal error, which no recover() can catch — a failure mode
+// bounding only at Go's own int-overflow rule (4*pw*ph <= math.MaxInt64)
+// would still admit. So this is a stated BYTE BUDGET rather than merely that
+// overflow rule: math.MaxInt32 bytes is 2 GiB, i.e. ~536M pixels
+// (~23170x23170 square), far above anything this repo renders, chosen to
+// leave headroom for legitimate large exports while refusing before either
+// failure mode is reached.
+const pngMaxPixelBytes = float64(math.MaxInt32)
+
+// fitsPixelBudget reports whether a pw x ph NRGBA buffer (4 bytes/pixel)
+// stays within [pngMaxPixelBytes]. The product is computed in float64, never
+// int — an int product would itself overflow (silently wrapping into a small,
+// falsely-safe value) before it could be tested. Callers must screen pw/ph
+// through [finitePixelDim] first: this only bounds the product, not either
+// dimension's own range.
+func fitsPixelBudget(pw, ph float64) bool {
+	return pw*ph*4 <= pngMaxPixelBytes
+}
+
 // PNG renders the sketch to a PNG image and returns the encoded bytes. The
 // output is visually equivalent to [Sketch.SVG] rendered at the same size:
 // the y-axis is flipped to math orientation, geometry uses the stroke color,
@@ -100,6 +128,13 @@ func (s *Sketch) PNG(options ...PNGOption) ([]byte, error) {
 	pwf := math.Max(1, math.Round(w*scale))
 	phf := math.Max(1, math.Round(h*scale))
 	if !finitePixelDim(pwf) || !finitePixelDim(phf) {
+		return nil, ErrNonFiniteGeometry
+	}
+	// Each dimension can pass finitePixelDim individually while their
+	// PRODUCT still doesn't fit a pixel buffer — see pngMaxPixelBytes.
+	// Checked here, still before the int() conversion and before
+	// image.NewNRGBA allocates.
+	if !fitsPixelBudget(pwf, phf) {
 		return nil, ErrNonFiniteGeometry
 	}
 	pw := int(pwf)
