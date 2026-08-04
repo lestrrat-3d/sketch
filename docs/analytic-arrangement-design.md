@@ -97,8 +97,9 @@ Same-component interior tangency is a **self-touch** → `SelfIntersections`, no
    never reaches) is conservatively `Degenerate` via the gate, never a blessed wrong
    topology. Increment 2 made any tangency that would merge into a shared
    cycle-bearing vertex conservatively `Degenerate`; increment 3 plus §7a narrowed
-   that to the line-involved case only (see the tangency contract). Tested
-   in `geom/arrange_analytic_test.go`. See "Wiring design" below.
+   that to the line-involved case only (see the tangency contract; mechanism
+   in the `geom` section of `CLAUDE.md`). Tested in
+   `geom/arrange_analytic_test.go`. See "Wiring design" below.
 
 3. **Exact tangent/port ordering** — *partly done* (`geom/arrange.go`:
    `source.differential`, `portKey`, `sortExactPorts`, `useExactPorts`,
