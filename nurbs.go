@@ -123,6 +123,18 @@ func (s *Sketch) CreateNURBS(degree int, control []*Point, weights, knots []floa
 	if len(knots) != n+degree+1 {
 		return nil, fmt.Errorf("%w: CreateNURBS needs %d knots (control+degree+1), got %d", ErrInvalidShape, n+degree+1, len(knots))
 	}
+	for i, k := range knots {
+		// Finiteness is part of the test, not implied by it: knots[i] < knots[i-1]
+		// is false against a NaN in both directions, so the non-decreasing loop
+		// below passes a NaN interior knot silently, and knots[degree] >= knots[n]
+		// is false against NaN too, so the empty-domain check misses it as well. A
+		// NaN knot poisons geom.NURBS.Eval over every span it bounds; an infinite
+		// knot IS caught by the non-decreasing compare, but is rejected here too so
+		// the finiteness check is one place rather than split across two.
+		if math.IsNaN(k) || math.IsInf(k, 0) {
+			return nil, fmt.Errorf("%w: CreateNURBS knot %d must be finite, got %v", ErrInvalidShape, i, k)
+		}
+	}
 	for i := 1; i < len(knots); i++ {
 		if knots[i] < knots[i-1] {
 			return nil, fmt.Errorf("%w: CreateNURBS knot vector must be non-decreasing (knot %d < knot %d)", ErrInvalidShape, i, i-1)

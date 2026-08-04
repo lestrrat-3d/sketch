@@ -93,6 +93,22 @@ func TestNURBSValidation(t *testing.T) {
 		{"negative infinite weight", 2, p(3), []float64{1, math.Inf(-1), 1}, []float64{0, 0, 0, 1, 1, 1}},
 		{"NaN weight", 2, p(3), []float64{1, math.NaN(), 1}, []float64{0, 0, 0, 1, 1, 1}},
 		{"empty domain", 2, p(3), nil, []float64{0, 0, 0, 0, 0, 0}},
+		// knots[i] < knots[i-1] is false against a NaN in both directions, so
+		// the non-decreasing loop passes a NaN interior knot silently, and
+		// knots[degree] >= knots[n] is false against it too, so the
+		// empty-domain check misses it as well — finiteness is checked on its
+		// own account, mirroring the weight rows above.
+		{"NaN interior knot", 2, p(4), nil, []float64{0, 0, 0, math.NaN(), 1, 1, 1}},
+		// The same NaN, now sitting inside the START clamped run rather than
+		// the interior: the clamped check compares with !=, which is also
+		// false against NaN, so this shape needs its own row rather than
+		// being implied by "NaN interior knot".
+		{"NaN knot inside a clamped run", 2, p(3), nil, []float64{0, math.NaN(), 0, 1, 1, 1}},
+		// +Inf/-Inf ARE caught by the non-decreasing compare already, but are
+		// rejected here too so the finiteness check is one place rather than
+		// split across two — matching the weight rows' same reasoning.
+		{"positive infinite interior knot", 2, p(4), nil, []float64{0, 0, 0, math.Inf(1), 1, 1, 1}},
+		{"negative infinite interior knot", 2, p(4), nil, []float64{0, 0, 0, math.Inf(-1), 1, 1, 1}},
 	}
 	for _, tc := range cases {
 		_, err := s.CreateNURBS(tc.degree, tc.control, tc.weights, tc.knots)
@@ -155,6 +171,35 @@ func TestNURBSAcceptedWeightsEvaluateFinitely(t *testing.T) {
 		u := float64(i) / 20
 		x, y := c.Eval(u)
 		require.InDeltaf(t, 1, math.Hypot(x, y), 1e-12, "quarter circle radius at t=%v", u)
+	}
+}
+
+// TestNURBSAcceptedKnotsEvaluateFinitely pins the PURPOSE of the knot
+// finiteness check, not merely its refusal: a curve CreateNURBS accepts over
+// an ordinary NON-UNIFORM knot vector evaluates to finite coordinates across
+// its whole domain, the clamped endpoints included. A NaN/Inf interior knot
+// is what the check exists to stop, so the property is asserted here rather
+// than left implied by the rejection table.
+func TestNURBSAcceptedKnotsEvaluateFinitely(t *testing.T) {
+	s := newSketch(t)
+	p := []*sketch.Point{
+		s.CreatePoint(0, 0), s.CreatePoint(1, 2), s.CreatePoint(3, 3),
+		s.CreatePoint(5, 1), s.CreatePoint(6, 0),
+	}
+
+	for _, knots := range [][]float64{
+		sketch.ClampedUniformKnots(5, 2),
+		{0, 0, 0, 0.2, 0.6, 1, 1, 1},
+		{0, 0, 0, 0.1, 0.9, 1, 1, 1},
+	} {
+		c, err := s.CreateNURBS(2, p, nil, knots)
+		require.NoErrorf(t, err, "knots %v accepted", knots)
+		for i := 0; i <= 20; i++ {
+			u := float64(i) / 20
+			x, y := c.Eval(u)
+			require.Falsef(t, math.IsNaN(x) || math.IsNaN(y), "knots %v: Eval(%v) = (%v, %v) is NaN", knots, u, x, y)
+			require.Falsef(t, math.IsInf(x, 0) || math.IsInf(y, 0), "knots %v: Eval(%v) = (%v, %v) is infinite", knots, u, x, y)
+		}
 	}
 }
 
