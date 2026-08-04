@@ -123,8 +123,8 @@ IsStale()` on `Point` and `Entity`.
 
 Refresh (the 3D layer's re-feed; the only coordinate writer):
 
-    Sketch.RefreshReference(p *Point, x, y float64) error          // ErrNotReference otherwise
-    Sketch.RefreshReferenceCircle(c *Circle, r float64) error      // radius re-feed
+    Sketch.RefreshReference(p *Point, x, y float64) error          // ErrForeignPoint / ErrNotReference
+    Sketch.RefreshReferenceCircle(c *Circle, r float64) error      // radius re-feed; ErrForeignEntity / ErrNotReference
 
 ## Staleness — marked per source, cleared only by refresh
 
