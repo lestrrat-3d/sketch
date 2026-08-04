@@ -3,7 +3,6 @@ package sketch
 import (
 	"fmt"
 	"math"
-	"strings"
 
 	"github.com/lestrrat-go/option/v3"
 )
@@ -76,7 +75,7 @@ func (s *Sketch) framePadding(cfg svgConfig, w, h float64) float64 {
 // writeFrameGrid draws the background grid (when enabled) and the frame border.
 // The frame interior is the screen rectangle [pad, pad+w] x [pad, pad+h]; b and
 // tx/ty relate it back to sketch coordinates so the grid aligns to the origin.
-func (s *Sketch) writeFrameGrid(sb *strings.Builder, cfg svgConfig, b bbox, pad, w, h float64, tx, ty func(float64) float64) {
+func (s *Sketch) writeFrameGrid(sb *svgWriter, cfg svgConfig, b bbox, pad, w, h float64, tx, ty func(float64) float64) {
 	left, top, right, bottom := pad, pad, pad+w, pad+h
 
 	if cfg.grid {
@@ -101,13 +100,13 @@ func (s *Sketch) writeFrameGrid(sb *strings.Builder, cfg svgConfig, b bbox, pad,
 	// Frame border on top of the grid.
 	fmt.Fprintf(sb,
 		`  <rect x="%s" y="%s" width="%s" height="%s" fill="none" stroke="%s" stroke-width="%s"/>`+"\n",
-		f(left), f(top), f(w), f(h), colorFrameBorder, f(cfg.strokeWidth))
+		sb.f(left), sb.f(top), sb.f(w), sb.f(h), colorFrameBorder, sb.f(cfg.strokeWidth))
 }
 
 // gridLines emits one grid line per multiple of step in [lo, hi]. line maps a
 // sketch coordinate to a screen segment (x1,y1,x2,y2); the coordinate 0 is drawn
 // as an emphasized axis line. It caps the count as a runaway guard.
-func gridLines(sb *strings.Builder, step, lo, hi, sw float64, line func(float64) (float64, float64, float64, float64)) {
+func gridLines(sb *svgWriter, step, lo, hi, sw float64, line func(float64) (float64, float64, float64, float64)) {
 	const maxLines = 1000
 	start := math.Ceil(lo/step) * step
 	n := 0
@@ -121,14 +120,14 @@ func gridLines(sb *strings.Builder, step, lo, hi, sw float64, line func(float64)
 		x1, y1, x2, y2 := line(g)
 		fmt.Fprintf(sb,
 			`  <line x1="%s" y1="%s" x2="%s" y2="%s" stroke="%s" stroke-width="%s"/>`+"\n",
-			f(x1), f(y1), f(x2), f(y2), color, f(width))
+			sb.f(x1), sb.f(y1), sb.f(x2), sb.f(y2), color, sb.f(width))
 	}
 }
 
 // writeWatermark draws the provenance string subtly in the outer padding just
 // below the frame's bottom-right corner, so it reads as a footer and never
 // overlaps the geometry or its dimensions.
-func (s *Sketch) writeWatermark(sb *strings.Builder, pad, w, h float64) {
+func (s *Sketch) writeWatermark(sb *svgWriter, pad, w, h float64) {
 	size := math.Min(0.018*math.Hypot(w, h), pad*0.5)
 	if size <= 0 {
 		size = 1
@@ -137,7 +136,7 @@ func (s *Sketch) writeWatermark(sb *strings.Builder, pad, w, h float64) {
 	y := pad + h + pad*0.6 // in the bottom outer padding, below the frame
 	fmt.Fprintf(sb,
 		`  <text x="%s" y="%s" font-size="%s" fill="%s" text-anchor="end">%s</text>`+"\n",
-		f(x), f(y), f(size), colorWatermark, svgEscape(WatermarkText))
+		sb.f(x), sb.f(y), sb.f(size), colorWatermark, svgEscape(WatermarkText))
 }
 
 // niceStep returns a rounded step (1, 2 or 5 × 10ⁿ) giving roughly ten divisions

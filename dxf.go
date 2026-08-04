@@ -69,11 +69,23 @@ func (s *Sketch) DXF(opts ...DXFOption) (string, error) {
 
 	var sb strings.Builder
 
+	// nonFinite is set by pairf, the ONE funnel every numeric DXF field writes
+	// through (pairL/putWCS/putOCS/… all resolve to it) — a POSTCONDITION over
+	// what is actually written, catching what bounds()/bbox.finite() above
+	// cannot: bounds() samples curves at a fixed density and never looks at
+	// DXF's own display-unit conversion, so a finite coordinate can still
+	// overflow lengthMag (e.g. a MaxFloat64 mm coordinate exported in a
+	// thou-unit sketch) with no span arithmetic involved at all.
+	var nonFinite bool
+
 	// Minimal but valid R12 header.
 	pair := func(code int, value string) {
 		fmt.Fprintf(&sb, "%d\n%s\n", code, value)
 	}
 	pairf := func(code int, value float64) {
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			nonFinite = true
+		}
 		fmt.Fprintf(&sb, "%d\n%s\n", code, dxff(value))
 	}
 	// lengthMag converts a base-unit (millimetre) length into the sketch's
@@ -391,6 +403,11 @@ func (s *Sketch) DXF(opts ...DXFOption) (string, error) {
 
 	pair(0, "ENDSEC")
 	pair(0, "EOF")
+	// Postcondition: refuse rather than return a document any of whose written
+	// length fields was non-finite, however it got that way (see pairf above).
+	if nonFinite {
+		return "", ErrNonFiniteGeometry
+	}
 	return sb.String(), nil
 }
 
