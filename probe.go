@@ -72,8 +72,23 @@ type Configuration struct {
 }
 
 // PointXY reports p's coordinates in this configuration without touching the
-// sketch.
+// sketch. p's variable indices only mean anything in the sketch this
+// configuration came from, so an unowned handle is refused rather than read: a
+// foreign point can alias one of this sketch's variables at a small index (and
+// otherwise runs off c.vars and would panic at a large one), and a point this
+// sketch has since removed answers from its retired slot. The refusal returns
+// (NaN, NaN) — the float analog of the bare-bool refusals elsewhere in the
+// package (EntityFixed, EntityIsFullyConstrained) — because every comparison
+// against NaN is false, so a caller diffing two configurations to test
+// ambiguity reads "different", the safe direction, never a false "identical".
+// Ownership is decided by owns, the same predicate the grounding API,
+// scanReferenceIntegrity and foreignInput use, so this read cannot diverge from
+// what Verify reports, and it carries the origin exception, so
+// [Sketch.Origin] still reads correctly.
 func (c *Configuration) PointXY(p *Point) (float64, float64) {
+	if !c.s.owns(p) || p.xi >= len(c.vars) || p.yi >= len(c.vars) {
+		return math.NaN(), math.NaN()
+	}
 	return c.vars[p.xi], c.vars[p.yi]
 }
 
