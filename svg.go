@@ -1,6 +1,7 @@
 package sketch
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -204,6 +205,15 @@ func (s *Sketch) bounds() (bbox, bool) {
 	}
 	for _, e := range s.ents {
 		switch t := e.(type) {
+		case *Line:
+			// A line lies within its two endpoints, and an OWNED endpoint was
+			// already added by the point loop above. The case exists for the
+			// endpoint this sketch does not own: entity fields are exported and
+			// CreateLine takes a foreign *Point silently, so a line is the one
+			// entity whose whole geometry can sit outside s.points.
+			b.add(t.Start.x(), t.Start.y())
+			b.add(t.End.x(), t.End.y())
+			any = true
 		case *Circle:
 			b.add(t.Center.x()-t.r(), t.Center.y()-t.r())
 			b.add(t.Center.x()+t.r(), t.Center.y()+t.r())
@@ -233,6 +243,83 @@ func (s *Sketch) bounds() (bbox, bool) {
 		}
 	}
 	return b, any
+}
+
+// finite reports whether every corner of the box is a finite number. A sketch
+// carrying a non-finite coordinate (a NaN interior knot, a NaN control point, a
+// point moved to NaN) poisons the box, and every downstream comparison against a
+// NaN is false — so the non-positive-span clamp below does not catch it and the
+// renderers emit NaN width/height/viewBox or, in PNG's case, hand image.Rect an
+// out-of-range int. Checked first as an early, cheap refusal with a better
+// locus than the postcondition below — but it is a PRECONDITION over the
+// geometry that produced the box, not over what the exporter actually writes,
+// and a finite box does not guarantee finite output: a finite span can still
+// overflow in a later margin/scale/pixel-width multiply, and DXF's display-unit
+// conversion can overflow a finite coordinate with no span arithmetic at all.
+// Kept as the first, narrower check; svgWriter.f and DXF's pairf are the
+// postcondition that closes those gaps.
+func (b bbox) finite() bool {
+	for _, v := range [4]float64{b.minX, b.minY, b.maxX, b.maxY} {
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return false
+		}
+	}
+	return true
+}
+
+// ErrNonFiniteGeometry is returned by the exporters when a non-finite (NaN or
+// infinite) value would otherwise reach the output — either the early
+// [bbox.finite] refusal, or the POSTCONDITION refusal when a value actually
+// WRITTEN to the SVG/DXF output is non-finite, however it got that way (a
+// finite bounding box overflowing in a margin/scale/pixel-width multiply, or
+// DXF's display-unit conversion overflowing a finite coordinate) — tracked by
+// [svgWriter.f] and DXF's pairf, the one formatter every numeric value in each
+// output funnels through. PNG has no textual output to check this way; see its
+// own pixel-dimension guard in PNG. Exported deliberately: a future
+// [Sketch.Verify] condition is meant to reuse this same sentinel, so the
+// oracle's reason and the exporter's refusal name one fact rather than two
+// that could drift apart.
+var ErrNonFiniteGeometry = errors.New("sketch: geometry has non-finite coordinates: a point or entity evaluates to NaN or infinity")
+
+// svgWriter accumulates one [Sketch.SVG] call's output through a single
+// formatting funnel, f, so the exporter's refusal is a POSTCONDITION over what
+// was actually written — never a precondition over an input hoped to stand in
+// for it. bbox.finite is exactly such a precondition, and each of several
+// earlier rounds of this guard found another input for which it did not hold:
+// WithMargin/WithPixelWidth/WithScale multiplying a finite box into a
+// non-finite one after the check already ran, and a DXF unit conversion
+// overflowing a finite coordinate with no span arithmetic involved at all.
+// Checking the formatter itself needs no enumeration of arithmetic sites and
+// cannot be evaded by a new one.
+type svgWriter struct {
+	strings.Builder
+	nonFinite *bool // shared with every writer scratch() spawns from this one
+}
+
+// newSVGWriter starts a fresh top-level writer for one [Sketch.SVG] call, with
+// its own nonFinite flag.
+func newSVGWriter() *svgWriter { return &svgWriter{nonFinite: new(bool)} }
+
+// scratch starts a nested writer for a fragment assembled separately and later
+// embedded into w's own output (e.g. one <path> "d" attribute built in a loop,
+// then written into w as a single %s) — sharing w's nonFinite flag, so a value
+// that goes non-finite while building the fragment is still recorded on the
+// writer whose output is actually returned to the caller.
+func (w *svgWriter) scratch() *svgWriter { return &svgWriter{nonFinite: w.nonFinite} }
+
+// f formats v compactly (see trimFloat) and flags the writer's shared
+// nonFinite bit when v is NaN or infinite. It is the ONE funnel every numeric
+// value the SVG/annotation/frame renderers write must pass through — grep
+// confirms no format verb bypasses it. Annotations and the watermark do write
+// caller-influenced TEXT into the same buffer (an entity name, a dimension's
+// unit-formatted value label), but that text is never built by formatting a
+// float through f — a NaN/Inf value is flagged before it is turned into text
+// at all, so an entity literally named "Inf" can never false-trip this.
+func (w *svgWriter) f(v float64) string {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		*w.nonFinite = true
+	}
+	return trimFloat(v, 4)
 }
 
 // renderBounds resolves the drawing's bounding box and the margin-padded
@@ -291,6 +378,9 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 	}
 
 	b, w, h := s.renderBounds(cfg.margin)
+	if !b.finite() {
+		return "", ErrNonFiniteGeometry
+	}
 
 	// Windowed framing adds an outer padding P around the margin-padded content;
 	// the frame border sits at that boundary and the sketch's own margin becomes
@@ -312,24 +402,24 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 		outH = cfg.pixelWidth * canvasH / canvasW
 	}
 
-	var sb strings.Builder
-	fmt.Fprintf(&sb,
+	sb := newSVGWriter()
+	fmt.Fprintf(sb,
 		`<svg xmlns="http://www.w3.org/2000/svg" width="%s" height="%s" viewBox="0 0 %s %s">`,
-		f(outW), f(outH), f(canvasW), f(canvasH))
+		sb.f(outW), sb.f(outH), sb.f(canvasW), sb.f(canvasH))
 	sb.WriteByte('\n')
 	if cfg.background != "" {
-		fmt.Fprintf(&sb, `  <rect width="100%%" height="100%%" fill="%s"/>`+"\n", cfg.background)
+		fmt.Fprintf(sb, `  <rect width="100%%" height="100%%" fill="%s"/>`+"\n", cfg.background)
 	}
 
 	// Grid renders behind everything (but inside the frame); the frame border is
 	// drawn on top of the grid, before the geometry.
 	if pad > 0 {
-		s.writeFrameGrid(&sb, cfg, b, pad, w, h, tx, ty)
+		s.writeFrameGrid(sb, cfg, b, pad, w, h, tx, ty)
 	}
 
 	// Profile fill renders under the geometry, so it is emitted first.
 	if cfg.profileFill {
-		s.writeProfileFill(&sb, tx, ty)
+		s.writeProfileFill(sb, tx, ty)
 	}
 
 	ov := s.computeOverlaySets(cfg)
@@ -354,7 +444,7 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 	}
 	dash := func(e Entity) string {
 		if e.IsConstruction() { // reference geometry renders solid, like real geometry
-			return fmt.Sprintf(` stroke-dasharray="%s,%s"`, f(cfg.strokeWidth*4), f(cfg.strokeWidth*3))
+			return fmt.Sprintf(` stroke-dasharray="%s,%s"`, sb.f(cfg.strokeWidth*4), sb.f(cfg.strokeWidth*3))
 		}
 		return ""
 	}
@@ -362,31 +452,31 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 	// arc, every spline family, conic, NURBS); only the pts source differs
 	// between the curve cases below.
 	writePath := func(pts [][2]float64, stroke string, sw float64, dasharray string) {
-		var d strings.Builder
+		d := sb.scratch()
 		for i, p := range pts {
 			cmd := "L"
 			if i == 0 {
 				cmd = "M"
 			}
-			fmt.Fprintf(&d, "%s%s %s ", cmd, f(tx(p[0])), f(ty(p[1])))
+			fmt.Fprintf(d, "%s%s %s ", cmd, d.f(tx(p[0])), d.f(ty(p[1])))
 		}
-		fmt.Fprintf(&sb,
+		fmt.Fprintf(sb,
 			`  <path d="%s" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
-			strings.TrimSpace(d.String()), stroke, f(sw), dasharray)
+			strings.TrimSpace(d.String()), stroke, sb.f(sw), dasharray)
 	}
 
 	for _, e := range s.ents {
 		switch t := e.(type) {
 		case *Line:
-			fmt.Fprintf(&sb,
+			fmt.Fprintf(sb,
 				`  <line x1="%s" y1="%s" x2="%s" y2="%s" stroke="%s" stroke-width="%s"%s/>`+"\n",
-				f(tx(t.Start.x())), f(ty(t.Start.y())), f(tx(t.End.x())), f(ty(t.End.y())),
-				color(t), f(cfg.strokeWidth), dash(t))
+				sb.f(tx(t.Start.x())), sb.f(ty(t.Start.y())), sb.f(tx(t.End.x())), sb.f(ty(t.End.y())),
+				color(t), sb.f(cfg.strokeWidth), dash(t))
 		case *Circle:
-			fmt.Fprintf(&sb,
+			fmt.Fprintf(sb,
 				`  <circle cx="%s" cy="%s" r="%s" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
-				f(tx(t.Center.x())), f(ty(t.Center.y())), f(t.r()),
-				color(t), f(cfg.strokeWidth), dash(t))
+				sb.f(tx(t.Center.x())), sb.f(ty(t.Center.y())), sb.f(t.r()),
+				color(t), sb.f(cfg.strokeWidth), dash(t))
 		case *Arc:
 			writePath(arcPolyline(t, cfg.arcSegments), color(t), cfg.strokeWidth, dash(t))
 		case *EllipticalArc:
@@ -395,11 +485,11 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 			// The y-flip mirrors the plane, so a CCW sketch rotation becomes
 			// CW in SVG coordinates: negate the angle.
 			cx, cy := tx(t.Center.x()), ty(t.Center.y())
-			fmt.Fprintf(&sb,
+			fmt.Fprintf(sb,
 				`  <ellipse cx="%s" cy="%s" rx="%s" ry="%s" transform="rotate(%s %s %s)" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
-				f(cx), f(cy), f(t.rx()), f(t.ry()),
-				f(-radToDeg(t.rot())), f(cx), f(cy),
-				color(t), f(cfg.strokeWidth), dash(t))
+				sb.f(cx), sb.f(cy), sb.f(t.rx()), sb.f(t.ry()),
+				sb.f(-radToDeg(t.rot())), sb.f(cx), sb.f(cy),
+				color(t), sb.f(cfg.strokeWidth), dash(t))
 		case *Spline:
 			// Sampled polyline, like arcs; cfg.arcSegments governs fidelity.
 			writePath(t.Polyline(cfg.arcSegments), color(t), cfg.strokeWidth, dash(t))
@@ -427,52 +517,57 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 				// square, other constrained points a filled black circle — a
 				// redundant shape channel so DOF/grounding reads without color.
 				if _, free := ov.freePt[p]; free {
-					fmt.Fprintf(&sb,
+					fmt.Fprintf(sb,
 						`  <circle cx="%s" cy="%s" r="%s" fill="white" stroke="%s" stroke-width="%s"/>`+"\n",
-						f(tx(p.x())), f(ty(p.y())), f(pr), colorFree, f(cfg.strokeWidth))
+						sb.f(tx(p.x())), sb.f(ty(p.y())), sb.f(pr), colorFree, sb.f(cfg.strokeWidth))
 					continue
 				}
 				if p.IsFixed() {
 					// A square anchor marks the grounded point(s): the sketch's tie to
 					// the origin, distinct from geometry constrained by other relations.
 					side := pr * 2
-					fmt.Fprintf(&sb,
+					fmt.Fprintf(sb,
 						`  <rect x="%s" y="%s" width="%s" height="%s" fill="%s"/>`+"\n",
-						f(tx(p.x())-pr), f(ty(p.y())-pr), f(side), f(side), colorFixed)
+						sb.f(tx(p.x())-pr), sb.f(ty(p.y())-pr), sb.f(side), sb.f(side), colorFixed)
 					continue
 				}
-				fmt.Fprintf(&sb,
+				fmt.Fprintf(sb,
 					`  <circle cx="%s" cy="%s" r="%s" fill="%s"/>`+"\n",
-					f(tx(p.x())), f(ty(p.y())), f(pr), colorConstrained)
+					sb.f(tx(p.x())), sb.f(ty(p.y())), sb.f(pr), colorConstrained)
 				continue
 			}
 			fill := "#d93025"
 			if p.IsFixed() {
 				fill = "#202124"
 			}
-			fmt.Fprintf(&sb,
+			fmt.Fprintf(sb,
 				`  <circle cx="%s" cy="%s" r="%s" fill="%s"/>`+"\n",
-				f(tx(p.x())), f(ty(p.y())), f(pr), fill)
+				sb.f(tx(p.x())), sb.f(ty(p.y())), sb.f(pr), fill)
 		}
 	}
 
 	// Annotations render on top of geometry and point markers (see annotate.go).
 	if cfg.dimensions {
-		s.writeDimensions(&sb, cfg, b, tx, ty)
+		s.writeDimensions(sb, cfg, b, tx, ty)
 	}
 	if cfg.constraints {
-		s.writeGlyphs(&sb, cfg, b, tx, ty)
+		s.writeGlyphs(sb, cfg, b, tx, ty)
 	}
 	if cfg.statusBadge {
-		s.writeStatusBadge(&sb, cfg, pad, w)
+		s.writeStatusBadge(sb, cfg, pad, w)
 	}
 	// A framed render always carries the provenance watermark, on top, inside
 	// the frame's bottom band.
 	if pad > 0 {
-		s.writeWatermark(&sb, pad, w, h)
+		s.writeWatermark(sb, pad, w, h)
 	}
 
 	sb.WriteString("</svg>\n")
+	// Postcondition: refuse rather than return a document any of whose written
+	// values was non-finite, however it got that way (see svgWriter.f).
+	if *sb.nonFinite {
+		return "", ErrNonFiniteGeometry
+	}
 	return sb.String(), nil
 }
 
@@ -480,9 +575,6 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 // expression so the exporters' angle output is bit-for-bit unchanged (routing
 // through units conversion would diverge at the last ULP).
 func radToDeg(r float64) float64 { return r * 180 / math.Pi }
-
-// f formats a float compactly without a trailing ".000000".
-func f(v float64) string { return trimFloat(v, 4) }
 
 // trimFloat formats v with prec decimals and drops trailing zeros (and a bare
 // trailing decimal point).

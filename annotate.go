@@ -133,7 +133,7 @@ func dimText(prefix string, d Dimension) string {
 // (translate + y-flip); all geometry is mapped through them before any
 // direction is derived.
 type annCtx struct {
-	sb     *strings.Builder
+	sb     *svgWriter
 	tx, ty func(float64) float64
 	center v2 // screen-space bbox center, so dimensions offset outward
 	col    string
@@ -242,7 +242,7 @@ const (
 // newAnnCtx resolves the annotation sizes/transforms shared by the dimension
 // and glyph passes. Sizes derive from the bounding-box diagonal so annotations
 // scale with the drawing at any coordinate scale.
-func newAnnCtx(sb *strings.Builder, cfg svgConfig, b bbox, tx, ty func(float64) float64) *annCtx {
+func newAnnCtx(sb *svgWriter, cfg svgConfig, b bbox, tx, ty func(float64) float64) *annCtx {
 	diag := math.Hypot(b.maxX-b.minX, b.maxY-b.minY)
 	if diag <= 0 {
 		diag = 1
@@ -263,7 +263,7 @@ func newAnnCtx(sb *strings.Builder, cfg svgConfig, b bbox, tx, ty func(float64) 
 }
 
 // writeDimensions draws every dimensional constraint.
-func (s *Sketch) writeDimensions(sb *strings.Builder, cfg svgConfig, b bbox, tx, ty func(float64) float64) {
+func (s *Sketch) writeDimensions(sb *svgWriter, cfg svgConfig, b bbox, tx, ty func(float64) float64) {
 	a := newAnnCtx(sb, cfg, b, tx, ty)
 	for _, c := range s.cons {
 		d, ok := c.(Dimension)
@@ -277,7 +277,7 @@ func (s *Sketch) writeDimensions(sb *strings.Builder, cfg svgConfig, b bbox, tx,
 // writeGlyphs draws a small badge for every geometric constraint, anchored to
 // the geometry it references. Constraints are walked in slice order and glyphs
 // on a shared anchor stack downward (deterministic, no pointer-keyed map).
-func (s *Sketch) writeGlyphs(sb *strings.Builder, cfg svgConfig, b bbox, tx, ty func(float64) float64) {
+func (s *Sketch) writeGlyphs(sb *svgWriter, cfg svgConfig, b bbox, tx, ty func(float64) float64) {
 	a := newAnnCtx(sb, cfg, b, tx, ty)
 	for _, c := range s.cons {
 		a.glyph(c)
@@ -362,7 +362,7 @@ func (a *annCtx) badge(anchor v2, sym string) {
 	r := a.text * 0.85
 	fmt.Fprintf(a.sb,
 		`  <rect x="%s" y="%s" width="%s" height="%s" rx="%s" fill="white" stroke="%s" stroke-width="%s"/>`+"\n",
-		f(pos[0]-r), f(pos[1]-r), f(2*r), f(2*r), f(r*0.3), a.col, f(a.sw*0.75))
+		a.sb.f(pos[0]-r), a.sb.f(pos[1]-r), a.sb.f(2*r), a.sb.f(2*r), a.sb.f(r*0.3), a.col, a.sb.f(a.sw*0.75))
 	a.label(pos, sym, false)
 }
 
@@ -590,7 +590,7 @@ func (a *annCtx) leaderToCircular(from v2, c Circular, label string, driven bool
 func (a *annCtx) line(p, q v2) {
 	fmt.Fprintf(a.sb,
 		`  <line x1="%s" y1="%s" x2="%s" y2="%s" stroke="%s" stroke-width="%s"/>`+"\n",
-		f(p[0]), f(p[1]), f(q[0]), f(q[1]), a.col, f(a.sw))
+		a.sb.f(p[0]), a.sb.f(p[1]), a.sb.f(q[0]), a.sb.f(q[1]), a.col, a.sb.f(a.sw))
 }
 
 // dimLine draws a dimension line with an arrowhead at each end (pointing
@@ -619,14 +619,14 @@ func (a *annCtx) arrowAt(p, dir v2) {
 	r := vsub(back, n)
 	fmt.Fprintf(a.sb,
 		`  <path d="M%s %s L%s %s L%s %s Z" fill="%s"/>`+"\n",
-		f(p[0]), f(p[1]), f(l[0]), f(l[1]), f(r[0]), f(r[1]), a.col)
+		a.sb.f(p[0]), a.sb.f(p[1]), a.sb.f(l[0]), a.sb.f(l[1]), a.sb.f(r[0]), a.sb.f(r[1]), a.col)
 }
 
 // arcPath emits a sampled arc (short way) from angle a1 to a2 about center c.
 func (a *annCtx) arcPath(c v2, r, a1, a2 float64) {
 	const n = 16
 	delta := shortDelta(a1, a2)
-	var d strings.Builder
+	d := a.sb.scratch()
 	for i := 0; i <= n; i++ {
 		ang := a1 + delta*float64(i)/n
 		x := c[0] + r*math.Cos(ang)
@@ -635,11 +635,11 @@ func (a *annCtx) arcPath(c v2, r, a1, a2 float64) {
 		if i == 0 {
 			cmd = "M"
 		}
-		fmt.Fprintf(&d, "%s%s %s ", cmd, f(x), f(y))
+		fmt.Fprintf(d, "%s%s %s ", cmd, d.f(x), d.f(y))
 	}
 	fmt.Fprintf(a.sb,
 		`  <path d="%s" fill="none" stroke="%s" stroke-width="%s"/>`+"\n",
-		strings.TrimSpace(d.String()), a.col, f(a.sw))
+		strings.TrimSpace(d.String()), a.col, a.sb.f(a.sw))
 }
 
 // label emits centered text at p. Driven labels are tinted lighter.
@@ -650,7 +650,7 @@ func (a *annCtx) label(p v2, s string, driven bool) {
 	}
 	fmt.Fprintf(a.sb,
 		`  <text x="%s" y="%s" font-size="%s" fill="%s" text-anchor="middle" dominant-baseline="central">%s</text>`+"\n",
-		f(p[0]), f(p[1]), f(a.text), col, svgEscape(s))
+		a.sb.f(p[0]), a.sb.f(p[1]), a.sb.f(a.text), col, svgEscape(s))
 }
 
 // --- small math helpers -----------------------------------------------------
@@ -710,7 +710,7 @@ func circularAnchorAngle(c Circular) float64 {
 // self-crossing boundary renders even-odd artifacts). Regions are emitted in a
 // canonical order (min-corner, then area, then edge count) so output is
 // deterministic regardless of the arrangement walk order.
-func (s *Sketch) writeProfileFill(sb *strings.Builder, tx, ty func(float64) float64) {
+func (s *Sketch) writeProfileFill(sb *svgWriter, tx, ty func(float64) float64) {
 	var valid []*Profile
 	for _, p := range s.Profiles() {
 		if p.Valid && !p.SelfIntersecting {
@@ -720,10 +720,10 @@ func (s *Sketch) writeProfileFill(sb *strings.Builder, tx, ty func(float64) floa
 	sort.SliceStable(valid, func(i, j int) bool { return profileLess(valid[i], valid[j]) })
 
 	for _, p := range valid {
-		var d strings.Builder
-		writeLoopPath(&d, p.Outer, tx, ty)
+		d := sb.scratch()
+		writeLoopPath(d, p.Outer, tx, ty)
 		for _, h := range p.Holes {
-			writeLoopPath(&d, h, tx, ty)
+			writeLoopPath(d, h, tx, ty)
 		}
 		fmt.Fprintf(sb,
 			`  <path d="%s" fill="#1a73e8" fill-opacity="0.12" fill-rule="evenodd" stroke="none"/>`+"\n",
@@ -733,7 +733,7 @@ func (s *Sketch) writeProfileFill(sb *strings.Builder, tx, ty func(float64) floa
 
 // writeLoopPath appends one closed subpath (M…L…Z) for a boundary loop, walking
 // each edge's densified polyline and dropping the duplicated shared endpoints.
-func writeLoopPath(d *strings.Builder, loop []BoundaryEdge, tx, ty func(float64) float64) {
+func writeLoopPath(d *svgWriter, loop []BoundaryEdge, tx, ty func(float64) float64) {
 	first := true
 	var prevX, prevY float64
 	for _, e := range loop {
@@ -747,7 +747,7 @@ func writeLoopPath(d *strings.Builder, loop []BoundaryEdge, tx, ty func(float64)
 				cmd = "M"
 				first = false
 			}
-			fmt.Fprintf(d, "%s%s %s ", cmd, f(x), f(y))
+			fmt.Fprintf(d, "%s%s %s ", cmd, d.f(x), d.f(y))
 			prevX, prevY = x, y
 		}
 	}
@@ -806,7 +806,7 @@ func loopMin(loop []BoundaryEdge) (float64, float64) {
 // writeStatusBadge draws a corner card summarizing the verification state. pad
 // is the outer frame padding (0 when unframed), so the badge tucks inside the
 // frame's top-left when windowed.
-func (s *Sketch) writeStatusBadge(sb *strings.Builder, cfg svgConfig, pad, w float64) {
+func (s *Sketch) writeStatusBadge(sb *svgWriter, cfg svgConfig, pad, w float64) {
 	rep := s.Verify(context.Background())
 	txt := fmt.Sprintf("DOF %d · %s · solvable=%t", rep.DOF, rep.Status, rep.Solvable)
 	size := w * 0.035 * cfg.annScale
@@ -819,10 +819,10 @@ func (s *Sketch) writeStatusBadge(sb *strings.Builder, cfg svgConfig, pad, w flo
 	boxW := float64(len(txt)) * size * 0.58
 	fmt.Fprintf(sb,
 		`  <rect x="%s" y="%s" width="%s" height="%s" rx="%s" fill="white" fill-opacity="0.85" stroke="%s" stroke-width="%s"/>`+"\n",
-		f(x), f(y), f(boxW), f(size*1.8), f(size*0.4), cfg.annColor, f(cfg.strokeWidth*0.75))
+		sb.f(x), sb.f(y), sb.f(boxW), sb.f(size*1.8), sb.f(size*0.4), cfg.annColor, sb.f(cfg.strokeWidth*0.75))
 	fmt.Fprintf(sb,
 		`  <text x="%s" y="%s" font-size="%s" fill="%s" dominant-baseline="central">%s</text>`+"\n",
-		f(x+size*0.5), f(y+size*0.9), f(size), cfg.annColor, svgEscape(txt))
+		sb.f(x+size*0.5), sb.f(y+size*0.9), sb.f(size), cfg.annColor, svgEscape(txt))
 }
 
 // svgEscape escapes the XML-special characters that could appear in a label.

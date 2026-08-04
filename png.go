@@ -47,6 +47,19 @@ func defaultPNGConfig() pngConfig {
 // no explicit [WithScale] is given.
 const pngFitLongSide = 1024
 
+// finitePixelDim reports whether v is safe to convert with int(v): finite and
+// within the range int32 can represent. Converting a NaN, an infinity, or a
+// float far outside int's range is an undefined value in Go (not a panic on
+// its own), and that undefined pw/ph is what later panics inside
+// image.NewNRGBA(image.Rect(0, 0, pw, ph)) — checked here, BEFORE the
+// conversion, as a postcondition over the actual pixel dimensions PNG is about
+// to use, rather than a precondition over the bounding box that produced them
+// (WithMargin and WithScale can each carry a finite box past int range only
+// after bbox.finite already passed).
+func finitePixelDim(v float64) bool {
+	return !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0 && v <= math.MaxInt32
+}
+
 // PNG renders the sketch to a PNG image and returns the encoded bytes. The
 // output is visually equivalent to [Sketch.SVG] rendered at the same size:
 // the y-axis is flipped to math orientation, geometry uses the stroke color,
@@ -70,12 +83,27 @@ func (s *Sketch) PNG(options ...PNGOption) ([]byte, error) {
 	}
 
 	b, w, h := s.renderBounds(cfg.margin)
+	if !b.finite() {
+		return nil, ErrNonFiniteGeometry
+	}
 	scale := cfg.scale
 	if scale <= 0 {
 		scale = pngFitLongSide / math.Max(w, h)
 	}
-	pw := int(math.Max(1, math.Round(w*scale)))
-	ph := int(math.Max(1, math.Round(h*scale)))
+	// Compute the pixel dimensions in float and check them BEFORE converting to
+	// int: a finite bounding box does not bound w*scale/h*scale, since scale
+	// (WithScale) or w/h themselves (WithMargin blown up on otherwise-ordinary
+	// geometry) can still carry the product past every finite float64 or past
+	// what int() can represent — either way int(NaN) and int(+Inf) are where
+	// the undefined value is born, and image.NewNRGBA is where it lands (a
+	// documented non-panicking call must never reach that).
+	pwf := math.Max(1, math.Round(w*scale))
+	phf := math.Max(1, math.Round(h*scale))
+	if !finitePixelDim(pwf) || !finitePixelDim(phf) {
+		return nil, ErrNonFiniteGeometry
+	}
+	pw := int(pwf)
+	ph := int(phf)
 
 	background, err := parseRenderColor(cfg.background)
 	if err != nil {
