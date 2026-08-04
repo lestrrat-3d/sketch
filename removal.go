@@ -29,10 +29,46 @@ func (s *Sketch) RemoveConstraint(c Constraint) bool {
 // retireConstraintVars grounds any auxiliary variables a constraint owns (e.g.
 // an arc tangency's sweep slack) when its last occurrence is removed, mirroring
 // how entity-owned variables are retired.
+//
+// It is screened on the ALLOCATING sketch: the variables are retired only when
+// this sketch is the one that allocated them, read through the allocatedBy
+// accessor the auxOwner field carries (allocVars records the sketch before it
+// allocates anything). Retiring on any other sketch's behalf would ground an
+// unrelated variable of THIS sketch — or run off its vector — while resetting
+// the owner's indices, silently dropping a row from a constraint that sketch
+// still holds. A constraint no sketch has parameterized reads nil and is
+// likewise skipped, its indices being unallocated already.
+//
+// That is a DIFFERENT question from the one the other two doors ask.
+// [Sketch.AddConstraint] and [Sketch.CheckConstraint] screen on reference
+// ownership (foreignConstraint), which is right THERE: they decide whether to
+// parameterize at all, and the constraint has no allocating sketch yet. Here the
+// allocation has already happened, and reference ownership does not answer who
+// performed it. The two disagree in both directions for a constraint whose
+// exported operand field was rewired after it was committed: rewired to another
+// sketch's handle (or to a dead one of this sketch, which owns reports the same
+// way), a constraint THIS sketch parameterized reads foreign and would leak its
+// variable forever — a phantom free DOF this sketch's own report cannot see.
+// Removal reaches that state through [Sketch.RemoveConstraint] and through the
+// [Sketch.RemoveEntity]/[Sketch.RemovePoint] cascade alike, since the cascade
+// matches on one operand while another may be the rewired one.
 func (s *Sketch) retireConstraintVars(c Constraint) {
-	if r, ok := c.(interface{ retireVars(*Sketch) }); ok {
-		r.retireVars(s)
+	r, ok := c.(interface{ retireVars(*Sketch) })
+	if !ok {
+		return // owns no auxiliary variables
 	}
+	a, ok := c.(interface{ allocatedBy() *Sketch })
+	if !ok || a.allocatedBy() != s {
+		return
+	}
+	r.retireVars(s)
+	// The variables are back, so the ownership they recorded ends with them.
+	// Keeping the pointer would leave the constraint reading as allocated by this
+	// sketch, and the two parameterizing doors refuse such a candidate — so a
+	// remove-here / add-there sequence, which is a legitimate way to move a
+	// constraint between sketches, would be refused for an allocation that no
+	// longer exists.
+	clearAuxOwnerOf(c)
 }
 
 func containsConstraint(cs []Constraint, c Constraint) bool {

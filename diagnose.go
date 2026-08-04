@@ -276,11 +276,32 @@ func rowCombo(basis, accRows [][]float64, target []float64) []int {
 // an equation the sketch can use. Driven dimensions contribute no equations
 // and always pass.
 //
+// It returns an error wrapping [ErrForeignHandle], without probing, for a
+// candidate referencing geometry this sketch does not own and for one whose
+// auxiliary solver variables another sketch allocated. The probe parameterizes
+// the candidate against THIS sketch's variable vector, which for a constraint
+// another sketch already committed would rebind it away from its owner — so the
+// refusal is what makes the documented "leaves the sketch untouched" true of the
+// other sketch too. The two conditions are independent: an operand rewired to
+// this sketch's geometry after a commit elsewhere passes the reference screen
+// while its indices still address the other sketch's vector.
+//
 // Like [Sketch.DOF], the analysis is local to the call-time configuration;
 // check against solved geometry (after [Sketch.Solve]) for the most reliable
 // verdict. A caller that wants Fusion's behavior — refuse the gesture, leave
 // the sketch untouched — calls this before [Sketch.AddConstraint].
 func (s *Sketch) CheckConstraint(c Constraint) error {
+	// Screened before the driven-dimension shortcut so the verdict on a foreign
+	// handle does not depend on whether the candidate happens to drive anything.
+	if s.foreignConstraint(c) {
+		return fmt.Errorf("%w: the candidate references geometry this sketch does not own", ErrForeignHandle)
+	}
+	// The second half of the same guard: a candidate whose auxiliary variables
+	// another sketch allocated addresses that sketch's variable vector, and
+	// allocVars below would rebind it to this one while the indices stay stale.
+	if s.foreignAllocation(c) {
+		return fmt.Errorf("%w: the candidate's auxiliary variables were allocated by another sketch", ErrForeignHandle)
+	}
 	if d, ok := c.(Dimension); ok && d.Driven() {
 		return nil // measures the geometry, constrains nothing
 	}
@@ -289,16 +310,41 @@ func (s *Sketch) CheckConstraint(c Constraint) error {
 	// arc sweep slack. Probe it in its committed form: temporarily allocate those
 	// variables (so the rank analysis sees the real rows and counts them as free
 	// unknowns), then roll back, keeping the check non-mutating.
+	//
+	// The variable rollback is installed only when the probe actually allocated,
+	// and that gate is load-bearing: allocVars is idempotent, so a candidate
+	// already committed to this sketch returns without allocating, and retiring
+	// unconditionally would strip the COMMITTED constraint's real aux variables
+	// (dropping a row from a live residual).
+	//
+	// The OWNER pointer is rolled back on its own gate, because allocVars binds it
+	// ahead of that idempotence guard and so rebinds even on the paths that
+	// allocate nothing. Leaving it bound is not harmless: the screens above refuse
+	// a candidate another sketch HOLDS an allocation from, and for a type that does
+	// not report its own allocation (auxAllocated) that pointer is the whole answer,
+	// so a probe that left it on an unallocated candidate would make the next
+	// commit — to this sketch or any other — refuse a constraint no sketch has
+	// parameterized. Restoring the
+	// unowned state keeps this call non-mutating for the candidate as well as for
+	// both sketches. A candidate this sketch already owns keeps its pointer, which
+	// is the one a commit would bind anyway.
 	if av, ok := c.(interface{ allocVars(*Sketch) }); ok {
 		n := len(s.vars)
+		unowned := auxOwnerOf(c) == nil
 		av.allocVars(s)
-		if len(s.vars) > n {
+		allocated := len(s.vars) > n
+		if allocated || unowned {
 			defer func() {
-				if rv, ok := c.(interface{ retireVars(*Sketch) }); ok {
-					rv.retireVars(s) // also resets the candidate's indices to -1
+				if allocated {
+					if rv, ok := c.(interface{ retireVars(*Sketch) }); ok {
+						rv.retireVars(s) // also resets the candidate's indices to -1
+					}
+					s.vars = s.vars[:n]
+					s.fixed = s.fixed[:n]
 				}
-				s.vars = s.vars[:n]
-				s.fixed = s.fixed[:n]
+				if unowned {
+					clearAuxOwnerOf(c)
+				}
 			}()
 		}
 	}

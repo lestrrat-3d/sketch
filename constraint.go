@@ -22,6 +22,38 @@ type Constraint interface {
 // should not be serialized (they are recreated on load).
 type internalConstraint interface{ internal() }
 
+// auxOwner records the sketch that parameterized a constraint owning auxiliary
+// solver variables. Every allocVars implementation begins by writing the sketch
+// it is given here, so the pointer names the variable vector the constraint's
+// stored indices address — the one and only sketch those indices mean anything
+// in. It is embedded (rather than declared as a plain field on each type) so
+// that the accessor below travels with the field an aux-var constraint has to
+// declare anyway: a new type that copies the field from its neighbours gets the
+// accessor for free, and `c.s` keeps working through promotion.
+type auxOwner struct {
+	s *Sketch
+}
+
+// allocatedBy reports the sketch that allocated this constraint's auxiliary
+// variables, or nil if none has. It is read by retireConstraintVars, which must
+// retire those variables in that sketch and no other; see the comment there for
+// why reference ownership is the wrong question on the removal path.
+func (a auxOwner) allocatedBy() *Sketch { return a.s }
+
+// clearAuxOwner forgets the allocating sketch, and must be called wherever those
+// variables are given back — retireConstraintVars on the removal path, and
+// [Sketch.CheckConstraint]'s rollback for the allocation a probe made. The
+// pointer records where the stored indices mean something, so leaving it behind
+// a retirement states an ownership that no longer exists: the two doors that
+// parameterize a constraint refuse a candidate another sketch HOLDS an allocation
+// from, and on a stale pointer they would refuse a constraint whose variables were
+// handed back, making a legitimate remove-here / add-there sequence fail. That
+// refusal reads the constraint's own aux index fields first (auxAllocatedOf), so a
+// type declaring auxAllocated is already covered whatever this pointer says; the
+// clearing is what carries a type that does not declare it, for which the pointer
+// is the whole answer.
+func (a *auxOwner) clearAuxOwner() { a.s = nil }
+
 // --- arc consistency (internal) --------------------------------------------
 
 type arcRadius struct{ a *Arc }
@@ -163,10 +195,10 @@ func NewPointOnCircle(p *Point, c *Circle) Constraint { return &pointOnCircle{p,
 // the arc's sweep — so a point on the full circle but off the arc is reported
 // unsolvable rather than blessed (the same soundness arc tangency enforces).
 type pointOnArc struct {
-	P     *Point
-	A     *Arc
-	s     *Sketch // set by allocVars, for slack access
-	slack int     // sweep slack var index; -1 = not yet allocated
+	P        *Point
+	A        *Arc
+	auxOwner     // set by allocVars: the sketch these variable indices belong to
+	slack    int // sweep slack var index; -1 = not yet allocated
 }
 
 // NewPointOnArc forces a point to lie on an arc — on its circle and within its
@@ -224,10 +256,10 @@ func (c *pointOnArc) residual(out []float64) []float64 {
 // inequality keeping the point's eccentric direction inside the sweep — so a
 // point on the full ellipse but off the arc is reported unsolvable.
 type pointOnEllipticalArc struct {
-	P     *Point
-	A     *EllipticalArc
-	s     *Sketch // set by allocVars, for slack access
-	slack int     // sweep slack var index; -1 = not yet allocated
+	P        *Point
+	A        *EllipticalArc
+	auxOwner     // set by allocVars: the sketch these variable indices belong to
+	slack    int // sweep slack var index; -1 = not yet allocated
 }
 
 // NewPointOnEllipticalArc forces a point to lie on an elliptical arc — on its
@@ -342,8 +374,8 @@ func ellipticalArcSweepExcess(a *EllipticalArc, ux, uy float64) float64 {
 type pointOnSpline struct {
 	P            *Point
 	Sp           *Spline
-	s            *Sketch // set by allocVars, for aux-var access
-	tvar, w0, w1 int     // foot parameter + box slacks; -1 = not yet allocated
+	auxOwner         // set by allocVars: the sketch these variable indices belong to
+	tvar, w0, w1 int // foot parameter + box slacks; -1 = not yet allocated
 }
 
 // NewPointOnSpline forces a point to lie on a cubic B-spline. The point may sit
@@ -444,7 +476,7 @@ const (
 type tangentToSpline struct {
 	L                *Line
 	Sp               *Spline
-	s                *Sketch
+	auxOwner             // set by allocVars: the sketch these variable indices belong to
 	tvar, w0, w1, ws int // contact parameter, box slacks, speed-guard slack; -1 = unallocated
 }
 
@@ -512,10 +544,10 @@ func (c *tangentToSpline) residual(out []float64) []float64 {
 // solution, so local rank analysis is not guaranteed to flag the duplicate (it
 // stays harmless — the sketch keeps its one sliding DOF).
 type pointOnClosedSpline struct {
-	P    *Point
-	Sp   *ClosedSpline
-	s    *Sketch // set by allocVars, for aux-var access
-	tvar int     // foot parameter; -1 = not yet allocated
+	P        *Point
+	Sp       *ClosedSpline
+	auxOwner     // set by allocVars: the sketch these variable indices belong to
+	tvar     int // foot parameter; -1 = not yet allocated
 }
 
 // NewPointOnClosedSpline forces a point to lie on a closed (periodic) cubic
@@ -562,8 +594,8 @@ func (c *pointOnClosedSpline) residual(out []float64) []float64 {
 type pointOnFitSpline struct {
 	P            *Point
 	Sp           *FitSpline
-	s            *Sketch // set by allocVars, for aux-var access
-	tvar, w0, w1 int     // foot parameter + box slacks; -1 = not yet allocated
+	auxOwner         // set by allocVars: the sketch these variable indices belong to
+	tvar, w0, w1 int // foot parameter + box slacks; -1 = not yet allocated
 }
 
 // NewPointOnFitSpline forces a point to lie on a fit-point (interpolating)
@@ -714,7 +746,7 @@ func tangentCurveRows(out []float64, sx, sy, spx, spy, ax, ay, dx, dy, dlen, sca
 type tangentToClosedSpline struct {
 	L        *Line
 	Sp       *ClosedSpline
-	s        *Sketch
+	auxOwner     // set by allocVars: the sketch these variable indices belong to
 	tvar, ws int // contact parameter (periodic, unbounded), speed-guard slack; -1 = unallocated
 }
 
@@ -787,7 +819,7 @@ func (c *tangentToClosedSpline) residual(out []float64) []float64 {
 type tangentToFitSpline struct {
 	L                *Line
 	Sp               *FitSpline
-	s                *Sketch
+	auxOwner             // set by allocVars: the sketch these variable indices belong to
 	tvar, w0, w1, ws int // contact parameter, box slacks, speed-guard slack; -1 = unallocated
 }
 
@@ -914,8 +946,8 @@ func nurbsControlCoords(c *NURBS) [][2]float64 {
 type pointOnConic struct {
 	P            *Point
 	C            *Conic
-	s            *Sketch // set by allocVars, for aux-var access
-	tvar, w0, w1 int     // foot parameter + box slacks; -1 = not yet allocated
+	auxOwner         // set by allocVars: the sketch these variable indices belong to
+	tvar, w0, w1 int // foot parameter + box slacks; -1 = not yet allocated
 }
 
 // NewPointOnConic forces a point to lie on a conic arc. The point may sit anywhere
@@ -962,7 +994,7 @@ func (c *pointOnConic) residual(out []float64) []float64 {
 type tangentToConic struct {
 	L                *Line
 	C                *Conic
-	s                *Sketch
+	auxOwner             // set by allocVars: the sketch these variable indices belong to
 	tvar, w0, w1, ws int // contact parameter, box slacks, speed-guard slack; -1 = unallocated
 }
 
@@ -1039,8 +1071,8 @@ func (c *tangentToConic) residual(out []float64) []float64 {
 type pointOnNURBS struct {
 	P            *Point
 	C            *NURBS
-	s            *Sketch // set by allocVars, for aux-var access
-	tvar, w0, w1 int     // normalized foot parameter + box slacks; -1 = not yet allocated
+	auxOwner         // set by allocVars: the sketch these variable indices belong to
+	tvar, w0, w1 int // normalized foot parameter + box slacks; -1 = not yet allocated
 }
 
 // NewPointOnNURBS forces a point to lie on a NURBS curve. The point may sit
@@ -1089,7 +1121,7 @@ func (c *pointOnNURBS) residual(out []float64) []float64 {
 type tangentToNURBS struct {
 	L                *Line
 	C                *NURBS
-	s                *Sketch
+	auxOwner             // set by allocVars: the sketch these variable indices belong to
 	tvar, w0, w1, ws int // normalized contact parameter, box slacks, speed-guard slack; -1 = unallocated
 }
 
@@ -1346,10 +1378,10 @@ type tangentConics struct {
 	A, B           conic
 	Internal       bool
 	shared         *Point // shared arc endpoint (shared-endpoint branch); nil otherwise
-	s              *Sketch
-	px, py         int // contact-witness coordinates; -1 = unallocated (and in shared-endpoint mode)
-	wSide          int // internal/external branch slack (allocated in both branches)
-	slackA, slackB int // sweep slacks for arc operands; -1 = full conic (no sweep)
+	auxOwner              // set by allocVars: the sketch these variable indices belong to
+	px, py         int    // contact-witness coordinates; -1 = unallocated (and in shared-endpoint mode)
+	wSide          int    // internal/external branch slack (allocated in both branches)
+	slackA, slackB int    // sweep slacks for arc operands; -1 = full conic (no sweep)
 }
 
 func newTangentConics(a, b conic, internal bool) *tangentConics {
@@ -1634,10 +1666,10 @@ func NewSymmetricCircles(c1, c2 *Circle, axis *Line) Constraint {
 // the second endpoint is pinned via a radial line + branch slack rather than a
 // second full point-mirror.
 type symmetricArcs struct {
-	A1, A2 *Arc
-	Axis   *Line
-	s      *Sketch // set by allocVars, for slack access
-	slack  int     // branch slack var; -1 = unallocated
+	A1, A2   *Arc
+	Axis     *Line
+	auxOwner     // set by allocVars: the sketch these variable indices belong to
+	slack    int // branch slack var; -1 = unallocated
 }
 
 func (c *symmetricArcs) allocVars(s *Sketch) {
@@ -1823,11 +1855,11 @@ func (c *ellipticalArcOn) residual(out []float64) []float64 {
 //     (recomputed from the geometry on load).
 
 type tangentLineCircle struct {
-	L      *Line
-	C      Circular
-	shared *Point  // shared contact endpoint (endpoint tangency); nil otherwise
-	s      *Sketch // set by allocVars, for slack access
-	slack  int     // sweep slack var index; -1 = none (circle or endpoint)
+	L        *Line
+	C        Circular
+	shared   *Point // shared contact endpoint (endpoint tangency); nil otherwise
+	auxOwner        // set by allocVars: the sketch these variable indices belong to
+	slack    int    // sweep slack var index; -1 = none (circle or endpoint)
 }
 
 // NewTangent forces a line to be tangent to a circular entity (circle or arc).
@@ -1916,7 +1948,7 @@ type tangentCircles struct {
 	C1, C2   Circular
 	Internal bool
 	shared   *Point
-	s        *Sketch
+	auxOwner     // set by allocVars: the sketch these variable indices belong to
 	slack1   int // sweep slack for C1 if it is an interior-contact arc; -1 else
 	slack2   int
 }
@@ -2105,11 +2137,11 @@ func sharedPointCirculars(c1, c2 Circular) *Point {
 //     eccentric-angle sweep, exactly like pointOnEllipticalArc.
 
 type tangentLineEllipse struct {
-	L      *Line
-	E      Elliptical
-	shared *Point  // shared contact endpoint (endpoint tangency); nil otherwise
-	s      *Sketch // set by allocVars, for slack access
-	slack  int     // sweep slack var index; -1 = none (full ellipse or endpoint)
+	L        *Line
+	E        Elliptical
+	shared   *Point // shared contact endpoint (endpoint tangency); nil otherwise
+	auxOwner        // set by allocVars: the sketch these variable indices belong to
+	slack    int    // sweep slack var index; -1 = none (full ellipse or endpoint)
 }
 
 // NewTangentEllipse forces a line to be tangent to an elliptical entity (an
@@ -2519,10 +2551,10 @@ func NewDistanceLineCircle(l *Line, circle *Circle, d float64) *DistanceLineCirc
 // radial gap directly, like a driven [ArcLength].
 type DistancePointArc struct {
 	dimBase
-	P     *Point
-	A     *Arc
-	s     *Sketch // set by allocVars, for slack access
-	slack int     // sweep slack var index; -1 = none (driven or not yet allocated)
+	P        *Point
+	A        *Arc
+	auxOwner     // set by allocVars: the sketch these variable indices belong to
+	slack    int // sweep slack var index; -1 = none (driven or not yet allocated)
 }
 
 // NewDistancePointArc constrains the signed radial distance from a point to an
@@ -2549,6 +2581,11 @@ func (c *DistancePointArc) retireVars(s *Sketch) {
 		c.slack = -1 // reset so re-adding the handle allocates a fresh slack
 	}
 }
+
+// auxAllocated reports whether this dimension currently holds its sweep slack.
+// It is what foreignAllocation asks after the owner pointer, since a driven
+// dimension records an owner while owning no variable.
+func (c *DistancePointArc) auxAllocated() bool { return c.slack >= 0 }
 
 // setDrivenAux is the shared driving↔driven toggle scaffold for the aux-var
 // dimensions (DistancePointArc/DistanceLineArc/ArcLength). It flips *driven,
@@ -2626,10 +2663,10 @@ func (c *DistancePointArc) residual(out []float64) []float64 {
 // carrier; the distance is unsigned in the perpendicular sense.
 type DistanceLineArc struct {
 	dimBase
-	L     *Line
-	A     *Arc
-	s     *Sketch
-	slack int
+	L        *Line
+	A        *Arc
+	auxOwner // set by allocVars: the sketch these variable indices belong to
+	slack    int
 }
 
 // NewDistanceLineArc constrains the distance from an arc's edge to the infinite
@@ -2655,6 +2692,9 @@ func (c *DistanceLineArc) retireVars(s *Sketch) {
 		c.slack = -1
 	}
 }
+
+// auxAllocated mirrors [DistancePointArc.auxAllocated].
+func (c *DistanceLineArc) auxAllocated() bool { return c.slack >= 0 }
 
 // SetDriven mirrors [DistancePointArc.SetDriven].
 func (c *DistanceLineArc) SetDriven(v bool) {
@@ -2802,9 +2842,9 @@ func NewDiameter(c Circular, d float64) *Diameter {
 // across a toggle.
 type ArcLength struct {
 	dimBase
-	A     *Arc
-	s     *Sketch // set by allocVars, for theta access
-	theta int     // unwrapped-sweep aux var index; -1 = not yet allocated
+	A        *Arc
+	auxOwner     // set by allocVars: the sketch these variable indices belong to
+	theta    int // unwrapped-sweep aux var index; -1 = not yet allocated
 }
 
 // NewArcLength constrains an arc's swept length — its radius times its
@@ -2829,6 +2869,10 @@ func (c *ArcLength) retireVars(s *Sketch) {
 		c.theta = -1 // reset so re-adding the handle allocates a fresh aux var
 	}
 }
+
+// auxAllocated reports whether this dimension currently holds its unwrapped-sweep
+// variable, mirroring [DistancePointArc.auxAllocated].
+func (c *ArcLength) auxAllocated() bool { return c.theta >= 0 }
 
 // SetDriven toggles reference (driven) mode and keeps the unwrapped-sweep aux
 // variable consistent: a driven dimension contributes no residual rows, so its

@@ -78,11 +78,141 @@ func (s *Sketch) unitFor(k units.Kind) units.Unit {
 	}
 }
 
+// foreignConstraint reports whether c references a point or entity this sketch
+// does not own — another sketch's handle, or a dead one this sketch removed.
+//
+// It is the first of the two screens the doors that decide whether to
+// PARAMETERIZE a constraint apply — [Sketch.AddConstraint] (resolveUnit +
+// allocVars) and [Sketch.CheckConstraint]. It answers who owns the geometry the
+// constraint relates, which is the only question there is for a constraint no
+// sketch has parameterized yet; foreignAllocation answers the other half, whether
+// the constraint still HOLDS auxiliary variables and which sketch allocated them.
+// The removal path asks the owner half of that alone — see retireConstraintVars.
+//
+// Those hooks WRITE to the constraint: allocVars
+// binds the constraint's sketch pointer before its own idempotence guard runs,
+// so it rebinds even when it allocates nothing, while the constraint's stored
+// variable indices still address the sketch that allocated them. Run on a handle
+// another sketch already committed, that hands the donor's constraint this
+// sketch's variable vector — a large index runs off it and panics the donor's
+// DOF and Verify, and a small one silently reads a stranger's coordinates, both
+// in a sketch that owns every one of its own handles and so has nothing in its
+// own report to flag.
+//
+// The screen is the pair the rest of the engine already uses: constraintRefs for
+// the operands, then [Sketch.owns] for a point and [Sketch.ownsEntity] for an
+// entity — the SAME predicates scanReferenceIntegrity sets ForeignHandles from,
+// checkNoForeignRefs refuses to marshal, and foreignInput screens tool inputs
+// with, so this guard cannot diverge from what [Sketch.Verify] reports. `owns`
+// carries the origin exception, so a constraint to [Sketch.Origin] (deliberately
+// absent from s.points) is not foreign.
+//
+// A nil operand is skipped rather than reported foreign: [Sketch.Verify] splits
+// a nil reference out as a corrupt one, not a foreign one, and neither hook
+// dereferences it.
+func (s *Sketch) foreignConstraint(c Constraint) bool {
+	pts, ents := constraintRefs(c)
+	for _, p := range pts {
+		if p != nil && !s.owns(p) {
+			return true
+		}
+	}
+	for _, e := range ents {
+		if !isNilEntity(e) && !s.ownsEntity(e) {
+			return true
+		}
+	}
+	return false
+}
+
+// auxOwnerOf reports the sketch that allocated a constraint's auxiliary solver
+// variables, or nil when the constraint owns none or no sketch has allocated
+// them yet. It reads the allocatedBy accessor the embedded auxOwner carries.
+func auxOwnerOf(c Constraint) *Sketch {
+	a, ok := c.(interface{ allocatedBy() *Sketch })
+	if !ok {
+		return nil
+	}
+	return a.allocatedBy()
+}
+
+// clearAuxOwnerOf forgets a constraint's allocating sketch. It is a no-op for a
+// constraint owning no auxiliary variables.
+func clearAuxOwnerOf(c Constraint) {
+	if a, ok := c.(interface{ clearAuxOwner() }); ok {
+		a.clearAuxOwner()
+	}
+}
+
+// auxAllocatedOf reports whether a constraint currently HOLDS auxiliary solver
+// variables, read from the aux index fields the constraint already carries
+// (theta on [ArcLength], the sweep slack on [DistancePointArc] and
+// [DistanceLineArc]) through the unexported auxAllocated accessor each of them
+// declares beside its allocVars.
+//
+// A type that does not declare the accessor is reported ALLOCATED. That default
+// is deliberate: it keeps the refusal below exactly as wide as it was for every
+// type that has not stated the fact, so a new aux-var type is screened on its
+// owner pointer alone rather than slipping through unscreened.
+func auxAllocatedOf(c Constraint) bool {
+	a, ok := c.(interface{ auxAllocated() bool })
+	if !ok {
+		return true
+	}
+	return a.auxAllocated()
+}
+
+// foreignAllocation reports whether c HOLDS auxiliary solver variables that a
+// DIFFERENT sketch than s allocated, which is the second question the two
+// parameterizing doors must ask.
+//
+// Reference ownership does not answer it. An exported operand field rewired to
+// THIS sketch's geometry after the constraint was committed elsewhere passes
+// foreignConstraint — every handle it names is local — while its stored indices
+// still address the donor's variable vector. allocVars writes the constraint's
+// sketch pointer ahead of its own idempotence guard, so parameterizing such a
+// constraint rebinds the donor's constraint to this vector while the indices stay
+// the donor's: a large index runs off this vector and panics both sketches' DOF
+// and Verify, and a small one resolves onto one of this sketch's own coordinates,
+// which the solver then drags with nothing anywhere to flag it.
+//
+// The owner pointer ALONE is not that question either, and asking it alone
+// refuses candidates a receiver has every right to take. A constraint can record
+// an owner while holding no live allocation, by two routes that need no removal:
+// a driven dimension owns no aux variable (it contributes no residual rows), so
+// [ArcLength.SetDriven] retires theta and leaves the pointer behind, and a
+// dimension already driven at commit time is bound by allocVars — which writes
+// the pointer before its own driven/idempotence guard — while allocating nothing
+// at all. In both the stored indices address no vector, so there is nothing to
+// read across sketches and nothing to refuse. Deriving the fact from the index
+// fields covers both without new state and without a clearing site to forget:
+// the answer follows the allocation itself. Clearing the pointer in the retire
+// closure instead is NOT the fix — setDrivenAux reads that pointer to find the
+// sketch to re-allocate in, so a cleared one silently drops a committed
+// dimension's coupling row when it toggles back to driving.
+func (s *Sketch) foreignAllocation(c Constraint) bool {
+	owner := auxOwnerOf(c)
+	return owner != nil && owner != s && auxAllocatedOf(c)
+}
+
 // AddConstraint commits one or more constraints to the sketch. Constraints
 // reference solver-bound geometry (the [Point]/[Line]/[Circle] handles returned
 // by the Add methods), which is therefore already committed. Dimensional
 // constraints created from a bare float adopt the sketch's default unit for
 // their kind here.
+//
+// A constraint referencing another sketch's geometry is committed as written but
+// never parameterized (see foreignConstraint), so committing it cannot corrupt
+// the sketch that owns the geometry. This sketch then reports it exactly as
+// before: [Sketch.Verify] flags ForeignHandles and [Sketch.MarshalJSON] refuses
+// to write it.
+//
+// A constraint still HOLDING auxiliary solver variables another sketch allocated
+// is instead ignored entirely — not committed (see foreignAllocation). Its indices
+// address that sketch's variable vector, so an appended row would read across
+// sketches at every residual call. A constraint that merely records such a sketch
+// while holding no live allocation — a driven dimension owns no auxiliary
+// variable — is committed normally, since it addresses no other vector.
 func (s *Sketch) AddConstraint(cs ...Constraint) {
 	for _, c := range cs {
 		// Re-adding an already-committed handle is a no-op: a constraint must
@@ -91,14 +221,38 @@ func (s *Sketch) AddConstraint(cs ...Constraint) {
 		if containsConstraint(s.cons, c) {
 			continue
 		}
-		if d, ok := c.(interface{ resolveUnit(*Sketch) }); ok {
-			d.resolveUnit(s)
-		}
-		// A constraint that needs auxiliary solver variables (e.g. an arc
-		// tangency's sweep slack) allocates them here — the same hook shape as
-		// resolveUnit. It runs on load too, since rebuild goes through AddConstraint.
-		if a, ok := c.(interface{ allocVars(*Sketch) }); ok {
-			a.allocVars(s)
+		// The constraint is appended either way. Dropping a foreign one instead
+		// would erase the ErrForeignHandle this sketch's report carries and make
+		// the constraint vanish with nothing anywhere to flag it; skipping only the
+		// hooks leaves the donor's state alone AND keeps this sketch loud. An
+		// unparameterized constraint contributes only its unparameterized rows —
+		// every aux-var residual gates on its own index — and Verify stops at the
+		// reference-integrity scan before reading residuals at all.
+		if !s.foreignConstraint(c) {
+			// The second question: whose variable vector do the constraint's
+			// auxiliary indices address? A constraint another sketch allocated is
+			// DROPPED here rather than committed unparameterized, which is the
+			// deliberate difference from the reference-foreign case above. An
+			// appended row would keep reading the donor's vector across sketches
+			// at every residual call — the very leak this screen closes — and this
+			// sketch owns every handle the constraint names, so nothing in its own
+			// report would say so. Nothing is lost by dropping it: the donor still
+			// holds the constraint, and the rewired operand that let it reach this
+			// door is what the DONOR's reference scan reports as ErrForeignHandle.
+			if s.foreignAllocation(c) {
+				continue
+			}
+			if d, ok := c.(interface{ resolveUnit(*Sketch) }); ok {
+				d.resolveUnit(s)
+			}
+			// A constraint that needs auxiliary solver variables (e.g. an arc
+			// tangency's sweep slack) allocates them here — the same hook shape as
+			// resolveUnit. It runs on load too, since rebuild goes through
+			// AddConstraint; the loader builds every reference against the receiving
+			// sketch, so a rebuilt constraint is never foreign.
+			if a, ok := c.(interface{ allocVars(*Sketch) }); ok {
+				a.allocVars(s)
+			}
 		}
 		s.cons = append(s.cons, c)
 	}
