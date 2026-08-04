@@ -3,6 +3,7 @@ package sketch
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/lestrrat-3d/sketch/param"
@@ -125,6 +126,46 @@ func (s *Sketch) foreignConstraint(c Constraint) bool {
 	return false
 }
 
+// corruptConstraint reports whether c cannot be read at all: a nil constraint, a
+// typed nil (a nil pointer of a concrete constraint type boxed in the interface),
+// or a live constraint holding a nil point or entity operand.
+//
+// It is the corrupt half of what foreignConstraint deliberately does not answer.
+// The operand test is the same pair scanReferenceIntegrity uses to set Verify's
+// nil-corrupt signal — p == nil for a point, isNilEntity for an entity, which
+// catches the typed nil a concrete-pointer parameter boxes into a non-nil
+// interface — so the two cannot diverge. The receiver test needs reflection
+// because the sealed Constraint interface carries no isNil method (unlike
+// [Entity]); it runs only on this refusal path, never on a hot one.
+func corruptConstraint(c Constraint) bool {
+	if isNilConstraint(c) {
+		return true
+	}
+	pts, ents := constraintRefs(c)
+	for _, p := range pts {
+		if p == nil {
+			return true
+		}
+	}
+	for _, e := range ents {
+		if isNilEntity(e) {
+			return true
+		}
+	}
+	return false
+}
+
+// isNilConstraint reports whether c is a nil constraint or a typed nil — a nil
+// pointer of a concrete constraint type boxed into a non-nil interface, which a
+// caller can write for any exported handle type (`var d *Distance`).
+func isNilConstraint(c Constraint) bool {
+	if c == nil {
+		return true
+	}
+	v := reflect.ValueOf(c)
+	return v.Kind() == reflect.Pointer && v.IsNil()
+}
+
 // auxOwnerOf reports the sketch that allocated a constraint's auxiliary solver
 // variables, or nil when the constraint owns none or no sketch has allocated
 // them yet. It reads the allocatedBy accessor the embedded auxOwner carries.
@@ -213,6 +254,16 @@ func (s *Sketch) foreignAllocation(c Constraint) bool {
 // sketches at every residual call. A constraint that merely records such a sketch
 // while holding no live allocation — a driven dimension owns no auxiliary
 // variable — is committed normally, since it addresses no other vector.
+//
+// A nil candidate, or a typed nil (a nil pointer of a concrete constraint type
+// boxed in the interface), is DROPPED rather than committed — it names no
+// geometry, so no report could describe it, and committing it would panic every
+// later pass that reads it (residuals, Solve, Verify, Diagnose,
+// RedundantConstraints) far from the call that made the mistake. A live
+// constraint holding a nil point or entity operand IS still committed, the same
+// treatment a reference-foreign constraint gets, so [Sketch.Verify] stays loud
+// about it; only its resolveUnit/allocVars hooks are skipped, since they
+// dereference the operands' coordinates.
 func (s *Sketch) AddConstraint(cs ...Constraint) {
 	for _, c := range cs {
 		// Re-adding an already-committed handle is a no-op: a constraint must
@@ -228,7 +279,25 @@ func (s *Sketch) AddConstraint(cs ...Constraint) {
 		// unparameterized constraint contributes only its unparameterized rows —
 		// every aux-var residual gates on its own index — and Verify stops at the
 		// reference-integrity scan before reading residuals at all.
-		if !s.foreignConstraint(c) {
+		// A candidate that cannot be read at all — a nil constraint, or a typed
+		// nil — is DROPPED, the treatment foreignAllocation already gets below.
+		// Committing it (what an untyped nil got today, since every hook's type
+		// assertion simply fails) poisons every later pass: residuals dereferences
+		// it, so Solve, Verify, Diagnose and RedundantConstraints all panic, far
+		// from the call that made the mistake and inside the oracle entry point
+		// itself. Nothing is lost by dropping it: it names no geometry, so there is
+		// nothing for a report to flag.
+		if isNilConstraint(c) {
+			continue
+		}
+		// A constraint holding a NIL OPERAND is still committed, like a
+		// reference-foreign one, so Verify stays loud about it
+		// (scanReferenceIntegrity reports the nil-corrupt topology and Check
+		// returns ErrVerificationIncomplete) — but its hooks are skipped, because
+		// allocVars reads the operands' coordinates and panics on the nil. Without
+		// the skip the aux-variable types are the one family that cannot reach the
+		// committed state that design intends for them.
+		if !corruptConstraint(c) && !s.foreignConstraint(c) {
 			// The second question: whose variable vector do the constraint's
 			// auxiliary indices address? A constraint another sketch allocated is
 			// DROPPED here rather than committed unparameterized, which is the

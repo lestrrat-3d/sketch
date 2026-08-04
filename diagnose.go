@@ -12,6 +12,13 @@ import (
 // would make the sketch redundant or conflicting.
 var ErrOverconstrained = errors.New("sketch: constraint would over-constrain the sketch")
 
+// ErrCorruptHandle is returned (wrapped) by [Sketch.CheckConstraint] for a
+// candidate that cannot be read: a nil constraint, a typed-nil one, or a live
+// one holding a nil operand. It is the corrupt-handle counterpart of
+// [ErrForeignHandle] — the sketch may own every handle such a candidate names,
+// so reporting it foreign would name a defect it does not have.
+var ErrCorruptHandle = errors.New("sketch: corrupt handle")
+
 // conflictTol separates a satisfied residual from a violated one when
 // partitioning dependent constraints in [Sketch.Diagnose]. Residuals are
 // unit-normalized (length units or dimensionless), and a converged solve
@@ -276,6 +283,15 @@ func rowCombo(basis, accRows [][]float64, target []float64) []int {
 // an equation the sketch can use. Driven dimensions contribute no equations
 // and always pass.
 //
+// It returns an error wrapping [ErrCorruptHandle], before any other screen runs,
+// for a candidate that cannot be read at all: a nil candidate, a typed-nil one
+// (a nil pointer of a concrete constraint type boxed in the interface), or a
+// live one holding a nil point or entity operand. Every pass below dereferences
+// the candidate, so this is what keeps the method's documented non-panicking,
+// error-returning contract true of a corrupt candidate too; the sketch may own
+// every handle such a candidate names, so [ErrForeignHandle] would be the wrong
+// sentinel.
+//
 // It returns an error wrapping [ErrForeignHandle], without probing, for a
 // candidate referencing geometry this sketch does not own and for one whose
 // auxiliary solver variables another sketch allocated. The probe parameterizes
@@ -291,6 +307,13 @@ func rowCombo(basis, accRows [][]float64, target []float64) []int {
 // verdict. A caller that wants Fusion's behavior — refuse the gesture, leave
 // the sketch untouched — calls this before [Sketch.AddConstraint].
 func (s *Sketch) CheckConstraint(c Constraint) error {
+	// Screened first: every pass below dereferences the candidate — foreignConstraint
+	// reads its operand fields through constraintRefs, allocVars reads its operands'
+	// coordinates, and residual reads all of them — so a nil candidate, a typed-nil
+	// one or one holding a nil operand panics a documented error-returning call.
+	if corruptConstraint(c) {
+		return fmt.Errorf("%w: the candidate is nil or holds a nil operand", ErrCorruptHandle)
+	}
 	// Screened before the driven-dimension shortcut so the verdict on a foreign
 	// handle does not depend on whether the candidate happens to drive anything.
 	if s.foreignConstraint(c) {
