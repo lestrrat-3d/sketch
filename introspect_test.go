@@ -175,6 +175,102 @@ func TestConstraintResiduals(t *testing.T) {
 	require.InDelta(t, 0, res[0], 1e-8)
 }
 
+// TestIntrospectionNilSafetyContract pins the CURRENT, deliberately asymmetric
+// nil-safety contract of the four introspection functions across four input
+// shapes: an untyped nil Constraint, a typed nil (a nil *Distance stored in
+// the Constraint interface — reachable in one line via the public NewDistance
+// constructor family, and representative of all 17 exported constraint handle
+// types, which share the same shape), a live constraint holding a nil
+// operand, and a handle whose operand has since been removed from the sketch.
+// ConstraintKind and IsInternal never panic; ConstraintRefs panics only on a
+// typed nil; ConstraintResiduals panics on both nil shapes and, on the
+// removed-operand shape, silently returns a stale value instead of erroring.
+// A later change to any of these should show up here as a failing test rather
+// than a silent divergence from what introspect.go documents.
+func TestIntrospectionNilSafetyContract(t *testing.T) {
+	t.Run("untyped nil", func(t *testing.T) {
+		var c sketch.Constraint // nil interface value
+
+		require.NotPanics(t, func() { sketch.ConstraintKind(c) })
+		require.Equal(t, "", sketch.ConstraintKind(c))
+
+		require.NotPanics(t, func() {
+			pts, ents := sketch.ConstraintRefs(c)
+			require.Nil(t, pts)
+			require.Nil(t, ents)
+		})
+
+		require.Panics(t, func() { sketch.ConstraintResiduals(c) })
+
+		require.NotPanics(t, func() { sketch.IsInternal(c) })
+		require.False(t, sketch.IsInternal(c))
+	})
+
+	t.Run("typed nil", func(t *testing.T) {
+		var d *sketch.Distance // nil pointer of a concrete constraint type
+		var c sketch.Constraint = d
+
+		require.NotPanics(t, func() { sketch.ConstraintKind(c) })
+		require.Equal(t, "distance", sketch.ConstraintKind(c))
+
+		require.Panics(t, func() { sketch.ConstraintRefs(c) })
+
+		require.Panics(t, func() { sketch.ConstraintResiduals(c) })
+
+		require.NotPanics(t, func() { sketch.IsInternal(c) })
+		require.False(t, sketch.IsInternal(c))
+	})
+
+	t.Run("nil operand inside a live constraint", func(t *testing.T) {
+		s := newSketch(t)
+		p2 := s.CreatePoint(3, 4)
+		c := sketch.NewDistance(nil, p2, 5)
+
+		require.NotPanics(t, func() { sketch.ConstraintKind(c) })
+		require.Equal(t, "distance", sketch.ConstraintKind(c))
+
+		require.NotPanics(t, func() {
+			pts, ents := sketch.ConstraintRefs(c)
+			require.Len(t, pts, 2)
+			require.Nil(t, pts[0], "the nil operand comes back as a nil element")
+			require.Same(t, p2, pts[1])
+			require.Empty(t, ents)
+		})
+
+		require.Panics(t, func() { sketch.ConstraintResiduals(c) })
+
+		require.NotPanics(t, func() { sketch.IsInternal(c) })
+		require.False(t, sketch.IsInternal(c))
+	})
+
+	t.Run("removed operand", func(t *testing.T) {
+		s := newSketch(t)
+		p1 := s.CreatePoint(0, 0)
+		p2 := s.CreatePoint(3, 4)
+		c := sketch.NewDistance(p1, p2, 5)
+		s.AddConstraint(c)
+
+		// p2 is used only by the constraint, not by any entity, so it can be
+		// removed directly; removal cascades to drop c from the sketch's own
+		// constraint list, but this test's c handle still points at it.
+		require.True(t, s.RemovePoint(p2))
+
+		require.NotPanics(t, func() { sketch.ConstraintKind(c) })
+		require.Equal(t, "distance", sketch.ConstraintKind(c))
+
+		require.NotPanics(t, func() { sketch.ConstraintRefs(c) })
+
+		// The removed point's variable slots are retired (grounded), not
+		// reclaimed, so the read succeeds and silently returns a residual
+		// computed from that stale, no-longer-live value.
+		require.NotPanics(t, func() { sketch.ConstraintResiduals(c) })
+		require.Len(t, sketch.ConstraintResiduals(c), 1)
+
+		require.NotPanics(t, func() { sketch.IsInternal(c) })
+		require.False(t, sketch.IsInternal(c))
+	})
+}
+
 func TestInternalConstraintIntrospection(t *testing.T) {
 	s := newSketch(t)
 	center := s.CreatePoint(0, 0)
