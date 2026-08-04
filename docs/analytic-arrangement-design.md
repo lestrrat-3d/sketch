@@ -692,8 +692,10 @@ topologically split by a crossing," not merely "a local cut was appended."
 (same two regions + cap area — analytic cuts are sampling-stable); a tangent
 line+circle (one disk, line pruned, no degeneracy); non-merged externally tangent
 circles (two disks, no degeneracy); merged-vertex tangent circles (`Degenerate=true`
-under increment 2 alone; increment 3 blesses them as two disks — see
-`TestAnalyticMergedExternalTangentBlessed`). Watch: bowtie/self-intersection, bowtie+spur,
+under increment 2 alone; now blessed — external as two disks
+(`TestAnalyticMergedExternalTangentBlessed`), internal containment as an annulus plus
+the inner disk (`TestAnalyticInternalTangentBlessed`); mechanism in the `geom` section
+of `CLAUDE.md`). Watch: bowtie/self-intersection, bowtie+spur,
 square-with-diagonals, circle-chord half-disk, overlapping rectangles, nested-square
 hole, collinear-overlap degeneracy, spline self-intersection/fallback.
 
