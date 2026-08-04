@@ -199,11 +199,19 @@ func TestEntityShapeVarSetsArePinned(t *testing.T) {
 	if shapeVarsOK && kindGroupsOK && structStateOK {
 		// Cheap always-on half: every site's anchor must still resolve, or the
 		// list this test hands out on failure has rotted since it was written.
+		// Collect every unresolved anchor before failing, rather than stopping
+		// at the first: a batch reword (the ordinary way several anchors go
+		// stale at once) must not take multiple CI runs to fully report.
+		var stale []string
 		for _, site := range shapeVarSites {
-			_, ok := resolveShapeVarSite(site)
-			require.Truef(t, ok, "shape-var restatement site no longer resolves: %s (anchor %q, group %s).\n"+
+			if _, ok := resolveShapeVarSite(site); !ok {
+				stale = append(stale, fmt.Sprintf("  %s (anchor %q, group %s)", site.File, site.Anchor, site.Group))
+			}
+		}
+		if len(stale) > 0 {
+			require.Failf(t, "shape-var restatement sites no longer resolve", "%s\n"+
 				"Update shapeVarSites in shape_var_pin_test.go — the list is the deliverable of this test "+
-				"and must not go stale silently.", site.File, site.Anchor, site.Group)
+				"and must not go stale silently.", strings.Join(stale, "\n"))
 		}
 		return
 	}
