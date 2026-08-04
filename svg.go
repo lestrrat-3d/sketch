@@ -279,7 +279,7 @@ func (b bbox) finite() bool {
 // [Sketch.Verify] condition is meant to reuse this same sentinel, so the
 // oracle's reason and the exporter's refusal name one fact rather than two
 // that could drift apart.
-var ErrNonFiniteGeometry = errors.New("sketch: geometry has non-finite coordinates: a point or entity evaluates to NaN or infinity")
+var ErrNonFiniteGeometry = errors.New("sketch: a value reaching the output is not a finite number or is outside the exporter's representable range")
 
 // svgWriter accumulates one [Sketch.SVG] call's output through a single
 // formatting funnel, f, so the exporter's refusal is a POSTCONDITION over what

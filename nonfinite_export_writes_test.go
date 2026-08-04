@@ -166,6 +166,49 @@ func TestDXFWorldSpaceRefusesOCSProjectionOverflow(t *testing.T) {
 	require.Empty(t, world)
 }
 
+// TestPNGRefusesPixelBufferOverflowOnOrdinaryGeometry pins the pixel-BUFFER
+// guard specifically, distinct from finitePixelDim's per-dimension check:
+// WithScale(7e7) on ordinary, entirely finite 10x10 geometry (bounds 0..10
+// plus the default margin 10 per side = 30 units) gives pw = ph =
+// 30*7e7 = 2.1e9, individually well inside int32 (~2.147e9), so
+// finitePixelDim alone passes both. Their product, at 4 bytes/pixel, is
+// ~1.76e19 bytes — past pngMaxPixelBytes, and past what image.NewNRGBA's own
+// overflow check (mul3NonNeg) tolerates, which is a panic on the pre-fix
+// code. Deliberately stays well under the regime where the byte count fits
+// int64 but not memory (WithScale(1e7) or higher on this geometry), which
+// reaches make() and dies with the runtime's unrecoverable OOM fatal error
+// — that regime must never be exercised by a test.
+func TestPNGRefusesPixelBufferOverflowOnOrdinaryGeometry(t *testing.T) {
+	s := newSketch(t)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 10)
+	s.CreateLine(a, b)
+
+	var (
+		data []byte
+		err  error
+	)
+	require.NotPanics(t, func() {
+		data, err = s.PNG(sketch.WithScale(7e7))
+	}, "a pixel buffer past the byte budget must be refused before image.NewNRGBA allocates, never panic")
+	require.ErrorIs(t, err, sketch.ErrNonFiniteGeometry)
+	require.Nil(t, data)
+}
+
+// TestPNGControlSaneScaleStillSucceeds is the control for the pixel-buffer
+// guard: an ordinary scale, orders of magnitude under pngMaxPixelBytes, on
+// the same geometry must still render — the new guard is not over-broad.
+func TestPNGControlSaneScaleStillSucceeds(t *testing.T) {
+	s := newSketch(t)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 10)
+	s.CreateLine(a, b)
+
+	data, err := s.PNG(sketch.WithScale(10))
+	require.NoError(t, err)
+	require.NotEmpty(t, data)
+}
+
 // TestExportersControlOrdinaryGeometryUnaffected is the control every case
 // above needs: with none of the extreme options, all three exporters still
 // produce ordinary non-empty output for ordinary geometry, so the refusal
