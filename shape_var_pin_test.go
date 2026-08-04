@@ -91,7 +91,11 @@ const structuralStatePin = "Arc=|" +
 // ---------------------------------------------------------------------------
 // The site registry — hand-curated, not derived. If a restatement site is
 // missing here, that is a bug in this list: add it rather than treat its
-// absence as evidence the class is bounded.
+// absence as evidence the class is bounded. The Note strings below are
+// themselves restatements of set membership and no anchor can cover them —
+// when a pinned set changes, re-read every Note along with the site text it
+// introduces, since a Note can go stale exactly as the prose it points at
+// does.
 // ---------------------------------------------------------------------------
 
 // shapeVarGroup names which of the three pins a site restates.
@@ -192,6 +196,8 @@ var shapeVarSites = []shapeVarSite{
 		"test comment names NURBS' degree/knots/weights specifically", 0, 5},
 	{groupStructState, "revision_internal_test.go", "func TestRevisionResolvesShapeValues",
 		"the doc comment restates entityStructuralState's per-type accessors", 9, 0},
+	{groupStructState, "shape_var_pin_test.go", "package sketch_test",
+		"this file's own header states varKindGroupPin's three keys (radius, angle, dimensionless) and structuralStatePin's NURBS member", 0, 43},
 }
 
 // ---------------------------------------------------------------------------
