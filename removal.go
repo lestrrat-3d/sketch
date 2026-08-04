@@ -62,6 +62,13 @@ func (s *Sketch) retireConstraintVars(c Constraint) {
 		return
 	}
 	r.retireVars(s)
+	// The variables are back, so the ownership they recorded ends with them.
+	// Keeping the pointer would leave the constraint reading as allocated by this
+	// sketch, and the two parameterizing doors refuse such a candidate — so a
+	// remove-here / add-there sequence, which is a legitimate way to move a
+	// constraint between sketches, would be refused for an allocation that no
+	// longer exists.
+	clearAuxOwnerOf(c)
 }
 
 func containsConstraint(cs []Constraint, c Constraint) bool {

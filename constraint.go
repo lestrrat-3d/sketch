@@ -40,6 +40,16 @@ type auxOwner struct {
 // why reference ownership is the wrong question on the removal path.
 func (a auxOwner) allocatedBy() *Sketch { return a.s }
 
+// clearAuxOwner forgets the allocating sketch, and must be called wherever those
+// variables are given back — retireConstraintVars on the removal path, and
+// [Sketch.CheckConstraint]'s rollback for the allocation a probe made. The
+// pointer records where the stored indices mean something, so leaving it behind
+// a retirement states an ownership that no longer exists: the two doors that
+// parameterize a constraint refuse a candidate another sketch allocated, and on a
+// stale pointer they would refuse a constraint whose variables were handed back,
+// making a legitimate remove-here / add-there sequence fail.
+func (a *auxOwner) clearAuxOwner() { a.s = nil }
+
 // --- arc consistency (internal) --------------------------------------------
 
 type arcRadius struct{ a *Arc }
