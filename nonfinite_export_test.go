@@ -21,10 +21,11 @@ func nurbsControl(s *sketch.Sketch) []*sketch.Point {
 }
 
 // nonFiniteSketch builds a sketch holding a NURBS whose one interior knot is
-// NaN. CreateNURBS's non-decreasing/clamping checks compare knot values with
-// <, and every ordered comparison against NaN is false, so the check passes
-// silently and the NaN reaches the curve: sampling it for the bounding box
-// (Polyline) evaluates to NaN, poisoning every exporter's bounds.
+// NaN. CreateNURBS's non-decreasing check compares knot values with <, and
+// every ordered comparison against NaN is false, so the NaN passes it silently;
+// the clamping check uses != and never examines an interior knot, and nothing
+// tests knot finiteness. The NaN reaches the curve: sampling it for the bounding
+// box (Polyline) evaluates to NaN, poisoning every exporter's bounds.
 func nonFiniteSketch(t *testing.T) *sketch.Sketch {
 	t.Helper()
 	s := newSketch(t)
