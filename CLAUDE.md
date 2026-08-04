@@ -193,7 +193,9 @@ crossing where the sampling happens to put a vertex, a corner join — so a cont
 that inserts no vertex must never be measured against the sampled crossing count. **Exact tangent-port ordering (increment 3, partial):** at a
 certified analytic tangency contact (`exactPortVerts`) the DCEL rotation system
 orders coincident-tangent half-edges by exact source tangent + signed **curvature**
-(`source.differential`/`portKey`/`portLess`, a seam-free half-plane+cross compare)
+(`source.differential`/`portKey`/`sortExactPorts`, an exact lexicographic order with
+no epsilon in the comparator — the seam-free half-plane+cross compare is used only
+for clustering and the osculation flag)
 instead of chord angle, so a **merged-vertex EXTERNAL circle/arc tangency** is now
 blessed as two clean disks (opposite curvature separates the loops) rather than
 flagged. Used ONLY at those certified contacts — at a sampled crossing vertex the

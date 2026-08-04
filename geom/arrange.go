@@ -2834,16 +2834,6 @@ func (a *arranger) portKey(src int, t, dir float64) (tx, ty, kappa float64, ok b
 	return dir * d1[0], dir * d1[1], kappa, true
 }
 
-// dirHalf splits direction (x,y) into the upper half-plane (0) or lower (1) so
-// directions can be CCW-ordered by (half, cross) without an atan2 seam. The +x
-// axis is upper, −x is lower — a consistent tie-break on the boundary.
-func dirHalf(x, y float64) int {
-	if y > 0 || (y == 0 && x >= 0) {
-		return 0
-	}
-	return 1
-}
-
 const (
 	dirParallelEps  = 1e-9
 	kappaCertifyEps = 1e-7
