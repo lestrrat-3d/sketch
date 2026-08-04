@@ -177,17 +177,21 @@ func TestConstraintResiduals(t *testing.T) {
 
 // TestIntrospectionNilSafetyContract pins the CURRENT, deliberately asymmetric
 // nil-safety contract of the four introspection functions across four input
-// shapes: an untyped nil Constraint, a typed nil (checked over all 17
-// exported constraint handle types — the concrete dimensional handles
-// constraint.go's New… constructors return, e.g. a nil *Distance stored in
-// the Constraint interface, reachable in one line via the public NewDistance
-// constructor family), a live constraint holding a nil operand, and a handle
-// whose operand has since been removed from the sketch.
+// shapes: an untyped nil Constraint, a typed nil (checked over every exported
+// constraint handle type — the concrete dimensional handles constraint.go's
+// New… constructors return, e.g. a nil *Distance stored in the Constraint
+// interface, reachable in one line via the public NewDistance constructor
+// family), a live constraint holding a nil operand, and a handle whose operand
+// has since been removed from the sketch.
 // ConstraintKind and IsInternal never panic; ConstraintRefs panics only on a
 // typed nil; ConstraintResiduals panics on both nil shapes and, on the
 // removed-operand shape, silently returns a stale value instead of erroring.
 // A later change to any of these should show up here as a failing test rather
 // than a silent divergence from what introspect.go documents.
+//
+// The nil-OPERAND shape here is one constraint type; the per-constructor
+// outcomes across all of them are recorded in
+// TestIntrospectionNilOperandOutcomes (introspect_nil_contract_test.go).
 func TestIntrospectionNilSafetyContract(t *testing.T) {
 	t.Run("untyped nil", func(t *testing.T) {
 		var c sketch.Constraint // nil interface value
@@ -208,10 +212,10 @@ func TestIntrospectionNilSafetyContract(t *testing.T) {
 	})
 
 	t.Run("typed nil", func(t *testing.T) {
-		// The four outcomes below hold uniformly over the 17 EXPORTED
+		// The four outcomes below hold uniformly over the EXPORTED
 		// constraint handle types — the concrete dimensional handles
 		// constraint.go's New… constructors return (*Distance and friends) —
-		// enumerated here directly from those constructors' declared return
+		// whose set is derived below from those constructors' declared return
 		// types, not trusted as a count. This uniformity does NOT extend to
 		// every constraint type: the unexported *tangentConics breaks it (its
 		// ConstraintKind case reads a field off the nil receiver and panics);
@@ -239,7 +243,23 @@ func TestIntrospectionNilSafetyContract(t *testing.T) {
 			{"SemiMinor", (*sketch.SemiMinor)(nil), "semi_minor"},
 			{"EllipseRotation", (*sketch.EllipseRotation)(nil), "ellipse_rotation"},
 		}
-		require.Len(t, cases, 17, "the count of exported constraint handle types, enumerated from constraint.go's New… constructors")
+		// The list is anchored against constraint.go rather than against a
+		// count: every New… constructor returning a concrete pointer names one
+		// of these handle types, so a new dimensional constructor fails here
+		// until its typed nil is covered too.
+		handles := make(map[string]struct{})
+		for _, ctor := range constraintConstructorsFromSource(t) {
+			if ctor.handle == "" {
+				continue // returns the Constraint interface, so it has no exported handle
+			}
+			handles[ctor.handle] = struct{}{}
+		}
+		covered := make(map[string]struct{}, len(cases))
+		for _, tc := range cases {
+			covered[tc.name] = struct{}{}
+		}
+		require.Equal(t, sortedKeys(handles), sortedKeys(covered),
+			"the exported constraint handle types, enumerated from constraint.go's New… constructors")
 
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
