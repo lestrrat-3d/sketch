@@ -124,13 +124,20 @@ func (s *Sketch) CreateNURBS(degree int, control []*Point, weights, knots []floa
 		return nil, fmt.Errorf("%w: CreateNURBS needs %d knots (control+degree+1), got %d", ErrInvalidShape, n+degree+1, len(knots))
 	}
 	for i, k := range knots {
-		// Finiteness is part of the test, not implied by it: knots[i] < knots[i-1]
-		// is false against a NaN in both directions, so the non-decreasing loop
-		// below passes a NaN interior knot silently, and knots[degree] >= knots[n]
-		// is false against NaN too, so the empty-domain check misses it as well. A
-		// NaN knot poisons geom.NURBS.Eval over every span it bounds; an infinite
-		// knot IS caught by the non-decreasing compare, but is rejected here too so
-		// the finiteness check is one place rather than split across two.
+		// Finiteness is part of the test, not implied by it, and it closes TWO
+		// gaps the checks below leave open. (1) An INTERIOR NaN: knots[i] <
+		// knots[i-1] is false against a NaN in both directions, so the
+		// non-decreasing loop passes it silently, and knots[degree] >= knots[n]
+		// is false against NaN too, so the empty-domain check misses it as well.
+		// (2) An INFINITE CLAMPED RUN at either end, which every one of the three
+		// passes for a different reason: an all-equal run is non-decreasing, the
+		// clamped test compares with != and +Inf != +Inf is false, and
+		// knots[degree] >= knots[n] is false when one side is an infinity of the
+		// right sign — so {0,0,0,1,+Inf,+Inf,+Inf} and {-Inf,-Inf,-Inf,1,2,2,2}
+		// were both accepted. An INTERIOR infinity is the one non-finite shape
+		// already caught, by the non-decreasing compare; it is rejected here too
+		// so the finiteness check is one place rather than split across two. Any
+		// non-finite knot poisons geom.NURBS.Eval over every span it bounds.
 		if math.IsNaN(k) || math.IsInf(k, 0) {
 			return nil, fmt.Errorf("%w: CreateNURBS knot %d must be finite, got %v", ErrInvalidShape, i, k)
 		}

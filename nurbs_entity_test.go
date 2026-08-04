@@ -93,9 +93,9 @@ func TestNURBSValidation(t *testing.T) {
 		{"negative infinite weight", 2, p(3), []float64{1, math.Inf(-1), 1}, []float64{0, 0, 0, 1, 1, 1}},
 		{"NaN weight", 2, p(3), []float64{1, math.NaN(), 1}, []float64{0, 0, 0, 1, 1, 1}},
 		{"empty domain", 2, p(3), nil, []float64{0, 0, 0, 0, 0, 0}},
-		// This row is the one the finiteness loop is NEEDED for — the only one
-		// of the four non-finite knot rows that CreateNURBS accepted before the
-		// loop existed. knots[i] < knots[i-1] is false against a NaN in both
+		// The finiteness loop closes TWO gaps, and this row is the first of
+		// them: an INTERIOR NaN, which CreateNURBS accepted before the loop
+		// existed. knots[i] < knots[i-1] is false against a NaN in both
 		// directions, so the non-decreasing loop passes it silently, and
 		// knots[degree] >= knots[n] is false against it too, so the
 		// empty-domain check misses it as well — finiteness is checked on its
@@ -109,12 +109,23 @@ func TestNURBSValidation(t *testing.T) {
 		// examines an interior knot, which is why it can say nothing about the
 		// row above.
 		{"NaN knot inside a clamped run", 2, p(3), nil, []float64{0, math.NaN(), 0, 1, 1, 1}},
-		// +Inf/-Inf ARE caught by the non-decreasing compare already, so these
-		// two are likewise kept for completeness rather than closing a gap;
-		// the finiteness loop rejects them too so knot finiteness is one place
-		// rather than split across two — matching the weight rows' reasoning.
+		// An INTERIOR infinity has a finite neighbour on each side, so one of
+		// the two is out of order against it and the non-decreasing compare
+		// ALREADY catches these — they are likewise kept for completeness
+		// rather than closing a gap; the finiteness loop rejects them too so
+		// knot finiteness is one place rather than split across two, matching
+		// the weight rows' reasoning.
 		{"positive infinite interior knot", 2, p(4), nil, []float64{0, 0, 0, math.Inf(1), 1, 1, 1}},
 		{"negative infinite interior knot", 2, p(4), nil, []float64{0, 0, 0, math.Inf(-1), 1, 1, 1}},
+		// The second gap only the finiteness loop closes: a whole CLAMPED RUN
+		// of one infinity, at either end. It has no finite neighbour inside the
+		// run, so every pre-existing check passes it, each for its own reason —
+		// an all-equal run is non-decreasing, the clamped test compares with !=
+		// and +Inf != +Inf is false, and knots[degree] >= knots[n] is false
+		// when one side is an infinity of the right sign. Both of these were
+		// ACCEPTED before the loop existed, unlike the interior infinities.
+		{"infinite trailing clamped run", 2, p(4), nil, []float64{0, 0, 0, 1, math.Inf(1), math.Inf(1), math.Inf(1)}},
+		{"infinite leading clamped run", 2, p(4), nil, []float64{math.Inf(-1), math.Inf(-1), math.Inf(-1), 1, 2, 2, 2}},
 	}
 	for _, tc := range cases {
 		_, err := s.CreateNURBS(tc.degree, tc.control, tc.weights, tc.knots)
