@@ -410,7 +410,27 @@ func (s *Sketch) FreePoints() []*Point {
 // IsFullyConstrained reports whether the point cannot move without violating
 // a constraint (or is grounded). It is the per-point view of
 // [Sketch.FreePoints].
+//
+// It reports false for a point this method cannot safely read — nil, the
+// externally-constructible zero value (every field of [Point] is unexported,
+// but a caller can still write `&Point{}`), or a removed handle — matching
+// [Sketch.EntityIsFullyConstrained], the entity-level twin. A var index means
+// something only in the sketch that allocated it: a removed point's indices
+// were retired (marked fixed, never reclaimed), so an unscreened read would
+// answer from variables the sketch no longer tracks as this point's, and a
+// removed point would read fully constrained even though its former sketch
+// still has free DOF. The refusal is false, the only answer that does not
+// certify "this cannot move". Unlike the entity twin, there is no foreign-
+// sketch case to screen: this method reads through the point's OWN sketch
+// (`p.s`), so a point of another sketch is answered correctly by its owner at
+// any index. The screen is `owns` — the same predicate the grounding API,
+// `scanReferenceIntegrity` and `checkNoForeignRefs` use — so this cannot
+// diverge from what [Sketch.Verify] reports, and it carries the origin
+// exception, so [Sketch.Origin] still reads correctly.
 func (p *Point) IsFullyConstrained() bool {
+	if p == nil || p.s == nil || !p.s.owns(p) {
+		return false
+	}
 	movable := p.s.movableVars()
 	if _, ok := movable[p.xi]; ok {
 		return false
