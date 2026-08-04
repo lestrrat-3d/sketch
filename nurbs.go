@@ -2,6 +2,7 @@ package sketch
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/lestrrat-3d/sketch/geom"
 )
@@ -103,9 +104,9 @@ func ClampedUniformKnots(n, degree int) []float64 { return geom.ClampedUniformKn
 // It validates: degree >= 1; at least degree+1 control points, none nil;
 // len(knots) == len(control)+degree+1, non-decreasing and clamped (the first and
 // last degree+1 knots each equal); and, when weights is non-nil, len(weights) ==
-// len(control) with every weight > 0 (weights == nil means all 1, a non-rational
-// curve). Use [ClampedUniformKnots] for the common knot vector. Any violation
-// returns [ErrInvalidShape].
+// len(control) with every weight finite and > 0 (weights == nil means all 1, a
+// non-rational curve). Use [ClampedUniformKnots] for the common knot vector. Any
+// violation returns [ErrInvalidShape].
 func (s *Sketch) CreateNURBS(degree int, control []*Point, weights, knots []float64) (*NURBS, error) {
 	if degree < 1 {
 		return nil, fmt.Errorf("%w: CreateNURBS degree must be >= 1, got %d", ErrInvalidShape, degree)
@@ -145,8 +146,14 @@ func (s *Sketch) CreateNURBS(degree int, control []*Point, weights, knots []floa
 			return nil, fmt.Errorf("%w: CreateNURBS needs %d weights (one per control point), got %d", ErrInvalidShape, n, len(weights))
 		}
 		for i, wi := range weights {
-			if !(wi > 0) {
-				return nil, fmt.Errorf("%w: CreateNURBS weight %d must be > 0, got %v", ErrInvalidShape, i, wi)
+			// Finiteness is part of the test, not implied by it: +Inf compares
+			// greater than 0, and a single infinite weight makes both the
+			// numerator and the denominator of the rational sum infinite, so
+			// Eval and EvalDeriv answer NaN at EVERY parameter — the clamped
+			// endpoints included. A NaN weight fails the ordered compare and is
+			// rejected by it.
+			if !(wi > 0) || math.IsInf(wi, 0) {
+				return nil, fmt.Errorf("%w: CreateNURBS weight %d must be finite and > 0, got %v", ErrInvalidShape, i, wi)
 			}
 		}
 		w = append([]float64(nil), weights...)
