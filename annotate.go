@@ -118,8 +118,16 @@ func annFormat(v units.Value) string {
 
 // dimText builds a dimension label with an optional prefix (e.g. "R", "⌀"),
 // wrapping driven (reference) dimensions in parentheses per CAD convention.
-func dimText(prefix string, d Dimension) string {
-	s := prefix + annFormat(d.Target())
+// It is a method (rather than a package-level function) so it can screen the
+// target's magnitude through a.sb.note before formatting it as text: the
+// rendered label never passes through svgWriter.f (units.Value.String, not a
+// bare float format verb), so without this call a NaN/Inf dimension target
+// would render as the literal text "NaN mm"/"+Inf mm" with SVG returning no
+// error at all.
+func (a *annCtx) dimText(prefix string, d Dimension) string {
+	target := d.Target()
+	a.sb.note(target.Mag())
+	s := prefix + annFormat(target)
 	if d.Driven() {
 		return "(" + s + ")"
 	}
@@ -370,39 +378,39 @@ func (a *annCtx) badge(anchor v2, sym string) {
 func (a *annCtx) dimension(d Dimension) {
 	switch t := d.(type) {
 	case *Distance:
-		a.linear(a.scr(t.P1), a.scr(t.P2), dimText("", t), t.Driven())
+		a.linear(a.scr(t.P1), a.scr(t.P2), a.dimText("", t), t.Driven())
 	case *HorizontalDistance:
-		a.axisAligned(a.scr(t.P1), a.scr(t.P2), true, dimText("", t), t.Driven())
+		a.axisAligned(a.scr(t.P1), a.scr(t.P2), true, a.dimText("", t), t.Driven())
 	case *VerticalDistance:
-		a.axisAligned(a.scr(t.P1), a.scr(t.P2), false, dimText("", t), t.Driven())
+		a.axisAligned(a.scr(t.P1), a.scr(t.P2), false, a.dimText("", t), t.Driven())
 	case *DistancePointLine:
-		a.pointToLine(t.P, t.L, dimText("", t), t.Driven())
+		a.pointToLine(t.P, t.L, a.dimText("", t), t.Driven())
 	case *DistanceLines:
-		a.lineToLine(t.L1, t.L2, dimText("", t), t.Driven())
+		a.lineToLine(t.L1, t.L2, a.dimText("", t), t.Driven())
 	case *Offset:
-		a.lineToLine(t.Src, t.Dst, dimText("", t), t.Driven())
+		a.lineToLine(t.Src, t.Dst, a.dimText("", t), t.Driven())
 	case *Radius:
-		a.radial(t.C, dimText("R", t), t.Driven())
+		a.radial(t.C, a.dimText("R", t), t.Driven())
 	case *Diameter:
-		a.diametral(t.C, dimText("⌀", t), t.Driven())
+		a.diametral(t.C, a.dimText("⌀", t), t.Driven())
 	case *Angle:
-		a.angle(t.L1, t.L2, dimText("", t), t.Driven())
+		a.angle(t.L1, t.L2, a.dimText("", t), t.Driven())
 	case *ArcLength:
-		a.arcLength(t.A, dimText("", t), t.Driven())
+		a.arcLength(t.A, a.dimText("", t), t.Driven())
 	case *SemiMajor:
-		a.semiAxis(t.E, true, dimText("", t), t.Driven())
+		a.semiAxis(t.E, true, a.dimText("", t), t.Driven())
 	case *SemiMinor:
-		a.semiAxis(t.E, false, dimText("", t), t.Driven())
+		a.semiAxis(t.E, false, a.dimText("", t), t.Driven())
 	case *EllipseRotation:
-		a.ellipseRotation(t.E, dimText("", t), t.Driven())
+		a.ellipseRotation(t.E, a.dimText("", t), t.Driven())
 	case *DistancePointCircle:
-		a.leaderToCircular(a.scr(t.P), t.C, dimText("", t), t.Driven())
+		a.leaderToCircular(a.scr(t.P), t.C, a.dimText("", t), t.Driven())
 	case *DistanceLineCircle:
-		a.leaderToCircular(a.lineMid(t.L), t.C, dimText("", t), t.Driven())
+		a.leaderToCircular(a.lineMid(t.L), t.C, a.dimText("", t), t.Driven())
 	case *DistancePointArc:
-		a.leaderToCircular(a.scr(t.P), t.A, dimText("", t), t.Driven())
+		a.leaderToCircular(a.scr(t.P), t.A, a.dimText("", t), t.Driven())
 	case *DistanceLineArc:
-		a.leaderToCircular(a.lineMid(t.L), t.A, dimText("", t), t.Driven())
+		a.leaderToCircular(a.lineMid(t.L), t.A, a.dimText("", t), t.Driven())
 	}
 }
 
