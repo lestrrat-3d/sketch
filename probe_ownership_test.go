@@ -45,6 +45,18 @@ func mirrorTriangleProbe(t *testing.T) (*sketch.Sketch, *sketch.Point, *sketch.P
 	return s, a, p, pr
 }
 
+// mirrorTriangleProbeResult returns only the probe result from the mirror
+// triangle fixture, for callers that need just the probe without the sketch
+// or its points.
+func mirrorTriangleProbeResult(t *testing.T) *sketch.ProbeResult {
+	t.Helper()
+	s, a, p, pr := mirrorTriangleProbe(t)
+	_ = s // used to ensure full fixture is valid
+	_ = a
+	_ = p
+	return pr
+}
+
 // A foreign point at a SMALL index sits at the same variable slot as this
 // sketch's own first-created point (a, grounded at the origin's (0,0) by
 // Fix), so an unscreened read would silently return that local point's
@@ -69,7 +81,7 @@ func TestProbeConfigurationPointXYRefusesForeignPointSmallIndex(t *testing.T) {
 // A foreign point at a LARGE index runs off the configuration's captured
 // variable vector; the documented-non-panicking call must not panic.
 func TestProbeConfigurationPointXYRefusesForeignPointLargeIndex(t *testing.T) {
-	_, _, _, pr := mirrorTriangleProbe(t)
+	pr := mirrorTriangleProbeResult(t)
 
 	fp := foreignPoint(t, 64, 99, 99) // pad=64: far past this sketch's vector
 
