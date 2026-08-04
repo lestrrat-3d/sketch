@@ -102,11 +102,11 @@ func ClampedUniformKnots(n, degree int) []float64 { return geom.ClampedUniformKn
 // relate them.
 //
 // It validates: degree >= 1; at least degree+1 control points, none nil;
-// len(knots) == len(control)+degree+1, non-decreasing and clamped (the first and
-// last degree+1 knots each equal); and, when weights is non-nil, len(weights) ==
-// len(control) with every weight finite and > 0 (weights == nil means all 1, a
-// non-rational curve). Use [ClampedUniformKnots] for the common knot vector. Any
-// violation returns [ErrInvalidShape].
+// len(knots) == len(control)+degree+1, every knot finite, non-decreasing and
+// clamped (the first and last degree+1 knots each equal); and, when weights is
+// non-nil, len(weights) == len(control) with every weight finite and > 0
+// (weights == nil means all 1, a non-rational curve). Use [ClampedUniformKnots]
+// for the common knot vector. Any violation returns [ErrInvalidShape].
 func (s *Sketch) CreateNURBS(degree int, control []*Point, weights, knots []float64) (*NURBS, error) {
 	if degree < 1 {
 		return nil, fmt.Errorf("%w: CreateNURBS degree must be >= 1, got %d", ErrInvalidShape, degree)

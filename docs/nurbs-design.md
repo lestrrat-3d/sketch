@@ -55,14 +55,23 @@ type NURBS struct {
 `CreateNURBS(degree int, control []*Point, weights, knots []float64) (*NURBS, error)`:
 
 - Validates: `degree ≥ 1`; `len(control) ≥ degree+1`; `len(knots) =
-  len(control)+degree+1`; knots non-decreasing and **clamped**; `len(weights) =
-  len(control)` with every `w_i` **finite** and `> 0` (or `weights == nil` ⇒ all
-  1); no nil point. Any violation → `ErrInvalidShape` (no panic). Finiteness is
-  its own clause because an ordered `w_i > 0` compare admits `+Inf`, and one
+  len(control)+degree+1`; every knot **finite**, non-decreasing and **clamped**;
+  `len(weights) = len(control)` with every `w_i` **finite** and `> 0` (or
+  `weights == nil` ⇒ all 1); no nil point. Any violation → `ErrInvalidShape` (no
+  panic). Finiteness is its own clause on the weights and on the knots alike,
+  because the ordered compare that covers the rest of each is false against a
+  NaN. For a **weight**, an ordered `w_i > 0` compare admits `+Inf`, and one
   infinite weight makes the rational quotient's numerator and denominator both
   infinite, so `Eval` and `EvalDeriv` answer NaN at every parameter — the clamped
   endpoints included. (A NaN weight fails the ordered compare and is rejected by
-  it.) The bare `geom.NewNURBS` kernel still validates nothing, by design.
+  it.) For a **knot**, the finiteness loop runs first, ahead of the
+  non-decreasing, clamped and empty-domain checks, and the case it alone catches
+  is an INTERIOR NaN: `knots[i] < knots[i-1]` and `knots[degree] ≥ knots[n]` are
+  both false against a NaN, and the clamped `!=` compare — which does reject a NaN
+  landing inside a clamped run — never examines an interior knot. An infinite knot
+  is caught by the non-decreasing compare too; the loop rejects it as well, so
+  knot finiteness is one check rather than split across two. The bare
+  `geom.NewNURBS` kernel still validates nothing, by design.
 - A convenience `ClampedUniformKnots(n, degree)` helper generates the common
   knot vector so callers rarely hand-write one.
 
@@ -172,11 +181,12 @@ kernel is a possible later cleanup, not part of this increment.
 - Profile participation; JSON round-trip (degree/knots/weights/points; no
   doubling); SVG/PNG/DXF export contains it; DXF carries degree/knots/weights and
   rebuilds to the same curve; world-space DXF round-trips control points.
-- `CreateNURBS` validation table (bad degree / knot count / unclamped / non-monotone
-  knots / zero, negative, infinite, NaN or wrong-count weights / too-few control
-  points / nil) → `ErrInvalidShape`, plus the converse that an accepted curve
-  evaluates finitely across its domain. Free-NURBS DOF = `2(n+1)`. `RemoveEntity`
-  keeps the points.
+- `CreateNURBS` validation table (bad degree / knot count / unclamped /
+  non-monotone knots / a NaN or infinite knot, interior and inside a clamped run /
+  zero, negative, infinite, NaN or wrong-count weights / too-few control points /
+  nil) → `ErrInvalidShape`, plus the converse that an accepted curve evaluates
+  finitely across its domain, over a non-uniform knot vector as well as a uniform
+  one. Free-NURBS DOF = `2(n+1)`. `RemoveEntity` keeps the points.
 - An executable `examples/` example with `// Output:`.
 
 ## Verification
