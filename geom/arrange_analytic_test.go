@@ -1165,6 +1165,34 @@ func TestAnalyticInternalTangentBlessed(t *testing.T) {
 	}
 }
 
+func TestAnalyticLineInvolvedMergedTangentStaysDegenerate(t *testing.T) {
+	// Unlike the two curved cases above, a merged-vertex tangency with a LINE as
+	// one of the two sources is still deferred and stays conservatively
+	// Degenerate (see the tangency contract in
+	// docs/analytic-arrangement-design.md). A tangency at a line's INTERIOR never
+	// merges into a shared vertex — a line's polyline is a single segment with no
+	// vertex there — so this needs the contact to land on a shared LINE ENDPOINT:
+	// a five-line closed box whose top edge is split at (0,1), tangent to a unit
+	// circle centred at the origin.
+	for _, spt := range []int{8, 16, 32, 64, 128} {
+		bl := geom.NewPoint(-2, -1)
+		br := geom.NewPoint(2, -1)
+		tr := geom.NewPoint(2, 1)
+		tm := geom.NewPoint(0, 1)
+		tl := geom.NewPoint(-2, 1)
+		curves := []geom.Curve{
+			geom.NewLine(bl, br),
+			geom.NewLine(br, tr),
+			geom.NewLine(tr, tm),
+			geom.NewLine(tm, tl),
+			geom.NewLine(tl, bl),
+		}
+		closed := []geom.ClosedCurve{geom.NewCircle(geom.NewPoint(0, 0), 1)}
+		arr := geom.Regions(curves, closed, geom.WithSegmentsPerTurn(spt))
+		require.Truef(t, arr.Degenerate, "line-involved merged tangency stays degenerate at spt=%d", spt)
+	}
+}
+
 func TestAnalyticExactContainmentConcentricNested(t *testing.T) {
 	// Disjoint nested circles, including CONCENTRIC (the exact ray-cast containment's
 	// whole-circle seam edge case: a centre-aligned probe's +x ray hits the outer

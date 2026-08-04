@@ -1112,9 +1112,11 @@ func (a *arranger) intersect() {
 // unresolvable (ambiguous) classification flags degeneracy; a clean tangency is a
 // non-splitting contact that does NOT flag degeneracy — UNLESS it would merge into
 // a shared vertex between two cycle-bearing sources (where buildGraph's chord-angle
-// sort could branch-swap), which is conservatively flagged degenerate pending the
-// exact tangent-port handling of a later increment. Handled pairs are recorded so
-// the sampled segment loop skips them.
+// sort could branch-swap) AND a LINE is one of the two sources, which is
+// conservatively flagged degenerate; both curved cases (external and
+// internal/containment) are certified instead. The evTangent arm below names the
+// predicate that answers each case. Handled pairs are recorded so the sampled
+// segment loop skips them.
 func (a *arranger) analyticPrepass() {
 	a.handled = make(map[[2]int]struct{})
 	a.events = make(map[[2]int][]xEvent)
