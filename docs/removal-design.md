@@ -29,10 +29,12 @@ handles), choose **immediate splice + id renumbering**:
   solver row mapping) would need a liveness filter forever; save-time
   remapping was rejected because in-memory ids and on-disk ids would diverge,
   which is exactly the kind of dual bookkeeping that breeds bugs.
-- **Solver variables are retired, not reclaimed**: a removed point/circle/
-  ellipse marks its `vars` slots as `fixed` (grounded) and abandons them. The
-  solver and DOF analysis only consult free variables, so retired slots are
-  invisible; the `vars` slice grows monotonically over a sketch's life.
+- **Solver variables are retired, not reclaimed**: a removed point marks its
+  coordinate `vars` slots as `fixed` (grounded) and abandons them, and a removed
+  entity does the same for whichever shape variables `entityShapeVars` reports
+  for its type, a circle's radius being one example. The solver and DOF
+  analysis only consult free variables, so retired slots are invisible; the
+  `vars` slice grows monotonically over a sketch's life.
   Compaction (remapping every index on every primitive) buys nothing at this
   scale and risks index bugs — explicitly rejected for now. Marshalled JSON
   never contains retired slots (it writes per-point/entity values), so reload
