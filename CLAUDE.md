@@ -692,8 +692,10 @@ anywhere to flag it. `CheckConstraint` instead refuses with an error wrapping
 `ErrForeignHandle` before probing, which is what makes its documented non-mutating
 contract true of the donor too (the variable rollback is installed only when the probe
 actually allocated, so an already-committed candidate does not have its live aux vars
-retired). **The second question is who ALLOCATED the aux variables, `foreignAllocation`
-over `allocatedBy()`, and reference ownership does not imply it** — a rewire in the OTHER
+retired). **The second question is whether the constraint HOLDS aux variables ANOTHER
+sketch allocated — `foreignAllocation`, which asks the owner pointer through
+`allocatedBy()` AND a live allocation through `auxAllocated()` — and reference ownership
+does not imply it** — a rewire in the OTHER
 direction, an exported operand field pointed at the RECEIVER's own geometry after a commit
 elsewhere, makes every handle the constraint names local, so the reference screen passes
 while the stored indices still address the donor's vector, and `allocVars` rebinds the
@@ -706,13 +708,33 @@ and the receiver owns every handle it names so its report would say nothing. Not
 lost — the rewired operand that let it reach the door is what the DONOR's reference scan
 reports as `ErrForeignHandle`, so no extra `Verify` signal is needed for it.
 `CheckConstraint` refuses the same candidate with a wrapped `ErrForeignHandle`.
-**Retirement ENDS the ownership it recorded**: `clearAuxOwner` (on `auxOwner`) is called
-from `retireConstraintVars` and from the probe's rollback, so a constraint whose variables
-went back reads unowned and a legitimate remove-here / add-there move is not refused for an
-allocation that no longer exists. The probe clears only what it bound — it records whether
+**The owner pointer ALONE is not that question, and asking it alone DROPS constraints a
+receiver has every right to take.** A constraint records an owner while holding no
+allocation by two routes that need no removal at all: a DRIVEN dimension contributes no
+residual rows, so it owns no aux variable, and `SetDriven(true)` on a committed one retires
+that variable and leaves the pointer set; and a dimension ALREADY driven when it is
+committed is bound by `allocVars` — which writes the pointer ahead of its own
+driven/idempotence guard — while allocating nothing, so no post-commit `SetDriven` call is
+involved at all. In both, no stored index addresses anyone's vector, so there is nothing to
+read across sketches and nothing to refuse. **The live half is derived from the aux INDEX
+FIELDS the constraint already carries**, through an unexported `auxAllocated() bool`
+declared beside each type's `allocVars` (`theta >= 0` on `ArcLength`, `slack >= 0` on
+`DistancePointArc` and `DistanceLineArc`): the fact follows the allocation itself, so there
+is no new state and no clearing site to forget. **A type that does NOT declare the accessor
+is read as ALLOCATED**, keeping the owner-pointer-only refusal for it rather than letting it
+slip through unscreened. Two shapes deliberately NOT taken: keying the clearing to
+`SetDriven` misses the already-driven-at-commit route entirely, and clearing the pointer in
+`SetDriven`'s retire closure breaks the toggle BACK to driving — `setDrivenAux` reads that
+pointer to find the sketch to re-allocate in, so a committed `ArcLength` toggled driven →
+driving would silently fall back to the wrap-discontinuous `Sweep()` residual the aux
+variable exists to avoid. **Retirement also ENDS the ownership it recorded**:
+`clearAuxOwner` (on `auxOwner`) is called from `retireConstraintVars` and from the probe's
+rollback, which is what carries a type that reports no allocation of its own — for the three
+that do, the index-derived read already answers a remove-here / add-there move. The probe
+clears only what it bound — it records whether
 the candidate was unowned BEFORE `allocVars`, since that hook binds the pointer ahead of
 its own idempotence guard and so rebinds on the paths that allocate nothing, which the
-variable rollback's gate does not cover. **The REMOVAL path asks the second question
+variable rollback's gate does not cover. **The REMOVAL path asks the OWNER POINTER
 alone** — `retireConstraintVars`
 (`removal.go`) retires only when THIS sketch is the one that ALLOCATED the variables, read
 through `allocatedBy()` on the embedded `auxOwner` every `allocVars` writes before it
@@ -737,9 +759,13 @@ an unrewired operand, over all three externally reachable aux-var constraints (`
 `DistancePointArc`, `DistanceLineArc`), plus the converse that a constraint foreign when
 ADDED is still not retired. `constraint_alloc_ownership_test.go` pins the allocation half —
 the drop and both sketches' unchanged state at both index regimes, the receiver's own point
-left unmoved by a solve where the stale index aliased it, the `CheckConstraint` refusal, and
-the two `clearAuxOwner` guards (a removed constraint and a probed candidate both still
-commit elsewhere, matching a dimension authored there from scratch).
+left unmoved by a solve where the stale index aliased it, the `CheckConstraint` refusal, the
+two `clearAuxOwner` guards (a removed constraint and a probed candidate both still
+commit elsewhere, matching a dimension authored there from scratch), and the DRIVEN half —
+a dimension driven after its commit and one driven before it both commit in the receiver,
+over `ArcLength` and `DistancePointArc`, plus the driven → driving round trip on a committed
+dimension still producing both residual rows, which is what clearing the pointer in the
+retire closure would break.
 
 ### Invariants the solver depends on
 

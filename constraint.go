@@ -45,9 +45,13 @@ func (a auxOwner) allocatedBy() *Sketch { return a.s }
 // [Sketch.CheckConstraint]'s rollback for the allocation a probe made. The
 // pointer records where the stored indices mean something, so leaving it behind
 // a retirement states an ownership that no longer exists: the two doors that
-// parameterize a constraint refuse a candidate another sketch allocated, and on a
-// stale pointer they would refuse a constraint whose variables were handed back,
-// making a legitimate remove-here / add-there sequence fail.
+// parameterize a constraint refuse a candidate another sketch HOLDS an allocation
+// from, and on a stale pointer they would refuse a constraint whose variables were
+// handed back, making a legitimate remove-here / add-there sequence fail. That
+// refusal reads the constraint's own aux index fields first (auxAllocatedOf), so a
+// type declaring auxAllocated is already covered whatever this pointer says; the
+// clearing is what carries a type that does not declare it, for which the pointer
+// is the whole answer.
 func (a *auxOwner) clearAuxOwner() { a.s = nil }
 
 // --- arc consistency (internal) --------------------------------------------
@@ -2578,6 +2582,11 @@ func (c *DistancePointArc) retireVars(s *Sketch) {
 	}
 }
 
+// auxAllocated reports whether this dimension currently holds its sweep slack.
+// It is what foreignAllocation asks after the owner pointer, since a driven
+// dimension records an owner while owning no variable.
+func (c *DistancePointArc) auxAllocated() bool { return c.slack >= 0 }
+
 // setDrivenAux is the shared driving↔driven toggle scaffold for the aux-var
 // dimensions (DistancePointArc/DistanceLineArc/ArcLength). It flips *driven,
 // then — only for a committed dimension (membership in s.cons, not merely a
@@ -2683,6 +2692,9 @@ func (c *DistanceLineArc) retireVars(s *Sketch) {
 		c.slack = -1
 	}
 }
+
+// auxAllocated mirrors [DistancePointArc.auxAllocated].
+func (c *DistanceLineArc) auxAllocated() bool { return c.slack >= 0 }
 
 // SetDriven mirrors [DistancePointArc.SetDriven].
 func (c *DistanceLineArc) SetDriven(v bool) {
@@ -2857,6 +2869,10 @@ func (c *ArcLength) retireVars(s *Sketch) {
 		c.theta = -1 // reset so re-adding the handle allocates a fresh aux var
 	}
 }
+
+// auxAllocated reports whether this dimension currently holds its unwrapped-sweep
+// variable, mirroring [DistancePointArc.auxAllocated].
+func (c *ArcLength) auxAllocated() bool { return c.theta >= 0 }
 
 // SetDriven toggles reference (driven) mode and keeps the unwrapped-sweep aux
 // variable consistent: a driven dimension contributes no residual rows, so its

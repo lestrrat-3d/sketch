@@ -320,9 +320,11 @@ func (s *Sketch) CheckConstraint(c Constraint) error {
 	// The OWNER pointer is rolled back on its own gate, because allocVars binds it
 	// ahead of that idempotence guard and so rebinds even on the paths that
 	// allocate nothing. Leaving it bound is not harmless: the screens above refuse
-	// a candidate another sketch allocated, so a probe that left its pointer on an
-	// unallocated candidate would make the next commit — to this sketch or any
-	// other — refuse a constraint no sketch has parameterized. Restoring the
+	// a candidate another sketch HOLDS an allocation from, and for a type that does
+	// not report its own allocation (auxAllocated) that pointer is the whole answer,
+	// so a probe that left it on an unallocated candidate would make the next
+	// commit — to this sketch or any other — refuse a constraint no sketch has
+	// parameterized. Restoring the
 	// unowned state keeps this call non-mutating for the candidate as well as for
 	// both sketches. A candidate this sketch already owns keeps its pointer, which
 	// is the one a commit would bind anyway.

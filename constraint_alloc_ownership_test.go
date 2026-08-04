@@ -181,3 +181,106 @@ func TestProbedCandidateCanStillBeCommittedElsewhere(t *testing.T) {
 	require.Contains(t, other.Constraints(), c)
 	require.Len(t, sketch.ConstraintResiduals(c), 2, "and it parameterized in the sketch that committed it")
 }
+
+// A DRIVEN dimension owns no auxiliary variable — it contributes no residual
+// rows, so one would be left unconstrained — while still carrying the sketch
+// pointer allocVars wrote. The screen must therefore read the live allocation,
+// not the pointer: there are no stale indices to address the donor's vector
+// with, so a receiver that owns every handle the dimension names has every right
+// to take it. Trigger one, the post-commit toggle: SetDriven(true) hands theta
+// back and leaves the owner behind.
+func TestDrivenAfterCommitCanBeAddedToAnotherSketch(t *testing.T) {
+	donor, c := arcLengthDonor(t)
+	c.SetDriven(true)
+	require.Len(t, sketch.ConstraintResiduals(c), 1, "a driven dimension gave its variable back")
+	require.Contains(t, donor.Constraints(), c)
+
+	receiver, rarc, _ := arcLengthReceiver(t, 0)
+	c.A = rarc
+
+	require.NoError(t, receiver.CheckConstraint(c), "nothing addresses the donor's vector any more")
+	receiver.AddConstraint(c)
+	require.Contains(t, receiver.Constraints(), c, "the receiver holds the constraint")
+
+	// And it parameterizes in the receiver when it goes back to driving there.
+	c.SetDriven(false)
+	require.Len(t, sketch.ConstraintResiduals(c), 2, "the receiver allocated the unwrapped-sweep variable")
+	_, err := receiver.Solve(t.Context())
+	require.NoError(t, err)
+	require.InDelta(t, 3*math.Pi, rarc.R()*rarc.Sweep(), 1e-6)
+}
+
+// Trigger two, and the sharper one: the dimension is driven BEFORE it is ever
+// committed, so no SetDriven call follows the commit at all. allocVars writes the
+// sketch pointer ahead of its own driven guard, so the donor records an owner
+// while allocating nothing.
+func TestDrivenBeforeCommitCanBeAddedToAnotherSketch(t *testing.T) {
+	donor := newSketch(t)
+	darc := donor.CreateArc(donor.CreatePoint(0, 0), donor.CreatePoint(4, 0), donor.CreatePoint(0, 4))
+	c := sketch.NewArcLength(darc, 3*math.Pi)
+	c.SetDriven(true)
+	donor.AddConstraint(c)
+	require.Len(t, sketch.ConstraintResiduals(c), 1, "a dimension driven at commit time allocates nothing")
+
+	receiver, rarc, _ := arcLengthReceiver(t, 0)
+	c.A = rarc
+
+	require.NoError(t, receiver.CheckConstraint(c))
+	receiver.AddConstraint(c)
+	require.Contains(t, receiver.Constraints(), c, "the receiver holds the constraint")
+}
+
+// The same two triggers on the other aux-var dimension whose operands are all
+// exported fields, rewiring both of them.
+func TestDrivenDistancePointArcCanBeAddedToAnotherSketch(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		drivenAtCommit bool
+	}{
+		{name: "driven after commit", drivenAtCommit: false},
+		{name: "driven before commit", drivenAtCommit: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			donor := newSketch(t)
+			darc := donor.CreateArc(donor.CreatePoint(0, 0), donor.CreatePoint(4, 0), donor.CreatePoint(0, 4))
+			dp := donor.CreatePoint(6, 6)
+			c := sketch.NewDistancePointArc(dp, darc, 2)
+			if tc.drivenAtCommit {
+				c.SetDriven(true)
+				donor.AddConstraint(c)
+			} else {
+				donor.AddConstraint(c)
+				c.SetDriven(true)
+			}
+			require.Contains(t, donor.Constraints(), c)
+
+			receiver := newSketch(t)
+			rarc := receiver.CreateArc(receiver.CreatePoint(0, 0), receiver.CreatePoint(5, 0), receiver.CreatePoint(0, 5))
+			rp := receiver.CreatePoint(9, 9)
+			c.P, c.A = rp, rarc
+
+			require.NoError(t, receiver.CheckConstraint(c))
+			receiver.AddConstraint(c)
+			require.Contains(t, receiver.Constraints(), c, "the receiver holds the constraint")
+		})
+	}
+}
+
+// The guard on the shape this fix deliberately did NOT take: clearing the owner
+// pointer in SetDriven's retire closure would make the toggle back to driving
+// find no sketch to allocate in, and the dimension would fall back to the
+// wrap-discontinuous single-row residual the aux variable exists to avoid.
+func TestCommittedDimensionSurvivesDrivenRoundTrip(t *testing.T) {
+	s, c := arcLengthDonor(t)
+	require.Len(t, sketch.ConstraintResiduals(c), 2)
+
+	c.SetDriven(true)
+	require.Len(t, sketch.ConstraintResiduals(c), 1, "driven: no rows to carry a variable")
+
+	c.SetDriven(false)
+	require.Len(t, sketch.ConstraintResiduals(c), 2, "driving again: the coupling row is back")
+
+	_, err := s.Solve(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, s.Verify(t.Context()))
+}
