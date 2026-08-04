@@ -667,8 +667,10 @@ hook and are **not serialized** — they are recomputed from the solved geometry
 when `allocVars` re-runs on load. This is the deliberate, narrow exception to
 "constraints own no vars"; ship it only with the constraint that needs it.
 
-**All three hooks run only behind the ownership screen `Sketch.foreignConstraint`**
-(`parameters.go`): `constraintRefs` for the operands, then `owns` for a point and
+**The two doors that decide whether to PARAMETERIZE a constraint run only behind the
+ownership screen `Sketch.foreignConstraint`** (`parameters.go`) — `AddConstraint`
+(`resolveUnit` + `allocVars`) and `CheckConstraint`:
+`constraintRefs` for the operands, then `owns` for a point and
 `ownsEntity` for an entity — the SAME predicates `scanReferenceIntegrity`,
 `checkNoForeignRefs` and `foreignInput` use, so the screen cannot diverge from what
 `Verify` reports and `MarshalJSON` refuses, and it carries the origin exception. The
@@ -690,13 +692,30 @@ anywhere to flag it. `CheckConstraint` instead refuses with an error wrapping
 contract true of the donor too — and the screen is also what leaves its rollback sound,
 since the only sketch that can bind a candidate's pointer is then the one a commit would
 bind anyway (the rollback is installed only when the probe actually allocated, so an
-already-committed candidate does not have its live aux vars retired). The screen for
-`retireVars` is by reference ownership rather than by which sketch allocated — state no
-hook exposes — and the two agree wherever the engine removes a constraint, since the
-removal cascade runs before its entity or point is spliced out. `constraint_ownership_test.go`
-pins the donor's DOF, status and residuals across both index regimes, the
-`CheckConstraint` refusal, the receiving sketch's surviving `ErrForeignHandle`, and the
-unchanged allocate/solve/retire behaviour of own-geometry aux-var owners.
+already-committed candidate does not have its live aux vars retired). **The REMOVAL path
+asks a different question and must screen on a different answer** — `retireConstraintVars`
+(`removal.go`) retires only when THIS sketch is the one that ALLOCATED the variables, read
+through `allocatedBy()` on the embedded `auxOwner` every `allocVars` writes before it
+allocates anything. Reference ownership is not that answer, and the two disagree in both
+directions: an exported operand field rewired AFTER the commit — to another sketch's handle,
+or to a dead handle of this one, which `owns` reports the same way — makes a constraint this
+sketch parameterized read foreign, so the reference screen skipped retirement and grounded
+that variable forever, a phantom free DOF the sketch's own report cannot see. Both removal
+doors reach it, `RemoveConstraint` and the `RemoveEntity`/`RemovePoint` cascade alike, since
+the cascade matches on ONE operand while a DIFFERENT one may be the rewired one. `auxOwner`
+is EMBEDDED rather than declared per type so the accessor travels with the field an aux-var
+constraint has to declare anyway (`c.s` still resolves through promotion); it is the one
+site a future aux-var type could still bypass by declaring its own pointer, which is the
+accepted cost of adding no new state — the alternative, a set on the sketch recording what
+`AddConstraint` parameterized, is forget-proof but stores the same fact twice.
+`constraint_ownership_test.go` pins the donor's DOF, status and residuals across both index
+regimes, the `CheckConstraint` refusal, the receiving sketch's surviving `ErrForeignHandle`,
+and the unchanged allocate/solve/retire behaviour of own-geometry aux-var owners;
+`constraint_retire_ownership_test.go` pins the removal half — DOF back to its pre-add value
+after a rewire to a foreign handle, to a dead one, and through the `RemoveEntity` cascade on
+an unrewired operand, over all three externally reachable aux-var constraints (`ArcLength`,
+`DistancePointArc`, `DistanceLineArc`), plus the converse that a constraint foreign when
+ADDED is still not retired.
 
 ### Invariants the solver depends on
 

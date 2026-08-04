@@ -81,8 +81,14 @@ func (s *Sketch) unitFor(k units.Kind) units.Unit {
 // foreignConstraint reports whether c references a point or entity this sketch
 // does not own — another sketch's handle, or a dead one this sketch removed.
 //
-// It is the screen the constraint-parameterizing hooks (resolveUnit, allocVars,
-// retireVars) must pass first. Those hooks WRITE to the constraint: allocVars
+// It is the screen the two doors that decide whether to PARAMETERIZE a
+// constraint apply first — [Sketch.AddConstraint] (resolveUnit + allocVars) and
+// [Sketch.CheckConstraint]. Reference ownership is the right question there, and
+// only there: the constraint has no allocating sketch yet, so who owns the
+// geometry it relates is all there is to go on. The removal path asks a
+// different question and screens differently — see retireConstraintVars.
+//
+// Those hooks WRITE to the constraint: allocVars
 // binds the constraint's sketch pointer before its own idempotence guard runs,
 // so it rebinds even when it allocates nothing, while the constraint's stored
 // variable indices still address the sketch that allocated them. Run on a handle

@@ -30,28 +30,38 @@ func (s *Sketch) RemoveConstraint(c Constraint) bool {
 // an arc tangency's sweep slack) when its last occurrence is removed, mirroring
 // how entity-owned variables are retired.
 //
-// It is skipped for a constraint referencing geometry this sketch does not own —
-// the same screen [Sketch.AddConstraint] applies to allocVars, and for the same
-// reason. A foreign constraint is committed unparameterized, so this sketch
-// never allocated the variables its indices name: retiring them here would
-// ground an unrelated variable of THIS sketch (or run off its vector) while
-// resetting the donor's indices, silently dropping a row from a constraint the
-// donor still holds.
+// It is screened on the ALLOCATING sketch: the variables are retired only when
+// this sketch is the one that allocated them, read through the allocatedBy
+// accessor the auxOwner field carries (allocVars records the sketch before it
+// allocates anything). Retiring on any other sketch's behalf would ground an
+// unrelated variable of THIS sketch — or run off its vector — while resetting
+// the owner's indices, silently dropping a row from a constraint that sketch
+// still holds. A constraint no sketch has parameterized reads nil and is
+// likewise skipped, its indices being unallocated already.
 //
-// The screen is by reference ownership rather than by "which sketch allocated
-// it", which is state no hook exposes. The two agree wherever the engine itself
-// removes a constraint: the removal cascade runs before its entity or point is
-// spliced out, so a constraint being cascaded still owns every reference. They
-// part only for a constraint whose exported operand field was rewired to another
-// sketch's handle after it was committed here, which leaks one aux variable
-// (a phantom free DOF in this sketch) rather than corrupting the other one.
+// That is a DIFFERENT question from the one the other two doors ask.
+// [Sketch.AddConstraint] and [Sketch.CheckConstraint] screen on reference
+// ownership (foreignConstraint), which is right THERE: they decide whether to
+// parameterize at all, and the constraint has no allocating sketch yet. Here the
+// allocation has already happened, and reference ownership does not answer who
+// performed it. The two disagree in both directions for a constraint whose
+// exported operand field was rewired after it was committed: rewired to another
+// sketch's handle (or to a dead one of this sketch, which owns reports the same
+// way), a constraint THIS sketch parameterized reads foreign and would leak its
+// variable forever — a phantom free DOF this sketch's own report cannot see.
+// Removal reaches that state through [Sketch.RemoveConstraint] and through the
+// [Sketch.RemoveEntity]/[Sketch.RemovePoint] cascade alike, since the cascade
+// matches on one operand while another may be the rewired one.
 func (s *Sketch) retireConstraintVars(c Constraint) {
-	if s.foreignConstraint(c) {
+	r, ok := c.(interface{ retireVars(*Sketch) })
+	if !ok {
+		return // owns no auxiliary variables
+	}
+	a, ok := c.(interface{ allocatedBy() *Sketch })
+	if !ok || a.allocatedBy() != s {
 		return
 	}
-	if r, ok := c.(interface{ retireVars(*Sketch) }); ok {
-		r.retireVars(s)
-	}
+	r.retireVars(s)
 }
 
 func containsConstraint(cs []Constraint, c Constraint) bool {
