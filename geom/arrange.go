@@ -837,6 +837,12 @@ func splineExtent(cc [][2]float64) float64 {
 // for a usable radius or semi-axis.
 func posFinite(v float64) bool { return v > 0 && !math.IsInf(v, 1) }
 
+// finitePt reports whether both coordinates of an evaluated sample are finite.
+func finitePt(p [2]float64) bool {
+	return !math.IsNaN(p[0]) && !math.IsNaN(p[1]) &&
+		!math.IsInf(p[0], 0) && !math.IsInf(p[1], 0)
+}
+
 // degenRecord is one degenerate condition: a representative point and the sources
 // it involves. An EMPTY srcs means the condition could not be attributed to any
 // geometry that reaches the arrangement — an unusable input curve, dropped before
@@ -896,6 +902,32 @@ func (a *arranger) densify() {
 			}
 			return s.at(params[i])
 		}
+		// A source whose EVALUATED samples are not finite contributes nothing the
+		// arrangement can compare: every ordered test against a NaN is false, so it
+		// forms no vertex, no cut and no edge, and the scene scale it poisons is
+		// reset to 1 below — the curve vanishes with no signal anywhere. Sample the
+		// whole source first and drop it as degenerate if any point is non-finite,
+		// the same handling an unusable input curve already gets in newArranger.
+		// This is the ONLY place that sees evaluated samples, so it is the only
+		// place a stored-value check (a NaN interior knot, a NaN control point)
+		// cannot reach.
+		pts := make([][2]float64, last+1)
+		bad := false
+		for i := 0; i <= last; i++ {
+			pts[i] = atParam(i)
+			if !finitePt(pts[i]) {
+				bad = true
+			}
+		}
+		if bad {
+			a.flagDegenerate(0, 0)
+			s.kind = srcDegenerate
+			// A dropped source withholds exact bounds scene-wide, the same rule
+			// newArranger applies to a source it could not use.
+			a.exactAllowed = false
+			continue
+		}
+		atParam = func(i int) [2]float64 { return pts[i] }
 		prev := atParam(0)
 		note(prev)
 		for i := 1; i <= last; i++ {
