@@ -109,10 +109,10 @@ Same-component interior tangency is a **self-touch** → `SelfIntersections`, no
    system orders coincident-tangent ports by exact source tangent + signed
    **curvature** (`sortExactPorts` clusters same-ray ports into direction buckets,
    then sorts by an EXACT lexicographic key (groupAngle, curvature, index) — a
-   transitive strict-weak order, no epsilon in the comparator; the seam-free
-   half-plane + cross-product direction compare is used only for clustering and the
-   osculation flag) instead of chord angle, so a shared tangent vertex no longer
-   branch-swaps. The increment-2 conservative `flagDegenerate` for a **merged-vertex
+   transitive strict-weak order, no epsilon in the comparator; `dirParallelEps`
+   enters only the same-ray clustering and the osculation flag, both of which
+   compare directions by dot sign and scaled cross magnitude) instead of chord
+   angle, so a shared tangent vertex no longer branch-swaps. The increment-2 conservative `flagDegenerate` for a **merged-vertex
    EXTERNAL circle/arc tangency** is lifted: it is blessed as two clean disks at
    every sampling (opposite curvature sign separates the loops). **Load-bearing scope
    rule:** exact ordering is used ONLY at the certified tangency contacts
