@@ -438,9 +438,11 @@ func constraintKind(c Constraint) string {
 	case *tangentToNURBS:
 		return "tangent_nurbs"
 	case *tangentConics:
-		switch t.B.(type) {
-		case circleConic, arcConic: // B is a circular operand (circle or arc)
-			return "tangent_ellipse_circle"
+		if t != nil {
+			switch t.B.(type) {
+			case circleConic, arcConic: // B is a circular operand (circle or arc)
+				return "tangent_ellipse_circle"
+			}
 		}
 		return "tangent_ellipses"
 	case *midpoint:
