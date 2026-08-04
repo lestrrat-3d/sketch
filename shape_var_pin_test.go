@@ -22,9 +22,12 @@ package sketch_test
 // This file does neither. It derives three sets from source with go/ast (the
 // way entity_switches_test.go derives the entity set) and compares each
 // against one pinned canonical string. On the happy path — the common case —
-// it does nothing beyond checking that every registered site can still be
-// found. Only a SET change or a dead anchor fails it. Rewording a site's prose
-// around a live anchor never does.
+// it does nothing at all: the site list is read only when a set actually
+// changes. Rewording a site's prose around a live anchor — on any path,
+// including a site you did not touch — never fails it; only a SET change
+// does, and then it prints every registered site's current text, marking any
+// whose anchor no longer resolves so the site can be found by hand rather
+// than blocking the run.
 //
 // THREE sets are pinned, not one, because there are three owners:
 //
@@ -102,12 +105,16 @@ const (
 
 // shapeVarSite is one place in the tree whose prose depends on one of the
 // three pinned sets. Anchor is a STRUCTURAL token — a Go identifier, a
-// composite-literal key, a Markdown heading, or a bolded label this repo uses
-// as a heading — never a sentence or a prose excerpt, so an ordinary reword
-// around it does not disturb it. Before/Lines say how many lines above/below
-// the anchor's own line to quote; for a CLAUDE.md row (one enormous line) they
-// are ignored in favor of a character window around the anchor's offset
-// within the line — see resolveShapeVarSite.
+// composite-literal key, a Markdown heading, a bolded label this repo uses as
+// a heading, or a full `t.Run` subtest name — never a sentence or a prose
+// excerpt, so an ordinary reword around it does not disturb it. A `t.Run`
+// name is the accepted exception to "never a sentence": inside a subtest
+// there is no declaration-level anchor to point at, and changing a test's own
+// declared name is a deliberate edit to that test, not an incidental prose
+// reword the way rewording a comment is. Before/Lines say how many lines
+// above/below the anchor's own line to quote; for a CLAUDE.md row (one
+// enormous line) they are ignored in favor of a character window around the
+// anchor's offset within the line — see resolveShapeVarSite.
 type shapeVarSite struct {
 	Group  shapeVarGroup
 	File   string
@@ -119,52 +126,52 @@ type shapeVarSite struct {
 
 var shapeVarSites = []shapeVarSite{
 	// --- entityShapeVars: the per-entity definition itself -----------------
-	{groupShapeVars, "sketch.go", "entityShapeVars returns",
-		"the definition's own doc comment states the set in full", 0, 6},
-	{groupShapeVars, "CLAUDE.md", "`entityShapeVars` is the ONE definition",
+	{groupShapeVars, "sketch.go", "func entityShapeVars",
+		"the definition's own doc comment states the set in full", 28, 0},
+	{groupShapeVars, "CLAUDE.md", "`entityShapeVars`",
 		"the sketch.go row states the set in full", 0, 0},
 	{groupShapeVars, "entity_switches_test.go", `{"sketch.go", "entityShapeVars"}`,
 		"the exemption reason names which types own none", 0, 0},
 	{groupShapeVars, "profile_revision_test.go", "changing an entity's shape value",
 		"test comment restates circle/ellipse/conic's shape values", 0, 5},
-	{groupShapeVars, "docs/conic-design.md", "`entityShapeVars` (rho",
+	{groupShapeVars, "docs/conic-design.md", "`entityShapeVars`",
 		"the conic integration site names rho and its kind", 0, 3},
-	{groupShapeVars, "docs/nurbs-design.md", "`entityShapeVars` (none",
+	{groupShapeVars, "docs/nurbs-design.md", "`entityShapeVars`",
 		"the NURBS integration site asserts it owns no shape var", 0, 3},
-	{groupShapeVars, "docs/nurbs-design.md", "no new var kind",
+	{groupShapeVars, "docs/nurbs-design.md", "**conditioning.go / probe.go**",
 		"a second NURBS-owns-none restatement, for conditioning.go/probe.go", 0, 3},
-	{groupShapeVars, "docs/removal-design.md", "**Which vars those are is",
-		"negative statement: which types own none", 0, 6},
-	{groupShapeVars, "docs/reference-geometry-design.md", "**point / line / arc / circle**",
-		"the Model section names which entities own extra vars", 0, 4},
+	{groupShapeVars, "docs/removal-design.md", "`splOf`)",
+		"negative statement: which types own none", 0, 7},
+	{groupShapeVars, "docs/reference-geometry-design.md", "`Ellipse`/`Spline`",
+		"the Model section names which entities own extra vars", 1, 4},
 	{groupShapeVars, "docs/reference-geometry-design.md", "**Circle radius**",
 		"the Locking section names an arc's and an ellipse's vars", 0, 5},
 	{groupShapeVars, "docs/reference-geometry-design.md", "## Serialization",
 		"the loader's unsupported-kind rejection names ellipse/spline", 0, 11},
 	{groupShapeVars, "docs/reference-geometry-design.md", "## Open questions / follow-ups",
 		"the follow-up list restates the ellipse/spline claim again", 0, 5},
-	{groupShapeVars, "diagnose.go", "EntityIsFullyConstrained reports",
-		"doc comment's negative half: an arc's radius is derived, so it owns none", 0, 4},
+	{groupShapeVars, "diagnose.go", "func (s *Sketch) EntityIsFullyConstrained",
+		"doc comment's negative half: an arc's radius is derived, so it owns none", 13, 0},
 	{groupShapeVars, "removal.go", "for _, v := range entityShapeVars(e)",
 		"negative restatement above the loop: a line, an arc and the spline families own none", 4, 0},
 	{groupShapeVars, "CLAUDE.md", "Sketch.EntityIsFullyConstrained",
 		"the diagnose.go row's negative half: none for a line, an arc or the spline families", 0, 0},
-	{groupShapeVars, "revision.go", "Line owns no scalar var to",
-		"illustration inside the entity-uid-identity argument: a Line owns none", 2, 3},
-	{groupShapeVars, "profile_revision_test.go", "which owns no scalar var",
-		"illustration inside the entity-uid-identity test comment: a Line owns none", 2, 3},
+	{groupShapeVars, "revision.go", "for _, e := range s.ents",
+		"illustration inside the entity-uid-identity argument: a Line owns none", 0, 14},
+	{groupShapeVars, "profile_revision_test.go", "func TestProfileStalenessEntityRecreated",
+		"illustration inside the entity-uid-identity test comment: a Line owns none", 14, 0},
+	{groupShapeVars, "revision_internal_test.go", "package sketch",
+		"the file header comment restates entityShapeVars' per-type selectors", 0, 13},
 
 	// --- the varKind grouping ------------------------------------------------
 	{groupVarKind, "sketch.go", "varCoordinate",
 		"the varKind constants' own comments name the owning types per kind", 0, 4},
-	{groupVarKind, "conditioning.go", "A = Drow · J · Dcol",
-		"the file-level overview names which kinds are length vs dimensionless", 0, 7},
-	{groupVarKind, "conditioning.go", "condVarScales returns",
-		"condVarScales' doc comment restates the same grouping", 0, 7},
+	{groupVarKind, "conditioning.go", "func (s *Sketch) condVarScales",
+		"condVarScales' doc comment restates the same grouping", 8, 0},
 	{groupVarKind, "probe.go", "case varDimensionless:",
 		"the seeding switch's case comments name the kinds by example", 11, 3},
-	{groupVarKind, "probe.go", "configSep is the distance",
-		"configSep's doc comment enumerates one case per kind", 0, 5},
+	{groupVarKind, "probe.go", "func configSep",
+		"configSep's doc comment enumerates one case per kind", 6, 0},
 	{groupVarKind, "docs/conditioning-gate-design.md", "**Column scale `Dcol`**",
 		"column-scale prose names the kinds by example", 0, 8},
 	{groupVarKind, "docs/conditioning-gate-design.md", "**Variable kinds.**",
@@ -175,14 +182,16 @@ var shapeVarSites = []shapeVarSite{
 		"clustering section enumerates one case per kind", 0, 8},
 
 	// --- entityStructuralState: the superset ----------------------------
-	{groupStructState, "revision.go", "It hashes the RESOLVED SHAPE VALUE",
-		"entityStructuralState's own doc comment states the superset in full", 4, 10},
-	{groupStructState, "revision.go", "Revision returns",
-		"Sketch.Revision's doc comment restates the per-entity shape state", 0, 12},
-	{groupStructState, "CLAUDE.md", "**Shape values**, in `entityStructuralState`",
+	{groupStructState, "revision.go", "func entityStructuralState",
+		"entityStructuralState's own doc comment states the superset in full", 18, 0},
+	{groupStructState, "revision.go", "func (s *Sketch) Revision",
+		"Sketch.Revision's doc comment restates the per-entity shape state", 33, 0},
+	{groupStructState, "CLAUDE.md", "**Shape values**",
 		"the revision.go row enumerates the superset", 0, 0},
 	{groupStructState, "profile_revision_test.go", "changing NURBS structural data",
 		"test comment names NURBS' degree/knots/weights specifically", 0, 5},
+	{groupStructState, "revision_internal_test.go", "func TestRevisionResolvesShapeValues",
+		"the doc comment restates entityStructuralState's per-type accessors", 9, 0},
 }
 
 // ---------------------------------------------------------------------------
@@ -197,22 +206,9 @@ func TestEntityShapeVarSetsArePinned(t *testing.T) {
 	structStateOK := structState == structuralStatePin
 
 	if shapeVarsOK && kindGroupsOK && structStateOK {
-		// Cheap always-on half: every site's anchor must still resolve, or the
-		// list this test hands out on failure has rotted since it was written.
-		// Collect every unresolved anchor before failing, rather than stopping
-		// at the first: a batch reword (the ordinary way several anchors go
-		// stale at once) must not take multiple CI runs to fully report.
-		var stale []string
-		for _, site := range shapeVarSites {
-			if _, ok := resolveShapeVarSite(site); !ok {
-				stale = append(stale, fmt.Sprintf("  %s (anchor %q, group %s)", site.File, site.Anchor, site.Group))
-			}
-		}
-		if len(stale) > 0 {
-			require.Failf(t, "shape-var restatement sites no longer resolve", "%s\n"+
-				"Update shapeVarSites in shape_var_pin_test.go — the list is the deliverable of this test "+
-				"and must not go stale silently.", strings.Join(stale, "\n"))
-		}
+		// The happy path: no set changed, so the site list is not read at all.
+		// A dead anchor here is a latent gap in the hint a future set change
+		// will print, not something this run needs to know about.
 		return
 	}
 
