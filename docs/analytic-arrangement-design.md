@@ -56,10 +56,11 @@ classification, vertex merge, and angular ordering.
 A clean analytic tangency is **one contact, crossing-parity zero** — never a
 transverse crossing. Two externally tangent circles must yield two clean disk
 regions (no lens/sliver, no `Degenerate`); a tangent line prunes away leaving one
-disk. BUT the current planar map cannot safely represent a tangency where the
-contact canonicalizes as a **shared vertex between two cycle-bearing sources**:
-`buildGraph` sorts outgoing half-edges by chord angle, and at a tangency those
-angles tie, so the face walk can branch-swap the loops. So:
+disk. BUT the current planar map cannot safely represent such a tangency when a
+**LINE** is one of the two sources: `buildGraph` sorts outgoing half-edges by
+chord angle, and at a tangency those angles tie, so the face walk can
+branch-swap the loops. Both curved cases are certified instead — mechanism in
+the `geom` section of `CLAUDE.md`. So:
 
 - clean analytic tangent ⇒ no cut, no near-angle degeneracy;
 - if the tangent contact would merge into a shared cycle-bearing vertex AND a LINE
