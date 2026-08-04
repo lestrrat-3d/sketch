@@ -35,7 +35,11 @@ Reference is three fields on the existing `Point` and on each entity, mirroring
 and round-tripped, never interpreted), `stale bool`. Reusing the existing types
 (not a new entity kind) keeps constraints, removal, and the geom snapshot path
 unchanged. v1 covers **point / line / arc / circle**; `Ellipse`/`Spline`
-reference geometry is a follow-up (they own extra solver vars — see Locking).
+reference geometry is a follow-up — an ellipse owns extra solver vars
+(`rxi`/`ryi`/`roti`, see Locking) needing the same locking extension as the
+circle radius; a spline owns none of its own (its shape is entirely its
+control points, ordinary points the existing pattern already locks), so its
+exclusion here is scope, not that same technical gap.
 
 Reference and construction are **mutually exclusive** categories. The reference
 constructors never set construction; `SetConstruction(true)` is a no-op on
@@ -214,8 +218,9 @@ is rejected on load). All `omitempty`, round-tripped like `construction`/`fixed`
 On load a reference point is re-locked (reference ⇒ fixed, plus the circle radius
 var); the loader **rejects** a corrupt document — a `reference` entity whose
 defining points are not all reference, also flagged construction, or of an
-unsupported kind (`reference:true` on an ellipse/spline, which v1 cannot fully
-lock) — and rebuilds the topology seal from the validated geometry. `source` is an opaque string (no cross-id resolution,
+unsupported kind (`reference:true` on an ellipse, whose extra solver vars v1
+does not lock, or on a spline, out of v1's scope for other reasons) — and
+rebuilds the topology seal from the validated geometry. `source` is an opaque string (no cross-id resolution,
 unlike a plane `BaseID`). Fields are additive and `omitempty`, so v2 documents
 without them load unchanged.
 
@@ -261,7 +266,9 @@ reading the output can tell locked snapshots from solver geometry.
 
 ## Open questions / follow-ups
 
-- Reference `Ellipse`/`Spline` (own extra vars — same locking pattern as the
-  circle radius, deferred).
+- Reference `Ellipse` (owns extra vars — same locking pattern as the circle
+  radius, deferred) and reference `Spline` (owns no shape variable of its own —
+  its control points already lock like any reference line/arc's — excluded
+  from v1 for other reasons).
 - Entity-level batch refresh (re-feed a whole source's geometry in one call).
 - Whether a stale reference should also differ visibly in exports.

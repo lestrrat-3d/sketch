@@ -36,9 +36,12 @@ or unit.
 with `L` the bounding-box diagonal of the geometry (floored to 1):
 
 - **Column scale `Dcol`** — `L` for length-kind variables (point coordinates,
-  circle radii, ellipse and elliptical-arc semi-axes, and the conic-tangency
-  contact-witness coordinates), `1` for dimensionless variables (ellipse and
-  elliptical-arc rotation, a conic's rho, every slack / spline-parameter aux).
+  plus whichever entity shape variables `varKinds` reports as length — a
+  circle's radius and the ellipse/elliptical-arc semi-axes among them — and the
+  conic-tangency contact-witness coordinates), `1` for dimensionless variables
+  (the shape variables `varKinds` reports as angle or dimensionless — ellipse
+  and elliptical-arc rotation, a conic's rho — and every slack /
+  spline-parameter aux).
 - **Row scale `Drow`** — `1/L` for length-kind residual rows, `1` for
   dimensionless rows.
 

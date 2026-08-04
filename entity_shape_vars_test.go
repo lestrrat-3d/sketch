@@ -67,13 +67,13 @@ var entityBuilders = []entityBuilder{
 }
 
 // TestFixEntityGroundsEveryVariable pins that grounding an entity leaves it with
-// no degree of freedom at all — its defining points AND every scalar variable it
-// owns beyond them (a circle's radius, an ellipse's or elliptical arc's
-// semi-axes and rotation, a conic's rho). DOF() answers from the Jacobian's free
-// columns rather than from the grounding API, so a variable missing from the one
-// definition of an entity's shape variables (entityShapeVars) shows up here as a
-// remaining degree of freedom, while FixEntity/EntityFixed — which read that
-// same definition — would agree with each other and report nothing.
+// no degree of freedom at all — its defining points AND every scalar variable
+// entityShapeVars reports for its type (a circle's radius being one example).
+// DOF() answers from the Jacobian's free columns rather than from the grounding
+// API, so a variable missing from that one definition of an entity's shape
+// variables shows up here as a remaining degree of freedom, while
+// FixEntity/EntityFixed — which read that same definition — would agree with
+// each other and report nothing.
 func TestFixEntityGroundsEveryVariable(t *testing.T) {
 	t.Run("the builders cover every entity type", func(t *testing.T) {
 		s := newSketch(t)

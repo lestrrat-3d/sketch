@@ -87,7 +87,9 @@ converged and distinct. Scale comes from the baseline bounding-box diagonal
    splitmix64 stream keyed by (seed, restart, variable index); amplitude
    cycles ¼, ½, 1 × the bbox diagonal for multi-scale coverage. Radius
    variables stay positive (a negative radius fights `norm()`'s floor); the
-   ellipse-rotation variable is offset within ±π instead of by length. Each
+   ellipse-rotation variable is offset within ±π instead of by length; a
+   conic's fullness rho is seeded across (0, 1) instead of by scene length,
+   clamped away from the open bounds. Each
    restart perturbs from the baseline, never the previous restart, so rounds
    are independent of acceptance history.
 
@@ -105,7 +107,8 @@ A candidate is a duplicate iff its distance to **any** accepted configuration
 is below `separationTol` (1e-6, relative). The metric is the max over free
 variables of the per-variable relative separation: coordinates and radii
 relative to the bbox diagonal; angle variables wrapped into (−π, π], folded by
-π (a rotation of π maps an ellipse onto itself) and relative to π. Solver
+π (a rotation of π maps an ellipse onto itself) and relative to π; a bounded
+ratio (a conic's rho) relative to its unit range. Solver
 noise sits below ~1e-8 relative while real branches differ at feature scale,
 so the threshold has orders of magnitude of margin on both sides.
 

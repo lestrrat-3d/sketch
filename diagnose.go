@@ -441,12 +441,11 @@ func (p *Point) IsFullyConstrained() bool {
 
 // EntityIsFullyConstrained reports whether none of an entity's degrees of
 // freedom can move within the constraints: its defining points' coordinates and
-// its own intrinsic shape variables. A [Line] or [Arc] owns no shape variable
-// (an arc's radius is the derived distance from center to start), so it is fully
-// constrained exactly when its points are; a [Circle], [Ellipse],
-// [EllipticalArc] or [Conic] also requires its radius / semi-axes / rotation /
-// rho to be pinned. It is the per-entity companion to [Point.IsFullyConstrained]
-// — the answer to "which curve would a GUI color as under-constrained".
+// whichever intrinsic shape variables entityShapeVars reports for its type (a
+// circle's radius being one example; an arc's radius is the derived distance
+// from center to start, so it owns none). It is the per-entity companion to
+// [Point.IsFullyConstrained] — the answer to "which curve would a GUI color as
+// under-constrained".
 //
 // It reports false for an entity this sketch does not own — nil, a removed
 // handle, another sketch's entity, or one of this sketch's entities with a
