@@ -205,6 +205,15 @@ func (s *Sketch) bounds() (bbox, bool) {
 	}
 	for _, e := range s.ents {
 		switch t := e.(type) {
+		case *Line:
+			// A line lies within its two endpoints, and an OWNED endpoint was
+			// already added by the point loop above. The case exists for the
+			// endpoint this sketch does not own: entity fields are exported and
+			// CreateLine takes a foreign *Point silently, so a line is the one
+			// entity whose whole geometry can sit outside s.points.
+			b.add(t.Start.x(), t.Start.y())
+			b.add(t.End.x(), t.End.y())
+			any = true
 		case *Circle:
 			b.add(t.Center.x()-t.r(), t.Center.y()-t.r())
 			b.add(t.Center.x()+t.r(), t.Center.y()+t.r())
