@@ -63,6 +63,10 @@ func (s *Sketch) DXF(opts ...DXFOption) (string, error) {
 		}
 	}
 
+	if b, ok := s.bounds(); ok && !b.finite() {
+		return "", ErrNonFiniteGeometry
+	}
+
 	var sb strings.Builder
 
 	// Minimal but valid R12 header.

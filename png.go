@@ -70,6 +70,9 @@ func (s *Sketch) PNG(options ...PNGOption) ([]byte, error) {
 	}
 
 	b, w, h := s.renderBounds(cfg.margin)
+	if !b.finite() {
+		return nil, ErrNonFiniteGeometry
+	}
 	scale := cfg.scale
 	if scale <= 0 {
 		scale = pngFitLongSide / math.Max(w, h)

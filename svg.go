@@ -1,6 +1,7 @@
 package sketch
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -235,6 +236,28 @@ func (s *Sketch) bounds() (bbox, bool) {
 	return b, any
 }
 
+// finite reports whether every corner of the box is a finite number. A sketch
+// carrying a non-finite coordinate (a NaN interior knot, a NaN control point, a
+// point moved to NaN) poisons the box, and every downstream comparison against a
+// NaN is false — so the non-positive-span clamp below does not catch it and the
+// renderers emit NaN width/height/viewBox or, in PNG's case, hand image.Rect an
+// out-of-range int. The exporters refuse instead.
+func (b bbox) finite() bool {
+	for _, v := range [4]float64{b.minX, b.minY, b.maxX, b.maxY} {
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return false
+		}
+	}
+	return true
+}
+
+// ErrNonFiniteGeometry is returned by the exporters when the sketch's bounding
+// box is not a finite box — a point or entity somewhere in the sketch evaluates
+// to NaN or infinity. Exported deliberately: a future [Sketch.Verify] condition
+// is meant to reuse this same sentinel, so the oracle's reason and the
+// exporter's refusal name one fact rather than two that could drift apart.
+var ErrNonFiniteGeometry = errors.New("sketch: geometry has non-finite coordinates: a point or entity evaluates to NaN or infinity")
+
 // renderBounds resolves the drawing's bounding box and the margin-padded
 // width/height shared by the SVG and PNG exporters: an empty sketch falls back
 // to a unit box, and a non-positive span is clamped to 1.
@@ -291,6 +314,9 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 	}
 
 	b, w, h := s.renderBounds(cfg.margin)
+	if !b.finite() {
+		return "", ErrNonFiniteGeometry
+	}
 
 	// Windowed framing adds an outer padding P around the margin-padded content;
 	// the frame border sits at that boundary and the sketch's own margin becomes
