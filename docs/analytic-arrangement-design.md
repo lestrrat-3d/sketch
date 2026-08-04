@@ -124,33 +124,30 @@ Same-component interior tangency is a **self-touch** → `SelfIntersections`, no
    tangent inner cycle certified inside the outer) — was narrowed by §7b: a transverse
    crossing needs incidence, not port order (see §7b), and containment landed in §7a.
 
-   *Internal-tangency finding (why it is increment-7-level, not a focused increment).*
-   The current behaviour is **sound**: the consistency gate flags EVERY internal
-   tangency `Degenerate` (the inner sampled polygon pokes OUTSIDE the outer near the
-   contact — inherent to tangency — so a sampled crossing is left with no analytic
-   contact to explain it). At the oracle's default sampling the underlying result is in fact
-   correct (regions=2, exact π·R² area via the circular-segment correction + hole
-   assignment), it is simply flagged. So `Sketch.Verify` never blesses a wrong internal
-   tangency (a broad sweep: blessed=0, flagged=72, false-valids=0).
-   Two blessing attempts both fail, for the SAME root cause: (a) relaxing
-   `externalCurvedTangency` to record an exactPortVert → the exact-ordering face walk
-   double-counts the inner at tiny-inner/coarse-spt; (b) merely SUPPRESSING the
-   consistency-gate flag (no exact ordering, rely on hole assignment) → also double-counts at
-   tiny-inner/coarse-spt, because the inner's poke-out moves the hole-assignment
-   containment probe outside the coarse outer polygon, so the inner is not subtracted
-   (outer reads as the full disk π·R², total π·R²+π·r²). The poke-out is the load-bearing
-   obstacle: it is intrinsic to a tangency sampled as chords, and it breaks BOTH the
-   shared-vertex face walk and the disjoint-style hole assignment. The robust fix is
-   **exact curve fragments** between event params (the increment-7 full curved DCEL),
-   which eliminate the poke-out entirely — not a closed-containment or area-consistency
-   gate bolted onto the sampled map (an area gate also fails to compose with other
-   geometry, since `total == π·R_outer²` only holds for an isolated pair). Until then
-   internal tangency stays conservatively `Degenerate` — sound, niche, deferred.
-   (A separate low-level caveat, NOT reachable through the oracle: `geom.Regions` called
-   directly with an explicit `WithSegmentsPerTurn(4|5)` can bless the double-count,
-   because the inner is so coarse the poke-out crossings vanish and the gate sees
-   nothing. `Sketch.Profiles` always uses the adaptive default (~64+), so the oracle is
-   unaffected.)
+   *Internal-tangency finding (what made it increment-7-level, and how §7a resolved
+   it).* The load-bearing obstacle was the **poke-out**: the inner sampled polygon
+   crosses OUTSIDE the outer near the contact, which is intrinsic to a tangency drawn
+   as chords, and it breaks two things at once — the shared-vertex face walk and the
+   disjoint-style hole assignment. That is why neither cheap blessing worked. (a)
+   Relaxing `externalCurvedTangency` to record an exactPortVert left the exact-ordering
+   face walk double-counting the inner at tiny-inner/coarse-spt. (b) Merely SUPPRESSING
+   the consistency-gate flag (no exact ordering, rely on hole assignment) double-counted
+   there too, because the poke-out moves the hole-assignment containment probe outside
+   the coarse outer polygon and the inner is never subtracted (outer reads as the full
+   disk π·R², total π·R²+π·r²). Bolting a closed-containment or area-consistency gate
+   onto the sampled map is no fix either: an area gate does not compose with other
+   geometry, since `total == π·R_outer²` only holds for an isolated pair.
+   §7a removes the obstacle rather than working around it. Hole assignment stopped
+   reading the chord polygon at all — `exactPointInRegion`'s ray-cast is immune to the
+   poke-out — so the same exact tangent-port ordering that blesses the external case
+   blesses this one. `internalCurvedTangency` exempts the pair from the consistency
+   gate and certifies its shared contact, and the inner nests into the outer as an
+   annulus π·(R²−r²) plus an inner disk π·r², exact at every sampling
+   (`TestAnalyticInternalTangentBlessed` and `TestAnalyticInternalTangentTinyInnerBlessed`
+   pin it; `TestAnalyticInternalTangentNeverBlessedWrong` pins blessed ⇒ correct). The
+   low-level `WithSegmentsPerTurn(4|5)` double-count the sampled containment could once
+   bless went with it — measured at two regions netting π·R² down to `densify`'s
+   two-segment floor.
 
 4. **Analytic overlap / self-intersection coverage** for supported primitives
    (coincident lines, duplicate/overlapping arcs, identical circles, same-source
