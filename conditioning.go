@@ -14,10 +14,12 @@ import "math"
 // [VerificationReport.Trustworthy].
 //
 // A = Drow · J · Dcol, where (with L the bounding-box diagonal):
-//   - Dcol scales each length-kind variable column by L (point coordinates,
-//     circle radii / ellipse semi-axes, and the conic-tangency contact-witness
-//     coordinates) and leaves dimensionless columns (ellipse rotation, every
-//     slack / spline-parameter aux) at 1.
+//   - Dcol scales each length-kind variable column by L (point coordinates, the
+//     entity shape variables varKinds reports as varRadius — a circle's radius
+//     being one example — and the conic-tangency contact-witness coordinates)
+//     and leaves every dimensionless column at 1 (the shape variables varKinds
+//     reports as varAngle or varDimensionless, and every slack /
+//     spline-parameter aux).
 //   - Drow scales each length-kind residual row by 1/L and leaves dimensionless
 //     rows at 1.
 // Every entry of A is then dimensionless and invariant under a uniform rescale of
@@ -86,10 +88,12 @@ func (s *Sketch) lengthScale() float64 {
 }
 
 // condVarScales returns the nondimensionalizing column scale per variable index:
-// L for length-kind variables (point coordinates; circle radii / ellipse
-// semi-axes via varKinds; the conic-tangency contact-witness coordinates), and 1
-// for dimensionless variables (ellipse rotation and every slack / spline-parameter
-// aux — which varKinds would otherwise leave defaulted to coordinate).
+// L for length-kind variables (point coordinates; the entity shape variables
+// varKinds reports as varRadius, a circle's radius being one example; the
+// conic-tangency contact-witness coordinates), and 1 for dimensionless variables
+// (the shape variables varKinds reports as varAngle or varDimensionless, and
+// every slack / spline-parameter aux — which varKinds would otherwise leave
+// defaulted to coordinate).
 func (s *Sketch) condVarScales(L float64) []float64 {
 	scale := make([]float64, len(s.vars))
 	for i := range scale {

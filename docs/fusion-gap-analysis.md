@@ -103,8 +103,9 @@ The geometric set is already close to Fusion's. Remaining gaps:
   value satisfying the equation while the real swept length differs). Line-line
   (length) and circle/arc-radius equality already exist (`NewEqual`/`NewEqualRadius`).
 - ~~**Fix/ground a whole entity**~~ — *closed*: `Sketch.FixEntity`/`UnfixEntity`/
-  `EntityFixed` ground all of an entity's variables (points + circle radius /
-  ellipse axes); `UnfixEntity` leaves untouched any shared point the grounding API
+  `EntityFixed` ground all of an entity's variables (points + whatever shape
+  variables `entityShapeVars` reports for the type); `UnfixEntity` leaves
+  untouched any shared point the grounding API
   cannot release — a reference-locked point and the sketch origin.
 - **Coincident point-to-entity** — Fusion's coincident subsumes
   point-on-line/point-on-curve under one name; the pieces exist, this is

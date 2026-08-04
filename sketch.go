@@ -13,9 +13,10 @@ import (
 )
 
 // Sketch holds solver-bound geometry and the constraints that relate it. All
-// scalar unknowns (point coordinates, circle radii, ellipse axes/rotation) live
-// in a single flat parameter vector so the constraint solver can treat the whole
-// sketch as one nonlinear system.
+// scalar unknowns — every point's coordinates, plus whichever intrinsic shape
+// variables entityShapeVars reports for an entity's type, a circle's radius
+// being one example — live in a single flat parameter vector so the constraint
+// solver can treat the whole sketch as one nonlinear system.
 //
 // Geometry is authored directly against the sketch: [Sketch.CreatePoint] takes
 // coordinates and returns a durable [Point] handle; the curve builders
@@ -489,8 +490,8 @@ type varKind uint8
 
 const (
 	varCoordinate    varKind = iota // point x/y (the default)
-	varRadius                       // circle radius, ellipse semi-axes
-	varAngle                        // ellipse rotation
+	varRadius                       // circle radius, ellipse/elliptical-arc semi-axes
+	varAngle                        // ellipse/elliptical-arc rotation
 	varDimensionless                // a bounded ratio: a conic's fullness rho ∈ (0, 1)
 )
 
@@ -543,8 +544,9 @@ func entityShapeVars(e Entity) []shapeVar {
 	return nil
 }
 
-// FixEntity grounds all of an entity's variables — its defining points and any
-// shape variables (a circle's radius, an ellipse's semi-axes and rotation) — so
+// FixEntity grounds all of an entity's variables — its defining points and
+// every shape variable entityShapeVars reports for its type (a circle's radius
+// being one example) — so
 // the solver holds the whole entity rigid at its current shape and location. It
 // is the entity-level counterpart of [Sketch.Fix].
 //
