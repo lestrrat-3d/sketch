@@ -16,7 +16,9 @@ var ErrOverconstrained = errors.New("sketch: constraint would over-constrain the
 // candidate that cannot be read: a nil constraint, a typed-nil one, or a live
 // one holding a nil operand. It is the corrupt-handle counterpart of
 // [ErrForeignHandle] — the sketch may own every handle such a candidate names,
-// so reporting it foreign would name a defect it does not have.
+// in which case reporting it foreign would be a false statement. A candidate
+// that is both corrupt and foreign is reported corrupt: the corruption screen
+// runs first, and an unreadable candidate cannot be probed at all.
 var ErrCorruptHandle = errors.New("sketch: corrupt handle")
 
 // conflictTol separates a satisfied residual from a violated one when
@@ -289,8 +291,10 @@ func rowCombo(basis, accRows [][]float64, target []float64) []int {
 // live one holding a nil point or entity operand. Every pass below dereferences
 // the candidate, so this is what keeps the method's documented non-panicking,
 // error-returning contract true of a corrupt candidate too; the sketch may own
-// every handle such a candidate names, so [ErrForeignHandle] would be the wrong
-// sentinel.
+// every handle such a candidate names, in which case [ErrForeignHandle] would
+// be the wrong sentinel. A candidate that is both corrupt and foreign is
+// reported corrupt too: this screen runs first, and the ownership defect
+// surfaces on the re-check and in [Sketch.Verify].
 //
 // It returns an error wrapping [ErrForeignHandle], without probing, for a
 // candidate referencing geometry this sketch does not own and for one whose

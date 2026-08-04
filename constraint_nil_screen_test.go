@@ -55,6 +55,29 @@ func TestCheckConstraintRemovedOperandStillForeign(t *testing.T) {
 	require.NotErrorIs(t, err, sketch.ErrCorruptHandle)
 }
 
+// A candidate can carry BOTH defects at once: NewDistance(foreignPoint, nil, 5)
+// names a point this sketch does not own AND a nil operand. The corruption
+// screen runs first — it must, since the ownership screen dereferences the
+// candidate through constraintRefs — so the candidate reads corrupt, never
+// foreign, and the foreign operand is never evaluated. Nothing is lost: once
+// committed, Verify reports the constraint's foreign handle on its own account.
+func TestCheckConstraintCorruptAndForeignReportsCorrupt(t *testing.T) {
+	s := newSketch(t)
+	fp := foreignPoint(t, 0, 5, 5)
+
+	c := sketch.NewDistance(fp, nil, 5)
+	err := s.CheckConstraint(c)
+	require.ErrorIs(t, err, sketch.ErrCorruptHandle)
+	require.NotErrorIs(t, err, sketch.ErrForeignHandle)
+
+	s.AddConstraint(c)
+	require.Len(t, s.Constraints(), 1)
+
+	rep := s.Verify(context.Background())
+	require.True(t, rep.ForeignHandles)
+	require.ErrorIs(t, rep.Check(), sketch.ErrForeignHandle)
+}
+
 // The load-bearing half: a candidate whose operands are all owned is probed as
 // before, including the aux-variable type the screen runs ahead of.
 func TestCheckConstraintOwnedCandidatesUnchanged(t *testing.T) {
