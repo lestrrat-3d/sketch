@@ -56,15 +56,18 @@ classification, vertex merge, and angular ordering.
 A clean analytic tangency is **one contact, crossing-parity zero** — never a
 transverse crossing. Two externally tangent circles must yield two clean disk
 regions (no lens/sliver, no `Degenerate`); a tangent line prunes away leaving one
-disk. BUT the current planar map cannot safely represent a tangency where the
-contact canonicalizes as a **shared vertex between two cycle-bearing sources**:
-`buildGraph` sorts outgoing half-edges by chord angle, and at a tangency those
-angles tie, so the face walk can branch-swap the loops. So:
+disk. BUT the current planar map cannot safely represent such a tangency where
+the contact canonicalizes as a **shared vertex between two cycle-bearing
+sources** AND a **LINE** is one of the two: `buildGraph` sorts outgoing
+half-edges by chord angle, and at a tangency those angles tie, so the face walk
+can branch-swap the loops. Both curved cases are certified instead — mechanism
+in the `geom` section of `CLAUDE.md`. So:
 
 - clean analytic tangent ⇒ no cut, no near-angle degeneracy;
-- if the tangent contact would merge into a shared cycle-bearing vertex ⇒
-  conservatively `flagDegenerate` (true tangent-**port** handling is a later
-  increment);
+- if the tangent contact would merge into a shared cycle-bearing vertex AND a LINE
+  is one of the two sources ⇒ conservatively `flagDegenerate`; both curved cases
+  (external, certified by increment 3, and internal/containment, certified by
+  §7a) are certified instead — mechanism in the `geom` section of `CLAUDE.md`;
 - a tangent line that is an open/dangling spur against a circle ⇒ no-cut is fine
   (the line is pruned, the circle stays one disk).
 
@@ -94,9 +97,11 @@ Same-component interior tangency is a **self-touch** → `SelfIntersections`, no
    it). A line-involved curved pair whose exact crossing
    the coarse sampled map cannot host (a sub-sample cap, or a crossing the polyline
    never reaches) is conservatively `Degenerate` via the gate, never a blessed wrong
-   topology. Tangencies that would merge into a shared cycle-bearing vertex are
-   conservatively `Degenerate` (see the tangency contract) pending increment 3. Tested
-   in `geom/arrange_analytic_test.go`. See "Wiring design" below.
+   topology. Increment 2 made any tangency that would merge into a shared
+   cycle-bearing vertex conservatively `Degenerate`; increment 3 plus §7a narrowed
+   that to the line-involved case only (see the tangency contract; mechanism
+   in the `geom` section of `CLAUDE.md`). Tested in
+   `geom/arrange_analytic_test.go`. See "Wiring design" below.
 
 3. **Exact tangent/port ordering** — *partly done* (`geom/arrange.go`:
    `source.differential`, `portKey`, `sortExactPorts`, `useExactPorts`,
@@ -690,7 +695,10 @@ topologically split by a crossing," not merely "a local cut was appended."
 (same two regions + cap area — analytic cuts are sampling-stable); a tangent
 line+circle (one disk, line pruned, no degeneracy); non-merged externally tangent
 circles (two disks, no degeneracy); merged-vertex tangent circles (`Degenerate=true`
-until the port handling of increment 3). Watch: bowtie/self-intersection, bowtie+spur,
+under increment 2 alone; now blessed — external as two disks
+(`TestAnalyticMergedExternalTangentBlessed`), internal containment as an annulus plus
+the inner disk (`TestAnalyticInternalTangentBlessed`); mechanism in the `geom` section
+of `CLAUDE.md`). Watch: bowtie/self-intersection, bowtie+spur,
 square-with-diagonals, circle-chord half-disk, overlapping rectangles, nested-square
 hole, collinear-overlap degeneracy, spline self-intersection/fallback.
 
@@ -713,5 +721,6 @@ hole, collinear-overlap degeneracy, spline self-intersection/fallback.
   (0, 2π]`, so swapping its endpoints builds the complementary arc rather than
   the same one authored backwards.
 - `Degenerate` always forces `ProfilesValid=false` and therefore `Trustworthy=false`.
-- A clean supported tangency does not set `Degenerate` (once the port handling lands;
-  conservatively `Degenerate` at a merged cycle-bearing vertex until then).
+- A clean supported tangency does not set `Degenerate`, except at a merged
+  cycle-bearing vertex where a LINE is one of the two sources — mechanism in the
+  `geom` section of `CLAUDE.md`.
