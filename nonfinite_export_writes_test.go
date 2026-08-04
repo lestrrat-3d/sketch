@@ -188,3 +188,53 @@ func TestExportersControlOrdinaryGeometryUnaffected(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, dxf)
 }
+
+// nonFiniteDimensionSketch builds a sketch with one dimensional constraint
+// (a plain point-to-point Distance) whose target is then driven non-finite
+// through the public Set API — the only reachable route to a non-finite
+// dimension label: a bound expression poisons the geometry so the bbox check
+// refuses first, and a driven dimension is refreshed from measurement.
+func nonFiniteDimensionSketch(t *testing.T, mag float64) *sketch.Sketch {
+	t.Helper()
+	s := newSketch(t)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
+	d := sketch.NewDistance(a, b, 10)
+	s.AddConstraint(d)
+	d.Set(mag)
+	return s
+}
+
+// TestSVGRefusesNonFiniteDimensionLabel pins the reported bypass: a
+// dimension's value label is built through units.Value.String, not
+// svgWriter.f, so a NaN/Inf target rendered without the fix as the literal
+// text "NaN mm"/"+Inf mm" inside a <text> element while SVG returned a nil
+// error. The label's magnitude must now be screened before it is formatted,
+// so WithDimensions refuses exactly like every other non-finite-geometry
+// case.
+func TestSVGRefusesNonFiniteDimensionLabel(t *testing.T) {
+	s := nonFiniteDimensionSketch(t, math.NaN())
+	out, err := s.SVG(sketch.WithDimensions(true))
+	require.ErrorIs(t, err, sketch.ErrNonFiniteGeometry)
+	require.Empty(t, out)
+}
+
+// TestSVGRefusesInfiniteDimensionLabel is the +Inf half of the same bypass.
+func TestSVGRefusesInfiniteDimensionLabel(t *testing.T) {
+	s := nonFiniteDimensionSketch(t, math.Inf(1))
+	out, err := s.SVG(sketch.WithDimensions(true))
+	require.ErrorIs(t, err, sketch.ErrNonFiniteGeometry)
+	require.Empty(t, out)
+}
+
+// TestSVGDimensionLabelOrdinaryUnaffected is the control the two cases above
+// need: an ordinary finite dimension still renders successfully with
+// WithDimensions, and the fix (screening the magnitude before formatting it)
+// does not alter that output.
+func TestSVGDimensionLabelOrdinaryUnaffected(t *testing.T) {
+	s := nonFiniteDimensionSketch(t, 15)
+	out, err := s.SVG(sketch.WithDimensions(true))
+	require.NoError(t, err)
+	require.NotEmpty(t, out)
+	require.Contains(t, out, "15 mm")
+}

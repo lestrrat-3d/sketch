@@ -308,18 +308,36 @@ func newSVGWriter() *svgWriter { return &svgWriter{nonFinite: new(bool)} }
 func (w *svgWriter) scratch() *svgWriter { return &svgWriter{nonFinite: w.nonFinite} }
 
 // f formats v compactly (see trimFloat) and flags the writer's shared
-// nonFinite bit when v is NaN or infinite. It is the ONE funnel every numeric
-// value the SVG/annotation/frame renderers write must pass through — grep
-// confirms no format verb bypasses it. Annotations and the watermark do write
-// caller-influenced TEXT into the same buffer (an entity name, a dimension's
-// unit-formatted value label), but that text is never built by formatting a
-// float through f — a NaN/Inf value is flagged before it is turned into text
-// at all, so an entity literally named "Inf" can never false-trip this.
+// nonFinite bit when v is NaN or infinite. It is the funnel every numeric
+// value the SVG/annotation/frame renderers WRITE AS A NUMBER must pass
+// through — grep confirms no other format verb bypasses it. Annotations and
+// the watermark do write caller-influenced TEXT into the same buffer (an
+// entity name, a dimension's unit-formatted value label): an entity name is
+// never built from a float at all, so it can never false-trip this, but a
+// dimension's label goes through units.Value.String, not f, since the
+// rendered text (e.g. "20 mm") is not a bare formatted float. Its magnitude
+// is screened separately, by note below, so a NaN/Inf target still refuses
+// the document rather than rendering as the literal text "NaN mm"/"+Inf mm".
 func (w *svgWriter) f(v float64) string {
 	if math.IsNaN(v) || math.IsInf(v, 0) {
 		*w.nonFinite = true
 	}
 	return trimFloat(v, 4)
+}
+
+// note raises w's shared nonFinite bit when v is NaN or infinite, without
+// writing any bytes. It exists for a value that never itself becomes SVG
+// output text but whose non-finiteness must still refuse the document: a
+// dimension's label goes through units.Value.String, not f, since the
+// rendered text (e.g. "20 mm") is not a bare formatted float — but its
+// magnitude must still be screened, or a NaN/Inf target renders as the
+// literal text "NaN mm"/"+Inf mm" with no refusal at all. Screening the
+// magnitude rather than the rendered string is deliberate: a string check
+// would false-trip on an entity or dimension legitimately named "Inf".
+func (w *svgWriter) note(v float64) {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		*w.nonFinite = true
+	}
 }
 
 // renderBounds resolves the drawing's bounding box and the margin-padded
