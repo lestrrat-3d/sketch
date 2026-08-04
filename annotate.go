@@ -206,9 +206,10 @@ func (s *Sketch) computeOverlaySets(cfg svgConfig) overlaySets {
 	}
 	if cfg.dofColoring {
 		// One null-space analysis; attribute movable vars to points (for point
-		// markers) and to entities (a line/arc via its endpoints, a circle/ellipse/
-		// elliptical arc/conic also via its intrinsic radius/axes/rotation/rho
-		// shape vars).
+		// markers) and to entities — every entity via its defining points (a
+		// line/arc via its endpoints), and additionally via whichever intrinsic
+		// shape vars entityShapeVars reports for its type, a circle's radius being
+		// one example.
 		movable := s.movableVars()
 		ov.freePt = make(map[*Point]struct{})
 		for _, p := range s.points {
