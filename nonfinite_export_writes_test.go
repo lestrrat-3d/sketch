@@ -140,6 +140,32 @@ func TestDXFRefusesThouUnitConversionOverflow(t *testing.T) {
 	require.Empty(t, out)
 }
 
+// TestDXFWorldSpaceRefusesOCSProjectionOverflow is another gap a bounds()-based
+// precondition cannot close: on a tilted plane (tiltedSketch, shared with
+// dxf_worldspace_test.go), a circle centered at (MaxFloat64, MaxFloat64) has a
+// perfectly finite bounding box in LOCAL coordinates — bbox.finite() passes —
+// but WithWorldSpace(true) routes CIRCLE/ARC through putOCS's arbitrary-axis
+// projection (w.Dot(ax)/w.Dot(ay)), and that dot product overflows float64 on
+// its own, after the precondition already ran clean. A LINE-only sketch does
+// not reach this: putWCS writes World() coordinates directly and stays finite
+// at the same values, so the case needs a circle (or arc) to reach putOCS.
+func TestDXFWorldSpaceRefusesOCSProjectionOverflow(t *testing.T) {
+	s := tiltedSketch(t)
+	c := s.CreatePoint(math.MaxFloat64, math.MaxFloat64)
+	s.CreateCircle(c, 3.5)
+
+	local, err := s.DXF()
+	require.NoError(t, err, "local mode never reaches putOCS's projection")
+	require.NotContains(t, local, "NaN")
+	require.NotContains(t, local, "Inf")
+	require.NotContains(t, local, "+Inf")
+	require.NotContains(t, local, "-Inf")
+
+	world, err := s.DXF(sketch.WithWorldSpace(true))
+	require.ErrorIs(t, err, sketch.ErrNonFiniteGeometry)
+	require.Empty(t, world)
+}
+
 // TestExportersControlOrdinaryGeometryUnaffected is the control every case
 // above needs: with none of the extreme options, all three exporters still
 // produce ordinary non-empty output for ordinary geometry, so the refusal
