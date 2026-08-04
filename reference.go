@@ -173,10 +173,14 @@ func (s *Sketch) RefreshReference(p *Point, x, y float64) error {
 
 // RefreshReferenceCircle rewrites a reference circle's locked radius and clears
 // its radius staleness. Refresh the center separately with
-// [Sketch.RefreshReference]. Returns [ErrNotReference] for a non-reference or
-// foreign circle.
+// [Sketch.RefreshReference]. Returns [ErrForeignEntity] for a circle this
+// sketch does not own (nil, another sketch's, or removed) and [ErrNotReference]
+// for a live non-reference circle.
 func (s *Sketch) RefreshReferenceCircle(c *Circle, r float64) error {
-	if c == nil || c.s != s || !c.reference {
+	if !s.ownsEntity(c) {
+		return ErrForeignEntity
+	}
+	if !c.reference {
 		return ErrNotReference
 	}
 	s.vars[c.ri] = r
