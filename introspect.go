@@ -13,8 +13,7 @@ package sketch
 //   - [ConstraintKind] and [IsInternal] never panic on any input a caller can
 //     construct: an untyped nil, a typed nil, a live constraint with a nil
 //     operand, or a handle whose operand has since been removed from the
-//     sketch. ([ConstraintKind] has one reflection-only exception; see its
-//     comment.)
+//     sketch.
 //   - [ConstraintRefs] PANICS on a typed nil, because it dereferences the
 //     concrete constraint to read its operand fields, and is safe on every
 //     other input shape. What a nil OPERAND comes back as is three-valued and
@@ -39,15 +38,11 @@ package sketch
 //
 // It is a type switch on c itself; the one case that looks further — the
 // tangent-conics case, which reads its operand's TYPE to tell a circular
-// operand from an elliptical one — never reads an operand's coordinates. So
-// it is SAFE for every input shape a caller can construct: an untyped nil, a
-// typed nil of any exported constraint handle type, a constraint built with
-// nil operands, and a handle whose operand has since been removed from the
-// sketch. The one exception needs reflection to reach: a typed nil of the
-// unexported tangent-conics type panics, because that case reads a field off
-// the nil receiver. The type cannot be named outside this package and both of
-// its constructors ([NewTangentEllipseCircular], [NewTangentEllipses]) return
-// a non-nil pointer, so only reflect.Zero over the dynamic type produces one.
+// operand from an elliptical one — guards its own receiver against nil before
+// reading it, and never reads an operand's coordinates. So it is SAFE for
+// every input shape a caller can construct: an untyped nil, a typed nil of
+// any constraint handle type, a constraint built with nil operands, and a
+// handle whose operand has since been removed from the sketch.
 func ConstraintKind(c Constraint) string {
 	return constraintKind(c)
 }

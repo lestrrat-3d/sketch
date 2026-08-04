@@ -216,10 +216,10 @@ func TestIntrospectionNilSafetyContract(t *testing.T) {
 		// constraint handle types — the concrete dimensional handles
 		// constraint.go's New… constructors return (*Distance and friends) —
 		// whose set is derived below from those constructors' declared return
-		// types, not trusted as a count. This uniformity does NOT extend to
-		// every constraint type: the unexported *tangentConics breaks it (its
-		// ConstraintKind case reads a field off the nil receiver and panics);
-		// see introspect.go's file header and ConstraintKind's own comment.
+		// types, not trusted as a count. The unexported *tangentConics is the one
+		// constraint type this table cannot express — it has no exported handle and
+		// both its constructors return a non-nil pointer — so its typed nil is pinned
+		// separately in constraintkind_typed_nil_test.go.
 		cases := []struct {
 			name string
 			c    sketch.Constraint
