@@ -143,6 +143,16 @@ var shapeVarSites = []shapeVarSite{
 		"the loader's unsupported-kind rejection names ellipse/spline", 0, 11},
 	{groupShapeVars, "docs/reference-geometry-design.md", "## Open questions / follow-ups",
 		"the follow-up list restates the ellipse/spline claim again", 0, 5},
+	{groupShapeVars, "diagnose.go", "EntityIsFullyConstrained reports",
+		"doc comment's negative half: an arc's radius is derived, so it owns none", 0, 4},
+	{groupShapeVars, "removal.go", "for _, v := range entityShapeVars(e)",
+		"negative restatement above the loop: a line, an arc and the spline families own none", 4, 0},
+	{groupShapeVars, "CLAUDE.md", "Sketch.EntityIsFullyConstrained",
+		"the diagnose.go row's negative half: none for a line, an arc or the spline families", 0, 0},
+	{groupShapeVars, "revision.go", "Line owns no scalar var to",
+		"illustration inside the entity-uid-identity argument: a Line owns none", 2, 3},
+	{groupShapeVars, "profile_revision_test.go", "which owns no scalar var",
+		"illustration inside the entity-uid-identity test comment: a Line owns none", 2, 3},
 
 	// --- the varKind grouping ------------------------------------------------
 	{groupVarKind, "sketch.go", "varCoordinate",
