@@ -627,9 +627,10 @@ transient value, call `Geometry()` (a fresh snapshot at the solved coords);
 
 ### The parameter model (load-bearing)
 
-All scalar unknowns — point `x`/`y`, circle radius, ellipse semi-axes/rotation
-— live in one flat vector on the `Sketch` (`vars []float64`, with a parallel
-`fixed []bool`). Sketch primitives hold **indices** into that vector (no
+All scalar unknowns — every point's `x`/`y`, plus whichever intrinsic shape
+variables `entityShapeVars` reports for an entity's type (a circle's radius being
+one example) — live in one flat vector on the `Sketch` (`vars []float64`, with a
+parallel `fixed []bool`). Sketch primitives hold **indices** into that vector (no
 geom back-reference). The solver reads/perturbs the vector directly. Grounding
 (`fixed`) is per-point on the sketch (`s.Fix`/`Unfix`); construction status is a
 settable per-entity property (`entity.SetConstruction`). Any new geometry that

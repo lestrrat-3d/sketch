@@ -13,9 +13,10 @@ import (
 )
 
 // Sketch holds solver-bound geometry and the constraints that relate it. All
-// scalar unknowns (point coordinates, circle radii, ellipse axes/rotation) live
-// in a single flat parameter vector so the constraint solver can treat the whole
-// sketch as one nonlinear system.
+// scalar unknowns — every point's coordinates, plus whichever intrinsic shape
+// variables entityShapeVars reports for an entity's type, a circle's radius
+// being one example — live in a single flat parameter vector so the constraint
+// solver can treat the whole sketch as one nonlinear system.
 //
 // Geometry is authored directly against the sketch: [Sketch.CreatePoint] takes
 // coordinates and returns a durable [Point] handle; the curve builders

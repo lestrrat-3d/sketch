@@ -113,9 +113,9 @@ see [`docs/goal-solve-design.md`](../goal-solve-design.md).
 
 ## How it works
 
-All scalar unknowns (point coordinates, circle radii) form one parameter
-vector. Each constraint contributes one or more residual equations, normalized
-to consistent units (lengths in length units, angles dimensionless) so the
-system stays well conditioned. A Levenberg–Marquardt least-squares solver with
-a numerical Jacobian drives the residuals to zero; the rank of the Jacobian
-gives the degree-of-freedom and redundancy analysis.
+All scalar unknowns form one parameter vector. Each constraint contributes one
+or more residual equations, normalized to consistent units (lengths in length
+units, angles dimensionless) so the system stays well conditioned. A
+Levenberg–Marquardt least-squares solver with a numerical Jacobian drives the
+residuals to zero; the rank of the Jacobian gives the degree-of-freedom and
+redundancy analysis.
