@@ -8,12 +8,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// nanKnotCrossingNURBS returns a degree-3 NURBS whose interior knot is NaN
-// (CreateNURBS's validation only checks knots[i] < knots[i-1], which is false
-// against NaN, so this shape is reachable through the public sketch API — see
-// TestNaNKnotNURBSCrossingSquareIsInvalidProfile) together with control points
-// collinear along y=5, so the curve is an exact straight line from (-2,5) to
-// (12,5) — crossing a 10x10 square at x0,y0=(0,0) clean through the middle.
+// nanKnotCrossingNURBS returns a degree-3 NURBS whose interior knot is NaN,
+// together with control points collinear along y=5, so the curve is an exact
+// straight line from (-2,5) to (12,5) — crossing a 10x10 square at
+// x0,y0=(0,0) clean through the middle. NewNURBS validates nothing by design,
+// which is how a NaN knot reaches this layer; the sketch layer's CreateNURBS
+// rejects a non-finite knot outright, so its own end-to-end fixture
+// (TestNaNControlCoordinateNURBSCrossingSquareIsInvalidProfile) poisons a
+// control-point COORDINATE instead and reaches the same arrangement.
 func nanKnotCrossingNURBS(t *testing.T, nan bool) *geom.NURBS {
 	t.Helper()
 	ctrl := []*geom.Point{

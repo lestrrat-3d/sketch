@@ -93,20 +93,26 @@ func TestNURBSValidation(t *testing.T) {
 		{"negative infinite weight", 2, p(3), []float64{1, math.Inf(-1), 1}, []float64{0, 0, 0, 1, 1, 1}},
 		{"NaN weight", 2, p(3), []float64{1, math.NaN(), 1}, []float64{0, 0, 0, 1, 1, 1}},
 		{"empty domain", 2, p(3), nil, []float64{0, 0, 0, 0, 0, 0}},
-		// knots[i] < knots[i-1] is false against a NaN in both directions, so
-		// the non-decreasing loop passes a NaN interior knot silently, and
+		// This row is the one the finiteness loop is NEEDED for — the only one
+		// of the four non-finite knot rows that CreateNURBS accepted before the
+		// loop existed. knots[i] < knots[i-1] is false against a NaN in both
+		// directions, so the non-decreasing loop passes it silently, and
 		// knots[degree] >= knots[n] is false against it too, so the
 		// empty-domain check misses it as well — finiteness is checked on its
 		// own account, mirroring the weight rows above.
 		{"NaN interior knot", 2, p(4), nil, []float64{0, 0, 0, math.NaN(), 1, 1, 1}},
 		// The same NaN, now sitting inside the START clamped run rather than
-		// the interior: the clamped check compares with !=, which is also
-		// false against NaN, so this shape needs its own row rather than
-		// being implied by "NaN interior knot".
+		// the interior. The clamped check compares with !=, and NaN != 0 is
+		// TRUE, so it already rejects this shape on its own ("knot vector is
+		// not clamped at the start") — the row is a boundary case kept for
+		// completeness, not one the finiteness loop closed. It also never
+		// examines an interior knot, which is why it can say nothing about the
+		// row above.
 		{"NaN knot inside a clamped run", 2, p(3), nil, []float64{0, math.NaN(), 0, 1, 1, 1}},
-		// +Inf/-Inf ARE caught by the non-decreasing compare already, but are
-		// rejected here too so the finiteness check is one place rather than
-		// split across two — matching the weight rows' same reasoning.
+		// +Inf/-Inf ARE caught by the non-decreasing compare already, so these
+		// two are likewise kept for completeness rather than closing a gap;
+		// the finiteness loop rejects them too so knot finiteness is one place
+		// rather than split across two — matching the weight rows' reasoning.
 		{"positive infinite interior knot", 2, p(4), nil, []float64{0, 0, 0, math.Inf(1), 1, 1, 1}},
 		{"negative infinite interior knot", 2, p(4), nil, []float64{0, 0, 0, math.Inf(-1), 1, 1, 1}},
 	}

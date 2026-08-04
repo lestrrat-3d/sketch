@@ -15,11 +15,10 @@ import (
 // CreateNURBS rejects a non-finite knot, but CreatePoint has no error return
 // and the solver moves control-point coordinates after construction, so a
 // construction-time check there could never hold as a precondition; a NaN
-// coordinate reaches committed geometry exactly as a NaN knot once did. The
-// poisoned point is left UNFIXED (unlike its neighbours): fixing it would
-// exclude it from the free-variable set entirely, while leaving it free is
-// what carries the NaN into the rank analysis the way it carries into the
-// arrangement.
+// coordinate reaches committed geometry exactly as a NaN knot once did. Every
+// control point is fixed in BOTH shapes, the poisoned one included: whether it
+// is fixed changes nothing the two tests assert (same DOF, same status, same
+// profile verdict), so the fixtures differ only in the NaN itself.
 func nanControlCoordinateNURBS(t *testing.T, s *sketch.Sketch, nan bool) *sketch.NURBS {
 	t.Helper()
 	mid := 4.0
@@ -30,10 +29,7 @@ func nanControlCoordinateNURBS(t *testing.T, s *sketch.Sketch, nan bool) *sketch
 		s.CreatePoint(-2, 5), s.CreatePoint(1, 5), s.CreatePoint(mid, 5),
 		s.CreatePoint(7, 5), s.CreatePoint(12, 5),
 	}
-	for i, p := range ctrl {
-		if nan && i == 2 {
-			continue
-		}
+	for _, p := range ctrl {
 		s.Fix(p)
 	}
 	knots := sketch.ClampedUniformKnots(len(ctrl), 3)
@@ -56,15 +52,18 @@ func groundedSquare(t *testing.T, s *sketch.Sketch) *sketch.Rectangle {
 // comparison against it is false and it contributes no vertex, cut or edge to
 // the arrangement — it vanishes, so the profile it would have split is
 // reported invalid rather than silently blessed as one clean region of area
-// 100. The poisoned control point is left free (see
-// nanControlCoordinateNURBS), so the NaN also reaches the rank analysis: the
-// point's x/y are free variables no residual constrains, so DOF is 2 rather
-// than the 0 the finite control gets. That is incidental to this fixture, not
-// the property under test — ProfilesValid/InvalidProfiles/Trustworthy are.
+// 100. The NaN also reaches the RANK analysis, which is why DOF is 2 rather
+// than the 0 the finite control gets: every control point here is fixed, so no
+// free control-point variable exists to explain it, and the free points the
+// report names are the SQUARE's own — the NaN corrupts the analysis of the
+// square's constraints. That is incidental to this fixture, not the property
+// under test, so the profile half is asserted on its own account through
+// Check(): Trustworthy() alone would still be false on the DOF reason if the
+// arrangement went back to blessing the vanished NURBS.
 func TestNaNControlCoordinateNURBSCrossingSquareIsInvalidProfile(t *testing.T) {
 	s := newSketch(t)
-	groundedSquare(t, s)
-	nanControlCoordinateNURBS(t, s, true)
+	square := groundedSquare(t, s)
+	nurbs := nanControlCoordinateNURBS(t, s, true)
 
 	if _, err := s.Solve(t.Context()); err != nil {
 		t.Fatalf("solve: %v", err)
@@ -73,8 +72,15 @@ func TestNaNControlCoordinateNURBSCrossingSquareIsInvalidProfile(t *testing.T) {
 	rep := s.Verify(t.Context())
 	require.Equal(t, 2, rep.DOF)
 	require.Equal(t, sketch.Underconstrained, rep.Status)
+	squarePoints := map[*sketch.Point]struct{}{square.A: {}, square.B: {}, square.C: {}, square.D: {}}
+	require.NotEmpty(t, rep.FreePoints, "the DOF is attributed to points, so the check below is not vacuous")
+	for _, p := range rep.FreePoints {
+		require.NotContains(t, nurbs.Control, p, "no NURBS control point is free; all five are fixed")
+		require.Contains(t, squarePoints, p, "the free DOF is attributed to the square's own points")
+	}
 	require.False(t, rep.ProfilesValid, "the NaN-coordinate crossing must not be silently dropped")
 	require.NotEmpty(t, rep.InvalidProfiles, "the square's region is reached by the degenerate NURBS")
+	require.ErrorIs(t, rep.Check(), sketch.ErrInvalidProfile, "the profile verdict must fail on its own account")
 	require.False(t, rep.Trustworthy(), "an arrangement degeneracy must not be blessed")
 }
 

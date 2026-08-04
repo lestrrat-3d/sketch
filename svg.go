@@ -246,18 +246,18 @@ func (s *Sketch) bounds() (bbox, bool) {
 }
 
 // finite reports whether every corner of the box is a finite number. A sketch
-// carrying a non-finite coordinate (a NaN interior knot, a NaN control point, a
-// point moved to NaN) poisons the box, and every downstream comparison against a
-// NaN is false — so the non-positive-span clamp below does not catch it and the
-// renderers emit NaN width/height/viewBox or, in PNG's case, hand image.Rect an
-// out-of-range int. Checked first as an early, cheap refusal with a better
-// locus than the postcondition below — but it is a PRECONDITION over the
-// geometry that produced the box, not over what the exporter actually writes,
-// and a finite box does not guarantee finite output: a finite span can still
-// overflow in a later margin/scale/pixel-width multiply, and DXF's display-unit
-// conversion can overflow a finite coordinate with no span arithmetic at all.
-// Kept as the first, narrower check; svgWriter.f and DXF's pairf are the
-// postcondition that closes those gaps.
+// carrying a non-finite coordinate (a NaN control point, a point moved to NaN —
+// a NaN knot is refused by CreateNURBS itself) poisons the box, and every
+// downstream comparison against a NaN is false — so the non-positive-span clamp
+// below does not catch it and the renderers emit NaN width/height/viewBox or,
+// in PNG's case, hand image.Rect an out-of-range int. Checked first as an
+// early, cheap refusal with a better locus than the postcondition below — but
+// it is a PRECONDITION over the geometry that produced the box, not over what
+// the exporter actually writes, and a finite box does not guarantee finite
+// output: a finite span can still overflow in a later margin/scale/pixel-width
+// multiply, and DXF's display-unit conversion can overflow a finite coordinate
+// with no span arithmetic at all. Kept as the first, narrower check;
+// svgWriter.f and DXF's pairf are the postcondition that closes those gaps.
 func (b bbox) finite() bool {
 	for _, v := range [4]float64{b.minX, b.minY, b.maxX, b.maxY} {
 		if math.IsNaN(v) || math.IsInf(v, 0) {
