@@ -175,6 +175,190 @@ func TestConstraintResiduals(t *testing.T) {
 	require.InDelta(t, 0, res[0], 1e-8)
 }
 
+// TestIntrospectionNilSafetyContract pins the CURRENT, deliberately asymmetric
+// nil-safety contract of the four introspection functions across four input
+// shapes: an untyped nil Constraint, a typed nil (checked over every exported
+// constraint handle type — the concrete dimensional handles constraint.go's
+// New… constructors return, e.g. a nil *Distance stored in the Constraint
+// interface, reachable in one line via the public NewDistance constructor
+// family), a live constraint holding a nil operand, and a handle whose operand
+// has since been removed from the sketch.
+// ConstraintKind and IsInternal never panic; ConstraintRefs panics only on a
+// typed nil; ConstraintResiduals panics on both nil shapes and, on the
+// removed-operand shape, silently returns a stale value instead of erroring.
+// A later change to any of these should show up here as a failing test rather
+// than a silent divergence from what introspect.go documents.
+//
+// The nil-OPERAND shape here is one constraint type; the per-constructor
+// outcomes across all of them are recorded in
+// TestIntrospectionNilOperandOutcomes (introspect_nil_contract_test.go).
+func TestIntrospectionNilSafetyContract(t *testing.T) {
+	t.Run("untyped nil", func(t *testing.T) {
+		var c sketch.Constraint // nil interface value
+
+		require.NotPanics(t, func() { sketch.ConstraintKind(c) })
+		require.Equal(t, "", sketch.ConstraintKind(c))
+
+		require.NotPanics(t, func() {
+			pts, ents := sketch.ConstraintRefs(c)
+			require.Nil(t, pts)
+			require.Nil(t, ents)
+		})
+
+		require.Panics(t, func() { sketch.ConstraintResiduals(c) })
+
+		require.NotPanics(t, func() { sketch.IsInternal(c) })
+		require.False(t, sketch.IsInternal(c))
+	})
+
+	t.Run("typed nil", func(t *testing.T) {
+		// The four outcomes below hold uniformly over the EXPORTED
+		// constraint handle types — the concrete dimensional handles
+		// constraint.go's New… constructors return (*Distance and friends) —
+		// whose set is derived below from those constructors' declared return
+		// types, not trusted as a count. This uniformity does NOT extend to
+		// every constraint type: the unexported *tangentConics breaks it (its
+		// ConstraintKind case reads a field off the nil receiver and panics);
+		// see introspect.go's file header and ConstraintKind's own comment.
+		cases := []struct {
+			name string
+			c    sketch.Constraint
+			kind string
+		}{
+			{"Distance", (*sketch.Distance)(nil), "distance"},
+			{"HorizontalDistance", (*sketch.HorizontalDistance)(nil), "hdistance"},
+			{"VerticalDistance", (*sketch.VerticalDistance)(nil), "vdistance"},
+			{"DistancePointLine", (*sketch.DistancePointLine)(nil), "distance_point_line"},
+			{"DistancePointCircle", (*sketch.DistancePointCircle)(nil), "distance_point_circle"},
+			{"DistanceLineCircle", (*sketch.DistanceLineCircle)(nil), "distance_line_circle"},
+			{"DistancePointArc", (*sketch.DistancePointArc)(nil), "distance_point_arc"},
+			{"DistanceLineArc", (*sketch.DistanceLineArc)(nil), "distance_line_arc"},
+			{"DistanceLines", (*sketch.DistanceLines)(nil), "distance_lines"},
+			{"Offset", (*sketch.Offset)(nil), "offset"},
+			{"Radius", (*sketch.Radius)(nil), "radius"},
+			{"Diameter", (*sketch.Diameter)(nil), "diameter"},
+			{"ArcLength", (*sketch.ArcLength)(nil), "arc_length"},
+			{"Angle", (*sketch.Angle)(nil), "angle"},
+			{"SemiMajor", (*sketch.SemiMajor)(nil), "semi_major"},
+			{"SemiMinor", (*sketch.SemiMinor)(nil), "semi_minor"},
+			{"EllipseRotation", (*sketch.EllipseRotation)(nil), "ellipse_rotation"},
+		}
+		// The list is anchored against constraint.go rather than against a
+		// count: every New… constructor returning a concrete pointer names one
+		// of these handle types, so a new dimensional constructor fails here
+		// until its typed nil is covered too.
+		handles := make(map[string]struct{})
+		for _, ctor := range constraintConstructorsFromSource(t) {
+			if ctor.handle == "" {
+				continue // returns the Constraint interface, so it has no exported handle
+			}
+			handles[ctor.handle] = struct{}{}
+		}
+		covered := make(map[string]struct{}, len(cases))
+		for _, tc := range cases {
+			covered[tc.name] = struct{}{}
+		}
+		require.Equal(t, sortedKeys(handles), sortedKeys(covered),
+			"the exported constraint handle types, enumerated from constraint.go's New… constructors")
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				require.NotPanics(t, func() { sketch.ConstraintKind(tc.c) })
+				require.Equal(t, tc.kind, sketch.ConstraintKind(tc.c))
+
+				require.Panics(t, func() { sketch.ConstraintRefs(tc.c) })
+
+				require.Panics(t, func() { sketch.ConstraintResiduals(tc.c) })
+
+				require.NotPanics(t, func() { sketch.IsInternal(tc.c) })
+				require.False(t, sketch.IsInternal(tc.c))
+			})
+		}
+	})
+
+	t.Run("nil operand inside a live constraint", func(t *testing.T) {
+		s := newSketch(t)
+		p2 := s.CreatePoint(3, 4)
+		c := sketch.NewDistance(nil, p2, 5)
+
+		require.NotPanics(t, func() { sketch.ConstraintKind(c) })
+		require.Equal(t, "distance", sketch.ConstraintKind(c))
+
+		require.NotPanics(t, func() {
+			pts, ents := sketch.ConstraintRefs(c)
+			require.Len(t, pts, 2)
+			require.Nil(t, pts[0], "the nil operand comes back as a nil element")
+			require.Same(t, p2, pts[1])
+			require.Empty(t, ents)
+		})
+
+		require.Panics(t, func() { sketch.ConstraintResiduals(c) })
+
+		require.NotPanics(t, func() { sketch.IsInternal(c) })
+		require.False(t, sketch.IsInternal(c))
+	})
+
+	t.Run("removed operand", func(t *testing.T) {
+		s := newSketch(t)
+		p1 := s.CreatePoint(0, 0)
+		p2 := s.CreatePoint(3, 4)
+		c := sketch.NewDistance(p1, p2, 5)
+		s.AddConstraint(c)
+
+		// p2 is used only by the constraint, not by any entity, so it can be
+		// removed directly; removal cascades to drop c from the sketch's own
+		// constraint list, but this test's c handle still points at it.
+		require.True(t, s.RemovePoint(p2))
+
+		require.NotPanics(t, func() { sketch.ConstraintKind(c) })
+		require.Equal(t, "distance", sketch.ConstraintKind(c))
+
+		require.NotPanics(t, func() { sketch.ConstraintRefs(c) })
+
+		// The removed point's variable slots are retired (grounded), not
+		// reclaimed, so the read succeeds and silently returns a residual
+		// computed from that stale, no-longer-live value. p1=(0,0) and
+		// p2=(3,4) are exactly 5 apart against a target of 5, so this
+		// residual is exactly 0 both before and after removal — this is the
+		// sharp edge of the hazard the doc comment names: a constraint whose
+		// operand no longer exists reads as SATISFIED to a caller folding
+		// residuals against tolerance, with nothing to say the operand is
+		// gone. See "mismatched target" below for the non-degenerate value.
+		require.NotPanics(t, func() { sketch.ConstraintResiduals(c) })
+		res := sketch.ConstraintResiduals(c)
+		require.Len(t, res, 1)
+		require.Equal(t, 0.0, res[0])
+
+		require.NotPanics(t, func() { sketch.IsInternal(c) })
+		require.False(t, sketch.IsInternal(c))
+	})
+
+	t.Run("removed operand, mismatched target", func(t *testing.T) {
+		// The satisfied case above (target 5 against points exactly 5 apart)
+		// can't show the residual carrying a real value across removal,
+		// since it's 0 before removal too. This case pins the non-degenerate
+		// value: RemovePoint retires the variable slot without changing its
+		// contents, so the post-removal residual must be bit-identical to
+		// the pre-removal one, not just present.
+		s := newSketch(t)
+		p1 := s.CreatePoint(0, 0)
+		p2 := s.CreatePoint(3, 4)
+		c := sketch.NewDistance(p1, p2, 9)
+		s.AddConstraint(c)
+
+		before := sketch.ConstraintResiduals(c)
+		require.Len(t, before, 1)
+		require.Equal(t, -4.0, before[0])
+
+		require.True(t, s.RemovePoint(p2))
+
+		after := sketch.ConstraintResiduals(c)
+		require.Len(t, after, 1)
+		require.Equal(t, before[0], after[0])
+		require.Equal(t, -4.0, after[0])
+	})
+}
+
 func TestInternalConstraintIntrospection(t *testing.T) {
 	s := newSketch(t)
 	center := s.CreatePoint(0, 0)
