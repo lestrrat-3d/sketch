@@ -119,8 +119,23 @@ gates trustworthiness on, since it also covers a condition that produced no regi
 every shared vertex degree 2 — judged on the pruned core, so a branched/
 subdivided wire is *not* flagged; a spline is the one source whose *own* polyline
 is tested for self-crossings, since a cubic can loop) and `Degenerate`
-(collinear-overlap, near-tangent uncertainty, or a NEAR MISS the chord-deviation
-bounds cannot separate — see `nearMissGuard` below). Region area is exact for
+(collinear-overlap, near-tangent uncertainty, a NEAR MISS the chord-deviation
+bounds cannot separate — see `nearMissGuard` below — or a source whose EVALUATED
+SAMPLES are non-finite). The last is `densify`'s own finiteness check
+(`finitePt`): a NaN/Inf sample compares false against everything, so an
+unchecked source would contribute no vertex, cut or edge at all and silently
+vanish from the arrangement — the curve disappears, and whatever it would have
+subdivided reads as one clean, wrongly-sized region with `Degenerate=false`.
+Reachable from stored data a constructor's own validation does not catch (e.g. a
+NURBS interior knot, which `CreateNURBS`'s `knots[i] < knots[i-1]` monotonicity
+check passes on a NaN, since that compare is false too — knot 4 of `[0,0,0,0,
+NaN,1,1,1,1]` is never in range for the separate clamped-endpoint check either).
+`densify` samples the whole source into a buffer FIRST and drops it as
+degenerate (`srcDegenerate` + `flagDegenerate`, `exactAllowed` forced false
+scene-wide, the same rule an unusable input curve already gets in `newArranger`)
+if any point is non-finite, because it is the ONLY place that sees evaluated
+samples — a check over stored control points/knots/weights cannot catch a value
+that only goes non-finite once evaluated. Region area is exact for
 **every** curve type: line/arc/circle (shoelace + exact circular-segment
 correction), ellipse/elliptical-arc (`chordEllipseCorrection` = ½·rx·ry·(Δφ −
 sin Δφ), the elliptical analog, rotation/translation-invariant), and **splines**
