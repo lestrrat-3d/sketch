@@ -7,15 +7,16 @@ package sketch
 // without holding the concrete type. All four are read-only — none of them
 // mutates the constraint or the sketch — but they do NOT share one nil-safety
 // contract, and a caller relying on that would be relying on something false.
-// [ConstraintKind] and [IsInternal] are safe for every input shape: an untyped
-// nil, a typed nil, a live constraint with a nil operand, or a handle whose
-// operand has since been removed from the sketch. [ConstraintRefs] is safe for
-// an untyped nil but PANICS on a typed nil, because it dereferences the
-// concrete constraint to read its operand fields. [ConstraintResiduals] is the
-// least safe of the four: it panics on both nil shapes, since evaluating a
-// residual means reading operand coordinates. See each function's own comment
-// for why. The asymmetry is deliberate, not an oversight — see
-// [ConstraintResiduals]'s comment for why it is not guarded.
+// [ConstraintKind] and [IsInternal] are safe for every input shape a caller
+// can construct: an untyped nil, a typed nil, a live constraint with a nil
+// operand, or a handle whose operand has since been removed from the sketch.
+// ([ConstraintKind] has one reflection-only exception; see its comment.)
+// [ConstraintRefs] is safe for an untyped nil but PANICS on a typed nil,
+// because it dereferences the concrete constraint to read its operand fields.
+// [ConstraintResiduals] is the least safe of the four: it panics on both nil
+// shapes, since evaluating a residual means reading operand coordinates. See
+// each function's own comment for why. The asymmetry is deliberate, not an
+// oversight — see [ConstraintResiduals]'s comment for why it is not guarded.
 
 // ConstraintKind returns a stable, machine-readable identifier for the
 // constraint's type — the same string used as "type" in the sketch's JSON
@@ -23,10 +24,19 @@ package sketch
 // mapping with the serializer (via constraintKind), so it never drifts from the
 // on-disk schema. The internal constraints auto-added by the geometry builders
 // (never serialized) report their own stable kinds — "arc_radius" and
-// "elliptical_arc_on". An unknown constraint type reports "". It is a pure type
-// switch on c itself and never dereferences an operand, so it is SAFE for
-// every input shape: an untyped nil, a typed nil, a constraint with a nil
-// operand, and a handle whose operand has since been removed from the sketch.
+// "elliptical_arc_on". An unknown constraint type reports "".
+//
+// It is a type switch on c itself; the one case that looks further — the
+// tangent-conics case, which reads its operand's TYPE to tell a circular
+// operand from an elliptical one — never reads an operand's coordinates. So
+// it is SAFE for every input shape a caller can construct: an untyped nil, a
+// typed nil of any exported constraint handle type, a constraint built with
+// nil operands, and a handle whose operand has since been removed from the
+// sketch. The one exception needs reflection to reach: a typed nil of the
+// unexported tangent-conics type panics, because that case reads a field off
+// the nil receiver. The type cannot be named outside this package and both of
+// its constructors ([NewTangentEllipseCircular], [NewTangentEllipses]) return
+// a non-nil pointer, so only reflect.Zero over the dynamic type produces one.
 func ConstraintKind(c Constraint) string {
 	return constraintKind(c)
 }

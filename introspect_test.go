@@ -177,11 +177,12 @@ func TestConstraintResiduals(t *testing.T) {
 
 // TestIntrospectionNilSafetyContract pins the CURRENT, deliberately asymmetric
 // nil-safety contract of the four introspection functions across four input
-// shapes: an untyped nil Constraint, a typed nil (a nil *Distance stored in
-// the Constraint interface — reachable in one line via the public NewDistance
-// constructor family, and representative of all 17 exported constraint handle
-// types, which share the same shape), a live constraint holding a nil
-// operand, and a handle whose operand has since been removed from the sketch.
+// shapes: an untyped nil Constraint, a typed nil (checked over all 17
+// exported constraint handle types — the concrete dimensional handles
+// constraint.go's New… constructors return, e.g. a nil *Distance stored in
+// the Constraint interface, reachable in one line via the public NewDistance
+// constructor family), a live constraint holding a nil operand, and a handle
+// whose operand has since been removed from the sketch.
 // ConstraintKind and IsInternal never panic; ConstraintRefs panics only on a
 // typed nil; ConstraintResiduals panics on both nil shapes and, on the
 // removed-operand shape, silently returns a stale value instead of erroring.
@@ -207,18 +208,52 @@ func TestIntrospectionNilSafetyContract(t *testing.T) {
 	})
 
 	t.Run("typed nil", func(t *testing.T) {
-		var d *sketch.Distance // nil pointer of a concrete constraint type
-		var c sketch.Constraint = d
+		// The four outcomes below hold uniformly over the 17 EXPORTED
+		// constraint handle types — the concrete dimensional handles
+		// constraint.go's New… constructors return (*Distance and friends) —
+		// enumerated here directly from those constructors' declared return
+		// types, not trusted as a count. This uniformity does NOT extend to
+		// every constraint type: the unexported *tangentConics breaks it (its
+		// ConstraintKind case reads a field off the nil receiver and panics);
+		// see introspect.go's file header and ConstraintKind's own comment.
+		cases := []struct {
+			name string
+			c    sketch.Constraint
+			kind string
+		}{
+			{"Distance", (*sketch.Distance)(nil), "distance"},
+			{"HorizontalDistance", (*sketch.HorizontalDistance)(nil), "hdistance"},
+			{"VerticalDistance", (*sketch.VerticalDistance)(nil), "vdistance"},
+			{"DistancePointLine", (*sketch.DistancePointLine)(nil), "distance_point_line"},
+			{"DistancePointCircle", (*sketch.DistancePointCircle)(nil), "distance_point_circle"},
+			{"DistanceLineCircle", (*sketch.DistanceLineCircle)(nil), "distance_line_circle"},
+			{"DistancePointArc", (*sketch.DistancePointArc)(nil), "distance_point_arc"},
+			{"DistanceLineArc", (*sketch.DistanceLineArc)(nil), "distance_line_arc"},
+			{"DistanceLines", (*sketch.DistanceLines)(nil), "distance_lines"},
+			{"Offset", (*sketch.Offset)(nil), "offset"},
+			{"Radius", (*sketch.Radius)(nil), "radius"},
+			{"Diameter", (*sketch.Diameter)(nil), "diameter"},
+			{"ArcLength", (*sketch.ArcLength)(nil), "arc_length"},
+			{"Angle", (*sketch.Angle)(nil), "angle"},
+			{"SemiMajor", (*sketch.SemiMajor)(nil), "semi_major"},
+			{"SemiMinor", (*sketch.SemiMinor)(nil), "semi_minor"},
+			{"EllipseRotation", (*sketch.EllipseRotation)(nil), "ellipse_rotation"},
+		}
+		require.Len(t, cases, 17, "the count of exported constraint handle types, enumerated from constraint.go's New… constructors")
 
-		require.NotPanics(t, func() { sketch.ConstraintKind(c) })
-		require.Equal(t, "distance", sketch.ConstraintKind(c))
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				require.NotPanics(t, func() { sketch.ConstraintKind(tc.c) })
+				require.Equal(t, tc.kind, sketch.ConstraintKind(tc.c))
 
-		require.Panics(t, func() { sketch.ConstraintRefs(c) })
+				require.Panics(t, func() { sketch.ConstraintRefs(tc.c) })
 
-		require.Panics(t, func() { sketch.ConstraintResiduals(c) })
+				require.Panics(t, func() { sketch.ConstraintResiduals(tc.c) })
 
-		require.NotPanics(t, func() { sketch.IsInternal(c) })
-		require.False(t, sketch.IsInternal(c))
+				require.NotPanics(t, func() { sketch.IsInternal(tc.c) })
+				require.False(t, sketch.IsInternal(tc.c))
+			})
+		}
 	})
 
 	t.Run("nil operand inside a live constraint", func(t *testing.T) {
@@ -262,12 +297,45 @@ func TestIntrospectionNilSafetyContract(t *testing.T) {
 
 		// The removed point's variable slots are retired (grounded), not
 		// reclaimed, so the read succeeds and silently returns a residual
-		// computed from that stale, no-longer-live value.
+		// computed from that stale, no-longer-live value. p1=(0,0) and
+		// p2=(3,4) are exactly 5 apart against a target of 5, so this
+		// residual is exactly 0 both before and after removal — this is the
+		// sharp edge of the hazard the doc comment names: a constraint whose
+		// operand no longer exists reads as SATISFIED to a caller folding
+		// residuals against tolerance, with nothing to say the operand is
+		// gone. See "mismatched target" below for the non-degenerate value.
 		require.NotPanics(t, func() { sketch.ConstraintResiduals(c) })
-		require.Len(t, sketch.ConstraintResiduals(c), 1)
+		res := sketch.ConstraintResiduals(c)
+		require.Len(t, res, 1)
+		require.Equal(t, 0.0, res[0])
 
 		require.NotPanics(t, func() { sketch.IsInternal(c) })
 		require.False(t, sketch.IsInternal(c))
+	})
+
+	t.Run("removed operand, mismatched target", func(t *testing.T) {
+		// The satisfied case above (target 5 against points exactly 5 apart)
+		// can't show the residual carrying a real value across removal,
+		// since it's 0 before removal too. This case pins the non-degenerate
+		// value: RemovePoint retires the variable slot without changing its
+		// contents, so the post-removal residual must be bit-identical to
+		// the pre-removal one, not just present.
+		s := newSketch(t)
+		p1 := s.CreatePoint(0, 0)
+		p2 := s.CreatePoint(3, 4)
+		c := sketch.NewDistance(p1, p2, 9)
+		s.AddConstraint(c)
+
+		before := sketch.ConstraintResiduals(c)
+		require.Len(t, before, 1)
+		require.Equal(t, -4.0, before[0])
+
+		require.True(t, s.RemovePoint(p2))
+
+		after := sketch.ConstraintResiduals(c)
+		require.Len(t, after, 1)
+		require.Equal(t, before[0], after[0])
+		require.Equal(t, -4.0, after[0])
 	})
 }
 
