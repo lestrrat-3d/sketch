@@ -9,7 +9,7 @@ import (
 )
 
 // nurbsControl returns five control points for a degree-3 NURBS, giving one
-// interior knot to poison.
+// interior control point to poison.
 func nurbsControl(s *sketch.Sketch) []*sketch.Point {
 	return []*sketch.Point{
 		s.CreatePoint(-2, 5),
@@ -20,23 +20,24 @@ func nurbsControl(s *sketch.Sketch) []*sketch.Point {
 	}
 }
 
-// nonFiniteSketch builds a sketch holding a NURBS whose one interior knot is
-// NaN. CreateNURBS's non-decreasing check compares knot values with <, and
-// every ordered comparison against NaN is false, so the NaN passes it silently;
-// the clamping check uses != and never examines an interior knot, and nothing
-// tests knot finiteness. The NaN reaches the curve: sampling it for the bounding
-// box (Polyline) evaluates to NaN, poisoning every exporter's bounds.
+// nonFiniteSketch builds a sketch holding a NURBS with one control point at a
+// NaN x coordinate. CreatePoint has no error return and the solver moves
+// control-point coordinates after construction, so there is no construction-
+// time check to reject this the way CreateNURBS now rejects a non-finite
+// knot; the guard for a poisoned coordinate has to live in the exporters
+// themselves. Sampling the curve for the bounding box (Polyline) evaluates to
+// NaN, poisoning every exporter's bounds.
 func nonFiniteSketch(t *testing.T) *sketch.Sketch {
 	t.Helper()
 	s := newSketch(t)
-	knots := sketch.ClampedUniformKnots(5, 3)
-	knots[4] = math.NaN()
-	_, err := s.CreateNURBS(3, nurbsControl(s), nil, knots)
-	require.NoError(t, err, "CreateNURBS does not validate knot finiteness")
+	ctrl := nurbsControl(s)
+	ctrl[2] = s.CreatePoint(math.NaN(), 5)
+	_, err := s.CreateNURBS(3, ctrl, nil, sketch.ClampedUniformKnots(5, 3))
+	require.NoError(t, err)
 	return s
 }
 
-// healthySketch is the same shape with a well-formed knot vector, so any
+// healthySketch is the same shape with a finite control point, so any
 // exporter difference between it and nonFiniteSketch is attributable to the
 // NaN alone.
 func healthySketch(t *testing.T) *sketch.Sketch {
@@ -79,8 +80,8 @@ func TestPNGRefusesNonFiniteGeometry(t *testing.T) {
 }
 
 // TestExportersUnaffectedByHealthyGeometry pins that the refusal is scoped to
-// a non-finite bounding box: the same shape with a finite knot vector renders
-// normally through all three exporters.
+// a non-finite bounding box: the same shape with a finite control point
+// renders normally through all three exporters.
 func TestExportersUnaffectedByHealthyGeometry(t *testing.T) {
 	s := healthySketch(t)
 	svg, err := s.SVG()

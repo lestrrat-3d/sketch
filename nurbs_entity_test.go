@@ -93,6 +93,39 @@ func TestNURBSValidation(t *testing.T) {
 		{"negative infinite weight", 2, p(3), []float64{1, math.Inf(-1), 1}, []float64{0, 0, 0, 1, 1, 1}},
 		{"NaN weight", 2, p(3), []float64{1, math.NaN(), 1}, []float64{0, 0, 0, 1, 1, 1}},
 		{"empty domain", 2, p(3), nil, []float64{0, 0, 0, 0, 0, 0}},
+		// The finiteness loop closes TWO gaps, and this row is the first of
+		// them: an INTERIOR NaN, which CreateNURBS accepted before the loop
+		// existed. knots[i] < knots[i-1] is false against a NaN in both
+		// directions, so the non-decreasing loop passes it silently, and
+		// knots[degree] >= knots[n] is false against it too, so the
+		// empty-domain check misses it as well — finiteness is checked on its
+		// own account, mirroring the weight rows above.
+		{"NaN interior knot", 2, p(4), nil, []float64{0, 0, 0, math.NaN(), 1, 1, 1}},
+		// The same NaN, now sitting inside the START clamped run rather than
+		// the interior. The clamped check compares with !=, and NaN != 0 is
+		// TRUE, so it already rejects this shape on its own ("knot vector is
+		// not clamped at the start") — the row is a boundary case kept for
+		// completeness, not one the finiteness loop closed. It also never
+		// examines an interior knot, which is why it can say nothing about the
+		// row above.
+		{"NaN knot inside a clamped run", 2, p(3), nil, []float64{0, math.NaN(), 0, 1, 1, 1}},
+		// An INTERIOR infinity has a finite neighbour on each side, so one of
+		// the two is out of order against it and the non-decreasing compare
+		// ALREADY catches these — they are likewise kept for completeness
+		// rather than closing a gap; the finiteness loop rejects them too so
+		// knot finiteness is one place rather than split across two, matching
+		// the weight rows' reasoning.
+		{"positive infinite interior knot", 2, p(4), nil, []float64{0, 0, 0, math.Inf(1), 1, 1, 1}},
+		{"negative infinite interior knot", 2, p(4), nil, []float64{0, 0, 0, math.Inf(-1), 1, 1, 1}},
+		// The second gap only the finiteness loop closes: a whole CLAMPED RUN
+		// of one infinity, at either end. It has no finite neighbour inside the
+		// run, so every pre-existing check passes it, each for its own reason —
+		// an all-equal run is non-decreasing, the clamped test compares with !=
+		// and +Inf != +Inf is false, and knots[degree] >= knots[n] is false
+		// when one side is an infinity of the right sign. Both of these were
+		// ACCEPTED before the loop existed, unlike the interior infinities.
+		{"infinite trailing clamped run", 2, p(4), nil, []float64{0, 0, 0, 1, math.Inf(1), math.Inf(1), math.Inf(1)}},
+		{"infinite leading clamped run", 2, p(4), nil, []float64{math.Inf(-1), math.Inf(-1), math.Inf(-1), 1, 2, 2, 2}},
 	}
 	for _, tc := range cases {
 		_, err := s.CreateNURBS(tc.degree, tc.control, tc.weights, tc.knots)
@@ -155,6 +188,35 @@ func TestNURBSAcceptedWeightsEvaluateFinitely(t *testing.T) {
 		u := float64(i) / 20
 		x, y := c.Eval(u)
 		require.InDeltaf(t, 1, math.Hypot(x, y), 1e-12, "quarter circle radius at t=%v", u)
+	}
+}
+
+// TestNURBSAcceptedKnotsEvaluateFinitely pins the PURPOSE of the knot
+// finiteness check, not merely its refusal: a curve CreateNURBS accepts over
+// an ordinary NON-UNIFORM knot vector evaluates to finite coordinates across
+// its whole domain, the clamped endpoints included. A NaN/Inf interior knot
+// is what the check exists to stop, so the property is asserted here rather
+// than left implied by the rejection table.
+func TestNURBSAcceptedKnotsEvaluateFinitely(t *testing.T) {
+	s := newSketch(t)
+	p := []*sketch.Point{
+		s.CreatePoint(0, 0), s.CreatePoint(1, 2), s.CreatePoint(3, 3),
+		s.CreatePoint(5, 1), s.CreatePoint(6, 0),
+	}
+
+	for _, knots := range [][]float64{
+		sketch.ClampedUniformKnots(5, 2),
+		{0, 0, 0, 0.2, 0.6, 1, 1, 1},
+		{0, 0, 0, 0.1, 0.9, 1, 1, 1},
+	} {
+		c, err := s.CreateNURBS(2, p, nil, knots)
+		require.NoErrorf(t, err, "knots %v accepted", knots)
+		for i := 0; i <= 20; i++ {
+			u := float64(i) / 20
+			x, y := c.Eval(u)
+			require.Falsef(t, math.IsNaN(x) || math.IsNaN(y), "knots %v: Eval(%v) = (%v, %v) is NaN", knots, u, x, y)
+			require.Falsef(t, math.IsInf(x, 0) || math.IsInf(y, 0), "knots %v: Eval(%v) = (%v, %v) is infinite", knots, u, x, y)
+		}
 	}
 }
 
