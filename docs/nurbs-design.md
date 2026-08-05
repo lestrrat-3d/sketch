@@ -55,10 +55,12 @@ type NURBS struct {
 `CreateNURBS(degree int, control []*Point, weights, knots []float64) (*NURBS, error)`:
 
 - Validates: `degree ≥ 1`; `len(control) ≥ degree+1`; `len(knots) =
-  len(control)+degree+1`; every knot **finite**, non-decreasing and **clamped**;
-  `len(weights) = len(control)` with every `w_i` **finite** and `> 0` (or
-  `weights == nil` ⇒ all 1); no nil point. Any violation → `ErrInvalidShape` (no
-  panic). Finiteness is its own clause on the weights and on the knots alike,
+  len(control)+degree+1`; every knot **finite**, non-decreasing and **clamped**,
+  spanning a **non-empty domain** (`knots[degree] < knots[len(control)]`, so an
+  all-equal knot vector is refused); `len(weights) = len(control)` with every
+  `w_i` **finite** and `> 0` (or `weights == nil` ⇒ all 1); no nil point. Any
+  violation → `ErrInvalidShape` (no panic). Finiteness is its own clause on the
+  weights and on the knots alike,
   because the ordered compare that covers the rest of each is false against a
   NaN. For a **weight**, an ordered `w_i > 0` compare admits `+Inf`, and one
   infinite weight makes the rational quotient's numerator and denominator both
@@ -188,12 +190,13 @@ kernel is a possible later cleanup, not part of this increment.
   doubling); SVG/PNG/DXF export contains it; DXF carries degree/knots/weights and
   rebuilds to the same curve; world-space DXF round-trips control points.
 - `CreateNURBS` validation table (bad degree / knot count / unclamped /
-  non-monotone knots / a NaN knot, interior and inside a clamped run / an
-  infinite knot, interior and as a whole clamped run at either end /
-  zero, negative, infinite, NaN or wrong-count weights / too-few control points /
-  nil) → `ErrInvalidShape`, plus the converse that an accepted curve evaluates
-  finitely across its domain, over a non-uniform knot vector as well as a uniform
-  one. Free-NURBS DOF = `2(n+1)`. `RemoveEntity` keeps the points.
+  non-monotone knots / an empty domain (an all-equal knot vector) / a NaN knot,
+  interior and inside a clamped run / an infinite knot, interior and as a whole
+  clamped run at either end / zero, negative, infinite, NaN or wrong-count
+  weights / too-few control points / nil) → `ErrInvalidShape`, plus the converse
+  that an accepted curve evaluates finitely across its domain, over a
+  non-uniform knot vector as well as a uniform one. Free-NURBS DOF = `2(n+1)`.
+  `RemoveEntity` keeps the points.
 - An executable `examples/` example with `// Output:`.
 
 ## Verification

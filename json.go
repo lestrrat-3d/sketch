@@ -888,7 +888,8 @@ func (s *Sketch) buildFromBody(body jsonSketchBody) error {
 			c.SetConstruction(je.Construction)
 		case "nurbs":
 			// CreateNURBS validates degree, control count, knot vector and weights;
-			// a nil/empty weights slice means non-rational (all weights 1).
+			// a nil weights slice means non-rational (all weights 1), while an
+			// empty non-nil one is a weight-count violation it refuses.
 			c, err := s.CreateNURBS(je.Degree, ps, je.Weights, je.Knots)
 			if err != nil {
 				return err
