@@ -15,7 +15,7 @@ import (
 // x0,y0=(0,0) clean through the middle. NewNURBS validates nothing by design,
 // which is how a NaN knot reaches this layer; the sketch layer's CreateNURBS
 // rejects a non-finite knot outright, so its own end-to-end fixture
-// (TestNaNControlCoordinateNURBSCrossingSquareIsInvalidProfile) poisons a
+// (TestNaNControlCoordinateNURBSReportsNonFiniteGeometry) poisons a
 // control-point COORDINATE instead and reaches the same arrangement.
 func nanKnotCrossingNURBS(t *testing.T, nan bool) *geom.NURBS {
 	t.Helper()

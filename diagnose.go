@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 )
 
@@ -53,8 +54,29 @@ type Diagnosis struct {
 // For the conflicting constraints together with the earlier constraints each
 // one fights — the conflict set — call [Sketch.Verify], which reports the same
 // partition plus that attribution.
+//
+// On non-finite geometry (see [Sketch.DOF]'s doc comment for why) the
+// dependency analysis this method otherwise depends on cannot be trusted, so
+// — like DOF and [Sketch.FreePoints] — it answers with MAXIMUM IGNORANCE
+// rather than refuse: every constraint the analysis could ever flag (every
+// one contributing residual rows, driven dimensions excluded since they
+// contribute none and so can never be flagged) is reported as Conflicting,
+// and Redundant is empty.
+//
+// An empty Diagnosis is NOT that answer, and is the reason this screen exists
+// at all: a caller reads two empty lists as "no constraint problem found",
+// the one direction a poisoned dependency analysis must never be allowed to
+// report. Conflicting rather than Redundant because "removing one changes
+// nothing" is itself a claim about geometry nothing here can support, while
+// Conflicting says only that no constraint in this sketch has been proven
+// consistent. This is a deliberate design choice, not an oversight: call
+// [Sketch.Verify] to learn that the condition was found at all, and which
+// geometry carries it.
 func (s *Sketch) Diagnose() *Diagnosis {
-	flagged, conflicts := s.conflictAnalysis()
+	flagged, conflicts, analysed := s.conflictAnalysis()
+	if !analysed {
+		return &Diagnosis{Conflicting: s.unprovenConstraints()}
+	}
 	conflicting := make(map[Constraint]struct{}, len(conflicts))
 	for _, cs := range conflicts {
 		conflicting[cs.Constraint] = struct{}{}
@@ -68,6 +90,24 @@ func (s *Sketch) Diagnose() *Diagnosis {
 		d.Redundant = append(d.Redundant, c)
 	}
 	return d
+}
+
+// unprovenConstraints is the maximum-ignorance constraint set [Sketch.Diagnose]
+// and [Sketch.RedundantConstraints] report on non-finite geometry: every
+// constraint the dependency analysis could ever flag. It mirrors residuals()'s
+// iteration exactly — driven dimensions skipped, since they contribute no
+// residual row and so can never be flagged by the real analysis either — so
+// the fabricated answer names a set the honest answer is a subset of, never a
+// constraint the analysis would not have looked at.
+func (s *Sketch) unprovenConstraints() []Constraint {
+	var out []Constraint
+	for _, c := range s.cons {
+		if d, ok := c.(Dimension); ok && d.Driven() {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 // ConflictSet reports a conflicting constraint together with the earlier
@@ -101,7 +141,24 @@ type ConflictSet struct {
 // redundant and conflicting ones together, exactly what RedundantConstraints
 // reports). The second lists only the conflicting ones (residual above
 // conflictTol) with their attribution. The sketch is not modified.
-func (s *Sketch) conflictAnalysis() ([]Constraint, []ConflictSet) {
+//
+// It is one of the four primitives that CARRY the non-finite-geometry screen
+// (see nonfinite.go): the third result is false — and no analysis is run — when
+// [Sketch.hasNonFiniteVars] holds, so a caller cannot read a dependency verdict
+// built from a poisoned Jacobian without handling the refusal. The screen sits
+// above the zero-row shortcut below, so it covers the branch where no Jacobian
+// is built at all and no caller needs a second, direct check beside this one.
+// The Gram–Schmidt projection that decides dependency here is as meaningless
+// over a non-finite Jacobian as the partial-pivot elimination is: both of its
+// tests ("scale < eps" and "rest <= eps*scale") are false whenever the row norm
+// is NaN, so such a row is always accepted as independent and its NaN enters the
+// basis, after which every later row projects to NaN and is accepted too — no
+// constraint is flagged at all, which is exactly the "no problem found" reading
+// the screen exists to prevent.
+func (s *Sketch) conflictAnalysis() ([]Constraint, []ConflictSet, bool) {
+	if s.hasNonFiniteVars() {
+		return nil, nil, false
+	}
 	free := s.freeVars()
 
 	// Map each residual row to the constraint that produced it, mirroring the
@@ -120,7 +177,7 @@ func (s *Sketch) conflictAnalysis() ([]Constraint, []ConflictSet) {
 	}
 	m := len(owners)
 	if m == 0 {
-		return nil, nil
+		return nil, nil, true
 	}
 
 	// Dependency analysis runs on the NONDIMENSIONAL Jacobian A = Drow·J·Dcol (the
@@ -198,7 +255,7 @@ func (s *Sketch) conflictAnalysis() ([]Constraint, []ConflictSet) {
 		}
 	}
 	if len(flagged) == 0 {
-		return nil, nil
+		return nil, nil, true
 	}
 
 	// Split into redundant (every dependent row satisfied) vs conflicting (a
@@ -219,7 +276,7 @@ func (s *Sketch) conflictAnalysis() ([]Constraint, []ConflictSet) {
 		sort.Slice(members, func(i, j int) bool { return consIdx[members[i]] < consIdx[members[j]] })
 		conflicts = append(conflicts, ConflictSet{Constraint: c, With: members})
 	}
-	return flagged, conflicts
+	return flagged, conflicts, true
 }
 
 // rowCombo expresses target as a linear combination of accRows (assumed
@@ -306,6 +363,30 @@ func rowCombo(basis, accRows [][]float64, target []float64) []int {
 // this sketch's geometry after a commit elsewhere passes the reference screen
 // while its indices still address the other sketch's vector.
 //
+// It returns an error wrapping [ErrNonFiniteGeometry], without probing, in two
+// cases. First, when the candidate ITSELF is a non-driven [Dimension] whose own
+// target is not a finite number: an unscreened non-finite target parameterizes
+// the augmented rank probe with a NaN row of its own, which a plain
+// partial-pivot comparison never correctly accepts or rejects — so a poisoned
+// candidate could pass even against an otherwise finite, EMPTY sketch. That is a
+// false statement about the sketch, not merely a differently-phrased one, and
+// this check runs before either rank pass reads the candidate. Second, when
+// this sketch's OWN geometry already holds a non-finite (NaN or infinite) point
+// coordinate, entity shape variable, dimension target, or constraint-owned
+// auxiliary variable (see [Sketch.nonFiniteVars]) — not a property of the
+// candidate c at all. The rank probe below ranks c against the sketch's
+// existing committed rows on the same nondimensional Jacobian [Sketch.Verify]
+// refuses to build over such geometry: a NaN pivot is neither correctly
+// selected nor correctly rejected by a plain partial-pivot comparison, so the
+// probe can silently rank a genuine duplicate as independent and accept it.
+// Unlike Verify this method has no report field to record a skip on, so it
+// refuses outright with the same sentinel rather than return a fabricated
+// verdict. A DRIVEN dimension is the one candidate NEITHER screen reaches: it
+// returns nil above, before either check runs or the probe allocates or ranks
+// anything, and it contributes no residual row for a poisoned pivot to misrank
+// — so refusing it would report a defect on a verdict the poisoned geometry
+// never takes part in.
+//
 // Like [Sketch.DOF], the analysis is local to the call-time configuration;
 // check against solved geometry (after [Sketch.Solve]) for the most reliable
 // verdict. A caller that wants Fusion's behavior — refuse the gesture, leave
@@ -331,6 +412,28 @@ func (s *Sketch) CheckConstraint(c Constraint) error {
 	}
 	if d, ok := c.(Dimension); ok && d.Driven() {
 		return nil // measures the geometry, constrains nothing
+	}
+	// The candidate's OWN target, independent of this sketch's geometry: a
+	// non-finite target makes c's own residual row NaN, which the augmented rank
+	// probe below never soundly accepts or rejects — so a poisoned candidate
+	// could pass even against an otherwise finite, EMPTY sketch. That is a false
+	// statement about the sketch, not a differently-phrased true one, so it is
+	// screened before any allocation or residual evaluation touches it.
+	if d, ok := c.(Dimension); ok && nonFinite(d.base()) {
+		return fmt.Errorf("%w: the candidate's target is not a finite number", ErrNonFiniteGeometry)
+	}
+	// This sketch's OWN geometry, independent of c: a non-finite pivot in the
+	// probe below is never soundly accepted or rejected either way, so a
+	// candidate that genuinely over-constrains a poisoned sketch can pass. See
+	// the doc comment above and [Sketch.nonFiniteVars].
+	//
+	// Below the driven shortcut, because that shortcut returns before allocVars,
+	// c.residual and both rank passes: a driven dimension contributes no residual
+	// row (residuals() skips it), so nothing about it is ever ranked and there is
+	// no verdict for a poisoned pivot to corrupt. Refusing it would report a
+	// defect on a call the poisoned geometry cannot reach.
+	if s.hasNonFiniteVars() {
+		return s.nonFiniteError()
 	}
 	// A constraint that owns auxiliary variables (the allocVars hook) parameterizes
 	// its residual with variables allocated only at commit — a spline foot point, an
@@ -419,15 +522,29 @@ func (s *Sketch) CheckConstraint(c Constraint) error {
 // configuration. Grounded points are never free. An empty result on a solved
 // sketch means it is fully constrained (DOF 0); this is the engine-level
 // answer to "which geometry would a GUI color as under-constrained".
+//
+// On non-finite geometry (see [Sketch.DOF]'s doc comment for why) the null-
+// space analysis this method otherwise depends on cannot be trusted, so —
+// like DOF — it answers with MAXIMUM IGNORANCE rather than refuse: every point
+// of the sketch, grounded ones included, mirroring DOF's total variable count
+// exactly.
+//
+// Excluding the grounded points is NOT that answer, for the same reason DOF
+// does not count free variables there: [Sketch.Fix] IS a constraint, so a
+// value that credits it collapses to empty on an all-grounded sketch — the
+// reading a caller gating on len(FreePoints())==0 takes as fully constrained,
+// on exactly the fixture this screen exists for. The sketch's own origin is
+// still excluded, as it is on the analysed path: it is not in s.points, and no
+// public call can move it. This is a deliberate design choice, not an
+// oversight: call [Sketch.Verify] to learn that the condition was found at all.
 func (s *Sketch) FreePoints() []*Point {
-	movable := s.movableVars()
+	movable, analysed := s.movableVars()
+	if !analysed {
+		return slices.Clone(s.points)
+	}
 	var out []*Point
 	for _, p := range s.points {
-		if _, ok := movable[p.xi]; ok {
-			out = append(out, p)
-			continue
-		}
-		if _, ok := movable[p.yi]; ok {
+		if pointMovable(p, movable) {
 			out = append(out, p)
 		}
 	}
@@ -454,16 +571,22 @@ func (s *Sketch) FreePoints() []*Point {
 // `scanReferenceIntegrity` and `checkNoForeignRefs` use — so this cannot
 // diverge from what [Sketch.Verify] reports, and it carries the origin
 // exception, so [Sketch.Origin] still reads correctly.
+//
+// It reports false on non-finite geometry too (see [Sketch.DOF]'s doc comment
+// for why the null-space analysis cannot be trusted there), which is the same
+// MAXIMUM-IGNORANCE stance [Sketch.FreePoints] takes when it reports every
+// point of the sketch: the per-point read and the aggregate one then agree
+// rather than contradict each other, and neither answers in the blessing
+// direction. Call [Sketch.Verify] to learn that the condition was found at all.
 func (p *Point) IsFullyConstrained() bool {
 	if p == nil || p.s == nil || !p.s.owns(p) {
 		return false
 	}
-	movable := p.s.movableVars()
-	if _, ok := movable[p.xi]; ok {
+	movable, analysed := p.s.movableVars()
+	if !analysed {
 		return false
 	}
-	_, ok := movable[p.yi]
-	return !ok
+	return !pointMovable(p, movable)
 }
 
 // EntityIsFullyConstrained reports whether none of an entity's degrees of
@@ -478,6 +601,13 @@ func (p *Point) IsFullyConstrained() bool {
 // handle, another sketch's entity, or one of this sketch's entities with a
 // defining point rewired to a point this sketch does not own — matching
 // [Sketch.EntityFixed], the other bare-bool entity read.
+//
+// It reports false on non-finite geometry too (see [Sketch.DOF]'s doc comment
+// for why the null-space analysis cannot be trusted there), which is the same
+// MAXIMUM-IGNORANCE stance [Sketch.FreePoints] and [Point.IsFullyConstrained]
+// take: the per-entity read then agrees with the aggregate one rather than
+// contradicting it, and neither answers in the blessing direction. Call
+// [Sketch.Verify] to learn that the condition was found at all.
 func (s *Sketch) EntityIsFullyConstrained(e Entity) bool {
 	// A variable index means something only in the sketch that allocated it, so an
 	// unscreened handle is read against THIS sketch's null-space support: a foreign
@@ -492,7 +622,11 @@ func (s *Sketch) EntityIsFullyConstrained(e Entity) bool {
 	if s.foreignInput(e) {
 		return false
 	}
-	return !entityMovable(e, s.movableVars())
+	movable, analysed := s.movableVars()
+	if !analysed {
+		return false
+	}
+	return !entityMovable(e, movable)
 }
 
 // entityMovable reports whether any of an entity's defining-point coordinates or
@@ -524,7 +658,18 @@ func entityMovable(e Entity, movable map[int]struct{}) bool {
 // to reduced row-echelon form: each non-pivot column seeds a null-space basis
 // vector with support on itself and on every pivot column its elimination
 // touches.
-func (s *Sketch) movableVars() map[int]struct{} {
+//
+// It is one of the four primitives that CARRY the non-finite-geometry screen
+// (see nonfinite.go): the second result is false — and no elimination is run —
+// when [Sketch.hasNonFiniteVars] holds, so a caller cannot read a null-space
+// support computed from a poisoned Jacobian without handling the refusal. The
+// elimination decides its pivots with exactly the comparisons that go the wrong
+// way against a non-finite entry, so the support it would report is neither an
+// over- nor an under-estimate but simply meaningless.
+func (s *Sketch) movableVars() (map[int]struct{}, bool) {
+	if s.hasNonFiniteVars() {
+		return nil, false
+	}
 	free := s.freeVars()
 	movable := make(map[int]struct{})
 	m := len(s.residuals(nil))
@@ -532,7 +677,7 @@ func (s *Sketch) movableVars() map[int]struct{} {
 		for _, vi := range free {
 			movable[vi] = struct{}{}
 		}
-		return movable
+		return movable, true
 	}
 
 	// Null-space support is computed on the NONDIMENSIONAL Jacobian A = Drow·J·Dcol
@@ -548,9 +693,9 @@ func (s *Sketch) movableVars() map[int]struct{} {
 	row := 0
 	for col := 0; col < n && row < m; col++ {
 		piv := row
-		best := math.Abs(J[row][col])
+		best := pivotAbs(J[row][col])
 		for r := row + 1; r < m; r++ {
-			if v := math.Abs(J[r][col]); v > best {
+			if v := pivotAbs(J[r][col]); v > best {
 				best = v
 				piv = r
 			}
@@ -592,5 +737,23 @@ func (s *Sketch) movableVars() map[int]struct{} {
 			}
 		}
 	}
-	return movable
+	return movable, true
+}
+
+// pointMovable reports whether either of a point's coordinates is in movable
+// (the Jacobian null-space support) — the point-level companion to
+// [entityMovable], and the ONE definition the free-point reads share
+// ([Sketch.FreePoints], [Point.IsFullyConstrained], the DOF colouring in
+// annotate.go), so a point cannot read free through one and constrained through
+// another.
+//
+// Like entityMovable it is deliberately UNSCREENED: every caller screens the
+// handle and the geometry first, through [Sketch.movableVars]'s own second
+// return.
+func pointMovable(p *Point, movable map[int]struct{}) bool {
+	if _, ok := movable[p.xi]; ok {
+		return true
+	}
+	_, ok := movable[p.yi]
+	return ok
 }

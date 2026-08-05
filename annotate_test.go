@@ -375,6 +375,41 @@ func TestStatusBadge(t *testing.T) {
 	require.Contains(t, out, "fully constrained")
 }
 
+// TestStatusBadgeSkippedAnalysis pins the badge on both causes that stop
+// [Sketch.Verify] before it analyses anything. DOF, Status and Solvable hold an
+// unevaluated zero value on that path, which the report's own doc comment says
+// is not a verdict, so a card that renders them puts a number on the drawing for
+// a sketch nothing analysed. Both fixtures keep every COORDINATE finite, so the
+// exporter's own refusal never fires and the render really does reach the badge.
+func TestStatusBadgeSkippedAnalysis(t *testing.T) {
+	t.Run("non-finite geometry", func(t *testing.T) {
+		// A committed dimension's target, not a coordinate: the geometry renders
+		// exactly as before while Verify stops at the non-finite screen.
+		s, width := rectWithDistance(t)
+		width.Set(math.NaN())
+		require.ErrorIs(t, s.Verify(t.Context()).Check(), sketch.ErrNonFiniteGeometry)
+
+		out, err := s.SVG(sketch.WithStatusBadge(true))
+		require.NoError(t, err)
+		require.Contains(t, out, "verification incomplete")
+		require.NotContains(t, out, "DOF 0", "no DOF number stands behind a skipped analysis")
+	})
+
+	t.Run("foreign handle", func(t *testing.T) {
+		s, _ := rectWithDistance(t)
+		other := newSketch(t)
+		line, ok := s.Entities()[0].(*sketch.Line)
+		require.True(t, ok)
+		line.Start = other.CreatePoint(3, 4)
+		require.ErrorIs(t, s.Verify(t.Context()).Check(), sketch.ErrForeignHandle)
+
+		out, err := s.SVG(sketch.WithStatusBadge(true))
+		require.NoError(t, err)
+		require.Contains(t, out, "verification incomplete")
+		require.NotContains(t, out, "DOF 0")
+	})
+}
+
 func TestProfileFillValidRegion(t *testing.T) {
 	s, _ := rectWithDistance(t) // a closed rectangle => one region
 	out, err := s.SVG(sketch.WithProfileFill(true))

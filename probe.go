@@ -152,6 +152,16 @@ func (r *ProbeResult) Ambiguous() bool { return len(r.Configurations) > 1 }
 // state, and an error wrapping [ErrUnderconstrained] if degrees of freedom
 // remain (a continuum of configurations has no discrete branches to probe).
 //
+// It returns an error wrapping [ErrNonFiniteGeometry] when the sketch holds a
+// non-finite (NaN or infinite) point coordinate, entity shape variable,
+// dimension target, or constraint-owned auxiliary variable (see
+// [Sketch.nonFiniteVars]). Its DOF-0 precondition comes
+// from the same rank pass no such geometry leaves trustworthy in either
+// direction, and every configuration the search then accepts is a re-solve of
+// that geometry — so it refuses rather than return a result, exactly as
+// [Sketch.CheckConstraint] does, and exactly as [Sketch.Verify] with
+// [WithProbe] already behaves by never reaching the probe at all.
+//
 // The ctx argument bounds the probe's multi-start re-solves: it is checked
 // before the baseline solve and before each restart, so cancellation or a
 // deadline aborts the search, always with an error wrapping ctx.Err().
@@ -173,6 +183,19 @@ func (s *Sketch) ProbeConfigurations(ctx context.Context, options ...ProbeOption
 
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+
+	// The non-finite screen sits ABOVE the baseline solve, not below it. This
+	// call HAS an error return, so it refuses the way [Sketch.CheckConstraint]
+	// does rather than fabricating a verdict — but only if it reaches the screen
+	// FIRST. Below the baseline solve the poisoned geometry makes lm fail to
+	// converge, so the convergence check returned [ErrNotConverged] and this
+	// refusal was never reached: a caller matching on [ErrNonFiniteGeometry] saw
+	// an ordinary convergence failure and had no way to tell the two apart.
+	// Screening here also makes the direct call agree with [Sketch.Verify]
+	// (WithProbe), which already never reaches the probe on this state.
+	if s.hasNonFiniteVars() {
+		return nil, s.nonFiniteError()
 	}
 
 	entry := append([]float64(nil), s.vars...)
@@ -204,9 +227,20 @@ func (s *Sketch) ProbeConfigurations(ctx context.Context, options ...ProbeOption
 
 	// DOF at the baseline-converged point, computed fresh per the rank
 	// invariant (never reuse an earlier Jacobian).
+	//
+	// The DOF-0 precondition below is read off that rank pass, and the whole
+	// multi-start search then re-solves from the same geometry, so non-finite
+	// geometry makes both the precondition and every configuration it accepts
+	// meaningless. The screen above this function's baseline solve is what
+	// refuses that state; by here it has already returned.
+	m := len(r)
 	dof := len(free)
-	if m := len(r); m > 0 {
-		dof = len(free) - s.rank(free, m)
+	if m > 0 {
+		rk, analysed := s.rank(free, m)
+		if !analysed {
+			return nil, s.nonFiniteError()
+		}
+		dof = len(free) - rk
 	}
 	// The rank pass is itself a Jacobian rebuild; a deadline expiring during it
 	// must still abort with the context error rather than the ErrUnderconstrained
