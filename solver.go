@@ -22,8 +22,9 @@ import (
 //
 // DOF and Redundant are -1 for a second reason, and this one comes back with a
 // NIL error: the sketch's own geometry holds a non-finite (NaN or infinite)
-// point coordinate, entity shape variable or dimension target (see
-// [Sketch.nonFiniteVars]), so no rank the analysis could compute is trustworthy
+// point coordinate, entity shape variable, dimension target, or constraint-
+// owned auxiliary variable (see [Sketch.nonFiniteVars]), so no rank the
+// analysis could compute is trustworthy
 // in either direction. Iterations, Residual and Converged still report what the
 // solver measured. A caller gating on `res.DOF == 0 && res.Converged` must
 // therefore treat -1 as a refusal, not as a small number: call [Sketch.Verify]
@@ -407,7 +408,8 @@ func (s *Sketch) lm(ctx context.Context, free []int, eval func([]float64) []floa
 // configuration (0 means fully constrained). It does not move any geometry.
 //
 // On non-finite geometry (a NaN or infinite point coordinate, entity shape
-// variable, or dimension target — see [Sketch.nonFiniteVars]) the rank pass
+// variable, dimension target, or constraint-owned auxiliary variable — see
+// [Sketch.nonFiniteVars]) the rank pass
 // this method otherwise depends on cannot be trusted in either direction: a
 // non-finite pivot is neither correctly selected nor correctly rejected by a
 // plain partial-pivot comparison (see rankAnalysisOfMatrix), so it can read as

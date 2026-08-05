@@ -153,8 +153,9 @@ func (r *ProbeResult) Ambiguous() bool { return len(r.Configurations) > 1 }
 // remain (a continuum of configurations has no discrete branches to probe).
 //
 // It returns an error wrapping [ErrNonFiniteGeometry] when the sketch holds a
-// non-finite (NaN or infinite) point coordinate, entity shape variable or
-// dimension target (see [Sketch.nonFiniteVars]). Its DOF-0 precondition comes
+// non-finite (NaN or infinite) point coordinate, entity shape variable,
+// dimension target, or constraint-owned auxiliary variable (see
+// [Sketch.nonFiniteVars]). Its DOF-0 precondition comes
 // from the same rank pass no such geometry leaves trustworthy in either
 // direction, and every configuration the search then accepts is a re-solve of
 // that geometry — so it refuses rather than return a result, exactly as

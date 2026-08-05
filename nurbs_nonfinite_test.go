@@ -470,3 +470,35 @@ func TestCheckConstraintFiniteControlStillRejectsDuplicate(t *testing.T) {
 	err := s.CheckConstraint(sketch.NewDistance(a, b, 20))
 	require.ErrorIs(t, err, sketch.ErrOverconstrained, "consistent duplicate rejected")
 }
+
+// TestCheckConstraintRefusesNonFiniteCandidateTarget covers the second gap:
+// CheckConstraint screened this SKETCH's geometry for non-finite variables but
+// never the CANDIDATE's own target, so a poisoned candidate reached the rank
+// probe unscreened. The decisive fixture is a sketch with NO constraints at
+// all (DOF 4): a NaN target makes the whole central-difference row NaN, and
+// the pre-fix rank probe read that row as dependent and returned nil — a
+// FALSE statement about the sketch (there is nothing for it to depend on),
+// not merely a differently-phrased true one. The identical finite candidate
+// on the same empty sketch is the control: it must still pass, so the fix is
+// the candidate's own non-finite target, not a blanket refusal.
+func TestCheckConstraintRefusesNonFiniteCandidateTarget(t *testing.T) {
+	s := newSketch(t)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
+
+	err := s.CheckConstraint(sketch.NewDistance(a, b, math.NaN()))
+	require.ErrorIs(t, err, sketch.ErrNonFiniteGeometry,
+		"a NaN candidate target must be refused even against an otherwise unconstrained, finite sketch")
+}
+
+// TestCheckConstraintFiniteCandidateTargetControl is the finite control for
+// TestCheckConstraintRefusesNonFiniteCandidateTarget: the identical
+// constraint-free sketch with an ordinary finite candidate target passes,
+// since the candidate adds an independent equation to an empty sketch.
+func TestCheckConstraintFiniteCandidateTargetControl(t *testing.T) {
+	s := newSketch(t)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
+
+	require.NoError(t, s.CheckConstraint(sketch.NewDistance(a, b, 10)))
+}

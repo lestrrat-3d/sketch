@@ -50,27 +50,30 @@ import (
 // pass does not run at all (no residual rows), since there is no second return
 // to carry it there.
 
-// nonFiniteFinding is what [Sketch.nonFiniteVars] found: the points, entities
-// and dimension constraints whose solver variable or driving value is not a
-// finite number. The zero value reports nothing was found ([nonFiniteFinding.found]).
+// nonFiniteFinding is what [Sketch.nonFiniteVars] found: the points, entities,
+// dimension constraints and aux-variable-owning constraints whose solver
+// variable or driving value is not a finite number. The zero value reports
+// nothing was found ([nonFiniteFinding.found]).
 type nonFiniteFinding struct {
 	points   []*Point
 	entities []Entity
 	dims     []Dimension
+	cons     []Constraint // committed constraints holding a non-finite aux var
 }
 
 // found reports whether the scan found anything.
 func (f nonFiniteFinding) found() bool {
-	return len(f.points) > 0 || len(f.entities) > 0 || len(f.dims) > 0
+	return len(f.points) > 0 || len(f.entities) > 0 || len(f.dims) > 0 || len(f.cons) > 0
 }
 
 // nonFinite reports whether v is NaN or infinite.
 func nonFinite(v float64) bool { return math.IsNaN(v) || math.IsInf(v, 0) }
 
 // nonFiniteVars scans this sketch's OWN geometry — never a Jacobian built from
-// it — for a non-finite (NaN or infinite) solver variable or dimension target,
-// naming every point and entity it finds one on. See the package-level note
-// above for why the screen belongs here rather than on the matrix.
+// it — for a non-finite (NaN or infinite) solver variable, dimension target or
+// constraint-owned auxiliary variable, naming every point, entity and
+// constraint it finds one on. See the package-level note above for why the
+// screen belongs here rather than on the matrix.
 //
 // Every point's x/y is checked regardless of [Sketch.fixed] (including the
 // sketch's own [Sketch.Origin], which can never actually go non-finite through
@@ -94,6 +97,32 @@ func nonFinite(v float64) bool { return math.IsNaN(v) || math.IsInf(v, 0) }
 // and no writer could write. It is also PERMANENT: refreshDriven recomputes the
 // measurement as d.base()+r[0], both non-finite, so no solve repairs it.
 //
+// EVERY committed constraint's LIVE auxiliary variables (a spline foot
+// parameter, a tangency slack, a conic-tangency contact witness — see
+// [auxVars], the one definition of which var indices those are) are checked
+// too, via [Sketch.vars] directly rather than through the points/entities/
+// dimensions above: an aux var is seeded FINITE at allocVars time but is then
+// a free unknown the solver moves like any other, so it can go non-finite on
+// its own account with every authored point, entity and dimension target still
+// finite (an extreme-but-finite [ArcLength] target driving its unwrapped-sweep
+// theta to NaN is the reported case). A constraint with a poisoned aux var is
+// recorded once, in cons, regardless of how many of its own indices are
+// affected — the same one-entry-per-offender shape entities already use for
+// entityShapeVars.
+//
+// A constraint's aux indices are read ONLY when [auxOwnerOf] names THIS
+// sketch — never for one still unallocated (indices sentinelled at -1) and
+// never for one a DIFFERENT sketch allocated. [Sketch.AddConstraint] still
+// appends a foreign constraint to s.cons so its own [ErrForeignHandle]
+// survives (see the parameter-model note), and that constraint's stored
+// indices address the DONOR's, not this sketch's, variable vector — often
+// longer, since it was committed there first. Indexing s.vars by them
+// unconditionally is exactly the "large index runs off it and panics" failure
+// the parameter-model note documents for grounding, and nonFiniteVars is
+// called UNCONDITIONALLY by [Sketch.Verify], even on a report already headed
+// for the ForeignHandles early-out, so this screen has no reference-integrity
+// scan ahead of it to rely on for safety.
+//
 // The cost of that reach is that the bare reads ([Sketch.DOF] and its siblings)
 // answer with maximum ignorance, and Verify skips its analysis, for a sketch
 // whose rank pass would in fact have been sound. That is the conservative
@@ -103,12 +132,6 @@ func nonFinite(v float64) bool { return math.IsNaN(v) || math.IsInf(v, 0) }
 // [Sketch.CheckConstraint] keeps its own driven-CANDIDATE exemption, which is a
 // different question: an uncommitted driven candidate is never ranked, so no
 // verdict about IT is computed from this sketch's geometry.
-//
-// Auxiliary constraint variables (a spline foot parameter, a tangency slack,
-// a conic-tangency contact witness) are not scanned directly: every one of
-// them is seeded from the points/entities/dimensions above, so a screen over
-// those three already catches every non-finite value reachable through the
-// public API.
 func (s *Sketch) nonFiniteVars() nonFiniteFinding {
 	var f nonFiniteFinding
 	for _, p := range s.points {
@@ -128,12 +151,17 @@ func (s *Sketch) nonFiniteVars() nonFiniteFinding {
 		}
 	}
 	for _, c := range s.cons {
-		d, ok := c.(Dimension)
-		if !ok {
-			continue
-		}
-		if nonFinite(d.base()) {
+		if d, ok := c.(Dimension); ok && nonFinite(d.base()) {
 			f.dims = append(f.dims, d)
+		}
+		if auxOwnerOf(c) != s {
+			continue // unallocated, or allocated by a DIFFERENT sketch — see below
+		}
+		for _, idx := range auxVars(c) {
+			if nonFinite(s.vars[idx]) {
+				f.cons = append(f.cons, c)
+				break
+			}
 		}
 	}
 	return f
@@ -143,7 +171,7 @@ func (s *Sketch) nonFiniteVars() nonFiniteFinding {
 // screen the four analysis primitives ([Sketch.movableVars], [Sketch.rank] and
 // its committed analysis, [Sketch.conditioning], [Sketch.conflictAnalysis])
 // carry in their final return.
-// It answers the same question over the same three sources in the same order,
+// It answers the same question over the same four sources in the same order,
 // but allocates nothing and stops at the first non-finite value, so a per-handle
 // read pays a scan of the sketch's points, entities and constraints and no
 // heap traffic — a cost strictly dominated, in every caller, by the Jacobian
@@ -172,8 +200,93 @@ func (s *Sketch) hasNonFiniteVars() bool {
 		if d, ok := c.(Dimension); ok && nonFinite(d.base()) {
 			return true
 		}
+		if auxOwnerOf(c) != s {
+			continue // unallocated, or allocated by a DIFFERENT sketch — see below
+		}
+		for _, idx := range auxVars(c) {
+			if nonFinite(s.vars[idx]) {
+				return true
+			}
+		}
 	}
 	return false
+}
+
+// auxVars returns the auxiliary solver-variable indices c currently holds —
+// empty when c owns none, or owns some but none are allocated yet (every
+// index field sentinelled at -1 until allocVars runs). It is the ONE
+// definition of "which s.vars indices does this constraint's aux state span",
+// read by [Sketch.nonFiniteVars]/[Sketch.hasNonFiniteVars] so a poisoned aux
+// variable is screened wherever in s.vars it lives, mirroring
+// [entityShapeVars] for entities' intrinsic shape variables. It reads only the
+// int index fields every aux-var-owning type declares beside its embedded
+// auxOwner — never an operand pointer — so it is safe to call on a constraint
+// holding a nil or foreign operand.
+//
+// The returned indices are meaningful only in the sketch [auxOwnerOf] names as
+// the allocator: this function does not check that itself, so a caller MUST
+// screen with auxOwnerOf first, exactly as [Sketch.nonFiniteVars] does — a
+// foreign constraint's indices address a DIFFERENT sketch's (often longer)
+// variable vector, and indexing this sketch's s.vars by them unconditionally
+// runs off the end of it.
+//
+// A new aux-var-owning constraint type MUST get a case here, or its variable
+// escapes this screen with the build, vet, lint and test gates all green — the
+// same failure shape entityShapeVars documents for a forgotten entity type.
+func auxVars(c Constraint) []int {
+	add := func(idx ...int) []int {
+		var out []int
+		for _, i := range idx {
+			if i >= 0 {
+				out = append(out, i)
+			}
+		}
+		return out
+	}
+	switch t := c.(type) {
+	case *pointOnArc:
+		return add(t.slack)
+	case *pointOnEllipticalArc:
+		return add(t.slack)
+	case *pointOnSpline:
+		return add(t.tvar, t.w0, t.w1)
+	case *tangentToSpline:
+		return add(t.tvar, t.w0, t.w1, t.ws)
+	case *pointOnClosedSpline:
+		return add(t.tvar)
+	case *pointOnFitSpline:
+		return add(t.tvar, t.w0, t.w1)
+	case *tangentToClosedSpline:
+		return add(t.tvar, t.ws)
+	case *tangentToFitSpline:
+		return add(t.tvar, t.w0, t.w1, t.ws)
+	case *pointOnConic:
+		return add(t.tvar, t.w0, t.w1)
+	case *tangentToConic:
+		return add(t.tvar, t.w0, t.w1, t.ws)
+	case *pointOnNURBS:
+		return add(t.tvar, t.w0, t.w1)
+	case *tangentToNURBS:
+		return add(t.tvar, t.w0, t.w1, t.ws)
+	case *tangentConics:
+		return add(t.px, t.py, t.wSide, t.slackA, t.slackB)
+	case *symmetricArcs:
+		return add(t.slack)
+	case *tangentLineCircle:
+		return add(t.slack)
+	case *tangentCircles:
+		return add(t.slack1, t.slack2)
+	case *tangentLineEllipse:
+		return add(t.slack)
+	case *DistancePointArc:
+		return add(t.slack)
+	case *DistanceLineArc:
+		return add(t.slack)
+	case *ArcLength:
+		return add(t.theta)
+	default:
+		return nil
+	}
 }
 
 // nonFiniteError is the refusal the two calls that CAN refuse return —
@@ -182,6 +295,6 @@ func (s *Sketch) hasNonFiniteVars() bool {
 // differently.
 func (s *Sketch) nonFiniteError() error {
 	nf := s.nonFiniteVars()
-	return fmt.Errorf("%w: %d points, %d entities, %d dimensions",
-		ErrNonFiniteGeometry, len(nf.points), len(nf.entities), len(nf.dims))
+	return fmt.Errorf("%w: %d points, %d entities, %d dimensions, %d constraints",
+		ErrNonFiniteGeometry, len(nf.points), len(nf.entities), len(nf.dims), len(nf.cons))
 }

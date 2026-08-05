@@ -372,3 +372,88 @@ func TestDependencyPartitionRefusesNonFiniteGeometry(t *testing.T) {
 		require.Empty(t, rep.Conflicts)
 	})
 }
+
+// arcLengthAuxNaNSketch reproduces the confirmed gap: an EXTREME-BUT-FINITE
+// arc (center (0,0), start (1e200,0), end (0,1e200), every point fixed) whose
+// [sketch.ArcLength] target of 0 drives the solver to push the constraint's own
+// unwrapped-sweep aux variable, theta, to NaN — not a poisoned authored
+// coordinate, entity shape variable or dimension target, but a variable the
+// AUX-VAR-OWNING CONSTRAINT itself allocates and the solver moves like any
+// other free unknown. Every one of the three sources nonFiniteVars scanned
+// before this fix stays perfectly finite throughout, so the pre-fix screen
+// reported nothing wrong while DOF()/Verify kept reading a rank computed from
+// a NaN pivot.
+func arcLengthAuxNaNSketch(t *testing.T) (*sketch.Sketch, *sketch.ArcLength) {
+	t.Helper()
+	s := newSketch(t)
+	center := s.CreatePoint(0, 0)
+	start := s.CreatePoint(1e200, 0)
+	end := s.CreatePoint(0, 1e200)
+	s.Fix(center)
+	s.Fix(start)
+	s.Fix(end)
+	arc := s.CreateArc(center, start, end)
+	al := sketch.NewArcLength(arc, 0)
+	s.AddConstraint(al)
+
+	// The target is unreachable at this radius (driving theta toward 0 fights
+	// the sweep-pinning row at r=1e200), so the solve does not converge —
+	// that is expected and irrelevant here; what matters is the state theta is
+	// left in.
+	_, err := s.Solve(t.Context())
+	require.ErrorIs(t, err, sketch.ErrNotConverged)
+	return s, al
+}
+
+// TestArcLengthAuxVarNonFiniteStopsVerify covers FINDING 1: nonFiniteVars/
+// hasNonFiniteVars never walked a live auxiliary solver variable, so this
+// fixture's poisoned theta was invisible to the screen even though every
+// authored point stays exactly as given. Verify must stop before analysing,
+// naming the offending ArcLength constraint, exactly as it already does for a
+// poisoned point/entity/dimension target.
+func TestArcLengthAuxVarNonFiniteStopsVerify(t *testing.T) {
+	s, al := arcLengthAuxNaNSketch(t)
+
+	rep := s.Verify(t.Context())
+	require.False(t, rep.Analysed(), "the poisoned aux variable must stop analysis, not silently pass")
+	require.Equal(t, []sketch.Constraint{sketch.Constraint(al)}, rep.NonFiniteConstraints,
+		"the offending constraint is named, and only it")
+	require.Empty(t, rep.NonFinitePoints, "every authored point stays exactly as given")
+	require.Empty(t, rep.NonFiniteEntities)
+	require.Empty(t, rep.NonFiniteDimensions)
+
+	err := rep.Check()
+	require.ErrorIs(t, err, sketch.ErrNonFiniteGeometry)
+	require.ErrorIs(t, err, sketch.ErrVerificationIncomplete)
+	require.False(t, rep.Trustworthy())
+}
+
+// TestArcLengthAuxVarNonFiniteRefusesRankDerivedConsumers pins the same
+// fixture against every rank-derived bare read and refusal: each must answer
+// with its own documented non-blessing shape rather than a number computed
+// from the NaN theta pivot — Result.DOF's -1 sentinel (not the flipped-DOF
+// false read the finding reproduced), DOF()'s maximum-ignorance total variable
+// count, FreePoints() naming every point, CheckConstraint's refusal, and
+// ProbeConfigurations' refusal.
+func TestArcLengthAuxVarNonFiniteRefusesRankDerivedConsumers(t *testing.T) {
+	s, _ := arcLengthAuxNaNSketch(t)
+
+	res, err := s.Solve(t.Context())
+	require.ErrorIs(t, err, sketch.ErrNotConverged)
+	require.Equal(t, -1, res.DOF, "the not-computed sentinel, never a flipped DOF")
+	require.Equal(t, -1, res.Redundant)
+
+	// Maximum ignorance: every point's x/y, the origin's, and ArcLength's own
+	// theta, as if neither a constraint nor a Fix had ever been applied.
+	wantVars := 2*len(s.Points()) + 2 /* origin */ + 1 /* ArcLength's theta */
+	require.Equal(t, wantVars, s.DOF())
+
+	require.Equal(t, s.Points(), s.FreePoints(),
+		"every point reads free, the maximum-ignorance answer")
+
+	require.ErrorIs(t, s.CheckConstraint(sketch.NewHorizontal(s.CreateLine(s.CreatePoint(0, 0), s.CreatePoint(1, 0)))),
+		sketch.ErrNonFiniteGeometry)
+
+	_, err = s.ProbeConfigurations(t.Context())
+	require.ErrorIs(t, err, sketch.ErrNonFiniteGeometry)
+}

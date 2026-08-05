@@ -363,21 +363,29 @@ func rowCombo(basis, accRows [][]float64, target []float64) []int {
 // this sketch's geometry after a commit elsewhere passes the reference screen
 // while its indices still address the other sketch's vector.
 //
-// It returns an error wrapping [ErrNonFiniteGeometry], without probing, when
-// this sketch's OWN geometry already holds a non-finite (NaN or infinite)
-// point coordinate, entity shape variable, or dimension target (see
-// [Sketch.nonFiniteVars]) — not a property of the candidate c at all. The rank
-// probe below ranks c against the sketch's existing committed rows on the same
-// nondimensional Jacobian [Sketch.Verify] refuses to build over such geometry:
-// a NaN pivot is neither correctly selected nor correctly rejected by a plain
-// partial-pivot comparison, so the probe can silently rank a genuine duplicate
-// as independent and accept it. Unlike Verify this method has no report field
-// to record a skip on, so it refuses outright with the same sentinel rather
-// than return a fabricated verdict. A DRIVEN dimension is the one candidate
-// this screen does not reach: it returns nil above, before the probe allocates
-// or ranks anything, and it contributes no residual row for a poisoned pivot to
-// misrank — so refusing it would report a defect on a verdict the poisoned
-// geometry never takes part in.
+// It returns an error wrapping [ErrNonFiniteGeometry], without probing, in two
+// cases. First, when the candidate ITSELF is a non-driven [Dimension] whose own
+// target is not a finite number: an unscreened non-finite target parameterizes
+// the augmented rank probe with a NaN row of its own, which a plain
+// partial-pivot comparison never correctly accepts or rejects — so a poisoned
+// candidate could pass even against an otherwise finite, EMPTY sketch. That is a
+// false statement about the sketch, not merely a differently-phrased one, and
+// this check runs before either rank pass reads the candidate. Second, when
+// this sketch's OWN geometry already holds a non-finite (NaN or infinite) point
+// coordinate, entity shape variable, dimension target, or constraint-owned
+// auxiliary variable (see [Sketch.nonFiniteVars]) — not a property of the
+// candidate c at all. The rank probe below ranks c against the sketch's
+// existing committed rows on the same nondimensional Jacobian [Sketch.Verify]
+// refuses to build over such geometry: a NaN pivot is neither correctly
+// selected nor correctly rejected by a plain partial-pivot comparison, so the
+// probe can silently rank a genuine duplicate as independent and accept it.
+// Unlike Verify this method has no report field to record a skip on, so it
+// refuses outright with the same sentinel rather than return a fabricated
+// verdict. A DRIVEN dimension is the one candidate NEITHER screen reaches: it
+// returns nil above, before either check runs or the probe allocates or ranks
+// anything, and it contributes no residual row for a poisoned pivot to misrank
+// — so refusing it would report a defect on a verdict the poisoned geometry
+// never takes part in.
 //
 // Like [Sketch.DOF], the analysis is local to the call-time configuration;
 // check against solved geometry (after [Sketch.Solve]) for the most reliable
@@ -404,6 +412,15 @@ func (s *Sketch) CheckConstraint(c Constraint) error {
 	}
 	if d, ok := c.(Dimension); ok && d.Driven() {
 		return nil // measures the geometry, constrains nothing
+	}
+	// The candidate's OWN target, independent of this sketch's geometry: a
+	// non-finite target makes c's own residual row NaN, which the augmented rank
+	// probe below never soundly accepts or rejects — so a poisoned candidate
+	// could pass even against an otherwise finite, EMPTY sketch. That is a false
+	// statement about the sketch, not a differently-phrased true one, so it is
+	// screened before any allocation or residual evaluation touches it.
+	if d, ok := c.(Dimension); ok && nonFinite(d.base()) {
+		return fmt.Errorf("%w: the candidate's target is not a finite number", ErrNonFiniteGeometry)
 	}
 	// This sketch's OWN geometry, independent of c: a non-finite pivot in the
 	// probe below is never soundly accepted or rejected either way, so a
