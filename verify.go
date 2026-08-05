@@ -606,7 +606,14 @@ func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *Verificat
 		rep.Conditioning = cond
 	}
 
-	flagged, conflicts := s.conflictAnalysis()
+	flagged, conflicts, analysed := s.conflictAnalysis()
+	if !analysed {
+		// Unreachable below the early-out above, which stops on the same
+		// condition. Kept because the refusal's empty result must not fall
+		// through unrecorded: two empty lists read as "no constraint problem
+		// found" on a report that otherwise says its analysis ran.
+		rep.analysisSkipped = true
+	}
 	rep.Conflicts = conflicts
 	if len(conflicts) < len(flagged) {
 		bad := make(map[Constraint]struct{}, len(conflicts))

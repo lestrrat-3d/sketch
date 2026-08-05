@@ -29,10 +29,11 @@ import (
 // centroid, and so still corrupts the analysis of every other point's
 // constraints.
 //
-// THE SCREEN IS CARRIED BY THE THREE PRIMITIVES EVERY VERDICT IN THIS FAMILY
+// THE SCREEN IS CARRIED BY THE FOUR PRIMITIVES EVERY VERDICT IN THIS FAMILY
 // DERIVES FROM, never by each reader calling it. [Sketch.movableVars]
-// (diagnose.go), [Sketch.rank]/[Sketch.committedRankAnalysis] (solver.go) and
-// [Sketch.conditioning] (conditioning.go) each return a second `ok` that is
+// (diagnose.go), [Sketch.rank]/[Sketch.committedRankAnalysis] (solver.go),
+// [Sketch.conditioning] (conditioning.go) and [Sketch.conflictAnalysis]
+// (diagnose.go) each return a final `ok` that is
 // false exactly when [Sketch.hasNonFiniteVars] is true, so a reader that ignores
 // the screen does not compile. Go cannot require that a method be called; it can
 // require that a second return be handled, which is the same enforcement shape
@@ -41,7 +42,8 @@ import (
 // is an error return ([Sketch.CheckConstraint], [Sketch.ProbeConfigurations]),
 // the documented not-computed sentinel where there is one ([Result.DOF]), the
 // maximum-ignorance value where there is neither ([Sketch.DOF],
-// [Sketch.FreePoints]), false for the per-handle bools, and every point and
+// [Sketch.FreePoints], [Sketch.Diagnose], [Sketch.RedundantConstraints]), false
+// for the per-handle bools, and every point and
 // entity drawn as free for the DOF colouring. Those answers are legitimately
 // different and are deliberately NOT unified; what is unified is the fact behind
 // them. The one branch that must ask the screen directly is a caller whose rank
@@ -138,8 +140,9 @@ func (s *Sketch) nonFiniteVars() nonFiniteFinding {
 }
 
 // hasNonFiniteVars is the cheap boolean form of [Sketch.nonFiniteVars] and the
-// screen the three analysis primitives ([Sketch.movableVars], [Sketch.rank] and
-// its committed analysis, [Sketch.conditioning]) carry in their second return.
+// screen the four analysis primitives ([Sketch.movableVars], [Sketch.rank] and
+// its committed analysis, [Sketch.conditioning], [Sketch.conflictAnalysis])
+// carry in their final return.
 // It answers the same question over the same three sources in the same order,
 // but allocates nothing and stops at the first non-finite value, so a per-handle
 // read pays a scan of the sketch's points, entities and constraints and no

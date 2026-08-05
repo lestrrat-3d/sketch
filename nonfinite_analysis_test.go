@@ -322,3 +322,53 @@ func TestReportAnalysedNamesTheSkippedPath(t *testing.T) {
 	incomplete := errors.Is(rep.Check(), sketch.ErrVerificationIncomplete)
 	require.Equal(t, rep.Analysed(), !incomplete)
 }
+
+// TestDependencyPartitionRefusesNonFiniteGeometry pins the screen at
+// conflictAnalysis, the shared dependency pass [Sketch.Diagnose],
+// [Sketch.RedundantConstraints] and [Sketch.Verify] all read their
+// redundant/conflicting verdict from. It was the one primitive of this family
+// still screened by its callers rather than by its own return, so a new reader
+// of it compiled while publishing a verdict computed from a poisoned Jacobian.
+//
+// The fixture carries a GENUINE redundancy — a duplicate width dimension the
+// finite control reports as Redundant — so the poisoned run cannot pass by
+// having nothing to find. Unscreened, both tests the Gram-Schmidt projection
+// makes ("scale < eps" and "rest <= eps*scale") are false against a NaN row
+// norm, so every row is accepted as independent, the duplicate stops being
+// reported, and both reads answer "no constraint problem found" for geometry
+// nothing analysed.
+func TestDependencyPartitionRefusesNonFiniteGeometry(t *testing.T) {
+	t.Run("finite control", func(t *testing.T) {
+		s, a, b := nonFiniteCheckConstraintFixture(t, false)
+		dup := sketch.NewDistance(a, b, 20)
+		s.AddConstraint(dup)
+		_, err := s.Solve(t.Context())
+		require.NoError(t, err)
+
+		d := s.Diagnose()
+		require.Equal(t, []sketch.Constraint{dup}, d.Redundant,
+			"the duplicate dimension is a consistent duplicate, so the real analysis names it")
+		require.Empty(t, d.Conflicting)
+		require.Equal(t, []sketch.Constraint{dup}, s.RedundantConstraints())
+	})
+
+	t.Run("non-finite", func(t *testing.T) {
+		s, a, b := nonFiniteCheckConstraintFixture(t, true)
+		dup := sketch.NewDistance(a, b, 20)
+		s.AddConstraint(dup)
+
+		cons := s.Constraints()
+		require.Contains(t, cons, sketch.Constraint(dup))
+		d := s.Diagnose()
+		require.Equal(t, cons, d.Conflicting,
+			"no constraint here has been proven consistent, the duplicate included")
+		require.Empty(t, d.Redundant,
+			"the real redundancy must not be republished as a finding nothing analysed")
+		require.Equal(t, cons, s.RedundantConstraints())
+
+		rep := s.Verify(t.Context())
+		require.False(t, rep.Analysed())
+		require.Empty(t, rep.Redundant, "the report records the skip instead of a partition")
+		require.Empty(t, rep.Conflicts)
+	})
+}

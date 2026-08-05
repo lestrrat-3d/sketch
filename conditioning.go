@@ -519,7 +519,7 @@ func (s *Sketch) scaledJacobian(free []int, eval func([]float64) []float64, rowK
 // row-kind table is misaligned. Intended for a DOF-0 candidate; the caller gates
 // on it only then.
 //
-// It is one of the three primitives that CARRY the non-finite-geometry screen
+// It is one of the four primitives that CARRY the non-finite-geometry screen
 // (see nonfinite.go): the second result is false — and no measure is computed —
 // when [Sketch.hasNonFiniteVars] holds. This one is the sharpest of the three,
 // because its "nothing to measure" answer is +Inf, its BEST possible reading and

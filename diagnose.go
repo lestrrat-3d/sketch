@@ -73,10 +73,10 @@ type Diagnosis struct {
 // [Sketch.Verify] to learn that the condition was found at all, and which
 // geometry carries it.
 func (s *Sketch) Diagnose() *Diagnosis {
-	if s.hasNonFiniteVars() {
+	flagged, conflicts, analysed := s.conflictAnalysis()
+	if !analysed {
 		return &Diagnosis{Conflicting: s.unprovenConstraints()}
 	}
-	flagged, conflicts := s.conflictAnalysis()
 	conflicting := make(map[Constraint]struct{}, len(conflicts))
 	for _, cs := range conflicts {
 		conflicting[cs.Constraint] = struct{}{}
@@ -141,7 +141,24 @@ type ConflictSet struct {
 // redundant and conflicting ones together, exactly what RedundantConstraints
 // reports). The second lists only the conflicting ones (residual above
 // conflictTol) with their attribution. The sketch is not modified.
-func (s *Sketch) conflictAnalysis() ([]Constraint, []ConflictSet) {
+//
+// It is one of the four primitives that CARRY the non-finite-geometry screen
+// (see nonfinite.go): the third result is false — and no analysis is run — when
+// [Sketch.hasNonFiniteVars] holds, so a caller cannot read a dependency verdict
+// built from a poisoned Jacobian without handling the refusal. The screen sits
+// above the zero-row shortcut below, so it covers the branch where no Jacobian
+// is built at all and no caller needs a second, direct check beside this one.
+// The Gram–Schmidt projection that decides dependency here is as meaningless
+// over a non-finite Jacobian as the partial-pivot elimination is: both of its
+// tests ("scale < eps" and "rest <= eps*scale") are false whenever the row norm
+// is NaN, so such a row is always accepted as independent and its NaN enters the
+// basis, after which every later row projects to NaN and is accepted too — no
+// constraint is flagged at all, which is exactly the "no problem found" reading
+// the screen exists to prevent.
+func (s *Sketch) conflictAnalysis() ([]Constraint, []ConflictSet, bool) {
+	if s.hasNonFiniteVars() {
+		return nil, nil, false
+	}
 	free := s.freeVars()
 
 	// Map each residual row to the constraint that produced it, mirroring the
@@ -160,7 +177,7 @@ func (s *Sketch) conflictAnalysis() ([]Constraint, []ConflictSet) {
 	}
 	m := len(owners)
 	if m == 0 {
-		return nil, nil
+		return nil, nil, true
 	}
 
 	// Dependency analysis runs on the NONDIMENSIONAL Jacobian A = Drow·J·Dcol (the
@@ -238,7 +255,7 @@ func (s *Sketch) conflictAnalysis() ([]Constraint, []ConflictSet) {
 		}
 	}
 	if len(flagged) == 0 {
-		return nil, nil
+		return nil, nil, true
 	}
 
 	// Split into redundant (every dependent row satisfied) vs conflicting (a
@@ -259,7 +276,7 @@ func (s *Sketch) conflictAnalysis() ([]Constraint, []ConflictSet) {
 		sort.Slice(members, func(i, j int) bool { return consIdx[members[i]] < consIdx[members[j]] })
 		conflicts = append(conflicts, ConflictSet{Constraint: c, With: members})
 	}
-	return flagged, conflicts
+	return flagged, conflicts, true
 }
 
 // rowCombo expresses target as a linear combination of accRows (assumed
@@ -625,7 +642,7 @@ func entityMovable(e Entity, movable map[int]struct{}) bool {
 // vector with support on itself and on every pivot column its elimination
 // touches.
 //
-// It is one of the three primitives that CARRY the non-finite-geometry screen
+// It is one of the four primitives that CARRY the non-finite-geometry screen
 // (see nonfinite.go): the second result is false — and no elimination is run —
 // when [Sketch.hasNonFiniteVars] holds, so a caller cannot read a null-space
 // support computed from a poisoned Jacobian without handling the refusal. The
