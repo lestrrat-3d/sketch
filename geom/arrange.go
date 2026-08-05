@@ -772,8 +772,19 @@ func nurbsExtent(c *NURBS) float64 {
 }
 
 // fitSplineCoords validates a fit-point spline's points and returns their
-// coordinates. ok is false for a typed-nil spline, fewer than two fit points, or
-// any nil fit point.
+// coordinates. ok is false for a typed-nil spline, fewer than two fit points,
+// any nil fit point, or any non-finite fit point coordinate.
+//
+// The non-finite check has to sit HERE, on the raw fit points, rather than
+// relying on densify's evaluated-sample screen the way every other curve
+// family can: newFitEvaluator's coincidence filter compares consecutive fit
+// points with math.Hypot(...) > fitChordEps, a comparison that is FALSE
+// against a NaN, so a non-finite fit point reads as "coincident with its
+// predecessor" and is silently dropped before the evaluator ever computes a
+// sample. The curve then interpolates a different, perfectly finite curve
+// through the remaining points, and densify never sees a non-finite value to
+// catch. Screening the raw points here — before newFitEvaluator ever runs —
+// closes that hole exactly like the nil-point check already does.
 func fitSplineCoords(sp *FitSpline) ([][2]float64, bool) {
 	if sp == nil || len(sp.Fit) < 2 {
 		return nil, false
@@ -784,6 +795,9 @@ func fitSplineCoords(sp *FitSpline) ([][2]float64, bool) {
 			return nil, false
 		}
 		cc[i] = [2]float64{p.X, p.Y}
+		if !finitePt(cc[i]) {
+			return nil, false
+		}
 	}
 	return cc, true
 }

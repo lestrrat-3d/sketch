@@ -90,6 +90,25 @@ geometry" below). It must not import `sketch`; the arrow is `sketch -> geom`,
 never the reverse. Production code is standard-library-only (tests use
 `testify/require`); intended to move to its own module later.
 
+**`geom` constructors are value holders; the arrangement engine validates at
+the point of use.** Of the twelve package-level `New…` constructors, eight —
+`NewPoint`, `NewLine`, `NewCircle`, `NewEllipse`, `NewArc`, `NewEllipticalArc`,
+`NewConic`, `NewNURBS` — validate nothing and have no error return; a nil
+point, a non-finite coordinate or a degenerate radius all construct cleanly.
+The other four are narrower than general input validation, not an exception to
+it: `NewSpline`/`NewClosedSpline`/`NewFitSpline` check only the point COUNT
+their kernel needs (`ErrTooFewControlPoints`/`ErrTooFewClosedControlPoints`/
+`ErrTooFewFitPoints`) — a precondition the evaluator itself cannot express,
+never a check on a point's coordinates — and `NewFitInterpolant` validates a
+BUILT interpolant's finiteness (`ErrNonFiniteFitInterpolant`), not its input
+fit coordinates. Everything else is caught later, at the point of use, by a
+small, named net: `posFinite` (a usable radius/semi-axis), `nurbsValid` (NURBS
+structure — nil control points, a malformed knot vector), `fitSplineCoords`
+(a nil or non-finite fit point, screened before `newFitEvaluator` can drop
+one), the per-kind extent guards in `newArranger` (an all-coincident
+control/fit-point set that is a point, not a curve), and `densify`'s
+`finitePt` as the last net over every evaluated sample (see below).
+
 It also carries the **construction toolkit** (`intersect.go`, `modify.go`,
 `transform.go`): line/circle/arc intersections (arc cases reduce to circle
 cases filtered by `Arc.Contains`), `ClosestPointOnLine`, `SplitLineAt`/
@@ -136,7 +155,17 @@ degenerate (`srcDegenerate` + `flagDegenerate`, `exactAllowed` forced false
 scene-wide, the same rule an unusable input curve already gets in `newArranger`)
 if any point is non-finite, because it is the ONLY place that sees evaluated
 samples — a check over stored control points/knots/weights cannot catch a value
-that only goes non-finite once evaluated. Region area is exact for
+that only goes non-finite once evaluated. **The fit-point spline is the one
+exception, screened earlier instead:** `newFitEvaluator` collapses two
+consecutive fit points closer than `fitChordEps` via
+`math.Hypot(...) > fitChordEps`, a comparison that is FALSE against a NaN, so a
+non-finite fit point reads as "coincident with its predecessor" and is
+silently DROPPED before the evaluator computes a single sample — the curve
+then interpolates a different, perfectly finite curve through the remaining
+points, so by the time `densify` samples it there is no non-finite value left
+to catch. `fitSplineCoords` therefore screens every raw fit point for
+finiteness itself, the same place it already screens for a nil point, closing
+the gap before `newFitEvaluator` ever runs. Region area is exact for
 **every** curve type: line/arc/circle (shoelace + exact circular-segment
 correction), ellipse/elliptical-arc (`chordEllipseCorrection` = ½·rx·ry·(Δφ −
 sin Δφ), the elliptical analog, rotation/translation-invariant), and **splines**
