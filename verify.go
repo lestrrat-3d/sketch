@@ -427,8 +427,10 @@ func (r *VerificationReport) Check() Reasons {
 	}
 	// Staleness sits in this group because [Sketch.Verify] establishes it here:
 	// it reads snapshot provenance flags, not the analysis, so it is reported on
-	// the skipped path too rather than dropped for a condition it does not depend
-	// on.
+	// the foreign-handle and non-finite skip paths too rather than dropped for a
+	// condition it does not depend on. A NIL-CORRUPT handle is the one exception —
+	// it would panic the staleness scan itself, so that scan does not run and
+	// r.Stale is left at its zero value, reporting nothing here.
 	if r.Stale {
 		add(fmt.Errorf("%w: %d entities, %d points", ErrStaleReference,
 			len(r.StaleReferences), len(r.StaleReferencePoints)))

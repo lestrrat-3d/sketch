@@ -264,16 +264,28 @@ func (s *Sketch) Solve(ctx context.Context, options ...SolveOption) (*Result, er
 	// it as a clean pass. Convergence and Residual stay as measured: they are the
 	// solver's own report on the rows it evaluated, not a verdict built from the
 	// Jacobian, and a poisoned residual shows up in them on its own account.
-	res.DOF, res.Redundant = -1, -1
-	if analysed {
-		res.DOF = n - rank
-		if res.DOF < 0 {
-			res.DOF = 0
-		}
-		res.Redundant = mh - rank
-		if res.Redundant < 0 {
-			res.Redundant = 0
-		}
+	if !analysed {
+		// The refusal is this Result's own not-computed sentinel WITH A NIL ERROR,
+		// returned ahead of the convergence verdict below — the same shape the
+		// no-residual-rows branch above already uses. Falling through to
+		// ErrNotConverged instead would preempt it: poisoned geometry usually
+		// fails to converge too, so the refusal became indistinguishable from an
+		// ordinary contradictory sketch, and a caller matching on
+		// [ErrNonFiniteGeometry] through [Sketch.Verify] saw a plain convergence
+		// failure here. Converged, Residual and Iterations stay as measured — they
+		// are the solver's own account of the rows it evaluated, not a verdict
+		// built from the Jacobian.
+		res.DOF, res.Redundant = -1, -1
+		return res, nil
+	}
+
+	res.DOF = n - rank
+	if res.DOF < 0 {
+		res.DOF = 0
+	}
+	res.Redundant = mh - rank
+	if res.Redundant < 0 {
+		res.Redundant = 0
 	}
 
 	if !res.Converged {

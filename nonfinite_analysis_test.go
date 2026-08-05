@@ -72,9 +72,53 @@ func TestSolveResultRefusesNonFiniteRankPass(t *testing.T) {
 		s, width, _ := dimensionedRect(t)
 		width.Set(math.NaN())
 
-		res, _ := s.Solve(t.Context())
+		res, err := s.Solve(t.Context())
+		require.NoError(t, err, "the sentinel comes back with a NIL error, as Result documents")
 		require.Equal(t, -1, res.DOF)
 		require.Equal(t, -1, res.Redundant)
+	})
+
+	// The refusal must WIN over the convergence verdict, not merely be recorded
+	// beside it. Poisoned geometry usually fails to converge as well, so a fall
+	// through to ErrNotConverged makes the refusal indistinguishable from an
+	// ordinary contradictory sketch — and a caller matching on the sentinel sees
+	// a plain convergence failure.
+	t.Run("refusal wins over the convergence verdict", func(t *testing.T) {
+		w := sketch.NewWorld()
+		s, err := w.CreateSketch(w.XY())
+		require.NoError(t, err)
+
+		a := s.CreatePoint(0, 0)
+		b := s.CreatePoint(10, 0)
+		s.Fix(a)
+		s.Fix(b)
+		s.AddConstraint(sketch.NewDistance(a, b, 20))
+
+		stray := s.CreatePoint(math.NaN(), math.NaN())
+		s.Fix(stray)
+
+		res, err := s.Solve(t.Context())
+		require.NoError(t, err, "never ErrNotConverged, which would hide the refusal")
+		require.Equal(t, -1, res.DOF)
+		require.Equal(t, -1, res.Redundant)
+	})
+
+	// Its finite control: the same unsatisfiable geometry with nothing poisoned
+	// still reports the convergence failure, so the subtest above is not vacuous.
+	t.Run("finite control still reports non-convergence", func(t *testing.T) {
+		w := sketch.NewWorld()
+		s, err := w.CreateSketch(w.XY())
+		require.NoError(t, err)
+
+		a := s.CreatePoint(0, 0)
+		b := s.CreatePoint(10, 0)
+		s.Fix(a)
+		s.Fix(b)
+		s.AddConstraint(sketch.NewDistance(a, b, 20))
+
+		res, err := s.Solve(t.Context())
+		require.ErrorIs(t, err, sketch.ErrNotConverged)
+		require.NotEqual(t, -1, res.DOF, "a real DOF, since nothing here is poisoned")
 	})
 
 	t.Run("dimension target, finite control", func(t *testing.T) {
@@ -440,11 +484,17 @@ func arcLengthAuxNaNSketch(t *testing.T) (*sketch.Sketch, *sketch.ArcLength) {
 	s.AddConstraint(al)
 
 	// The target is unreachable at this radius (driving theta toward 0 fights
-	// the sweep-pinning row at r=1e200), so the solve does not converge —
-	// that is expected and irrelevant here; what matters is the state theta is
-	// left in.
-	_, err := s.Solve(t.Context())
-	require.ErrorIs(t, err, sketch.ErrNotConverged)
+	// the sweep-pinning row at r=1e200), so the solve does not converge — and it
+	// drives theta non-finite on the way, which is the state this fixture exists
+	// to produce. The refusal therefore wins over the convergence verdict: Solve
+	// reports its not-computed sentinel with a NIL error rather than
+	// ErrNotConverged, which would make the poisoned aux var indistinguishable
+	// from an ordinary contradictory sketch.
+	res, err := s.Solve(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, -1, res.DOF)
+	require.Equal(t, -1, res.Redundant)
+	require.False(t, res.Converged, "Converged still reports what the solver measured")
 	return s, al
 }
 
@@ -482,7 +532,7 @@ func TestArcLengthAuxVarNonFiniteRefusesRankDerivedConsumers(t *testing.T) {
 	s, _ := arcLengthAuxNaNSketch(t)
 
 	res, err := s.Solve(t.Context())
-	require.ErrorIs(t, err, sketch.ErrNotConverged)
+	require.NoError(t, err, "the sentinel comes back with a NIL error, ahead of the convergence verdict")
 	require.Equal(t, -1, res.DOF, "the not-computed sentinel, never a flipped DOF")
 	require.Equal(t, -1, res.Redundant)
 
