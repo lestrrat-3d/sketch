@@ -90,6 +90,25 @@ geometry" below). It must not import `sketch`; the arrow is `sketch -> geom`,
 never the reverse. Production code is standard-library-only (tests use
 `testify/require`); intended to move to its own module later.
 
+**`geom` constructors are value holders; the arrangement engine validates at
+the point of use.** Of the twelve package-level `New…` constructors, eight —
+`NewPoint`, `NewLine`, `NewCircle`, `NewEllipse`, `NewArc`, `NewEllipticalArc`,
+`NewConic`, `NewNURBS` — validate nothing and have no error return; a nil
+point, a non-finite coordinate or a degenerate radius all construct cleanly.
+The other four are narrower than general input validation, not an exception to
+it: `NewSpline`/`NewClosedSpline`/`NewFitSpline` check only the point COUNT
+their kernel needs (`ErrTooFewControlPoints`/`ErrTooFewClosedControlPoints`/
+`ErrTooFewFitPoints`) — a precondition the evaluator itself cannot express,
+never a check on a point's coordinates — and `NewFitInterpolant` validates a
+BUILT interpolant's finiteness (`ErrNonFiniteFitInterpolant`), not its input
+fit coordinates. Everything else is caught later, at the point of use, by a
+small, named net: `posFinite` (a usable radius/semi-axis), `nurbsValid` (NURBS
+structure — nil control points, a malformed knot vector), `fitSplineCoords`
+(a nil or non-finite fit point, screened before `newFitEvaluator` can drop
+one), the per-kind extent guards in `newArranger` (an all-coincident
+control/fit-point set that is a point, not a curve), and `densify`'s
+`finitePt` as the last net over every evaluated sample (see below).
+
 It also carries the **construction toolkit** (`intersect.go`, `modify.go`,
 `transform.go`): line/circle/arc intersections (arc cases reduce to circle
 cases filtered by `Arc.Contains`), `ClosestPointOnLine`, `SplitLineAt`/
