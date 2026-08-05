@@ -286,6 +286,49 @@ func TestProbeRefusesNonFiniteGeometry(t *testing.T) {
 		require.ErrorIs(t, err, sketch.ErrNonFiniteGeometry)
 	})
 
+	// The screen must be reached BEFORE the baseline solve, not after it. Here the
+	// constraints are unsatisfiable on their own — two fixed points 10 apart under a
+	// distance of 20 — so lm cannot converge and the convergence check has its own
+	// non-context verdict ready. Screened below that check, the poisoned sketch
+	// returns ErrNotConverged and a caller matching on ErrNonFiniteGeometry cannot
+	// tell the two conditions apart.
+	t.Run("screened above the baseline solve", func(t *testing.T) {
+		w := sketch.NewWorld()
+		s, err := w.CreateSketch(w.XY())
+		require.NoError(t, err)
+
+		a := s.CreatePoint(0, 0)
+		b := s.CreatePoint(10, 0)
+		s.Fix(a)
+		s.Fix(b)
+		s.AddConstraint(sketch.NewDistance(a, b, 20))
+
+		stray := s.CreatePoint(math.NaN(), math.NaN())
+		s.Fix(stray)
+
+		_, err = s.ProbeConfigurations(t.Context())
+		require.ErrorIs(t, err, sketch.ErrNonFiniteGeometry)
+		require.NotErrorIs(t, err, sketch.ErrNotConverged)
+	})
+
+	// Its finite control: the same unsatisfiable geometry with no poisoned point
+	// still reports the convergence failure, so the subtest above is not vacuous.
+	t.Run("finite control still reports non-convergence", func(t *testing.T) {
+		w := sketch.NewWorld()
+		s, err := w.CreateSketch(w.XY())
+		require.NoError(t, err)
+
+		a := s.CreatePoint(0, 0)
+		b := s.CreatePoint(10, 0)
+		s.Fix(a)
+		s.Fix(b)
+		s.AddConstraint(sketch.NewDistance(a, b, 20))
+
+		_, err = s.ProbeConfigurations(t.Context())
+		require.ErrorIs(t, err, sketch.ErrNotConverged)
+		require.NotErrorIs(t, err, sketch.ErrNonFiniteGeometry)
+	})
+
 	t.Run("finite control", func(t *testing.T) {
 		s, _, _ := dimensionedRect(t)
 

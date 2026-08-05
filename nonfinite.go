@@ -224,8 +224,9 @@ func (s *Sketch) hasNonFiniteVars() bool {
 // aux-var-owning constraint type currently declares ([tangentConics]: px, py,
 // wSide, slackA, slackB). [auxVars] sizes its fixed-size return array from
 // it, so a new type needing more than this many indices must grow the
-// constant too — the array is the ONLY place those indices are collected, so
-// a stale constant silently drops the overflow index rather than failing loud.
+// constant too — the array is the ONLY place those indices are collected, and
+// writing past its end panics, so a stale constant fails loudly at the first
+// call rather than quietly dropping the overflow index.
 const maxAuxVars = 5
 
 // auxVars writes the auxiliary solver-variable indices c currently holds into

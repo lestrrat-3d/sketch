@@ -185,6 +185,19 @@ func (s *Sketch) ProbeConfigurations(ctx context.Context, options ...ProbeOption
 		return nil, err
 	}
 
+	// The non-finite screen sits ABOVE the baseline solve, not below it. This
+	// call HAS an error return, so it refuses the way [Sketch.CheckConstraint]
+	// does rather than fabricating a verdict — but only if it reaches the screen
+	// FIRST. Below the baseline solve the poisoned geometry makes lm fail to
+	// converge, so the convergence check returned [ErrNotConverged] and this
+	// refusal was never reached: a caller matching on [ErrNonFiniteGeometry] saw
+	// an ordinary convergence failure and had no way to tell the two apart.
+	// Screening here also makes the direct call agree with [Sketch.Verify]
+	// (WithProbe), which already never reaches the probe on this state.
+	if s.hasNonFiniteVars() {
+		return nil, s.nonFiniteError()
+	}
+
 	entry := append([]float64(nil), s.vars...)
 	defer copy(s.vars, entry)
 
@@ -218,16 +231,9 @@ func (s *Sketch) ProbeConfigurations(ctx context.Context, options ...ProbeOption
 	// The DOF-0 precondition below is read off that rank pass, and the whole
 	// multi-start search then re-solves from the same geometry, so non-finite
 	// geometry makes both the precondition and every configuration it accepts
-	// meaningless — the probe returned output identical to the finite sketch's.
-	// This call HAS an error return, so it refuses the way [Sketch.CheckConstraint]
-	// does rather than fabricating a verdict, which also makes the direct call
-	// agree with [Sketch.Verify] (WithProbe), which already never reaches it on
-	// this state. The zero-row branch never reaches the rank pass, so the screen
-	// is asked directly there.
+	// meaningless. The screen above this function's baseline solve is what
+	// refuses that state; by here it has already returned.
 	m := len(r)
-	if m == 0 && s.hasNonFiniteVars() {
-		return nil, s.nonFiniteError()
-	}
 	dof := len(free)
 	if m > 0 {
 		rk, analysed := s.rank(free, m)
