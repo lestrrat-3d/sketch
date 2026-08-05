@@ -103,10 +103,12 @@ func ClampedUniformKnots(n, degree int) []float64 { return geom.ClampedUniformKn
 //
 // It validates: degree >= 1; at least degree+1 control points, none nil;
 // len(knots) == len(control)+degree+1, every knot finite, non-decreasing and
-// clamped (the first and last degree+1 knots each equal); and, when weights is
-// non-nil, len(weights) == len(control) with every weight finite and > 0
-// (weights == nil means all 1, a non-rational curve). Use [ClampedUniformKnots]
-// for the common knot vector. Any violation returns [ErrInvalidShape].
+// clamped (the first and last degree+1 knots each equal), spanning a non-empty
+// domain (knots[degree] < knots[len(control)], so an all-equal knot vector is
+// refused); and, when weights is non-nil, len(weights) == len(control) with
+// every weight finite and > 0 (weights == nil means all 1, a non-rational
+// curve). Use [ClampedUniformKnots] for the common knot vector. Any violation
+// returns [ErrInvalidShape].
 func (s *Sketch) CreateNURBS(degree int, control []*Point, weights, knots []float64) (*NURBS, error) {
 	if degree < 1 {
 		return nil, fmt.Errorf("%w: CreateNURBS degree must be >= 1, got %d", ErrInvalidShape, degree)
@@ -135,9 +137,10 @@ func (s *Sketch) CreateNURBS(degree int, control []*Point, weights, knots []floa
 		// knots[degree] >= knots[n] is false when one side is an infinity of the
 		// right sign — so {0,0,0,1,+Inf,+Inf,+Inf} and {-Inf,-Inf,-Inf,1,2,2,2}
 		// were both accepted. An INTERIOR infinity is the one non-finite shape
-		// already caught, by the non-decreasing compare; it is rejected here too
-		// so the finiteness check is one place rather than split across two. Any
-		// non-finite knot poisons geom.NURBS.Eval over every span it bounds.
+		// already caught, by the non-decreasing compare (its finite neighbours
+		// put it out of order); it is rejected here too so the finiteness check
+		// is one place rather than split across two. Any non-finite knot poisons
+		// geom.NURBS.Eval over every span it bounds.
 		if math.IsNaN(k) || math.IsInf(k, 0) {
 			return nil, fmt.Errorf("%w: CreateNURBS knot %d must be finite, got %v", ErrInvalidShape, i, k)
 		}
