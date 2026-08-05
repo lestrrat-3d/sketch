@@ -252,6 +252,82 @@ func TestAllFixedFinitePointBareReadsAreUnchanged(t *testing.T) {
 	require.Empty(t, s.RedundantConstraints())
 }
 
+// TestNonFinitePerHandleReadsAreMaximumIgnorance pins the two PER-HANDLE bare
+// reads on the same fixtures. Both answer from the null-space support the
+// poisoned Jacobian produces, so unscreened they certify "nothing here can
+// move" for geometry nothing analysed — and they did so on the very fixture
+// where [Sketch.FreePoints] reports every point and [Sketch.DOF] reports the
+// total variable count, so the per-handle reads contradicted the aggregate ones
+// in the blessing direction. False is the answer that agrees with both and is
+// already each method's documented refusal for a foreign, removed or nil
+// handle.
+func TestNonFinitePerHandleReadsAreMaximumIgnorance(t *testing.T) {
+	t.Run("all grounded", func(t *testing.T) {
+		s, _ := allFixedNaNStraySketch(t, true)
+
+		require.NotEmpty(t, s.Points(), "the loop below is not vacuous")
+		for _, p := range s.Points() {
+			require.False(t, p.IsFullyConstrained(),
+				"point %d must not read fully constrained on poisoned geometry", p.ID())
+		}
+		require.False(t, s.Origin().IsFullyConstrained(),
+			"the origin is screened like every other handle, not exempted")
+		require.NotEmpty(t, s.Entities(), "the loop below is not vacuous")
+		for _, e := range s.Entities() {
+			require.False(t, s.EntityIsFullyConstrained(e))
+		}
+		// The agreement the screen exists to restore: FreePoints names every
+		// point, so no point may read fully constrained.
+		require.Equal(t, s.Points(), s.FreePoints())
+	})
+
+	t.Run("with constraints", func(t *testing.T) {
+		s, _, _ := nonFiniteCheckConstraintFixture(t, true)
+
+		for _, p := range s.Points() {
+			require.False(t, p.IsFullyConstrained())
+		}
+		for _, e := range s.Entities() {
+			require.False(t, s.EntityIsFullyConstrained(e))
+		}
+		require.Equal(t, s.Points(), s.FreePoints())
+	})
+}
+
+// TestFinitePerHandleReadsAreUnchanged is the finite control for
+// TestNonFinitePerHandleReadsAreMaximumIgnorance: on identical geometry with an
+// ordinary finite stray point both reads still answer from the real analysis,
+// so the refusals above are the NaN and not a blanket false.
+func TestFinitePerHandleReadsAreUnchanged(t *testing.T) {
+	t.Run("all grounded", func(t *testing.T) {
+		s, _ := allFixedNaNStraySketch(t, false)
+
+		for _, p := range s.Points() {
+			require.True(t, p.IsFullyConstrained(),
+				"point %d is grounded, so it cannot move", p.ID())
+		}
+		require.True(t, s.Origin().IsFullyConstrained())
+		for _, e := range s.Entities() {
+			require.True(t, s.EntityIsFullyConstrained(e))
+		}
+	})
+
+	t.Run("with constraints", func(t *testing.T) {
+		s, _, _ := nonFiniteCheckConstraintFixture(t, false)
+
+		pts := s.Points()
+		stray := pts[len(pts)-1]
+		require.False(t, stray.IsFullyConstrained(), "the free stray point can still move")
+		for _, p := range pts[:len(pts)-1] {
+			require.True(t, p.IsFullyConstrained(),
+				"point %d is pinned by the dimensioned rectangle", p.ID())
+		}
+		for _, e := range s.Entities() {
+			require.True(t, s.EntityIsFullyConstrained(e))
+		}
+	})
+}
+
 // TestNonFiniteBareReadsAreMaximumIgnorance covers the half the all-grounded
 // fixture cannot: a sketch that actually holds constraints. [Sketch.Diagnose]
 // and [Sketch.RedundantConstraints] must name every constraint the dependency
@@ -360,6 +436,28 @@ func TestCheckConstraintRefusesNonFiniteGeometry(t *testing.T) {
 	err := s.CheckConstraint(sketch.NewDistance(a, b, 20))
 	require.ErrorIs(t, err, sketch.ErrNonFiniteGeometry,
 		"a duplicate must still be refused, now on the non-finite-geometry condition")
+}
+
+// TestCheckConstraintDrivenCandidateSkipsNonFiniteScreen pins the one candidate
+// the non-finite screen deliberately does not reach. A driven dimension returns
+// nil before the probe allocates, evaluates a residual or ranks anything, and it
+// contributes no residual row at all (residuals() skips driven dimensions), so
+// no verdict about it is ever computed from the poisoned Jacobian the screen
+// exists to refuse. Refusing it would report a defect on an answer the geometry
+// never takes part in. The same candidate left DRIVING is refused, which is what
+// makes this a statement about the driven shortcut rather than about the
+// candidate.
+func TestCheckConstraintDrivenCandidateSkipsNonFiniteScreen(t *testing.T) {
+	s, a, b := nonFiniteCheckConstraintFixture(t, true)
+
+	driving := sketch.NewDistance(a, b, 20)
+	require.ErrorIs(t, s.CheckConstraint(driving), sketch.ErrNonFiniteGeometry,
+		"a driving candidate is still refused on this sketch's poisoned geometry")
+
+	driven := sketch.NewDistance(a, b, 20)
+	driven.SetDriven(true)
+	require.NoError(t, s.CheckConstraint(driven),
+		"a driven dimension is never ranked, so the poisoned rank pass cannot misjudge it")
 }
 
 // TestCheckConstraintFiniteControlStillRejectsDuplicate is the finite control

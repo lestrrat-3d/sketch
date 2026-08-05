@@ -356,7 +356,11 @@ func rowCombo(basis, accRows [][]float64, target []float64) []int {
 // partial-pivot comparison, so the probe can silently rank a genuine duplicate
 // as independent and accept it. Unlike Verify this method has no report field
 // to record a skip on, so it refuses outright with the same sentinel rather
-// than return a fabricated verdict.
+// than return a fabricated verdict. A DRIVEN dimension is the one candidate
+// this screen does not reach: it returns nil above, before the probe allocates
+// or ranks anything, and it contributes no residual row for a poisoned pivot to
+// misrank — so refusing it would report a defect on a verdict the poisoned
+// geometry never takes part in.
 //
 // Like [Sketch.DOF], the analysis is local to the call-time configuration;
 // check against solved geometry (after [Sketch.Solve]) for the most reliable
@@ -381,16 +385,22 @@ func (s *Sketch) CheckConstraint(c Constraint) error {
 	if s.foreignAllocation(c) {
 		return fmt.Errorf("%w: the candidate's auxiliary variables were allocated by another sketch", ErrForeignHandle)
 	}
+	if d, ok := c.(Dimension); ok && d.Driven() {
+		return nil // measures the geometry, constrains nothing
+	}
 	// This sketch's OWN geometry, independent of c: a non-finite pivot in the
 	// probe below is never soundly accepted or rejected either way, so a
 	// candidate that genuinely over-constrains a poisoned sketch can pass. See
 	// the doc comment above and [Sketch.nonFiniteVars].
+	//
+	// Below the driven shortcut, because that shortcut returns before allocVars,
+	// c.residual and both rank passes: a driven dimension contributes no residual
+	// row (residuals() skips it), so nothing about it is ever ranked and there is
+	// no verdict for a poisoned pivot to corrupt. Refusing it would report a
+	// defect on a call the poisoned geometry cannot reach.
 	if nf := s.nonFiniteVars(); nf.found() {
 		return fmt.Errorf("%w: %d points, %d entities, %d dimensions",
 			ErrNonFiniteGeometry, len(nf.points), len(nf.entities), len(nf.dims))
-	}
-	if d, ok := c.(Dimension); ok && d.Driven() {
-		return nil // measures the geometry, constrains nothing
 	}
 	// A constraint that owns auxiliary variables (the allocVars hook) parameterizes
 	// its residual with variables allocated only at commit — a spline foot point, an
@@ -532,8 +542,18 @@ func (s *Sketch) FreePoints() []*Point {
 // `scanReferenceIntegrity` and `checkNoForeignRefs` use — so this cannot
 // diverge from what [Sketch.Verify] reports, and it carries the origin
 // exception, so [Sketch.Origin] still reads correctly.
+//
+// It reports false on non-finite geometry too (see [Sketch.DOF]'s doc comment
+// for why the null-space analysis cannot be trusted there), which is the same
+// MAXIMUM-IGNORANCE stance [Sketch.FreePoints] takes when it reports every
+// point of the sketch: the per-point read and the aggregate one then agree
+// rather than contradict each other, and neither answers in the blessing
+// direction. Call [Sketch.Verify] to learn that the condition was found at all.
 func (p *Point) IsFullyConstrained() bool {
 	if p == nil || p.s == nil || !p.s.owns(p) {
+		return false
+	}
+	if p.s.hasNonFiniteVars() {
 		return false
 	}
 	movable := p.s.movableVars()
@@ -556,6 +576,13 @@ func (p *Point) IsFullyConstrained() bool {
 // handle, another sketch's entity, or one of this sketch's entities with a
 // defining point rewired to a point this sketch does not own — matching
 // [Sketch.EntityFixed], the other bare-bool entity read.
+//
+// It reports false on non-finite geometry too (see [Sketch.DOF]'s doc comment
+// for why the null-space analysis cannot be trusted there), which is the same
+// MAXIMUM-IGNORANCE stance [Sketch.FreePoints] and [Point.IsFullyConstrained]
+// take: the per-entity read then agrees with the aggregate one rather than
+// contradicting it, and neither answers in the blessing direction. Call
+// [Sketch.Verify] to learn that the condition was found at all.
 func (s *Sketch) EntityIsFullyConstrained(e Entity) bool {
 	// A variable index means something only in the sketch that allocated it, so an
 	// unscreened handle is read against THIS sketch's null-space support: a foreign
@@ -568,6 +595,9 @@ func (s *Sketch) EntityIsFullyConstrained(e Entity) bool {
 	// use, so this cannot diverge from what Verify reports — and the refusal is
 	// false, the only answer that does not certify "nothing here can move".
 	if s.foreignInput(e) {
+		return false
+	}
+	if s.hasNonFiniteVars() {
 		return false
 	}
 	return !entityMovable(e, s.movableVars())

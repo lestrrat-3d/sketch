@@ -811,12 +811,27 @@ func loopMin(loop []BoundaryEdge) (float64, float64) {
 	return minX, minY
 }
 
+// badgeTextIncomplete is what the status badge reads when [Sketch.Verify]
+// skipped its analysis, in place of the DOF/Status/Solvable summary.
+const badgeTextIncomplete = "verification incomplete · DOF/status not evaluated"
+
 // writeStatusBadge draws a corner card summarizing the verification state. pad
 // is the outer frame padding (0 when unframed), so the badge tucks inside the
 // frame's top-left when windowed.
+//
+// On a report whose analysis was skipped — a nil, corrupt or foreign handle, or
+// non-finite geometry — the card names that state instead of DOF, Status and
+// Solvable. Those three fields hold an unevaluated zero value there, which the
+// report's own doc comment says is not a verdict, so rendering them puts a
+// number on the card for a sketch nothing analysed ("DOF 0" for geometry with
+// free degrees of freedom). Both skip causes read the same way because the card
+// is making one claim — that no analysis stands behind it.
 func (s *Sketch) writeStatusBadge(sb *svgWriter, cfg svgConfig, pad, w float64) {
 	rep := s.Verify(context.Background())
 	txt := fmt.Sprintf("DOF %d · %s · solvable=%t", rep.DOF, rep.Status, rep.Solvable)
+	if rep.analysisSkipped {
+		txt = badgeTextIncomplete
+	}
 	size := w * 0.035 * cfg.annScale
 	if size <= 0 {
 		size = 1
