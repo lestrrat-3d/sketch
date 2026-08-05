@@ -345,6 +345,19 @@ ranges are untouched. Lifting it needs a sampler that certifies its own per-sour
 deviation (a change to `densify`), not a wider estimate at the point of use — a
 separate change, not planned here.
 
+**A named customer for this gate.** fusion360-gear-generator's embedded-tooth branch
+authors its involute flanks as `CreateFitSpline` curves that cross the root circle
+transversally, so this gate withholds `TExact` from that branch and it is skipped
+when building the 3D solid. Because the gate keys on `analyticKind` over the WHOLE
+scene, a closed-form spline × circle kernel alone would not lift `TExact` there: the
+free-form kind would have to be admitted scene-wide, which is a claim about every
+pair a free-form curve can take part in (spline × spline, spline × ellipse,
+spline × NURBS), not just spline × circle. The branch is recordable today with no
+kernel change: trimming the flank at the root radius and sharing the junction
+`*Point` with the root arc removes the crossing, and a whole edge carries no trim to
+certify — see `profiles.go`'s `BoundaryEdge.TExact` doc and the executable example
+`Example_sketch_freeformSharedPoint` in `examples/`.
+
 **The near-miss guard** (`geom/nearmiss.go`, `nearMissGuard`). The gate above
 withholds *exactness* from a scene whose map may be missing a crossing; this
 reports the missing crossing itself as `Degenerate`, so `Region.Degenerate`,

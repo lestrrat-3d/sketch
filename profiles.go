@@ -176,6 +176,13 @@ type BoundaryEdge struct {
 	// sketch Start/End points that lie on the parametric ellipse only within solver
 	// tolerance (eval(0)/eval(1) miss the emitted Polyline ends by that tolerance).
 	//
+	// A consumer that needs an exact trim can often avoid needing one: a whole edge has
+	// no trim to certify at all, whatever TExact says. Authoring the contact as a SHARED
+	// *Point rather than letting the curves cross leaves both edges whole — the supported
+	// way to place a free-form curve against another entity when a downstream consumer
+	// requires exactness. See the executable example Example_sketch_freeformSharedPoint
+	// in examples/.
+	//
 	// The topology is still correct when this is false; only the parameter (and the
 	// Polyline, equally) converges with sampling — or was pinned — rather than being
 	// exact. A consumer that records the profile structurally or emits CAD code from it
