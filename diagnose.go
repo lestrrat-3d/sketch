@@ -53,7 +53,20 @@ type Diagnosis struct {
 // For the conflicting constraints together with the earlier constraints each
 // one fights — the conflict set — call [Sketch.Verify], which reports the same
 // partition plus that attribution.
+//
+// On non-finite geometry (see [Sketch.DOF]'s doc comment for why) the
+// dependency analysis this method otherwise depends on cannot be trusted, so
+// — like DOF and [Sketch.FreePoints] — it answers with MAXIMUM IGNORANCE
+// rather than refuse: an empty [Diagnosis], the same "assume nothing has been
+// proven dependent" direction DOF's free-variable count and FreePoints' free-
+// point set already take, rather than guess at a redundant/conflicting split
+// no comparison against a non-finite pivot can support either way. This is a
+// deliberate design choice, not an oversight: call [Sketch.Verify] to learn
+// that the condition was found at all.
 func (s *Sketch) Diagnose() *Diagnosis {
+	if s.hasNonFiniteVars() {
+		return &Diagnosis{}
+	}
 	flagged, conflicts := s.conflictAnalysis()
 	conflicting := make(map[Constraint]struct{}, len(conflicts))
 	for _, cs := range conflicts {
@@ -306,6 +319,18 @@ func rowCombo(basis, accRows [][]float64, target []float64) []int {
 // this sketch's geometry after a commit elsewhere passes the reference screen
 // while its indices still address the other sketch's vector.
 //
+// It returns an error wrapping [ErrNonFiniteGeometry], without probing, when
+// this sketch's OWN geometry already holds a non-finite (NaN or infinite)
+// point coordinate, entity shape variable, or dimension target (see
+// [Sketch.nonFiniteVars]) — not a property of the candidate c at all. The rank
+// probe below ranks c against the sketch's existing committed rows on the same
+// nondimensional Jacobian [Sketch.Verify] refuses to build over such geometry:
+// a NaN pivot is neither correctly selected nor correctly rejected by a plain
+// partial-pivot comparison, so the probe can silently rank a genuine duplicate
+// as independent and accept it. Unlike Verify this method has no report field
+// to record a skip on, so it refuses outright with the same sentinel rather
+// than return a fabricated verdict.
+//
 // Like [Sketch.DOF], the analysis is local to the call-time configuration;
 // check against solved geometry (after [Sketch.Solve]) for the most reliable
 // verdict. A caller that wants Fusion's behavior — refuse the gesture, leave
@@ -328,6 +353,14 @@ func (s *Sketch) CheckConstraint(c Constraint) error {
 	// allocVars below would rebind it to this one while the indices stay stale.
 	if s.foreignAllocation(c) {
 		return fmt.Errorf("%w: the candidate's auxiliary variables were allocated by another sketch", ErrForeignHandle)
+	}
+	// This sketch's OWN geometry, independent of c: a non-finite pivot in the
+	// probe below is never soundly accepted or rejected either way, so a
+	// candidate that genuinely over-constrains a poisoned sketch can pass. See
+	// the doc comment above and [Sketch.nonFiniteVars].
+	if nf := s.nonFiniteVars(); nf.found() {
+		return fmt.Errorf("%w: %d points, %d entities, %d dimensions",
+			ErrNonFiniteGeometry, len(nf.points), len(nf.entities), len(nf.dims))
 	}
 	if d, ok := c.(Dimension); ok && d.Driven() {
 		return nil // measures the geometry, constrains nothing
@@ -419,7 +452,25 @@ func (s *Sketch) CheckConstraint(c Constraint) error {
 // configuration. Grounded points are never free. An empty result on a solved
 // sketch means it is fully constrained (DOF 0); this is the engine-level
 // answer to "which geometry would a GUI color as under-constrained".
+//
+// On non-finite geometry (see [Sketch.DOF]'s doc comment for why) the null-
+// space analysis this method otherwise depends on cannot be trusted, so —
+// like DOF — it answers with MAXIMUM IGNORANCE rather than refuse: every
+// point holding at least one un-grounded coordinate, mirroring DOF's free-
+// variable count exactly. A point every one of whose coordinates is genuinely
+// fixed is still excluded — it cannot move regardless of the corrupted
+// analysis. This is a deliberate design choice, not an oversight: call
+// [Sketch.Verify] to learn that the condition was found at all.
 func (s *Sketch) FreePoints() []*Point {
+	if s.hasNonFiniteVars() {
+		var out []*Point
+		for _, p := range s.points {
+			if !s.fixed[p.xi] || !s.fixed[p.yi] {
+				out = append(out, p)
+			}
+		}
+		return out
+	}
 	movable := s.movableVars()
 	var out []*Point
 	for _, p := range s.points {
@@ -548,9 +599,9 @@ func (s *Sketch) movableVars() map[int]struct{} {
 	row := 0
 	for col := 0; col < n && row < m; col++ {
 		piv := row
-		best := math.Abs(J[row][col])
+		best := pivotAbs(J[row][col])
 		for r := row + 1; r < m; r++ {
-			if v := math.Abs(J[r][col]); v > best {
+			if v := pivotAbs(J[r][col]); v > best {
 				best = v
 				piv = r
 			}

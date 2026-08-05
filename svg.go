@@ -275,10 +275,11 @@ func (b bbox) finite() bool {
 // DXF's display-unit conversion overflowing a finite coordinate) — tracked by
 // [svgWriter.f] and DXF's pairf, the one formatter every numeric value in each
 // output funnels through. PNG has no textual output to check this way; see its
-// own pixel-dimension guard in PNG. Exported deliberately: a future
-// [Sketch.Verify] condition is meant to reuse this same sentinel, so the
-// oracle's reason and the exporter's refusal name one fact rather than two
-// that could drift apart.
+// own pixel-dimension guard in PNG. Exported deliberately: [Sketch.Verify] and
+// [Sketch.CheckConstraint] reuse this same sentinel for the analogous defect in
+// a sketch's solver variables (see [Sketch.nonFiniteVars]), so the oracle's
+// reason and the exporter's refusal name one fact rather than two that could
+// drift apart.
 var ErrNonFiniteGeometry = errors.New("sketch: a value reaching the output is not a finite number or is outside the exporter's representable range")
 
 // svgWriter accumulates one [Sketch.SVG] call's output through a single

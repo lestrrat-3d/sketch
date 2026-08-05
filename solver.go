@@ -375,8 +375,24 @@ func (s *Sketch) lm(ctx context.Context, free []int, eval func([]float64) []floa
 
 // DOF reports the remaining degrees of freedom of the sketch at its current
 // configuration (0 means fully constrained). It does not move any geometry.
+//
+// On non-finite geometry (a NaN or infinite point coordinate, entity shape
+// variable, or dimension target — see [Sketch.nonFiniteVars]) the rank pass
+// this method otherwise depends on cannot be trusted in either direction: a
+// non-finite pivot is neither correctly selected nor correctly rejected by a
+// plain partial-pivot comparison (see rankAnalysisOfMatrix), so it can read as
+// either too many or too few degrees of freedom. DOF has no error return and
+// so cannot refuse; it answers with MAXIMUM IGNORANCE instead — every free
+// variable, as if nothing constrained the sketch at all — which is the one
+// direction a caller gating on DOF()==0 can never read as falsely fully-
+// constrained. This is a deliberate design choice, not an oversight: call
+// [Sketch.Verify] to learn that the condition was found at all
+// ([VerificationReport.NonFinitePoints] and its siblings).
 func (s *Sketch) DOF() int {
 	free := s.freeVars()
+	if s.hasNonFiniteVars() {
+		return len(free)
+	}
 	m := len(s.residuals(nil))
 	if m == 0 {
 		return len(free)
@@ -559,6 +575,38 @@ func (s *Sketch) rankAnalysisOf(free []int, eval func([]float64) []float64, rowK
 	return rankAnalysisOfMatrix(s.scaledJacobian(free, eval, rowKinds, colScale, L, extraPos...), len(free))
 }
 
+// pivotAbs is the ABS used by the partial-pivot search in [rankAnalysisOfMatrix]
+// and [Sketch.movableVars] — the two elimination loops that decide the
+// rank/DOF/free-point verdicts. It is DEFENCE IN DEPTH, a hard stop against a
+// non-finite (NaN or infinite) matrix entry, behind [Sketch.nonFiniteVars]
+// screening the geometry those matrices are built from before either loop is
+// ever reached from a public entry point (Verify, CheckConstraint, DOF,
+// FreePoints, Diagnose all check it first) — it does not make the RESULT of an
+// already-poisoned matrix meaningful, only keeps the two pivot comparisons
+// from silently picking the wrong branch should one ever be reached
+// unscreened.
+//
+// math.Abs alone lets a non-finite entry decide either comparison the wrong
+// way: "v > best" is false whenever either operand is NaN, so a poisoned SEED
+// value at (row,col) — which starts out as best — blocks every legitimate
+// finite pivot below it in the same column from ever being selected (an
+// UNDERCOUNT: the column is wrongly rejected as rank-free even though a good
+// pivot was available). And once a non-finite value IS selected as the
+// current best (the seed, or nothing else in the column beat it), "best <
+// rankZeroTol" is equally false against a NaN, so it sails through the
+// rejection check and is ACCEPTED as a pivot (an OVERCOUNT, with NaN then
+// eliminated into the rest of the matrix). Reporting 0 for a non-finite entry
+// makes it read as the worst possible candidate on both comparisons: it can
+// never win the "v > best" search over a finite value, and if 0 does end up
+// selected (every candidate in the column non-finite) it is correctly
+// rejected by "best < rankZeroTol".
+func pivotAbs(v float64) float64 {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0
+	}
+	return math.Abs(v)
+}
+
 // rankAnalysisOfMatrix runs the partial-pivot Gaussian elimination of
 // [Sketch.rankAnalysisOf] on a prebuilt nondimensional Jacobian A over n free
 // variables (columns). Split out so the committed path and the candidate-aware
@@ -570,9 +618,9 @@ func rankAnalysisOfMatrix(A [][]float64, n int) rankAnalysis {
 	for col := 0; col < n && row < m; col++ {
 		// Find a pivot in this column at or below the current row.
 		piv := row
-		best := math.Abs(A[row][col])
+		best := pivotAbs(A[row][col])
 		for r := row + 1; r < m; r++ {
-			if v := math.Abs(A[r][col]); v > best {
+			if v := pivotAbs(A[r][col]); v > best {
 				best = v
 				piv = r
 			}

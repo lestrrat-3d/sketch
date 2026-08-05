@@ -46,23 +46,23 @@ func groundedSquare(t *testing.T, s *sketch.Sketch) *sketch.Rectangle {
 	return r
 }
 
-// TestNaNControlCoordinateNURBSCrossingSquareIsInvalidProfile reproduces the
-// wrong-region-count defect end to end through the public API: the NaN-
-// coordinate NURBS evaluates to NaN at every sample, so every ordered
-// comparison against it is false and it contributes no vertex, cut or edge to
-// the arrangement — it vanishes, so the profile it would have split is
-// reported invalid rather than silently blessed as one clean region of area
-// 100. The NaN also reaches the RANK analysis, which is why DOF is 2 rather
-// than the 0 the finite control gets: every control point here is fixed, so no
-// free control-point variable exists to explain it, and the free points the
-// report names are the SQUARE's own — the NaN corrupts the analysis of the
-// square's constraints. That is incidental to this fixture, not the property
-// under test, so the profile half is asserted on its own account through
-// Check(): Trustworthy() alone would still be false on the DOF reason if the
-// arrangement went back to blessing the vanished NURBS.
-func TestNaNControlCoordinateNURBSCrossingSquareIsInvalidProfile(t *testing.T) {
+// TestNaNControlCoordinateNURBSReportsNonFiniteGeometry reproduces the
+// non-finite-geometry defect end to end through the public API. The
+// NaN-coordinate NURBS control point is a solver variable like any point's
+// x/y, so it poisons the finite-difference centroid every rank/DOF/
+// conditioning pass subtracts (positionShift) before the arrangement engine
+// ever sees the curve — which is why Verify must stop at the non-finite-
+// geometry screen rather than let the rank/profile passes run on it and
+// report a number. This used to assert DOF == 2, a fully-populated FreePoints
+// naming only the SQUARE's own points (never a NURBS control point, even
+// though every one of them is fixed), and an invalid profile — the corrupted
+// rank/DOF answer and the vanished-curve profile answer, both accepted as
+// expected behaviour. Under the fix, Verify stops before computing either:
+// DOF, FreePoints and the profile pass all keep their unevaluated zero
+// values, and the report instead names the poisoned point directly.
+func TestNaNControlCoordinateNURBSReportsNonFiniteGeometry(t *testing.T) {
 	s := newSketch(t)
-	square := groundedSquare(t, s)
+	groundedSquare(t, s)
 	nurbs := nanControlCoordinateNURBS(t, s, true)
 
 	if _, err := s.Solve(t.Context()); err != nil {
@@ -70,22 +70,22 @@ func TestNaNControlCoordinateNURBSCrossingSquareIsInvalidProfile(t *testing.T) {
 	}
 
 	rep := s.Verify(t.Context())
-	require.Equal(t, 2, rep.DOF)
-	require.Equal(t, sketch.Underconstrained, rep.Status)
-	squarePoints := map[*sketch.Point]struct{}{square.A: {}, square.B: {}, square.C: {}, square.D: {}}
-	require.NotEmpty(t, rep.FreePoints, "the DOF is attributed to points, so the check below is not vacuous")
-	for _, p := range rep.FreePoints {
-		require.NotContains(t, nurbs.Control, p, "no NURBS control point is free; all five are fixed")
-		require.Contains(t, squarePoints, p, "the free DOF is attributed to the square's own points")
-	}
-	require.False(t, rep.ProfilesValid, "the NaN-coordinate crossing must not be silently dropped")
-	require.NotEmpty(t, rep.InvalidProfiles, "the square's region is reached by the degenerate NURBS")
-	require.ErrorIs(t, rep.Check(), sketch.ErrInvalidProfile, "the profile verdict must fail on its own account")
-	require.False(t, rep.Trustworthy(), "an arrangement degeneracy must not be blessed")
+	require.Equal(t, []*sketch.Point{nurbs.Control[2]}, rep.NonFinitePoints,
+		"the poisoned control point is named, and only it")
+	require.Empty(t, rep.NonFiniteEntities)
+	require.Empty(t, rep.NonFiniteDimensions)
+	err := rep.Check()
+	require.ErrorIs(t, err, sketch.ErrNonFiniteGeometry)
+	require.ErrorIs(t, err, sketch.ErrVerificationIncomplete)
+	require.NotErrorIs(t, err, sketch.ErrInvalidProfile,
+		"the profile pass never ran, so it must not be asserted as a finding")
+	require.NotErrorIs(t, err, sketch.ErrNotFullyConstrained,
+		"DOF was never computed, so it must not be asserted as a finding")
+	require.False(t, rep.Trustworthy(), "non-finite geometry must never be blessed")
 }
 
 // TestFiniteControlNURBSCrossingSquareIsTrustworthy is the healthy control for
-// TestNaNControlCoordinateNURBSCrossingSquareIsInvalidProfile: the identical
+// TestNaNControlCoordinateNURBSReportsNonFiniteGeometry: the identical
 // crossing curve with an ordinary finite control point cleanly splits the
 // square into two ~50 area regions and is fully trustworthy — the converged
 // answer the NaN-coordinate case must never silently substitute (one region
@@ -112,4 +112,168 @@ func TestFiniteControlNURBSCrossingSquareIsTrustworthy(t *testing.T) {
 	}
 	require.InDelta(t, 100, total, 1e-6, "areas still sum exactly to the whole square")
 	require.True(t, rep.Trustworthy(), "a clean, fully-constrained crossing is trustworthy")
+}
+
+// TestStrayFixedNaNPointReportsNonFiniteGeometry is the widest-reach case: a
+// single grounded point at (NaN, 3), belonging to no entity and no
+// constraint, sitting beside an otherwise ordinary fully-constrained square.
+// Nothing else in the sketch references it, so no OTHER signal (a broken
+// reference, a foreign handle, an invalid profile) exists to catch it —
+// before the fix this point alone corrupted the whole sketch's rank analysis
+// through the finite-difference centroid every pass subtracts
+// (positionShift), reporting DOF 2 and naming the SQUARE's own points as
+// free even though the square is fully dimensioned. It must instead be named
+// directly and stop the analysis.
+func TestStrayFixedNaNPointReportsNonFiniteGeometry(t *testing.T) {
+	s := newSketch(t)
+	groundedSquare(t, s)
+	stray := s.CreatePoint(math.NaN(), 3)
+	s.Fix(stray)
+
+	if _, err := s.Solve(t.Context()); err != nil {
+		t.Fatalf("solve: %v", err)
+	}
+
+	rep := s.Verify(t.Context())
+	require.Equal(t, []*sketch.Point{stray}, rep.NonFinitePoints)
+	require.ErrorIs(t, rep.Check(), sketch.ErrNonFiniteGeometry)
+	require.False(t, rep.Trustworthy(), "a stray non-finite point must never be silently absorbed")
+}
+
+// TestStrayFixedFinitePointIsTrustworthy is the finite control for
+// TestStrayFixedNaNPointReportsNonFiniteGeometry: the identical fully-
+// constrained square with an ordinary finite grounded stray point beside it
+// stays fully trustworthy, so the failure above is the NaN, not the presence
+// of an unconnected fixed point.
+func TestStrayFixedFinitePointIsTrustworthy(t *testing.T) {
+	s := newSketch(t)
+	groundedSquare(t, s)
+	stray := s.CreatePoint(20, 3)
+	s.Fix(stray)
+
+	if _, err := s.Solve(t.Context()); err != nil {
+		t.Fatalf("solve: %v", err)
+	}
+
+	rep := s.Verify(t.Context())
+	require.Empty(t, rep.NonFinitePoints)
+	require.Equal(t, 0, rep.DOF)
+	require.True(t, rep.Trustworthy())
+}
+
+// TestAllFixedNaNPointIsNoLongerFalselyBlessed reproduces the CONFIRMED false
+// bless: a line whose both endpoints are grounded, plus a grounded stray
+// point at (NaN, NaN), reads DOF 0, fully constrained, solvable, with no free
+// points and no invalid profile — every OTHER signal in the report byte-
+// identical to a finite control, since [Sketch.conditioning]'s len(free)==0
+// shortcut returns +Inf (maximal trust) without ever looking at a value.
+// That is the sharpest case a Jacobian-level guard cannot catch: the matrix
+// is perfectly finite (it has zero columns), only the GEOMETRY behind it is
+// not.
+func TestAllFixedNaNPointIsNoLongerFalselyBlessed(t *testing.T) {
+	s := newSketch(t)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(5, 0)
+	s.Fix(a)
+	s.Fix(b)
+	s.CreateLine(a, b)
+	stray := s.CreatePoint(math.NaN(), math.NaN())
+	s.Fix(stray)
+
+	rep := s.Verify(t.Context())
+	require.Equal(t, []*sketch.Point{stray}, rep.NonFinitePoints)
+	err := rep.Check()
+	require.ErrorIs(t, err, sketch.ErrNonFiniteGeometry)
+	require.ErrorIs(t, err, sketch.ErrVerificationIncomplete)
+	require.False(t, rep.Trustworthy(),
+		"an all-fixed sketch with a non-finite stray point must never be blessed")
+}
+
+// TestAllFixedFinitePointIsTrustworthy is the finite control for
+// TestAllFixedNaNPointIsNoLongerFalselyBlessed: the identical all-grounded
+// line plus stray point, both finite, is a genuine DOF-0 pass.
+func TestAllFixedFinitePointIsTrustworthy(t *testing.T) {
+	s := newSketch(t)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(5, 0)
+	s.Fix(a)
+	s.Fix(b)
+	s.CreateLine(a, b)
+	stray := s.CreatePoint(1, 1)
+	s.Fix(stray)
+
+	rep := s.Verify(t.Context())
+	require.Empty(t, rep.NonFinitePoints)
+	require.Equal(t, 0, rep.DOF)
+	require.Equal(t, sketch.FullyConstrained, rep.Status)
+	require.True(t, rep.Trustworthy())
+}
+
+// nonFiniteCheckConstraintFixture builds the exact "rejects a duplicate"
+// fixture from TestCheckConstraint, plus one extra FREE point whose y is
+// either an ordinary 3 or NaN, so the two tests using it differ only in the
+// stray point's finiteness. The stray point is deliberately left free (not
+// [Sketch.Fix]ed): this is the specific shape that was confirmed, by sweeping
+// every combination of which existing point a NaN coordinate replaces, which
+// coordinate it lands in, and whether the extra point is fixed or free,
+// against this exact fixture — a FREE stray point with a NaN y is the one
+// that reliably makes the pre-fix rank probe misjudge the duplicate's row as
+// independent (a fixed stray point, or a NaN in x rather than y, still
+// happened to reject it correctly here, for the wrong reason, on this
+// particular fixture — the 29.6% figure in the design is a rate over many
+// fixtures, not a guarantee on every one).
+func nonFiniteCheckConstraintFixture(t *testing.T, nan bool) (*sketch.Sketch, *sketch.Point, *sketch.Point) {
+	t.Helper()
+	s := newSketch(t)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(18, 2)
+	c := s.CreatePoint(17, 11)
+	dd := s.CreatePoint(1, 13)
+	ab := s.CreateLine(a, b)
+	bc := s.CreateLine(b, c)
+	dc := s.CreateLine(dd, c)
+	ad := s.CreateLine(a, dd)
+	a.MoveTo(0, 0)
+	s.Fix(a)
+	s.AddConstraint(sketch.NewHorizontal(ab), sketch.NewHorizontal(dc), sketch.NewVertical(ad), sketch.NewVertical(bc))
+	s.AddConstraint(sketch.NewDistance(a, b, 20))
+	s.AddConstraint(sketch.NewDistance(a, dd, 12))
+	_, err := s.Solve(t.Context())
+	require.NoError(t, err)
+
+	y := 3.0
+	if nan {
+		y = math.NaN()
+	}
+	s.CreatePoint(3, y)
+	return s, a, b
+}
+
+// TestCheckConstraintRefusesNonFiniteGeometry reproduces the CheckConstraint
+// false-accept: this sketch's OWN geometry already over-constrains a.b to 20
+// (the identical dimension is a consistent duplicate, correctly refused by
+// TestCheckConstraint's "rejects a duplicate" case), but the poisoned stray
+// point corrupts the rank probe's pivot comparisons — never correctly
+// selected or correctly rejected against a NaN — so before the fix
+// CheckConstraint ranked the duplicate's row as independent and returned nil,
+// accepting a constraint that genuinely over-constrains the sketch. The
+// refusal must survive: CheckConstraint now reports this sketch's geometry is
+// non-finite before it ever probes the candidate.
+func TestCheckConstraintRefusesNonFiniteGeometry(t *testing.T) {
+	s, a, b := nonFiniteCheckConstraintFixture(t, true)
+
+	err := s.CheckConstraint(sketch.NewDistance(a, b, 20))
+	require.ErrorIs(t, err, sketch.ErrNonFiniteGeometry,
+		"a duplicate must still be refused, now on the non-finite-geometry condition")
+}
+
+// TestCheckConstraintFiniteControlStillRejectsDuplicate is the finite control
+// for TestCheckConstraintRefusesNonFiniteGeometry: the identical fixture with
+// an ordinary finite stray point still refuses the duplicate on the ordinary
+// over-constraint condition.
+func TestCheckConstraintFiniteControlStillRejectsDuplicate(t *testing.T) {
+	s, a, b := nonFiniteCheckConstraintFixture(t, false)
+
+	err := s.CheckConstraint(sketch.NewDistance(a, b, 20))
+	require.ErrorIs(t, err, sketch.ErrOverconstrained, "consistent duplicate rejected")
 }
