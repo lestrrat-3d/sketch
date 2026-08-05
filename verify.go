@@ -85,7 +85,7 @@ func (st Status) String() string {
 // [VerificationReport.Analysed] is how a consumer tells the two paths apart. A
 // report is not self-describing: every unevaluated field holds a value that is
 // also a legitimate analysed one, so a reader that renders or gates on DOF,
-// Status, Solvable, Conditioning, RankMargin, FreePoints, Profiles,
+// Status, Solvable, Residual, Conditioning, RankMargin, FreePoints, Profiles,
 // InvalidProfiles, ProfilesValid, Probe, ProbeIncomplete, Redundant, Conflicts
 // or the parameter fields must ask Analysed first.
 type VerificationReport struct {
@@ -95,11 +95,13 @@ type VerificationReport struct {
 	// [Sketch.Solve] first: after a converged solve this is the solvability
 	// verdict; before any solve, or after one that failed, it reflects the
 	// current — possibly unsolved — state. Meaningful only when
-	// [VerificationReport.Analysed] is true.
+	// [VerificationReport.Analysed] is true: the unevaluated zero value is
+	// false, which reads as unsolvable.
 	Solvable bool
 	// Residual is the Euclidean norm of the constraint residual vector at the
 	// current configuration (base units; 0 when fully satisfied). Meaningful only
-	// when [VerificationReport.Analysed] is true.
+	// when [VerificationReport.Analysed] is true: the unevaluated zero value is
+	// 0, which reads as fully satisfied.
 	Residual float64
 	// DOF is the number of remaining degrees of freedom (0 == fully constrained).
 	// Meaningful only when [VerificationReport.Analysed] is true: the unevaluated

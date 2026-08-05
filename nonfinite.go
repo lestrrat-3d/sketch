@@ -157,8 +157,9 @@ func (s *Sketch) nonFiniteVars() nonFiniteFinding {
 		if auxOwnerOf(c) != s {
 			continue // unallocated, or allocated by a DIFFERENT sketch — see below
 		}
-		for _, idx := range auxVars(c) {
-			if nonFinite(s.vars[idx]) {
+		idx, n := auxVars(c)
+		for i := 0; i < n; i++ {
+			if nonFinite(s.vars[idx[i]]) {
 				f.cons = append(f.cons, c)
 				break
 			}
@@ -175,7 +176,10 @@ func (s *Sketch) nonFiniteVars() nonFiniteFinding {
 // but allocates nothing and stops at the first non-finite value, so a per-handle
 // read pays a scan of the sketch's points, entities and constraints and no
 // heap traffic — a cost strictly dominated, in every caller, by the Jacobian
-// rebuild the same call performs.
+// rebuild the same call performs. [auxVars] is the one that makes this true: it
+// hands back a fixed-size array rather than a slice, so walking a committed
+// aux-var constraint's indices costs no heap allocation even on the ordinary,
+// entirely finite path this method runs on every rank/DOF/conditioning call.
 //
 // It must stay in step with nonFiniteVars: the two are one fact, and a caller
 // that gets false here and a finding there would see a primitive report ok while
@@ -203,8 +207,9 @@ func (s *Sketch) hasNonFiniteVars() bool {
 		if auxOwnerOf(c) != s {
 			continue // unallocated, or allocated by a DIFFERENT sketch — see below
 		}
-		for _, idx := range auxVars(c) {
-			if nonFinite(s.vars[idx]) {
+		idx, n := auxVars(c)
+		for i := 0; i < n; i++ {
+			if nonFinite(s.vars[idx[i]]) {
 				return true
 			}
 		}
@@ -212,16 +217,34 @@ func (s *Sketch) hasNonFiniteVars() bool {
 	return false
 }
 
-// auxVars returns the auxiliary solver-variable indices c currently holds —
-// empty when c owns none, or owns some but none are allocated yet (every
-// index field sentinelled at -1 until allocVars runs). It is the ONE
-// definition of "which s.vars indices does this constraint's aux state span",
-// read by [Sketch.nonFiniteVars]/[Sketch.hasNonFiniteVars] so a poisoned aux
-// variable is screened wherever in s.vars it lives, mirroring
-// [entityShapeVars] for entities' intrinsic shape variables. It reads only the
-// int index fields every aux-var-owning type declares beside its embedded
-// auxOwner — never an operand pointer — so it is safe to call on a constraint
-// holding a nil or foreign operand.
+// maxAuxVars is the largest number of auxiliary indices any single
+// aux-var-owning constraint type currently declares ([tangentConics]: px, py,
+// wSide, slackA, slackB). [auxVars] sizes its fixed-size return array from
+// it, so a new type needing more than this many indices must grow the
+// constant too — the array is the ONLY place those indices are collected, so
+// a stale constant silently drops the overflow index rather than failing loud.
+const maxAuxVars = 5
+
+// auxVars writes the auxiliary solver-variable indices c currently holds into
+// idx and returns the count filled, n — 0 when c owns none, or owns some but
+// none are allocated yet (every index field sentinelled at -1 until allocVars
+// runs). It is the ONE definition of "which s.vars indices does this
+// constraint's aux state span", read by
+// [Sketch.nonFiniteVars]/[Sketch.hasNonFiniteVars] so a poisoned aux variable
+// is screened wherever in s.vars it lives, mirroring [entityShapeVars] for
+// entities' intrinsic shape variables. It reads only the int index fields
+// every aux-var-owning type declares beside its embedded auxOwner — never an
+// operand pointer — so it is safe to call on a constraint holding a nil or
+// foreign operand.
+//
+// idx is a fixed-size ARRAY, not a slice, and n is the number of its leading
+// entries that are valid: a caller ranges `for i := 0; i < n; i++`, never over
+// idx itself, since idx[n:] holds stale zeros from a shorter-lived case. This
+// is what keeps the call allocation-free — [Sketch.hasNonFiniteVars] makes one
+// call per committed aux-var-owning constraint on every rank/DOF/conditioning
+// read, on the ordinary, entirely finite path those reads run on far more
+// often than the poisoned one, so a heap slice here was a per-constraint,
+// per-call allocation with nothing wrong to show for it.
 //
 // The returned indices are meaningful only in the sketch [auxOwnerOf] names as
 // the allocator: this function does not check that itself, so a caller MUST
@@ -233,60 +256,82 @@ func (s *Sketch) hasNonFiniteVars() bool {
 // A new aux-var-owning constraint type MUST get a case here, or its variable
 // escapes this screen with the build, vet, lint and test gates all green — the
 // same failure shape entityShapeVars documents for a forgotten entity type.
-func auxVars(c Constraint) []int {
-	add := func(idx ...int) []int {
-		var out []int
-		for _, i := range idx {
-			if i >= 0 {
-				out = append(out, i)
-			}
+func auxVars(c Constraint) (idx [maxAuxVars]int, n int) {
+	add := func(v int) {
+		if v >= 0 {
+			idx[n] = v
+			n++
 		}
-		return out
 	}
 	switch t := c.(type) {
 	case *pointOnArc:
-		return add(t.slack)
+		add(t.slack)
 	case *pointOnEllipticalArc:
-		return add(t.slack)
+		add(t.slack)
 	case *pointOnSpline:
-		return add(t.tvar, t.w0, t.w1)
+		add(t.tvar)
+		add(t.w0)
+		add(t.w1)
 	case *tangentToSpline:
-		return add(t.tvar, t.w0, t.w1, t.ws)
+		add(t.tvar)
+		add(t.w0)
+		add(t.w1)
+		add(t.ws)
 	case *pointOnClosedSpline:
-		return add(t.tvar)
+		add(t.tvar)
 	case *pointOnFitSpline:
-		return add(t.tvar, t.w0, t.w1)
+		add(t.tvar)
+		add(t.w0)
+		add(t.w1)
 	case *tangentToClosedSpline:
-		return add(t.tvar, t.ws)
+		add(t.tvar)
+		add(t.ws)
 	case *tangentToFitSpline:
-		return add(t.tvar, t.w0, t.w1, t.ws)
+		add(t.tvar)
+		add(t.w0)
+		add(t.w1)
+		add(t.ws)
 	case *pointOnConic:
-		return add(t.tvar, t.w0, t.w1)
+		add(t.tvar)
+		add(t.w0)
+		add(t.w1)
 	case *tangentToConic:
-		return add(t.tvar, t.w0, t.w1, t.ws)
+		add(t.tvar)
+		add(t.w0)
+		add(t.w1)
+		add(t.ws)
 	case *pointOnNURBS:
-		return add(t.tvar, t.w0, t.w1)
+		add(t.tvar)
+		add(t.w0)
+		add(t.w1)
 	case *tangentToNURBS:
-		return add(t.tvar, t.w0, t.w1, t.ws)
+		add(t.tvar)
+		add(t.w0)
+		add(t.w1)
+		add(t.ws)
 	case *tangentConics:
-		return add(t.px, t.py, t.wSide, t.slackA, t.slackB)
+		add(t.px)
+		add(t.py)
+		add(t.wSide)
+		add(t.slackA)
+		add(t.slackB)
 	case *symmetricArcs:
-		return add(t.slack)
+		add(t.slack)
 	case *tangentLineCircle:
-		return add(t.slack)
+		add(t.slack)
 	case *tangentCircles:
-		return add(t.slack1, t.slack2)
+		add(t.slack1)
+		add(t.slack2)
 	case *tangentLineEllipse:
-		return add(t.slack)
+		add(t.slack)
 	case *DistancePointArc:
-		return add(t.slack)
+		add(t.slack)
 	case *DistanceLineArc:
-		return add(t.slack)
+		add(t.slack)
 	case *ArcLength:
-		return add(t.theta)
-	default:
-		return nil
+		add(t.theta)
 	}
+	return
 }
 
 // nonFiniteError is the refusal the two calls that CAN refuse return —
