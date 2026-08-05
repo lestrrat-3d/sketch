@@ -169,15 +169,18 @@ func TestDXFWorldSpaceRefusesOCSProjectionOverflow(t *testing.T) {
 // TestPNGRefusesPixelBufferOverflowOnOrdinaryGeometry pins the pixel-BUFFER
 // guard specifically, distinct from finitePixelDim's per-dimension check:
 // WithScale(7e7) on ordinary, entirely finite 10x10 geometry (bounds 0..10
-// plus the default margin 10 per side = 30 units) gives pw = ph =
-// 30*7e7 = 2.1e9, individually well inside int32 (~2.147e9), so
-// finitePixelDim alone passes both. Their product, at 4 bytes/pixel, is
-// ~1.76e19 bytes — past pngMaxPixelBytes, and past what image.NewNRGBA's own
-// overflow check (mul3NonNeg) tolerates, which is a panic on the pre-fix
-// code. Deliberately stays well under the regime where the byte count fits
-// int64 but not memory (WithScale(1e7) or higher on this geometry), which
-// reaches make() and dies with the runtime's unrecoverable OOM fatal error
-// — that regime must never be exercised by a test.
+// plus the default margin 10 per side = 30 units) gives pw = ph = 30*7e7 =
+// 2.1e9, individually inside int32, so finitePixelDim alone passes both — it
+// does not start refusing this geometry until scale 7.1583e7 (MaxInt32/30).
+// Their product, at 4 bytes/pixel, is ~1.76e19 bytes: past pngMaxPixelBytes,
+// and past MaxInt64, which is where image.NewNRGBA's own overflow check
+// (mul3NonNeg) panics instead of allocating — a recoverable panic, so a test
+// may sit here. The scale is deliberately ABOVE the regime where the byte
+// count fits int64 but not memory, which instead reaches make() and dies with
+// the runtime's unrecoverable out-of-memory fatal error that no recover()
+// catches — that regime must never be exercised by a test. The byte count
+// here is 3600*scale^2, so it stops fitting int64 at scale 5.0617e7: a case
+// like this one must sit in the interval (5.0617e7, 7.1583e7).
 func TestPNGRefusesPixelBufferOverflowOnOrdinaryGeometry(t *testing.T) {
 	s := newSketch(t)
 	a := s.CreatePoint(0, 0)
