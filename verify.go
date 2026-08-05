@@ -64,28 +64,39 @@ func (st Status) String() string {
 // non-finite geometry (a NaN or infinite point coordinate, entity shape
 // variable, or dimension target) would corrupt them silently instead — no
 // rank computed from a poisoned Jacobian is trustworthy in either direction,
-// see [Sketch.nonFiniteVars] — so [Sketch.Verify] reports what its reference-
-// integrity and non-finite-geometry scans found and stops there: only
-// BrokenReferences, ForeignHandles, NonFinitePoints, NonFiniteEntities and
-// NonFiniteDimensions carry a finding, and every other field — Status
-// included — holds its zero value. Those zero values are not verdicts — a
-// false Solvable on that path means "never evaluated", not "does not solve",
-// and the zero-value Status ([Underconstrained]) means the same thing rather
-// than "no remaining degrees of freedom".
+// see [Sketch.nonFiniteVars] — so [Sketch.Verify] reports what it established
+// BEFORE the analysis and stops there: BrokenReferences, ForeignHandles,
+// NonFinitePoints, NonFiniteEntities, NonFiniteDimensions and the
+// Stale/StaleReferences/StaleReferencePoints trio (staleness reads snapshot
+// provenance flags, which neither cause can corrupt) carry a finding, and every
+// other field — Status included — holds its zero value. Those zero values are
+// not verdicts — a false Solvable on that path means "never evaluated", not
+// "does not solve", and the zero-value Status ([Underconstrained]) means the
+// same thing rather than "no remaining degrees of freedom".
 // [VerificationReport.Check] reports such a report as [ErrVerificationIncomplete]
 // and asserts none of the conditions the skipped passes decide.
+//
+// [VerificationReport.Analysed] is how a consumer tells the two paths apart. A
+// report is not self-describing: every unevaluated field holds a value that is
+// also a legitimate analysed one, so a reader that renders or gates on DOF,
+// Status, Solvable, Conditioning, RankMargin, FreePoints, Profiles, Redundant,
+// Conflicts or the parameter fields must ask Analysed first.
 type VerificationReport struct {
 	// Solvable reports whether every (non-driven) constraint holds within the
 	// tolerance at the current configuration (the same default as [Sketch.Solve],
 	// overridable with [WithTolerance]). Verify does not move geometry, so call
 	// [Sketch.Solve] first: after a converged solve this is the solvability
 	// verdict; before any solve, or after one that failed, it reflects the
-	// current — possibly unsolved — state.
+	// current — possibly unsolved — state. Meaningful only when
+	// [VerificationReport.Analysed] is true.
 	Solvable bool
 	// Residual is the Euclidean norm of the constraint residual vector at the
-	// current configuration (base units; 0 when fully satisfied).
+	// current configuration (base units; 0 when fully satisfied). Meaningful only
+	// when [VerificationReport.Analysed] is true.
 	Residual float64
 	// DOF is the number of remaining degrees of freedom (0 == fully constrained).
+	// Meaningful only when [VerificationReport.Analysed] is true: the unevaluated
+	// zero value is 0, which reads as fully constrained.
 	DOF int
 	// RankMargin is an ADVISORY diagnostic: the multiplicative distance of the
 	// STRUCTURAL rank decision from the rank-zero cutoff at the current
@@ -118,7 +129,9 @@ type VerificationReport struct {
 	// On the skipped path described above it holds its zero value like every
 	// other unevaluated field, NOT +Inf: +Inf is this field's best possible
 	// reading, so leaving it there would have a report that evaluated nothing
-	// carry the most trusting conditioning value it can report.
+	// carry the most trusting conditioning value it can report. Ask
+	// [VerificationReport.Analysed] before reading it — a 0 here is otherwise
+	// indistinguishable from a genuinely singular system.
 	Conditioning float64
 	// condGate is the tolerance-derived threshold Conditioning was gated against
 	// (see [conditioningGate]); read by Trustworthy.
@@ -128,7 +141,10 @@ type VerificationReport struct {
 	// parameter passes fill holds an unevaluated zero value. Check reads it to
 	// report only what ran.
 	analysisSkipped bool
-	// Status is the single-value severity summary (see [Status]).
+	// Status is the single-value severity summary (see [Status]). Meaningful only
+	// when [VerificationReport.Analysed] is true: the unevaluated zero value is
+	// [Underconstrained], which is a real status a caller cannot tell apart from
+	// a computed one.
 	Status Status
 	// Redundant lists constraints that contribute a dependent but satisfied
 	// equation — consistent duplicates whose removal changes nothing. Mirrors
@@ -197,7 +213,11 @@ type VerificationReport struct {
 	// regardless of whether the point is grounded ([Sketch.Fix]). NonFiniteEntities
 	// lists entities whose own intrinsic shape variable (a circle's radius, an
 	// ellipse's semi-axes, …) is NaN or infinite. NonFiniteDimensions lists
-	// non-driven dimension constraints whose driving target is NaN or infinite.
+	// dimension constraints whose target is NaN or infinite — DRIVEN ones
+	// included, even though a driven dimension contributes no residual row and so
+	// poisons no Jacobian: it still cannot be serialized or exported, so a report
+	// that blessed it would name a sketch no writer can write (see
+	// [Sketch.nonFiniteVars]).
 	// Any of the three stops Verify at the reference-integrity scan exactly like
 	// ForeignHandles: no rank/DOF/conditioning verdict built from such geometry
 	// is trustworthy in either direction (see [Sketch.nonFiniteVars]), so the
@@ -349,6 +369,14 @@ func (r *VerificationReport) Check() Reasons {
 		add(fmt.Errorf("%w: %d points, %d entities, %d dimensions", ErrNonFiniteGeometry,
 			len(r.NonFinitePoints), len(r.NonFiniteEntities), len(r.NonFiniteDimensions)))
 	}
+	// Staleness sits in this group because [Sketch.Verify] establishes it here:
+	// it reads snapshot provenance flags, not the analysis, so it is reported on
+	// the skipped path too rather than dropped for a condition it does not depend
+	// on.
+	if r.Stale {
+		add(fmt.Errorf("%w: %d entities, %d points", ErrStaleReference,
+			len(r.StaleReferences), len(r.StaleReferencePoints)))
+	}
 	if r.analysisSkipped {
 		// Everything below reads a field the skipped passes never wrote, so it
 		// would report a failure nobody tested. Name the missing analysis
@@ -369,10 +397,6 @@ func (r *VerificationReport) Check() Reasons {
 	}
 	if n := len(r.Redundant); n > 0 {
 		add(fmt.Errorf("%w: %d", ErrRedundant, n))
-	}
-	if r.Stale {
-		add(fmt.Errorf("%w: %d entities, %d points", ErrStaleReference,
-			len(r.StaleReferences), len(r.StaleReferencePoints)))
 	}
 	if !r.ProfilesValid {
 		add(fmt.Errorf("%w: %d of %d regions", ErrInvalidProfile,
@@ -430,6 +454,25 @@ func (r *VerificationReport) Check() Reasons {
 // rather than restated, so the boolean and the reasons cannot drift apart. Use
 // Check to learn WHICH condition failed, or to waive one deliberately.
 func (r *VerificationReport) Trustworthy() bool { return r.Check() == nil }
+
+// Analysed reports whether [Sketch.Verify] ran its analysis passes — solvability,
+// rank/DOF, conditioning, the constraint dependency analysis, profiles and
+// parameters — or stopped at the scans that precede them because a nil, corrupt
+// or foreign handle, or non-finite geometry, would have made those passes panic
+// or answer from poisoned input.
+//
+// It is false exactly when [ErrVerificationIncomplete] is among the reasons, and
+// it is the ONLY way to tell the two paths apart from a report alone: every
+// field the skipped passes never wrote holds its zero value, and each of those
+// zero values is also a legitimate analysed reading — DOF 0 is fully
+// constrained, Status is [Underconstrained], Solvable is false, ProfilesValid is
+// false, Conditioning is 0. A consumer that renders, logs or gates on any of
+// them must branch on this first; the fields' own doc comments say which ones.
+//
+// [VerificationReport.Trustworthy] already fails on that path, so a caller that
+// only gates on the verdict needs nothing here. This is for the reader that
+// wants the numbers.
+func (r *VerificationReport) Analysed() bool { return !r.analysisSkipped }
 
 // VerifyOption tunes [Sketch.Verify]. Construct values with the With… helpers.
 type VerifyOption interface {
@@ -513,6 +556,21 @@ func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *Verificat
 	rep.NonFiniteEntities = nf.entities
 	rep.NonFiniteDimensions = nf.dims
 
+	// Reference staleness is established BEFORE the early-out, not after the
+	// analysis, because it is not part of the analysis: it reads the boolean
+	// provenance flags a snapshot carries and nothing a non-finite value or a
+	// foreign handle can corrupt. Skipping it bought nothing and lost a real
+	// finding whose ZERO VALUE is the blessing one — Stale=false reads as
+	// "verified against a current 3D snapshot", so one poisoned point beside a
+	// genuinely stale reference turned Stale=true into Stale=false with nothing
+	// left to say otherwise. It still must not run on NIL-corrupt topology: an
+	// entity's staleness is derived from its defining points (Line.IsStale reads
+	// Start and End), so a nil point panics here — which is the whole reason the
+	// scan sat below the early-out to begin with.
+	if !nilCorrupt {
+		s.scanReferenceStaleness(rep)
+	}
+
 	if nilCorrupt || rep.ForeignHandles || nf.found() {
 		rep.analysisSkipped = true
 		return rep
@@ -538,7 +596,14 @@ func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *Verificat
 	// under-constrained sketch is genuinely singular by its free DOF (a separate
 	// verdict), so leave Conditioning at +Inf (not applicable) there.
 	if rep.DOF == 0 {
-		rep.Conditioning = s.conditioning()
+		cond, analysed := s.conditioning()
+		if !analysed {
+			// Unreachable below the early-out above, which stops on the same
+			// condition. Kept because the refusal must not fall through to the
+			// +Inf "not applicable" initialization: 0 fails the gate, +Inf passes it.
+			cond = 0
+		}
+		rep.Conditioning = cond
 	}
 
 	flagged, conflicts := s.conflictAnalysis()
@@ -598,8 +663,6 @@ func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *Verificat
 			rep.probeErr = err
 		}
 	}
-
-	s.scanReferenceStaleness(rep)
 
 	return rep
 }

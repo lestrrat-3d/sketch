@@ -19,6 +19,15 @@ import (
 // values — Iterations 0, Residual 0, Converged false. A 0 Residual on that
 // early-exit path means "no residual was measured", not "the sketch is
 // satisfied", so pair it with the returned error before reading it.
+//
+// DOF and Redundant are -1 for a second reason, and this one comes back with a
+// NIL error: the sketch's own geometry holds a non-finite (NaN or infinite)
+// point coordinate, entity shape variable or dimension target (see
+// [Sketch.nonFiniteVars]), so no rank the analysis could compute is trustworthy
+// in either direction. Iterations, Residual and Converged still report what the
+// solver measured. A caller gating on `res.DOF == 0 && res.Converged` must
+// therefore treat -1 as a refusal, not as a small number: call [Sketch.Verify]
+// to learn which geometry carries the condition.
 type Result struct {
 	Converged  bool    // every residual is within the tolerance
 	Iterations int     // outer Levenberg–Marquardt iterations performed
@@ -218,11 +227,20 @@ func (s *Sketch) Solve(ctx context.Context, options ...SolveOption) (*Result, er
 	}
 
 	if mh == 0 {
+		// No constraint rows means no rank pass, so the non-finite screen has no
+		// second return to ride in on here; ask it directly, exactly as
+		// [Sketch.DOF] does in the same branch. Without it n — the FREE variable
+		// count — is 0 on an all-grounded sketch, and the result reads DOF 0,
+		// converged, for geometry holding a NaN.
+		if s.hasNonFiniteVars() {
+			res.DOF, res.Redundant = -1, -1
+			return res, nil
+		}
 		res.DOF = n
 		return res, nil
 	}
 
-	rank := s.rank(free, mh)
+	rank, analysed := s.rank(free, mh)
 
 	// The rank pass is itself a Jacobian rebuild — the one remaining chunk of
 	// bounded work. A deadline that expires while it runs must still surface as a
@@ -236,13 +254,25 @@ func (s *Sketch) Solve(ctx context.Context, options ...SolveOption) (*Result, er
 		return res, err
 	}
 
-	res.DOF = n - rank
-	if res.DOF < 0 {
-		res.DOF = 0
-	}
-	res.Redundant = mh - rank
-	if res.Redundant < 0 {
-		res.Redundant = 0
+	// Non-finite geometry leaves no rank worth reporting in either direction (see
+	// [Sketch.committedRankAnalysis]), so DOF and Redundant take the SAME
+	// not-computed sentinel a cancelled solve already uses — this Result's own
+	// documented refusal value, so no signature and no caller contract changes.
+	// Reporting the poisoned numbers instead made the result byte-identical to the
+	// finite sketch's, and a caller gating on `res.DOF == 0 && res.Converged` read
+	// it as a clean pass. Convergence and Residual stay as measured: they are the
+	// solver's own report on the rows it evaluated, not a verdict built from the
+	// Jacobian, and a poisoned residual shows up in them on its own account.
+	res.DOF, res.Redundant = -1, -1
+	if analysed {
+		res.DOF = n - rank
+		if res.DOF < 0 {
+			res.DOF = 0
+		}
+		res.Redundant = mh - rank
+		if res.Redundant < 0 {
+			res.Redundant = 0
+		}
 	}
 
 	if !res.Converged {
@@ -401,6 +431,11 @@ func (s *Sketch) lm(ctx context.Context, free []int, eval func([]float64) []floa
 // learn that the condition was found at all
 // ([VerificationReport.NonFinitePoints] and its siblings).
 func (s *Sketch) DOF() int {
+	// Asked directly rather than only through the rank pass below: a sketch with
+	// no residual rows never reaches that pass, so there is no second return to
+	// carry the screen on that branch — and the free-variable count it would
+	// return collapses to 0 on an all-grounded sketch, which is the reading this
+	// screen exists to prevent.
 	if s.hasNonFiniteVars() {
 		return len(s.vars)
 	}
@@ -409,7 +444,11 @@ func (s *Sketch) DOF() int {
 	if m == 0 {
 		return len(free)
 	}
-	d := len(free) - s.rank(free, m)
+	rk, ok := s.rank(free, m)
+	if !ok {
+		return len(s.vars)
+	}
+	d := len(free) - rk
 	if d < 0 {
 		return 0
 	}
@@ -572,14 +611,30 @@ func (ra rankAnalysis) margin() float64 {
 // rank estimates the rank of the constraint Jacobian at the current configuration
 // (scale-invariant: Gaussian elimination on the nondimensional A). m is the row
 // count, unused beyond documenting the caller's residual size.
-func (s *Sketch) rank(free []int, m int) int {
-	return s.committedRankAnalysis(free).rank
+//
+// The second result is false when this sketch's geometry is non-finite, in which
+// case the rank is not returned at all: see [Sketch.committedRankAnalysis].
+func (s *Sketch) rank(free []int, m int) (int, bool) {
+	ra, ok := s.committedRankAnalysis(free)
+	return ra.rank, ok
 }
 
 // committedRankAnalysis runs the scale-invariant rank analysis over the committed
 // constraint rows (residuals(), driven dims skipped).
-func (s *Sketch) committedRankAnalysis(free []int) rankAnalysis {
-	return rankAnalysisOfMatrix(s.committedScaledJacobian(free), len(free))
+//
+// It is one of the three primitives that CARRY the non-finite-geometry screen
+// (see nonfinite.go): the second result is false — and the analysis is not run —
+// when [Sketch.hasNonFiniteVars] holds, so a caller cannot read a rank built from
+// a poisoned Jacobian without handling the refusal. No rank from such a matrix is
+// trustworthy in either direction: a non-finite pivot is neither correctly
+// selected nor correctly rejected by a plain partial-pivot comparison, so it
+// reads as too many or too few degrees of freedom depending only on where it
+// lands.
+func (s *Sketch) committedRankAnalysis(free []int) (rankAnalysis, bool) {
+	if s.hasNonFiniteVars() {
+		return rankAnalysis{}, false
+	}
+	return rankAnalysisOfMatrix(s.committedScaledJacobian(free), len(free)), true
 }
 
 // rankAnalysisOf computes the rank and the deciding pivot magnitudes on the
@@ -676,12 +731,25 @@ func rankAnalysisOfMatrix(A [][]float64, n int) rankAnalysis {
 // rankMargin reports the structural rank-decision margin at the current
 // configuration (see rankAnalysis.margin), over the same free variables and
 // residual rows DOF uses. It is +Inf when there are no residual rows.
+//
+// On non-finite geometry it reports 0 — maximally fragile, the reading that says
+// the rank decision cannot be relied on. +Inf is this measure's most reassuring
+// value and is exactly what a report that analysed nothing must not carry.
+// [Sketch.Verify] never reaches this on that path (it stops at the non-finite
+// screen), so the value is a floor rather than a route.
 func (s *Sketch) rankMargin() float64 {
 	free := s.freeVars()
 	if len(s.residuals(nil)) == 0 {
+		if s.hasNonFiniteVars() {
+			return 0
+		}
 		return math.Inf(1)
 	}
-	return s.committedRankAnalysis(free).margin()
+	ra, ok := s.committedRankAnalysis(free)
+	if !ok {
+		return 0
+	}
+	return ra.margin()
 }
 
 // solveLinear solves A·x = b for a square matrix using Gaussian elimination

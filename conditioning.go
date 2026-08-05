@@ -518,11 +518,23 @@ func (s *Sketch) scaledJacobian(free []int, eval func([]float64) []float64, rowK
 // variables or no rows) and 0 when the matrix is numerically singular or the
 // row-kind table is misaligned. Intended for a DOF-0 candidate; the caller gates
 // on it only then.
-func (s *Sketch) conditioning() float64 {
+//
+// It is one of the three primitives that CARRY the non-finite-geometry screen
+// (see nonfinite.go): the second result is false — and no measure is computed —
+// when [Sketch.hasNonFiniteVars] holds. This one is the sharpest of the three,
+// because its "nothing to measure" answer is +Inf, its BEST possible reading and
+// the one the trust gate passes: an all-grounded sketch holding a NaN builds a
+// perfectly finite ZERO-COLUMN matrix, so the len(free)==0 shortcut below would
+// hand the gate maximal trust without ever looking at a value. The screen is on
+// the geometry precisely because no guard on the matrix can see that.
+func (s *Sketch) conditioning() (float64, bool) {
+	if s.hasNonFiniteVars() {
+		return 0, false
+	}
 	free := s.freeVars()
 	m := len(s.residuals(nil))
 	if len(free) == 0 || m == 0 {
-		return math.Inf(1)
+		return math.Inf(1), true
 	}
 	A := s.conditioningMatrix(free, m, s.lengthScale())
 	if A == nil {
@@ -530,11 +542,11 @@ func (s *Sketch) conditioning() float64 {
 		// gap (a constraint kind missing from condRowKinds). Return NaN, distinct
 		// from a genuinely-singular 0; NaN fails the trust gate (NaN >= τ is false),
 		// so an unclassified constraint reads as untrustworthy, never falsely blessed.
-		return math.NaN()
+		return math.NaN(), true
 	}
 	sv := jacobiSingularValues(A)
 	if len(sv) == 0 {
-		return math.Inf(1)
+		return math.Inf(1), true
 	}
 	smax, smin := sv[0], sv[0]
 	for _, v := range sv {
@@ -546,9 +558,9 @@ func (s *Sketch) conditioning() float64 {
 		}
 	}
 	if smax == 0 {
-		return 0
+		return 0, true
 	}
-	return smin / smax
+	return smin / smax, true
 }
 
 // jacobiSingularValues returns the singular values of an m×n matrix via a

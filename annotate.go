@@ -218,20 +218,35 @@ func (s *Sketch) computeOverlaySets(cfg svgConfig) overlaySets {
 		// line/arc via its endpoints), and additionally via whichever intrinsic
 		// shape vars entityShapeVars reports for its type, a circle's radius being
 		// one example.
-		movable := s.movableVars()
+		//
+		// On non-finite geometry movableVars refuses (see nonfinite.go) and EVERY
+		// point and entity is marked free. Two choices were open — a distinct
+		// "incomplete" appearance, or this — and this one is taken because the
+		// overlay's own vocabulary already has a value meaning "not proven
+		// constrained": blue and hollow. A fourth colour would be a render-only
+		// answer to the fact the whole screen exists to give ONE answer to, and no
+		// legend, hero image or consumer knows how to read it. Marking everything
+		// free instead makes the drawing agree with the API on the same geometry —
+		// [Sketch.FreePoints] names every point, grounded ones included, and
+		// [Point.IsFullyConstrained] and [Sketch.EntityIsFullyConstrained] both
+		// report false. Rendering the computed colours instead was the harm: on a
+		// finite rectangle whose committed dimension target is NaN the render
+		// SUCCEEDS and paints "fully constrained" black on geometry those three
+		// reads call free, which is worse than a uniformly free drawing because it
+		// reads as a specific credible diagnosis with no cue to distrust it. The
+		// free marker also wins over the grounded green square in svg.go, so the
+		// whole drawing reads uniformly with no per-case code; WithStatusBadge is
+		// what names the incomplete state in words.
+		movable, analysed := s.movableVars()
 		ov.freePt = make(map[*Point]struct{})
 		for _, p := range s.points {
-			if _, ok := movable[p.xi]; ok {
-				ov.freePt[p] = struct{}{}
-				continue
-			}
-			if _, ok := movable[p.yi]; ok {
+			if !analysed || pointMovable(p, movable) {
 				ov.freePt[p] = struct{}{}
 			}
 		}
 		ov.freeEnt = make(map[Entity]struct{})
 		for _, e := range s.ents {
-			if entityMovable(e, movable) {
+			if !analysed || entityMovable(e, movable) {
 				ov.freeEnt[e] = struct{}{}
 			}
 		}
@@ -829,7 +844,7 @@ const badgeTextIncomplete = "verification incomplete · DOF/status not evaluated
 func (s *Sketch) writeStatusBadge(sb *svgWriter, cfg svgConfig, pad, w float64) {
 	rep := s.Verify(context.Background())
 	txt := fmt.Sprintf("DOF %d · %s · solvable=%t", rep.DOF, rep.Status, rep.Solvable)
-	if rep.analysisSkipped {
+	if !rep.Analysed() {
 		txt = badgeTextIncomplete
 	}
 	size := w * 0.035 * cfg.annScale

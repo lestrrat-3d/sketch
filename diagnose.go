@@ -398,9 +398,8 @@ func (s *Sketch) CheckConstraint(c Constraint) error {
 	// row (residuals() skips it), so nothing about it is ever ranked and there is
 	// no verdict for a poisoned pivot to corrupt. Refusing it would report a
 	// defect on a call the poisoned geometry cannot reach.
-	if nf := s.nonFiniteVars(); nf.found() {
-		return fmt.Errorf("%w: %d points, %d entities, %d dimensions",
-			ErrNonFiniteGeometry, len(nf.points), len(nf.entities), len(nf.dims))
+	if s.hasNonFiniteVars() {
+		return s.nonFiniteError()
 	}
 	// A constraint that owns auxiliary variables (the allocVars hook) parameterizes
 	// its residual with variables allocated only at commit — a spline foot point, an
@@ -505,17 +504,13 @@ func (s *Sketch) CheckConstraint(c Constraint) error {
 // public call can move it. This is a deliberate design choice, not an
 // oversight: call [Sketch.Verify] to learn that the condition was found at all.
 func (s *Sketch) FreePoints() []*Point {
-	if s.hasNonFiniteVars() {
+	movable, analysed := s.movableVars()
+	if !analysed {
 		return slices.Clone(s.points)
 	}
-	movable := s.movableVars()
 	var out []*Point
 	for _, p := range s.points {
-		if _, ok := movable[p.xi]; ok {
-			out = append(out, p)
-			continue
-		}
-		if _, ok := movable[p.yi]; ok {
+		if pointMovable(p, movable) {
 			out = append(out, p)
 		}
 	}
@@ -553,15 +548,11 @@ func (p *Point) IsFullyConstrained() bool {
 	if p == nil || p.s == nil || !p.s.owns(p) {
 		return false
 	}
-	if p.s.hasNonFiniteVars() {
+	movable, analysed := p.s.movableVars()
+	if !analysed {
 		return false
 	}
-	movable := p.s.movableVars()
-	if _, ok := movable[p.xi]; ok {
-		return false
-	}
-	_, ok := movable[p.yi]
-	return !ok
+	return !pointMovable(p, movable)
 }
 
 // EntityIsFullyConstrained reports whether none of an entity's degrees of
@@ -597,10 +588,11 @@ func (s *Sketch) EntityIsFullyConstrained(e Entity) bool {
 	if s.foreignInput(e) {
 		return false
 	}
-	if s.hasNonFiniteVars() {
+	movable, analysed := s.movableVars()
+	if !analysed {
 		return false
 	}
-	return !entityMovable(e, s.movableVars())
+	return !entityMovable(e, movable)
 }
 
 // entityMovable reports whether any of an entity's defining-point coordinates or
@@ -632,7 +624,18 @@ func entityMovable(e Entity, movable map[int]struct{}) bool {
 // to reduced row-echelon form: each non-pivot column seeds a null-space basis
 // vector with support on itself and on every pivot column its elimination
 // touches.
-func (s *Sketch) movableVars() map[int]struct{} {
+//
+// It is one of the three primitives that CARRY the non-finite-geometry screen
+// (see nonfinite.go): the second result is false — and no elimination is run —
+// when [Sketch.hasNonFiniteVars] holds, so a caller cannot read a null-space
+// support computed from a poisoned Jacobian without handling the refusal. The
+// elimination decides its pivots with exactly the comparisons that go the wrong
+// way against a non-finite entry, so the support it would report is neither an
+// over- nor an under-estimate but simply meaningless.
+func (s *Sketch) movableVars() (map[int]struct{}, bool) {
+	if s.hasNonFiniteVars() {
+		return nil, false
+	}
 	free := s.freeVars()
 	movable := make(map[int]struct{})
 	m := len(s.residuals(nil))
@@ -640,7 +643,7 @@ func (s *Sketch) movableVars() map[int]struct{} {
 		for _, vi := range free {
 			movable[vi] = struct{}{}
 		}
-		return movable
+		return movable, true
 	}
 
 	// Null-space support is computed on the NONDIMENSIONAL Jacobian A = Drow·J·Dcol
@@ -700,5 +703,23 @@ func (s *Sketch) movableVars() map[int]struct{} {
 			}
 		}
 	}
-	return movable
+	return movable, true
+}
+
+// pointMovable reports whether either of a point's coordinates is in movable
+// (the Jacobian null-space support) — the point-level companion to
+// [entityMovable], and the ONE definition the free-point reads share
+// ([Sketch.FreePoints], [Point.IsFullyConstrained], the DOF colouring in
+// annotate.go), so a point cannot read free through one and constrained through
+// another.
+//
+// Like entityMovable it is deliberately UNSCREENED: every caller screens the
+// handle and the geometry first, through [Sketch.movableVars]'s own second
+// return.
+func pointMovable(p *Point, movable map[int]struct{}) bool {
+	if _, ok := movable[p.xi]; ok {
+		return true
+	}
+	_, ok := movable[p.yi]
+	return ok
 }
