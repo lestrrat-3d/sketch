@@ -97,6 +97,7 @@ func (s *Sketch) nonFiniteVars() nonFiniteFinding {
 
 // hasNonFiniteVars is the cheap boolean form of [Sketch.nonFiniteVars], used by
 // the bare reads that have no error return and so cannot refuse ([Sketch.DOF],
-// [Sketch.FreePoints], [Sketch.Diagnose]) — see their doc comments for the
-// deliberate maximum-ignorance answer each gives instead.
+// [Sketch.FreePoints], [Sketch.Diagnose], [Sketch.RedundantConstraints]) — see
+// their doc comments for the deliberate maximum-ignorance answer each gives
+// instead.
 func (s *Sketch) hasNonFiniteVars() bool { return s.nonFiniteVars().found() }

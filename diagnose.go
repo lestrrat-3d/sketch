@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 )
 
@@ -57,15 +58,23 @@ type Diagnosis struct {
 // On non-finite geometry (see [Sketch.DOF]'s doc comment for why) the
 // dependency analysis this method otherwise depends on cannot be trusted, so
 // — like DOF and [Sketch.FreePoints] — it answers with MAXIMUM IGNORANCE
-// rather than refuse: an empty [Diagnosis], the same "assume nothing has been
-// proven dependent" direction DOF's free-variable count and FreePoints' free-
-// point set already take, rather than guess at a redundant/conflicting split
-// no comparison against a non-finite pivot can support either way. This is a
-// deliberate design choice, not an oversight: call [Sketch.Verify] to learn
-// that the condition was found at all.
+// rather than refuse: every constraint the analysis could ever flag (every
+// one contributing residual rows, driven dimensions excluded since they
+// contribute none and so can never be flagged) is reported as Conflicting,
+// and Redundant is empty.
+//
+// An empty Diagnosis is NOT that answer, and is the reason this screen exists
+// at all: a caller reads two empty lists as "no constraint problem found",
+// the one direction a poisoned dependency analysis must never be allowed to
+// report. Conflicting rather than Redundant because "removing one changes
+// nothing" is itself a claim about geometry nothing here can support, while
+// Conflicting says only that no constraint in this sketch has been proven
+// consistent. This is a deliberate design choice, not an oversight: call
+// [Sketch.Verify] to learn that the condition was found at all, and which
+// geometry carries it.
 func (s *Sketch) Diagnose() *Diagnosis {
 	if s.hasNonFiniteVars() {
-		return &Diagnosis{}
+		return &Diagnosis{Conflicting: s.unprovenConstraints()}
 	}
 	flagged, conflicts := s.conflictAnalysis()
 	conflicting := make(map[Constraint]struct{}, len(conflicts))
@@ -81,6 +90,24 @@ func (s *Sketch) Diagnose() *Diagnosis {
 		d.Redundant = append(d.Redundant, c)
 	}
 	return d
+}
+
+// unprovenConstraints is the maximum-ignorance constraint set [Sketch.Diagnose]
+// and [Sketch.RedundantConstraints] report on non-finite geometry: every
+// constraint the dependency analysis could ever flag. It mirrors residuals()'s
+// iteration exactly — driven dimensions skipped, since they contribute no
+// residual row and so can never be flagged by the real analysis either — so
+// the fabricated answer names a set the honest answer is a subset of, never a
+// constraint the analysis would not have looked at.
+func (s *Sketch) unprovenConstraints() []Constraint {
+	var out []Constraint
+	for _, c := range s.cons {
+		if d, ok := c.(Dimension); ok && d.Driven() {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 // ConflictSet reports a conflicting constraint together with the earlier
@@ -455,21 +482,21 @@ func (s *Sketch) CheckConstraint(c Constraint) error {
 //
 // On non-finite geometry (see [Sketch.DOF]'s doc comment for why) the null-
 // space analysis this method otherwise depends on cannot be trusted, so —
-// like DOF — it answers with MAXIMUM IGNORANCE rather than refuse: every
-// point holding at least one un-grounded coordinate, mirroring DOF's free-
-// variable count exactly. A point every one of whose coordinates is genuinely
-// fixed is still excluded — it cannot move regardless of the corrupted
-// analysis. This is a deliberate design choice, not an oversight: call
-// [Sketch.Verify] to learn that the condition was found at all.
+// like DOF — it answers with MAXIMUM IGNORANCE rather than refuse: every point
+// of the sketch, grounded ones included, mirroring DOF's total variable count
+// exactly.
+//
+// Excluding the grounded points is NOT that answer, for the same reason DOF
+// does not count free variables there: [Sketch.Fix] IS a constraint, so a
+// value that credits it collapses to empty on an all-grounded sketch — the
+// reading a caller gating on len(FreePoints())==0 takes as fully constrained,
+// on exactly the fixture this screen exists for. The sketch's own origin is
+// still excluded, as it is on the analysed path: it is not in s.points, and no
+// public call can move it. This is a deliberate design choice, not an
+// oversight: call [Sketch.Verify] to learn that the condition was found at all.
 func (s *Sketch) FreePoints() []*Point {
 	if s.hasNonFiniteVars() {
-		var out []*Point
-		for _, p := range s.points {
-			if !s.fixed[p.xi] || !s.fixed[p.yi] {
-				out = append(out, p)
-			}
-		}
-		return out
+		return slices.Clone(s.points)
 	}
 	movable := s.movableVars()
 	var out []*Point

@@ -66,10 +66,17 @@ func (st Status) String() string {
 // rank computed from a poisoned Jacobian is trustworthy in either direction,
 // see [Sketch.nonFiniteVars] — so [Sketch.Verify] reports what its reference-
 // integrity and non-finite-geometry scans found and stops there: only
-// BrokenReferences, ForeignHandles, NonFinitePoints, NonFiniteEntities,
-// NonFiniteDimensions and Status carry a finding, and every other field holds
-// its zero value. Those zero values are not verdicts — a false Solvable on
-// that path means "never evaluated", not "does not solve".
+// BrokenReferences, ForeignHandles, NonFinitePoints, NonFiniteEntities and
+// NonFiniteDimensions carry a finding, and every other field holds its zero
+// value. Those zero values are not verdicts — a false Solvable on that path
+// means "never evaluated", not "does not solve".
+//
+// Status is the one exception, and it is deliberate: it is set to
+// [Overconstrained] rather than left at its zero value, so a caller reading
+// only the severity summary sees the most severe one rather than the
+// [Underconstrained] zero value. It is a severity marker on that path, not a
+// rank verdict — no rank was computed — and it is never [FullyConstrained]
+// there, so it cannot be read as a pass.
 // [VerificationReport.Check] reports such a report as [ErrVerificationIncomplete]
 // and asserts none of the conditions the skipped passes decide.
 type VerificationReport struct {
@@ -112,6 +119,11 @@ type VerificationReport struct {
 	// otherwise fully-constrained candidate (DOF 0); an under-constrained sketch is
 	// genuinely singular by its free DOF — a separate, already-reported verdict —
 	// so Conditioning is left +Inf (not applicable) there.
+	//
+	// On the skipped path described above it holds its zero value like every
+	// other unevaluated field, NOT +Inf: +Inf is this field's best possible
+	// reading, so leaving it there would have a report that evaluated nothing
+	// carry the most trusting conditioning value it can report.
 	Conditioning float64
 	// condGate is the tolerance-derived threshold Conditioning was gated against
 	// (see [conditioningGate]); read by Trustworthy.
@@ -478,7 +490,7 @@ func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *Verificat
 		}
 	}
 
-	rep := &VerificationReport{Conditioning: math.Inf(1), condGate: conditioningGate(tolerance)}
+	rep := &VerificationReport{condGate: conditioningGate(tolerance)}
 
 	// Reference integrity + reachability first: it is nil-safe, and a nil/corrupt
 	// or foreign operand would otherwise panic the residual/profile/staleness
@@ -511,6 +523,16 @@ func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *Verificat
 		rep.analysisSkipped = true
 		return rep
 	}
+
+	// Conditioning's "not applicable" value is +Inf, its best possible reading,
+	// so it is initialized only once the analysis is actually going to run. Set
+	// on the report literal it would survive the early-out above and have a
+	// report that evaluated nothing carry maximal trust in the one field a
+	// caller reads as "how far from singular is this" — the blessing direction,
+	// on both early-out causes (a foreign handle as much as non-finite
+	// geometry). Below the early-out the skipped path keeps the zero value the
+	// report's own doc comment promises for every unevaluated field.
+	rep.Conditioning = math.Inf(1)
 
 	r := s.residuals(nil)
 	rep.Residual = math.Sqrt(dot(r, r))

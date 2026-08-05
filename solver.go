@@ -382,17 +382,29 @@ func (s *Sketch) lm(ctx context.Context, free []int, eval func([]float64) []floa
 // non-finite pivot is neither correctly selected nor correctly rejected by a
 // plain partial-pivot comparison (see rankAnalysisOfMatrix), so it can read as
 // either too many or too few degrees of freedom. DOF has no error return and
-// so cannot refuse; it answers with MAXIMUM IGNORANCE instead — every free
-// variable, as if nothing constrained the sketch at all — which is the one
-// direction a caller gating on DOF()==0 can never read as falsely fully-
-// constrained. This is a deliberate design choice, not an oversight: call
-// [Sketch.Verify] to learn that the condition was found at all
+// so cannot refuse; it answers with MAXIMUM IGNORANCE instead — the sketch's
+// TOTAL variable count, grounded variables included, as if neither a
+// constraint nor a [Sketch.Fix] had ever been applied.
+//
+// The total count, never the free-variable count: [Sketch.freeVars] filters on
+// the grounding flags, so on an all-grounded sketch it is empty and the
+// free-variable count collapses onto 0 — exactly the value that reads as fully
+// constrained, on exactly the fixture this screen exists for (a line with both
+// endpoints grounded beside a grounded stray point at (NaN, NaN)). Grounding
+// IS a constraint, so a value that counts it is not maximum ignorance. The
+// total count cannot collapse that way: every sketch owns an origin
+// contributing two variables, so it is always at least 2, and it stays a
+// non-negative count inside this method's documented domain, so a caller doing
+// arithmetic or comparison on it is never handed a sentinel it does not expect.
+//
+// This is a deliberate design choice, not an oversight: call [Sketch.Verify] to
+// learn that the condition was found at all
 // ([VerificationReport.NonFinitePoints] and its siblings).
 func (s *Sketch) DOF() int {
-	free := s.freeVars()
 	if s.hasNonFiniteVars() {
-		return len(free)
+		return len(s.vars)
 	}
+	free := s.freeVars()
 	m := len(s.residuals(nil))
 	if m == 0 {
 		return len(free)
@@ -418,7 +430,15 @@ func (s *Sketch) DOF() int {
 // To separate the redundant constraints from the conflicting ones, and to learn
 // which earlier constraints each conflicting one fights, call [Sketch.Diagnose]
 // or [Sketch.Verify].
+//
+// On non-finite geometry (see [Sketch.DOF]'s doc comment for why) it answers
+// with the same MAXIMUM-IGNORANCE value [Sketch.Diagnose] does: every
+// constraint the dependency analysis could ever flag, so the flat list and the
+// partition Diagnose refines it into keep naming one set.
 func (s *Sketch) RedundantConstraints() []Constraint {
+	if s.hasNonFiniteVars() {
+		return s.unprovenConstraints()
+	}
 	flagged, _ := s.conflictAnalysis()
 	return flagged
 }

@@ -161,24 +161,36 @@ func TestStrayFixedFinitePointIsTrustworthy(t *testing.T) {
 	require.True(t, rep.Trustworthy())
 }
 
-// TestAllFixedNaNPointIsNoLongerFalselyBlessed reproduces the CONFIRMED false
-// bless: a line whose both endpoints are grounded, plus a grounded stray
-// point at (NaN, NaN), reads DOF 0, fully constrained, solvable, with no free
-// points and no invalid profile — every OTHER signal in the report byte-
-// identical to a finite control, since [Sketch.conditioning]'s len(free)==0
-// shortcut returns +Inf (maximal trust) without ever looking at a value.
-// That is the sharpest case a Jacobian-level guard cannot catch: the matrix
-// is perfectly finite (it has zero columns), only the GEOMETRY behind it is
-// not.
-func TestAllFixedNaNPointIsNoLongerFalselyBlessed(t *testing.T) {
+// allFixedNaNStraySketch builds the CONFIRMED false-bless fixture: a line whose
+// both endpoints are grounded, plus a grounded stray point at either (NaN, NaN)
+// or an ordinary finite coordinate. Every variable in it is grounded, which is
+// what makes it the sharpest case a Jacobian-level guard cannot catch — the
+// matrix is perfectly finite because it has zero columns, only the GEOMETRY
+// behind it is not, and [Sketch.conditioning]'s own len(free)==0 shortcut
+// returns +Inf (maximal trust) without ever looking at a value.
+func allFixedNaNStraySketch(t *testing.T, nan bool) (*sketch.Sketch, *sketch.Point) {
+	t.Helper()
 	s := newSketch(t)
 	a := s.CreatePoint(0, 0)
 	b := s.CreatePoint(5, 0)
 	s.Fix(a)
 	s.Fix(b)
 	s.CreateLine(a, b)
-	stray := s.CreatePoint(math.NaN(), math.NaN())
+	x, y := 1.0, 1.0
+	if nan {
+		x, y = math.NaN(), math.NaN()
+	}
+	stray := s.CreatePoint(x, y)
 	s.Fix(stray)
+	return s, stray
+}
+
+// TestAllFixedNaNPointIsNoLongerFalselyBlessed pins the whole report on that
+// fixture. Before the fix it read DOF 0, fully constrained, solvable, with no
+// free points and no invalid profile — every signal byte-identical to the
+// finite control below.
+func TestAllFixedNaNPointIsNoLongerFalselyBlessed(t *testing.T) {
+	s, stray := allFixedNaNStraySketch(t, true)
 
 	rep := s.Verify(t.Context())
 	require.Equal(t, []*sketch.Point{stray}, rep.NonFinitePoints)
@@ -187,25 +199,102 @@ func TestAllFixedNaNPointIsNoLongerFalselyBlessed(t *testing.T) {
 	require.ErrorIs(t, err, sketch.ErrVerificationIncomplete)
 	require.False(t, rep.Trustworthy(),
 		"an all-fixed sketch with a non-finite stray point must never be blessed")
+	// Conditioning is +Inf when it is not applicable, which is its BEST
+	// possible reading, so a report that evaluated nothing must not carry it:
+	// the skipped path leaves it at the zero value the report's own doc
+	// comment promises for every unevaluated field.
+	require.Zero(t, rep.Conditioning,
+		"the skipped path must not publish the most trusting conditioning value there is")
+}
+
+// TestAllFixedNaNPointBareReadsAreMaximumIgnorance pins the three bare reads
+// DIRECTLY on the same fixture, not through the report. Each has no error
+// return and so cannot refuse; each must still answer in the direction a
+// caller cannot read as a pass. DOF and FreePoints are the load-bearing pair
+// here: both are computed from the GROUNDING flags, and on an all-grounded
+// sketch a free-variable count and a free-point set collapse onto 0 and empty
+// — exactly the readings that say "fully constrained", on the very fixture the
+// screen exists for.
+func TestAllFixedNaNPointBareReadsAreMaximumIgnorance(t *testing.T) {
+	s, _ := allFixedNaNStraySketch(t, true)
+
+	// The origin's two variables plus two each for a, b and the stray point;
+	// a line owns no variable of its own. Grounded variables are counted: Fix
+	// IS a constraint, so a count that credits it is not maximum ignorance.
+	require.Equal(t, 8, s.DOF(), "the total variable count, never the free-variable count")
+	require.Equal(t, s.Points(), s.FreePoints(),
+		"every point of the sketch, grounded ones included")
+	// This fixture holds no constraints at all, so there is nothing for the
+	// dependency analysis to be ignorant ABOUT; the constrained fixture in
+	// TestNonFiniteBareReadsAreMaximumIgnorance covers that half.
+	require.Empty(t, s.Constraints())
+	require.Empty(t, s.Diagnose().Conflicting)
+	require.Empty(t, s.Diagnose().Redundant)
+	require.Empty(t, s.RedundantConstraints())
+}
+
+// TestAllFixedFinitePointBareReadsAreUnchanged is the finite control for
+// TestAllFixedNaNPointBareReadsAreMaximumIgnorance: the identical all-grounded
+// fixture with a finite stray point still answers from the real analysis, so
+// the readings above are the NaN, not the fixture's shape.
+func TestAllFixedFinitePointBareReadsAreUnchanged(t *testing.T) {
+	s, _ := allFixedNaNStraySketch(t, false)
+
+	require.Equal(t, 0, s.DOF())
+	require.Empty(t, s.FreePoints())
+	require.Empty(t, s.Diagnose().Conflicting)
+	require.Empty(t, s.RedundantConstraints())
+}
+
+// TestNonFiniteBareReadsAreMaximumIgnorance covers the half the all-grounded
+// fixture cannot: a sketch that actually holds constraints. [Sketch.Diagnose]
+// and [Sketch.RedundantConstraints] must name every constraint the dependency
+// analysis could ever flag rather than return empty, since a caller reads two
+// empty lists as "no constraint problem found" — the one direction a poisoned
+// analysis must never report.
+func TestNonFiniteBareReadsAreMaximumIgnorance(t *testing.T) {
+	s, _, _ := nonFiniteCheckConstraintFixture(t, true)
+
+	cons := s.Constraints()
+	require.NotEmpty(t, cons, "the assertions below are not vacuous")
+	d := s.Diagnose()
+	require.Equal(t, cons, d.Conflicting, "no constraint here has been proven consistent")
+	require.Empty(t, d.Redundant, "'removing one changes nothing' is a claim nothing here supports")
+	require.Equal(t, cons, s.RedundantConstraints(),
+		"the flat list and the partition Diagnose refines it into name one set")
+	require.Equal(t, s.Points(), s.FreePoints())
+	// Five points at two variables each, plus the origin's two.
+	require.Equal(t, 12, s.DOF())
+}
+
+// TestFiniteBareReadsAreUnchanged is the finite control for
+// TestNonFiniteBareReadsAreMaximumIgnorance: the identical fixture with an
+// ordinary finite stray point still answers from the real analysis — the free
+// stray point alone, its own two degrees of freedom, and no dependent
+// constraint anywhere.
+func TestFiniteBareReadsAreUnchanged(t *testing.T) {
+	s, _, _ := nonFiniteCheckConstraintFixture(t, false)
+
+	pts := s.Points()
+	require.Equal(t, []*sketch.Point{pts[len(pts)-1]}, s.FreePoints())
+	require.Equal(t, 2, s.DOF())
+	require.Empty(t, s.Diagnose().Conflicting)
+	require.Empty(t, s.Diagnose().Redundant)
+	require.Empty(t, s.RedundantConstraints())
 }
 
 // TestAllFixedFinitePointIsTrustworthy is the finite control for
 // TestAllFixedNaNPointIsNoLongerFalselyBlessed: the identical all-grounded
 // line plus stray point, both finite, is a genuine DOF-0 pass.
 func TestAllFixedFinitePointIsTrustworthy(t *testing.T) {
-	s := newSketch(t)
-	a := s.CreatePoint(0, 0)
-	b := s.CreatePoint(5, 0)
-	s.Fix(a)
-	s.Fix(b)
-	s.CreateLine(a, b)
-	stray := s.CreatePoint(1, 1)
-	s.Fix(stray)
+	s, _ := allFixedNaNStraySketch(t, false)
 
 	rep := s.Verify(t.Context())
 	require.Empty(t, rep.NonFinitePoints)
 	require.Equal(t, 0, rep.DOF)
 	require.Equal(t, sketch.FullyConstrained, rep.Status)
+	require.True(t, math.IsInf(rep.Conditioning, 1),
+		"an evaluated report still reports +Inf where conditioning does not apply")
 	require.True(t, rep.Trustworthy())
 }
 
