@@ -163,3 +163,8 @@ doubled). `geom/transform_test.go` covers the pure math.
   non-line entities; a single circle offset is already expressible with
   `NewConcentric` + `NewRadius`.
 - **Trim/Break of circles** (needs two break points) and ellipse mirroring.
+  `CreateMirror`, `CreatePatternRect` and `CreatePatternCircular` refuse rather
+  than skip a seed holding an ellipse, elliptical arc, conic, or any spline-family
+  entity: `unsupportedSeed` (`tools.go`) screens the seed before anything commits
+  and the pattern builders report `ErrUnsupportedEntity` naming the unsupported
+  kind; `CreateMirror` (no error return) reports it by returning nil.

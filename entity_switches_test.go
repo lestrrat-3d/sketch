@@ -44,7 +44,8 @@ type entitySwitchSite struct{ File, Func string }
 var entitySwitchExempt = map[entitySwitchSite]string{
 	{"tools.go", "Break"}:            "splitting is defined for a line and an arc only; every other type is the documented false return",
 	{"tools.go", "lineCrossings"}:    "only line/circle/arc cutters have a closed-form line intersection in geom; a curve contributes no crossing",
-	{"tools.go", "instantiate"}:      "mirror/pattern copies need the transform applied to a shape the point-relinking interface does not carry, so only line/circle/arc are copied",
+	{"tools.go", "instantiate"}:      "mirror/pattern copies need the transform applied to a shape the point-relinking interface does not carry, so only line/circle/arc are copied; every caller screens the seed with unsupportedSeed first, so an unhandled type is refused before anything is committed rather than dropped here",
+	{"tools.go", "unsupportedSeed"}:  "an allow-list with a refusing default: only line/circle/arc can be copied by instantiate, and an entity type not named here is REFUSED by the pattern/mirror builders rather than dropped",
 	{"sketch.go", "entityShapeVars"}: "intrinsic shape variables only; line/arc and the spline family own no scalar variable beyond their points",
 	{"constraint.go", "conicOf"}:     "adapts the sealed Circular/Elliptical operands only; the spline family and the conic entity are not conic-adaptable operands",
 }

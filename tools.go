@@ -37,6 +37,13 @@ var (
 	// re-derived. Trim/Extend/Break report it by returning false, and CreateMirror
 	// (which has no error return) by returning nil.
 	ErrReferenceGeometry = errors.New("sketch: cannot modify reference geometry")
+	// ErrUnsupportedEntity is returned by the pattern tools (CreatePatternRect,
+	// CreatePatternCircular) when the seed holds an entity kind the copy funnel
+	// cannot reproduce. Only lines, circles and arcs are copied: every other
+	// kind needs the transform's rotation or reflection applied to a shape the
+	// point-relinking interface does not carry. CreateMirror (which has no error
+	// return) reports it by returning nil.
+	ErrUnsupportedEntity = errors.New("sketch: entity kind cannot be copied by this tool")
 )
 
 // foreignInput reports whether any of the entities is unusable as a tool input —
@@ -452,22 +459,51 @@ func containsReference(ents []Entity) bool {
 	return false
 }
 
+// unsupportedSeed reports the first entity in ents whose kind the copy funnel
+// (Sketch.instantiate) cannot reproduce, and whether there was one.
+//
+// It is an ALLOW-LIST with a refusing default, not a deny-list of the kinds that
+// are dropped today. An entity type added later is refused by this switch
+// without being named in it, so the worst a forgotten update can do is refuse a
+// kind the funnel could in fact copy — never silently drop one it cannot. The
+// deny-list direction fails the other way: an unnamed new type would pass the
+// screen, fall through instantiate's switch, and reinstate exactly the silent
+// drop this exists to close.
+//
+// Every caller must call it BEFORE committing anything, so a refusal leaves the
+// sketch unchanged. A check inside instantiate would come too late:
+// CreatePatternRect calls instantiate once per cell, so cell (1,0)'s points and
+// dimensions are already committed by the time cell (2,0) refuses.
+func unsupportedSeed(ents []Entity) (Entity, bool) {
+	for _, e := range ents {
+		switch e.(type) {
+		case *Line, *Circle, *Arc:
+		default:
+			return e, true
+		}
+	}
+	return nil, false
+}
+
 // CreateMirror reflects each entity across the infinite line through axis,
-// creating a linked copy. Lines, circles and arcs are supported (other entity
-// kinds are skipped). Copies share a mirror point wherever their sources share
-// a vertex, so a connected source chain mirrors to a connected copy. Each
-// source point and its copy are tied with [NewSymmetric] (about axis); circles
-// additionally get [NewEqualRadius], and arcs are reversed to stay
-// counter-clockwise. The sources are left untouched. Returns nil if any source
-// or the axis is reference geometry, is not a live entity of this sketch (nil,
-// dead, or foreign), or is defined by a point that is not a live point of this
-// sketch.
+// creating a linked copy. Only lines, circles and arcs can be copied; it
+// returns nil if the seed holds any other entity kind. Copies share a mirror
+// point wherever their sources share a vertex, so a connected source chain
+// mirrors to a connected copy. Each source point and its copy are tied with
+// [NewSymmetric] (about axis); circles additionally get [NewEqualRadius], and
+// arcs are reversed to stay counter-clockwise. The sources are left untouched.
+// Returns nil if any source or the axis is reference geometry, is not a live
+// entity of this sketch (nil, dead, or foreign), or is defined by a point that
+// is not a live point of this sketch.
 func (s *Sketch) CreateMirror(ents []Entity, axis *Line) *Mirror {
 	if s.foreignInput(ents...) || s.foreignInput(axis) {
 		return nil // nil, removed, or another sketch's entity
 	}
 	if containsReference(ents) || axis.IsReference() {
 		return nil // reference geometry is locked; cannot be mirrored
+	}
+	if _, ok := unsupportedSeed(ents); ok {
+		return nil // an entity kind the copy funnel cannot reproduce
 	}
 	gaxis := axis.Geometry()
 	copyOf := map[*Point]*Point{}
@@ -509,8 +545,10 @@ type Pattern struct {
 // horizontal and vertical distance dimensions (and an equal-radius constraint
 // per circle), so the whole grid follows when the seed is moved or resized.
 // It returns [ErrForeignEntity] if a seed entity, or a point defining one, is
-// not live in this sketch, and [ErrInvalidShape] if nx or ny is below 1.
-// Supports lines, circles and arcs.
+// not live in this sketch, [ErrInvalidShape] if nx or ny is below 1, and
+// [ErrUnsupportedEntity] if the seed holds an entity kind other than a line,
+// circle or arc — only those three can be copied, so the refusal is what keeps
+// the limit from silently shrinking the pattern.
 func (s *Sketch) CreatePatternRect(ents []Entity, nx, ny int, dx, dy float64) (*Pattern, error) {
 	if s.foreignInput(ents...) {
 		return nil, ErrForeignEntity
@@ -520,6 +558,9 @@ func (s *Sketch) CreatePatternRect(ents []Entity, nx, ny int, dx, dy float64) (*
 	}
 	if nx < 1 || ny < 1 {
 		return nil, fmt.Errorf("%w: CreatePatternRect requires nx,ny >= 1, got %d,%d", ErrInvalidShape, nx, ny)
+	}
+	if e, ok := unsupportedSeed(ents); ok {
+		return nil, fmt.Errorf("%w: CreatePatternRect cannot copy %T; only *sketch.Line, *sketch.Circle and *sketch.Arc are copied", ErrUnsupportedEntity, e)
 	}
 	p := &Pattern{Seed: ents}
 	for j := 0; j < ny; j++ {
@@ -552,8 +593,10 @@ func (s *Sketch) CreatePatternRect(ents []Entity, nx, ny int, dx, dy float64) (*
 // source by a construction spoke from center constrained equal in length and at
 // the instance's angle, so the ring follows when the seed is moved. It returns
 // [ErrForeignEntity] if a seed entity, a point defining one, or the center is
-// not a live handle of this sketch, and [ErrInvalidShape] if n is below 2.
-// Supports lines, circles and arcs.
+// not a live handle of this sketch, [ErrInvalidShape] if n is below 2, and
+// [ErrUnsupportedEntity] if the seed holds an entity kind other than a line,
+// circle or arc — only those three can be copied, so the refusal is what keeps
+// the limit from silently shrinking the pattern.
 func (s *Sketch) CreatePatternCircular(ents []Entity, center *Point, n int) (*Pattern, error) {
 	if s.foreignInput(ents...) || !s.owns(center) {
 		return nil, ErrForeignEntity
@@ -563,6 +606,9 @@ func (s *Sketch) CreatePatternCircular(ents []Entity, center *Point, n int) (*Pa
 	}
 	if n < 2 {
 		return nil, fmt.Errorf("%w: CreatePatternCircular requires n >= 2, got %d", ErrInvalidShape, n)
+	}
+	if e, ok := unsupportedSeed(ents); ok {
+		return nil, fmt.Errorf("%w: CreatePatternCircular cannot copy %T; only *sketch.Line, *sketch.Circle and *sketch.Arc are copied", ErrUnsupportedEntity, e)
 	}
 	step := 2 * math.Pi / float64(n)
 	p := &Pattern{Seed: ents}
@@ -690,6 +736,8 @@ func (s *Sketch) instantiate(ents []Entity, link func(*Point) *Point, swapArc bo
 	// elliptical arc) and splines need the transform's rotation/reflection
 	// applied to their shape — information the point-relinking interface here
 	// does not carry — so the modification tools do not yet pattern/mirror them.
+	// Every caller screens the seed with unsupportedSeed first, so an unhandled
+	// type is refused before anything is committed rather than dropped here.
 	for _, e := range ents {
 		switch t := e.(type) {
 		case *Line:
