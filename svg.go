@@ -278,9 +278,10 @@ func (b bbox) finite() bool {
 // own pixel-dimension guard in PNG. Exported deliberately: [Sketch.Verify] and
 // [Sketch.CheckConstraint] reuse this same sentinel for the analogous defect in
 // a sketch's solver variables (see [Sketch.nonFiniteVars]), so the oracle's
-// reason and the exporter's refusal name one fact rather than two that could
-// drift apart.
-var ErrNonFiniteGeometry = errors.New("sketch: a value reaching the output is not a finite number or is outside the exporter's representable range")
+// reason and each exporter's refusal name one fact rather than two that could
+// drift apart. Its message therefore names neither the output nor the exporter,
+// since the same sentinel now reports a value that reaches neither.
+var ErrNonFiniteGeometry = errors.New("sketch: a value is not a finite number or is outside the representable range")
 
 // svgWriter accumulates one [Sketch.SVG] call's output through a single
 // formatting funnel, f, so the exporter's refusal is a POSTCONDITION over what
