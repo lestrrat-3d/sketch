@@ -34,10 +34,13 @@ import (
 // (diagnose.go), [Sketch.rank]/[Sketch.committedRankAnalysis] (solver.go),
 // [Sketch.conditioning] (conditioning.go) and [Sketch.conflictAnalysis]
 // (diagnose.go) each return a final `ok` that is
-// false exactly when [Sketch.hasNonFiniteVars] is true, so a reader that ignores
-// the screen does not compile. Go cannot require that a method be called; it can
-// require that a second return be handled, which is the same enforcement shape
-// the sealed Entity.isNil uses at the addEntity funnel. Each caller then
+// false exactly when [Sketch.hasNonFiniteVars] is true, so a new reader must
+// ACCOUNT for the screen at the call site instead of never meeting it. Go cannot
+// require that a method be called; it can require that a second return be
+// handled, which is the same enforcement shape the sealed Entity.isNil uses at
+// the addEntity funnel. Its enforcement stops there: a reader may still discard
+// the screen with the blank identifier, so this is a chokepoint that makes the
+// screen unmissable, NOT a proof that no reader can ignore it. Each caller then
 // translates ok==false into ITS OWN non-blessing answer — a refusal where there
 // is an error return ([Sketch.CheckConstraint], [Sketch.ProbeConfigurations]),
 // the documented not-computed sentinel where there is one ([Result.DOF]), the
