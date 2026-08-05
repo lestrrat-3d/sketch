@@ -310,6 +310,12 @@ func TestCheckSkippedAnalysisReportsOnlyWhatRan(t *testing.T) {
 		// unevaluated field.
 		require.Zero(t, rep.Conditioning,
 			"the skipped path must not publish the most trusting conditioning value there is")
+		// Status must not publish Overconstrained either: no rank was computed
+		// for this sketch, so the zero value (Underconstrained) is what the
+		// report's own doc comment promises for every unevaluated field,
+		// Status included.
+		require.Zero(t, rep.Status,
+			"the skipped path must not publish a severity finding for analysis that never ran")
 
 		// The documented waiver: a caller that accepts the foreign handle is left
 		// with the honest reason that everything else went unchecked.

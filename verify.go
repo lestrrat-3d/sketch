@@ -67,16 +67,11 @@ func (st Status) String() string {
 // see [Sketch.nonFiniteVars] — so [Sketch.Verify] reports what its reference-
 // integrity and non-finite-geometry scans found and stops there: only
 // BrokenReferences, ForeignHandles, NonFinitePoints, NonFiniteEntities and
-// NonFiniteDimensions carry a finding, and every other field holds its zero
-// value. Those zero values are not verdicts — a false Solvable on that path
-// means "never evaluated", not "does not solve".
-//
-// Status is the one exception, and it is deliberate: it is set to
-// [Overconstrained] rather than left at its zero value, so a caller reading
-// only the severity summary sees the most severe one rather than the
-// [Underconstrained] zero value. It is a severity marker on that path, not a
-// rank verdict — no rank was computed — and it is never [FullyConstrained]
-// there, so it cannot be read as a pass.
+// NonFiniteDimensions carry a finding, and every other field — Status
+// included — holds its zero value. Those zero values are not verdicts — a
+// false Solvable on that path means "never evaluated", not "does not solve",
+// and the zero-value Status ([Underconstrained]) means the same thing rather
+// than "no remaining degrees of freedom".
 // [VerificationReport.Check] reports such a report as [ErrVerificationIncomplete]
 // and asserts none of the conditions the skipped passes decide.
 type VerificationReport struct {
@@ -519,7 +514,6 @@ func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *Verificat
 	rep.NonFiniteDimensions = nf.dims
 
 	if nilCorrupt || rep.ForeignHandles || nf.found() {
-		rep.Status = Overconstrained
 		rep.analysisSkipped = true
 		return rep
 	}
