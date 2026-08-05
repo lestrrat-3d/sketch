@@ -136,7 +136,17 @@ degenerate (`srcDegenerate` + `flagDegenerate`, `exactAllowed` forced false
 scene-wide, the same rule an unusable input curve already gets in `newArranger`)
 if any point is non-finite, because it is the ONLY place that sees evaluated
 samples — a check over stored control points/knots/weights cannot catch a value
-that only goes non-finite once evaluated. Region area is exact for
+that only goes non-finite once evaluated. **The fit-point spline is the one
+exception, screened earlier instead:** `newFitEvaluator` collapses two
+consecutive fit points closer than `fitChordEps` via
+`math.Hypot(...) > fitChordEps`, a comparison that is FALSE against a NaN, so a
+non-finite fit point reads as "coincident with its predecessor" and is
+silently DROPPED before the evaluator computes a single sample — the curve
+then interpolates a different, perfectly finite curve through the remaining
+points, so by the time `densify` samples it there is no non-finite value left
+to catch. `fitSplineCoords` therefore screens every raw fit point for
+finiteness itself, the same place it already screens for a nil point, closing
+the gap before `newFitEvaluator` ever runs. Region area is exact for
 **every** curve type: line/arc/circle (shoelace + exact circular-segment
 correction), ellipse/elliptical-arc (`chordEllipseCorrection` = ½·rx·ry·(Δφ −
 sin Δφ), the elliptical analog, rotation/translation-invariant), and **splines**
