@@ -67,10 +67,15 @@ func (st Status) String() string {
 // trustworthy in either direction, see [Sketch.nonFiniteVars] — so
 // [Sketch.Verify] reports what it established BEFORE the analysis and stops
 // there: BrokenReferences, ForeignHandles, NonFinitePoints, NonFiniteEntities,
-// NonFiniteDimensions, NonFiniteConstraints and the
-// Stale/StaleReferences/StaleReferencePoints trio (staleness reads snapshot
-// provenance flags, which neither cause can corrupt) carry a finding, and every
-// other field — Status included — holds its zero value. Those zero values are
+// NonFiniteDimensions, NonFiniteConstraints carry a finding, and every
+// other field — Status included — holds its zero value. The
+// Stale/StaleReferences/StaleReferencePoints trio is the one exception with
+// only PARTIAL coverage on this path: staleness reads snapshot provenance
+// flags, which a foreign handle or non-finite geometry cannot corrupt, so the
+// trio still carries a finding on those two causes — but a nil or corrupt
+// point CAN corrupt it (an entity's staleness is derived from its defining
+// points), so on THAT cause alone the trio is left at its zero value like
+// every other unevaluated field. Those zero values are
 // not verdicts — a false Solvable on that path means "never evaluated", not
 // "does not solve", and the zero-value Status ([Underconstrained]) means the
 // same thing rather than "no remaining degrees of freedom".
@@ -80,8 +85,9 @@ func (st Status) String() string {
 // [VerificationReport.Analysed] is how a consumer tells the two paths apart. A
 // report is not self-describing: every unevaluated field holds a value that is
 // also a legitimate analysed one, so a reader that renders or gates on DOF,
-// Status, Solvable, Conditioning, RankMargin, FreePoints, Profiles, Redundant,
-// Conflicts or the parameter fields must ask Analysed first.
+// Status, Solvable, Conditioning, RankMargin, FreePoints, Profiles,
+// InvalidProfiles, ProfilesValid, Probe, ProbeIncomplete, Redundant, Conflicts
+// or the parameter fields must ask Analysed first.
 type VerificationReport struct {
 	// Solvable reports whether every (non-driven) constraint holds within the
 	// tolerance at the current configuration (the same default as [Sketch.Solve],
@@ -181,23 +187,31 @@ type VerificationReport struct {
 	// region and so lists them all. A subset of Profiles. Such a region
 	// cannot be extruded. It can be empty while ProfilesValid is false: a condition
 	// that produced no region, or one that destroyed one, has no profile to list.
+	// Meaningful only when [VerificationReport.Analysed] is true: the unevaluated
+	// nil value reads the same as a sketch with no invalid profiles.
 	InvalidProfiles []*Profile
 	// ProfilesValid is true when every detected region is a valid profile and the
 	// arrangement resolved cleanly. It is vacuously true when no geometry forms a
 	// region (an open sketch has no regions, which is not itself invalid), but
 	// false when the arrangement was degenerate even if that produced no region.
-	// Mirrors the Stale trust-signal shape.
+	// Mirrors the Stale trust-signal shape. Meaningful only when
+	// [VerificationReport.Analysed] is true: the unevaluated zero value is false,
+	// which reads as an invalid arrangement rather than as "not evaluated".
 	ProfilesValid bool
 	// Probe holds the discrete-ambiguity probe result, populated only when
 	// [WithProbe] is passed and the sketch is solvable with DOF 0 (the probe's
 	// preconditions). It is nil otherwise; a nil Probe is not a uniqueness
-	// claim. See [Sketch.ProbeConfigurations].
+	// claim, and — on the skipped path, see [VerificationReport.Analysed] — not
+	// even a claim the probe ran at all. See [Sketch.ProbeConfigurations].
 	Probe *ProbeResult
 	// ProbeIncomplete is true when [WithProbe] was requested and the probe's
 	// preconditions held, but the probe could not finish (e.g. ctx was
 	// cancelled), so Probe is nil for lack of a result rather than because no
 	// probe was asked for. It fails [VerificationReport.Trustworthy]: the
 	// requested ambiguity check did not run, so the sketch must not be blessed.
+	// Meaningful only when [VerificationReport.Analysed] is true: the unevaluated
+	// zero value is false, which reads the same as a probe that was never
+	// requested rather than one that was requested but never ran.
 	ProbeIncomplete bool
 	// probeErr is the error that ended the probe run behind a true
 	// ProbeIncomplete; Check reports it as that reason's specifics.
@@ -205,10 +219,23 @@ type VerificationReport struct {
 	// StaleReferences and StaleReferencePoints list the reference geometry whose
 	// 3D source has changed since its snapshot was taken (see [Sketch.MarkStale]).
 	// Points are tracked separately because a pierce point is not an [Entity].
+	// Populated even when [VerificationReport.Analysed] is false, UNLESS the
+	// report's analysis was skipped for a nil or corrupt handle rather than a
+	// foreign one or non-finite geometry: staleness is established before the
+	// analysis passes because it reads snapshot provenance flags a foreign
+	// handle or non-finite geometry cannot corrupt, but a nil or corrupt point
+	// would panic the same scan (an entity's staleness is derived from its
+	// defining points), so on that one cause these fields are left at their
+	// zero values — nil — like every other unevaluated field.
 	StaleReferences      []Entity
 	StaleReferencePoints []*Point
 	// Stale is true when any reference geometry is stale — verifying against an
-	// outdated snapshot is untrustworthy.
+	// outdated snapshot is untrustworthy. Carries the same partial coverage as
+	// StaleReferences/StaleReferencePoints above: populated on a report whose
+	// analysis was skipped for a foreign handle or non-finite geometry, but left
+	// at its zero value (false) when the skip cause was a nil or corrupt handle
+	// instead — a false reading that, on that one cause, means "not evaluated"
+	// rather than "verified against a current 3D snapshot".
 	Stale bool
 	// BrokenReferences lists entities failing the reference lock-integrity check:
 	// a reference entity whose defining points were rewired, are not all
@@ -370,11 +397,15 @@ func (r *reasons) Unwrap() []error { return r.errs }
 // establishes before it analyses anything, then the analysis conditions, most
 // fundamental first — an unsolvable sketch is reported before the properties
 // that only make sense once it solves. A report whose analysis was skipped
-// carries every reason established before analysis — reference-integrity,
-// non-finite-geometry and staleness alike — plus [ErrVerificationIncomplete],
-// and nothing else: asserting a condition nobody evaluated would invent a
-// failure, and would leave a caller who deliberately waives the handle
-// condition blocked by reasons that were never tested.
+// carries every reason established before analysis — reference-integrity and
+// non-finite-geometry always, and staleness too UNLESS the skip cause was a
+// nil or corrupt handle rather than a foreign one or non-finite geometry: a
+// nil or corrupt point would panic the staleness scan itself, so on that one
+// cause it never ran and [ErrStaleReference] cannot be among the reasons even
+// when the underlying reference geometry is in fact stale — plus
+// [ErrVerificationIncomplete], and nothing else: asserting a condition nobody
+// evaluated would invent a failure, and would leave a caller who deliberately
+// waives the handle condition blocked by reasons that were never tested.
 func (r *VerificationReport) Check() Reasons {
 	var errs []error
 	add := func(err error) { errs = append(errs, err) }
