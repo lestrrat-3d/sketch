@@ -2,7 +2,8 @@
 
 Status: **implemented** (`removal.go`; tests in `removal_test.go`; version
 field in `json.go`). Resolves the "entity/constraint removal" open question
-in CLAUDE.md, which blocks the mutating sketch tools (trim/fillet of committed
+in .claude/docs/open-questions.md, which blocks the mutating sketch tools
+(trim/fillet of committed
 geometry, deleting a constraint from a future UI). Decided together with the
 first step of JSON schema versioning, per that open question.
 

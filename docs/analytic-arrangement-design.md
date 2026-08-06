@@ -61,13 +61,14 @@ the contact canonicalizes as a **shared vertex between two cycle-bearing
 sources** AND a **LINE** is one of the two: `buildGraph` sorts outgoing
 half-edges by chord angle, and at a tangency those angles tie, so the face walk
 can branch-swap the loops. Both curved cases are certified instead — mechanism
-in the `geom` section of `CLAUDE.md`. So:
+in the `geom` section of `.claude/docs/profiles-geom.md`. So:
 
 - clean analytic tangent ⇒ no cut, no near-angle degeneracy;
 - if the tangent contact would merge into a shared cycle-bearing vertex AND a LINE
   is one of the two sources ⇒ conservatively `flagDegenerate`; both curved cases
   (external, certified by increment 3, and internal/containment, certified by
-  §7a) are certified instead — mechanism in the `geom` section of `CLAUDE.md`;
+  §7a) are certified instead — mechanism in the `geom` section of
+  `.claude/docs/profiles-geom.md`;
 - a tangent line that is an open/dangling spur against a circle ⇒ no-cut is fine
   (the line is pruned, the circle stays one disk).
 
@@ -100,7 +101,7 @@ Same-component interior tangency is a **self-touch** → `SelfIntersections`, no
    topology. Increment 2 made any tangency that would merge into a shared
    cycle-bearing vertex conservatively `Degenerate`; increment 3 plus §7a narrowed
    that to the line-involved case only (see the tangency contract; mechanism
-   in the `geom` section of `CLAUDE.md`). Tested in
+   in the `geom` section of `.claude/docs/profiles-geom.md`). Tested in
    `geom/arrange_analytic_test.go`. See "Wiring design" below.
 
 3. **Exact tangent/port ordering** — *partly done* (`geom/arrange.go`:
@@ -483,7 +484,8 @@ conservative fallback is unchanged, only the *class* of pair reaching it
 grows. No change is needed to `split`, `makeCycle`, `vertexCertifies`, or
 `BoundaryEdge`/`cycFrag` construction: they already treat an exact cut on a
 circle/arc source generically (the `TExact`/`Whole` machinery documented on
-`geom.BoundaryEdge.TExact` and in the `CLAUDE.md` `profiles.go` row does not
+`geom.BoundaryEdge.TExact` and in `.claude/docs/profiles-geom.md`'s
+`profiles.go` section does not
 distinguish "the other source was a line" from "the other source was a
 circle").
 
@@ -711,7 +713,7 @@ circles (two disks, no degeneracy); merged-vertex tangent circles (`Degenerate=t
 under increment 2 alone; now blessed — external as two disks
 (`TestAnalyticMergedExternalTangentBlessed`), internal containment as an annulus plus
 the inner disk (`TestAnalyticInternalTangentBlessed`); mechanism in the `geom` section
-of `CLAUDE.md`). Watch: bowtie/self-intersection, bowtie+spur,
+of `.claude/docs/profiles-geom.md`). Watch: bowtie/self-intersection, bowtie+spur,
 square-with-diagonals, circle-chord half-disk, overlapping rectangles, nested-square
 hole, collinear-overlap degeneracy, spline self-intersection/fallback.
 
@@ -736,4 +738,4 @@ hole, collinear-overlap degeneracy, spline self-intersection/fallback.
 - `Degenerate` always forces `ProfilesValid=false` and therefore `Trustworthy=false`.
 - A clean supported tangency does not set `Degenerate`, except at a merged
   cycle-bearing vertex where a LINE is one of the two sources — mechanism in the
-  `geom` section of `CLAUDE.md`.
+  `geom` section of `.claude/docs/profiles-geom.md`.

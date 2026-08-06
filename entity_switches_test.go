@@ -58,7 +58,8 @@ var entitySwitchExempt = map[entitySwitchSite]string{
 // switch and drop the entity with no error anywhere, while build, vet, lint and
 // the rest of the suite stay green.
 //
-// It reads the entity contract CLAUDE.md states for the sketch.go row: an entity
+// It reads the entity contract .claude/docs/sketch-core.md states for the
+// sketch.go section: an entity
 // type declares its own entity() marker directly on itself with a pointer
 // receiver, and is matched as *T. Embedding is not a supported way to become an
 // entity, and this audit is syntactic — it recognizes the contract's forms and

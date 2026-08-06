@@ -1,7 +1,8 @@
 # Multi-Solution Ambiguity Probe — Design
 
 Status: **implemented** (`probe.go`; tests in `probe_test.go`). Resolves part
-of the "Constraint diagnostics & UX" open question in `CLAUDE.md`: the
+of the "Constraint diagnostics & UX" open question in
+`.claude/docs/open-questions.md`: the
 multi-solution / configuration-ambiguity signal that DOF analysis cannot give.
 
 ## The problem
@@ -112,7 +113,7 @@ ratio (a conic's rho) relative to its unit range. Solver
 noise sits below ~1e-8 relative while real branches differ at feature scale,
 so the threshold has orders of magnitude of margin on both sides.
 
-## Still open (recorded in CLAUDE.md)
+## Still open (recorded in .claude/docs/open-questions.md)
 
 - Options for the separation tolerance and the per-round solver budget (waits
   on the repo-wide per-sketch tolerance question).

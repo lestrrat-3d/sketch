@@ -37,7 +37,7 @@ smooth). One behavioral test per constraint.
 | `TestDiameterDimension` | [gap] | `NewDiameter` drives `2r`; `.Set(d)` + re-solve updates radius. |
 | `TestUnfixRestoresFreedom` | [gap] | `Fix` drops DOF; `Unfix` restores it and the solver may move the point again. |
 | `TestHorizontalVerticalPoints` | [new] | Fusion allows horizontal/vertical between two **points**, not just on a line. Proposed: `NewHorizontalPoints(p1, p2 *Point)`, `NewVerticalPoints(p1, p2 *Point)`. |
-| `TestTangentLineEllipse` | [new] | `NewTangent(line, ellipse)` — open item in CLAUDE.md geometry coverage. |
+| `TestTangentLineEllipse` | [new] | `NewTangent(line, ellipse)` — open item in .claude/docs/open-questions.md, "Geometry coverage". |
 | `TestTangentSplines` | [new] | G1 tangency at a spline endpoint to a line/arc. |
 | `TestCurvatureSmooth` | [new] | G2 "smooth" constraint between spline and arc (Fusion's curvature constraint). |
 | `TestPointOnSpline` | [new] | The recorded v2 design (aux-parameter `allocVars` hook, see `docs/spline-design.md`): point constrained to the curve, slides along it under a goal. |
@@ -115,10 +115,10 @@ The third assertion is what separates a CAD tool from a drawing program.
 
 | Test | Status | Asserts |
 |---|---|---|
-| `TestEllipticalArc` | [new] | Open item in CLAUDE.md: `CreateEllipticalArc` with start/end angles; profile detection treats it as a boundary curve. |
+| `TestEllipticalArc` | [new] | Open item in .claude/docs/open-questions.md: `CreateEllipticalArc` with start/end angles; profile detection treats it as a boundary curve. |
 | `TestFitPointSpline` | [new] | Fusion's default spline interpolates *through* fit points (current implementation is control-point B-spline). Proposed: `geom.NewFitSpline(pts)` — curve passes through every point; constraining a fit point reshapes the curve locally. |
 | `TestThreePointRectangle` | [new] | `CreateRectangle3Pt` / `CreateRectangleCenter` — Fusion's rectangle variants; each carries the right shape-holding constraint set. |
-| `TestConstructionGeometry` | [gap→new] | `WithConstruction` exists only as an SVG option; the engine needs a first-class flag: `s.SetConstruction(ent, true)`. Construction entities are excluded from `Profiles()` (claimed in CLAUDE.md — pin it), still participate in constraints (centerline symmetry axis), survive JSON, render dashed in SVG. |
+| `TestConstructionGeometry` | [gap→new] | `WithConstruction` exists only as an SVG option; the engine needs a first-class flag: `s.SetConstruction(ent, true)`. Construction entities are excluded from `Profiles()` (claimed in .claude/docs/profiles-geom.md — pin it), still participate in constraints (centerline symmetry axis), survive JSON, render dashed in SVG. |
 | `TestIntersectionPoint` | [new] | `s.AddIntersectionPoint(e1, e2)` — committed point constrained to remain at the intersection as the sketch re-solves. |
 
 ## 7. Profiles (what feeds extrude later)
@@ -144,7 +144,7 @@ is more demanding:
 | `TestDeleteParameterInUse` | [gap] | Deleting a param referenced by a bound dimension errors with the dependents named (`Table.Delete` exists; the binding interaction is untested). |
 | `TestApplyParametersPublic` | [gap] | The exported entry point, called directly. |
 | `TestUnbind` | [gap] | Exported, untested. |
-| `TestSolveErrorNamesParameter` | [new] | Open follow-up in CLAUDE.md: when a bound expression makes a sketch unsolvable, the error identifies the dimension/parameter. |
+| `TestSolveErrorNamesParameter` | [new] | Open follow-up in .claude/docs/open-questions.md: when a bound expression makes a sketch unsolvable, the error identifies the dimension/parameter. |
 | `TestExpressionKindTracking` | [new spec] | `"width + angle"` errors at eval (currently documented as *not* caught — this test encodes the target behavior for the open question). |
 | `TestJSONFixedPoint` | [gap] | `marshal(unmarshal(marshal(s)))` byte-identical — cheap, catches id drift. |
 | `TestJSONForwardMigration` | [new] | A version-2 fixture with a recorded migration loads as version 1 + migration. Write it the day version 2 exists; the fixture file *is* the test. |
@@ -160,7 +160,7 @@ tool:
 | `TestSVGGeometryAccuracy` | [new spec] | Parse the emitted SVG, extract the rectangle's coordinates, compare to solved coordinates within tolerance — not just "contains `<line`". |
 | `TestDXFRoundTripThroughReader` | [new spec] | Emitted DXF re-read by a DXF parser (test-only dependency) yields matching entity counts and coordinates — the guarantee that downstream CAM/CAD tools accept the output. |
 | `TestSVGOptions` | [gap] | Each SVG option changes output as documented (8 options, zero tests today). |
-| `TestExportRespectsDisplayUnits` | [new] | Open question in CLAUDE.md: an imperial sketch exports inch-scaled DXF (`$INSUNITS`) — encode the decision when made. |
+| `TestExportRespectsDisplayUnits` | [new] | Open question in .claude/docs/open-questions.md: an imperial sketch exports inch-scaled DXF (`$INSUNITS`) — encode the decision when made. |
 
 ## Priority order
 

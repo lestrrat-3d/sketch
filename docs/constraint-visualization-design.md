@@ -59,7 +59,7 @@ switching on the concrete constraint types (next to `svg.go`, which already
 type-switches on entities). This avoids committing to a public API shape before
 we know what the renderer needs. A public introspection API
 (`Sketch.Annotations()` returning typed descriptors) is the north-star-aligned
-follow-up (Deferred + CLAUDE.md open questions), **extracted from** this
+follow-up (Deferred + .claude/docs/open-questions.md), **extracted from** this
 renderer's proven per-constraint data model rather than guessed up front.
 
 ## Coordinate space & the y-flip (load-bearing correctness)
@@ -390,7 +390,7 @@ solved geometry).
   against committed `docs/images/*.svg`; assert each parses as XML and is
   non-empty.
 
-## Deferred (explicit follow-ups, recorded in CLAUDE.md open questions)
+## Deferred (explicit follow-ups, recorded in .claude/docs/open-questions.md)
 
 - **Public introspection API** — `Sketch.Annotations()` / per-constraint
   `Describe()` returning typed exported descriptors (kind + referenced entity
@@ -413,7 +413,7 @@ tests, and a README gallery of ten single-state / before-after hero SVGs
 `parametric-before`/`parametric-after`, `profiles`, `fillet-before`/
 `fillet-after`).
 
-Deferred to a follow-up (recorded in CLAUDE.md open questions): the **shared-
+Deferred to a follow-up (recorded in .claude/docs/open-questions.md): the **shared-
 bounds multi-state compositor** and therefore the **ambiguity overlay** and a
 single-file **tools before→after overlay** (tools ship as a two-up pair instead);
 the **constraints legend** image; the **public introspection API**; rich PNG

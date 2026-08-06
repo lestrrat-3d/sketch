@@ -211,7 +211,8 @@ for tighter tolerance on near-tangencies.
 
 - Parameters with units and expressions — largely done.
 - **Parameter dependency reporting** (which dimensions a parameter drives) and
-  solve-failure attribution to a parameter — listed follow-up in CLAUDE.md,
+  solve-failure attribution to a parameter — listed follow-up in
+  .claude/docs/open-questions.md,
   worth doing before a DSL.
 
 ## Suggested priority order
