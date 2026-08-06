@@ -1,7 +1,8 @@
 # Constraint Diagnostics — Design
 
 Status: **implemented** (`diagnose.go`; tests in `diagnose_test.go`).
-Resolves most of the "constraint diagnostics & UX" open question in CLAUDE.md:
+Resolves most of the "constraint diagnostics & UX" open question in
+.claude/docs/open-questions.md:
 conflicting vs. redundant classification, pre-commit over-constraint
 rejection, and free-DOF attribution. Driven by §4 of
 `docs/acceptance-tests.md` (Fusion refuses an over-constraining gesture and
@@ -73,7 +74,7 @@ This is first-order analysis: a point at a singular configuration (e.g. the
 apex of two just-tangent circles) may be reported free though finite motion is
 blocked. Acceptable — Fusion's blue/black coloring has the same character.
 
-## Still open (recorded in CLAUDE.md)
+## Still open (recorded in .claude/docs/open-questions.md)
 
 - Reporting the *full* conflict set (the earlier constraints a conflicting one
   fights), not just the later-added member.
