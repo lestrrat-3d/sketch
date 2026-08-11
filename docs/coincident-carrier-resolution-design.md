@@ -307,7 +307,8 @@ the pair for resolution requires equal center AND equal radius at round-off
 (`chordArcCorrection(r, Δangle)`) over the shared span is numerically
 identical whichever of the two sources it is evaluated against; naming one
 over the other changes nothing about the number `makeCycle` computes, only
-which `SourceIndex` labels it. The existing exact-area guarantee (`CLAUDE.md`:
+which `SourceIndex` labels it. The existing exact-area guarantee
+(`.claude/docs/profiles-geom.md`:
 "Region area is exact for every curve type... an arc/circle via shoelace +
 exact circular-segment correction") therefore carries over to a merged edge
 unchanged, with no new test needed for the arithmetic itself — only for the

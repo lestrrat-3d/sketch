@@ -103,7 +103,8 @@ func TestSVGOwnedLineBoundsUnaffected(t *testing.T) {
 
 // TestSVGOriginDrawnLineBoundsCoversOrigin exercises the other point
 // Sketch.bounds could miss for a *Line: Sketch.Origin() is deliberately
-// absent from s.points (see CLAUDE.md), so a line drawn from it depended on
+// absent from s.points (see .claude/docs/sketch-core.md), so a line drawn
+// from it depended on
 // the missing *Line case exactly as a foreign endpoint did. Before the fix
 // the origin's (0,0) corner was silently dropped from the box; the new case
 // reads a line's endpoints straight off the entity, owned or not.

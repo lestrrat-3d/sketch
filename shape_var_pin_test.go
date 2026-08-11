@@ -116,9 +116,9 @@ const (
 // there is no declaration-level anchor to point at, and changing a test's own
 // declared name is a deliberate edit to that test, not an incidental prose
 // reword the way rewording a comment is. Before/Lines say how many lines
-// above/below the anchor's own line to quote; for a CLAUDE.md row (one
-// enormous line) they are ignored in favor of a character window around the
-// anchor's offset within the line — see resolveShapeVarSite.
+// above/below the anchor's own line to quote; for a single enormous line they
+// are ignored in favor of a character window around the anchor's offset within
+// the line — see resolveShapeVarSite.
 type shapeVarSite struct {
 	Group  shapeVarGroup
 	File   string
@@ -132,8 +132,8 @@ var shapeVarSites = []shapeVarSite{
 	// --- entityShapeVars: the per-entity definition itself -----------------
 	{groupShapeVars, "sketch.go", "func entityShapeVars",
 		"the definition's own doc comment states the set in full", 28, 0},
-	{groupShapeVars, "CLAUDE.md", "`entityShapeVars`",
-		"the sketch.go row states the set in full", 0, 0},
+	{groupShapeVars, ".claude/docs/sketch-core.md", "`entityShapeVars`",
+		"the sketch.go section states the set in full", 0, 8},
 	{groupShapeVars, "entity_switches_test.go", `{"sketch.go", "entityShapeVars"}`,
 		"the exemption reason names which types own none", 0, 0},
 	{groupShapeVars, "profile_revision_test.go", "changing an entity's shape value",
@@ -158,8 +158,8 @@ var shapeVarSites = []shapeVarSite{
 		"doc comment's negative half: an arc's radius is derived, so it owns none", 13, 0},
 	{groupShapeVars, "removal.go", "for _, v := range entityShapeVars(e)",
 		"negative restatement above the loop: a line, an arc and the spline families own none", 4, 0},
-	{groupShapeVars, "CLAUDE.md", "Sketch.EntityIsFullyConstrained",
-		"the diagnose.go row's negative half: none for a line, an arc or the spline families", 0, 0},
+	{groupShapeVars, ".claude/docs/diagnostics.md", "Sketch.EntityIsFullyConstrained",
+		"the diagnose.go section's negative half: none for a line, an arc or the spline families", 2, 4},
 	{groupShapeVars, "revision.go", "for _, e := range s.ents",
 		"illustration inside the entity-uid-identity argument: a Line owns none", 0, 14},
 	{groupShapeVars, "profile_revision_test.go", "func TestProfileStalenessEntityRecreated",
@@ -190,8 +190,8 @@ var shapeVarSites = []shapeVarSite{
 		"entityStructuralState's own doc comment states the superset in full", 18, 0},
 	{groupStructState, "revision.go", "func (s *Sketch) Revision",
 		"Sketch.Revision's doc comment restates the per-entity shape state", 33, 0},
-	{groupStructState, "CLAUDE.md", "**Shape values**",
-		"the revision.go row enumerates the superset", 0, 0},
+	{groupStructState, ".claude/docs/sketch-core.md", "**Shape values**",
+		"the revision.go section enumerates the superset", 1, 6},
 	{groupStructState, "profile_revision_test.go", "changing NURBS structural data",
 		"test comment names NURBS' degree/knots/weights specifically", 0, 5},
 	{groupStructState, "revision_internal_test.go", "func TestRevisionResolvesShapeValues",
@@ -465,11 +465,11 @@ func bareTypeName(e ast.Expr) string {
 // ---------------------------------------------------------------------------
 
 // claudeMDWindow is how many characters on each side of the anchor's offset
-// to print for a file whose matching line may be enormous (CLAUDE.md rows are
-// single lines that can run past 10,000 characters). Truncating from the
-// start of such a line — as an earlier version of this check did — hides the
-// relevant text entirely; a window centered on the anchor's own offset does
-// not.
+// to print for a file whose matching line may be enormous (a Markdown table
+// row is a single line that can run past 10,000 characters). Truncating from
+// the start of such a line — as an earlier version of this check did — hides
+// the relevant text entirely; a window centered on the anchor's own offset
+// does not.
 const claudeMDWindow = 240
 
 // resolveShapeVarSite finds a site's anchor in its file and returns the
@@ -486,7 +486,7 @@ func resolveShapeVarSite(site shapeVarSite) (string, bool) {
 			continue
 		}
 		if len(l) > 2*claudeMDWindow {
-			// A single enormous line (CLAUDE.md's table rows): quote a window
+			// A single enormous line (a Markdown table row): quote a window
 			// of characters centered on the anchor's own offset rather than
 			// truncating from the line start, which would print unrelated
 			// text from elsewhere in the row and never reach the anchor.

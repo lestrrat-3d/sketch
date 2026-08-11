@@ -337,7 +337,8 @@ sketch-scoped. (A world-level *default* `System` handed to newly created sketche
 and cross-sketch shared parameters, are recorded follow-ups — deliberately not v1,
 to avoid reworking the parameter-binding model.) Consistent with the current read
 surface, `Point.World()` returns raw base-unit millimetres; making reads
-unit-carrying stays the CLAUDE.md all-or-nothing decision.
+unit-carrying stays the all-or-nothing decision recorded in
+.claude/docs/open-questions.md ("Units").
 
 ## Why two math layers (`geom` 2D + `r3` 3D)
 
@@ -426,7 +427,7 @@ Plane serialization (single source of truth on disk too):
   indexes directly — the v2 decoder gains an explicit validate-then-index step.)
 
 The internal-constraint and definition-order serialization invariants in
-CLAUDE.md carry over unchanged.
+.claude/docs/serialization.md carry over unchanged.
 
 ## Export & rendering
 
