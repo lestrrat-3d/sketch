@@ -257,16 +257,32 @@ pair is visited. `intersect`'s loop body is unchanged by this — only which pai
 visits is.
 
 A tiny segment's reach is `a.merge + broadPhaseRel·(its own chord length)`, with
-`broadPhaseRel = 1e-6`. This dominates every OTHER tolerance the three predicates
-use, each stated relative to a chord's own length: `segParams`' `segEps = 1e-9` on
-the normalized chord parameter (so a hit lies within `segEps·length` of the chord),
-and `collinearOverlap`'s parallel/perpendicular bands (`1e-9`/`1e-7`, relative to
-the chord lengths). `forEachMergedEnd` welds two endpoints within `a.merge` of each
-other, which the `a.merge` term of the reach covers directly: an endpoint inside
-that distance of another segment's endpoint sits inside that segment's OWN raw box
-expanded by `a.merge`, so the two expanded boxes overlap. Expanding by reach only
-ever ADMITS more pairs than the exact tests would separately accept, so the broad
-phase cannot drop a pair the loop body would have acted on.
+`broadPhaseRel = 1e-3`. Three bounds, all relative to a chord's own length, decide
+that constant, and it is sized by the largest:
+
+- `segParams`' `segEps = 1e-9` on the normalized chord parameter, so a hit lies
+  within `segEps·length` of each chord;
+- `collinearOverlap`'s parallel/perpendicular bands (`1e-9`/`1e-7`, relative to the
+  chord lengths);
+- the rounding slop of `segParams`' intersection solve. That solve accepts a pair
+  down to `|d1×d2| = 1e-12·|d1||d2|`, and at that near-parallel limit the computed
+  chord parameters carry an absolute error of order `eps/1e-12 ≈ 4e-4` relative to
+  the chord lengths. This is the term that sets the constant — it is three orders of
+  magnitude above `segEps`, so a reach sized only against the exact-arithmetic
+  tolerances would not cover it.
+
+`forEachMergedEnd` welds two endpoints within `a.merge` of each other, which the
+`a.merge` term of the reach covers directly: an endpoint inside that distance of
+another segment's endpoint sits inside that segment's OWN raw box expanded by
+`a.merge`, so the two expanded boxes overlap. Expanding by reach only ever ADMITS
+more pairs than the exact tests would separately accept, so the broad phase cannot
+drop a pair the loop body would have acted on.
+
+The third bound holds for geometry whose coordinates are within a few chord lengths
+of the origin. Far from it the cancellation in that solve grows with the coordinate
+magnitude, and no relative reach bounds it — but `segParams`' own hit point, chord
+parameters and crossing angle are meaningless in that regime too, so the arrangement
+is already unreliable there and the broad phase adds no failure mode of its own.
 
 The enumeration itself is a sort-and-sweep on each segment's box minX, with ties
 broken by original index so the sweep is deterministic: segments are visited in

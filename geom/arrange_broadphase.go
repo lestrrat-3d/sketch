@@ -6,13 +6,27 @@ import (
 )
 
 // broadPhaseRel is the relative reach added to every tiny segment's bounding box on
-// top of the vertex-merge tolerance, chosen to dominate every OTHER tolerance the
-// exact pair tests use: segParams' segEps=1e-9 on the chord parameter, and
-// collinearOverlap's 1e-7 perpendicular-gap band and 1e-9 overlap-length band. Both
-// of those are relative to a chord's own length, and broadPhaseRel is three to four
-// orders of magnitude larger, so the reach only ever ADMITS more pairs than the exact
+// top of the vertex-merge tolerance. It is sized by the LARGEST of three bounds, all
+// relative to a chord's own length:
+//
+//   - segParams' segEps=1e-9 on the chord parameter (a hit lies within segEps·length
+//     of each chord);
+//   - collinearOverlap's 1e-7 perpendicular-gap band and 1e-9 overlap-length band;
+//   - the rounding slop of segParams' own intersection solve. That solve accepts a
+//     pair down to |d1×d2| = 1e-12·|d1||d2|, and at that near-parallel limit the
+//     computed chord parameters carry an absolute error of order
+//     eps/1e-12 ≈ 4e-4 relative to the chord lengths — three orders of magnitude
+//     ABOVE segEps, and the term that actually sets this constant.
+//
+// 1e-3 dominates all three, so the reach only ever ADMITS more pairs than the exact
 // tests would accept — see candidatePairs' doc comment and TestBroadPhaseIsSuperset.
-const broadPhaseRel = 1e-6
+//
+// The third bound holds for geometry whose coordinates are within a few chord
+// lengths of the origin. Far from it, the cancellation in that solve grows with the
+// coordinate magnitude and no relative reach bounds it — but neither is segParams'
+// own answer meaningful there, so the arrangement is already unreliable in that
+// regime and the broad phase adds no failure mode of its own.
+const broadPhaseRel = 1e-3
 
 // segBox is an axis-aligned bounding box, already expanded by a segment's reach.
 type segBox struct{ minX, minY, maxX, maxY float64 }
