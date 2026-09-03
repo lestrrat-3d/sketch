@@ -6,8 +6,14 @@ import "math"
 // with semi-axes rx,ry rotated by rot into world coordinates: the local-frame
 // point (rx·cos, ry·sin) rotated by rot and translated to the centre.
 func ellipsePointAt(cx, cy, rx, ry, rot, ang float64) [2]float64 {
+	return ellipsePointAtCS(cx, cy, rx, ry, math.Cos(rot), math.Sin(rot), ang)
+}
+
+// ellipsePointAtCS is [ellipsePointAt] with the rotation's cos/sin already
+// computed, so a caller sampling many angles on the same ellipse (a Polyline
+// loop) computes them once rather than once per sample.
+func ellipsePointAtCS(cx, cy, rx, ry, cosr, sinr, ang float64) [2]float64 {
 	lx, ly := rx*math.Cos(ang), ry*math.Sin(ang)
-	cosr, sinr := math.Cos(rot), math.Sin(rot)
 	return [2]float64{cx + lx*cosr - ly*sinr, cy + lx*sinr + ly*cosr}
 }
 
@@ -57,10 +63,11 @@ func (e *EllipticalArc) Polyline(segments int) [][2]float64 {
 	}
 	start := e.StartParam()
 	sweep := e.Sweep()
+	cosr, sinr := math.Cos(e.Rotation), math.Sin(e.Rotation)
 	pts := make([][2]float64, segments+1)
 	for i := 0; i <= segments; i++ {
 		ang := start + sweep*float64(i)/float64(segments)
-		pts[i] = ellipsePointAt(e.Center.X, e.Center.Y, e.Rx, e.Ry, e.Rotation, ang)
+		pts[i] = ellipsePointAtCS(e.Center.X, e.Center.Y, e.Rx, e.Ry, cosr, sinr, ang)
 	}
 	// The interior is on the ellipse; pin the ends to the exact boundary points
 	// (which a caller may not have placed perfectly on the ellipse) so the
@@ -94,10 +101,11 @@ func (e *Ellipse) Polyline(segments int) [][2]float64 {
 	if segments < 2 {
 		segments = 2
 	}
+	cosr, sinr := math.Cos(e.Rotation), math.Sin(e.Rotation)
 	pts := make([][2]float64, segments+1)
 	for i := 0; i <= segments; i++ {
 		ang := 2 * math.Pi * float64(i) / float64(segments)
-		pts[i] = ellipsePointAt(e.Center.X, e.Center.Y, e.Rx, e.Ry, e.Rotation, ang)
+		pts[i] = ellipsePointAtCS(e.Center.X, e.Center.Y, e.Rx, e.Ry, cosr, sinr, ang)
 	}
 	return pts
 }
