@@ -1,0 +1,141 @@
+{
+  "Degenerate": false,
+  "Degeneracies": null,
+  "SelfIntersections": [
+    [
+      10,
+      10
+    ],
+    [
+      90,
+      0
+    ],
+    [
+      90,
+      0
+    ],
+    [
+      90,
+      0
+    ],
+    [
+      90,
+      0
+    ]
+  ],
+  "Regions": [
+    {
+      "Area": 100,
+      "Degenerate": false,
+      "SelfIntersecting": true,
+      "Outer": [
+        {
+          "SourceIndex": 0,
+          "Whole": false,
+          "Reversed": false,
+          "TStart": 0,
+          "TEnd": 0.5,
+          "TExact": false,
+          "PolylineLen": 2
+        },
+        {
+          "SourceIndex": 2,
+          "Whole": false,
+          "Reversed": false,
+          "TStart": 0.5,
+          "TEnd": 1,
+          "TExact": false,
+          "PolylineLen": 2
+        },
+        {
+          "SourceIndex": 3,
+          "Whole": true,
+          "Reversed": false,
+          "TStart": 0,
+          "TEnd": 1,
+          "TExact": false,
+          "PolylineLen": 2
+        }
+      ],
+      "Holes": null
+    },
+    {
+      "Area": 100,
+      "Degenerate": false,
+      "SelfIntersecting": true,
+      "Outer": [
+        {
+          "SourceIndex": 0,
+          "Whole": false,
+          "Reversed": true,
+          "TStart": 0.5,
+          "TEnd": 1,
+          "TExact": false,
+          "PolylineLen": 2
+        },
+        {
+          "SourceIndex": 2,
+          "Whole": false,
+          "Reversed": true,
+          "TStart": 0,
+          "TEnd": 0.5,
+          "TExact": false,
+          "PolylineLen": 2
+        },
+        {
+          "SourceIndex": 1,
+          "Whole": true,
+          "Reversed": true,
+          "TStart": 0,
+          "TEnd": 1,
+          "TExact": false,
+          "PolylineLen": 2
+        }
+      ],
+      "Holes": null
+    },
+    {
+      "Area": 151.1111111111111,
+      "Degenerate": false,
+      "SelfIntersecting": true,
+      "Outer": [
+        {
+          "SourceIndex": 5,
+          "Whole": false,
+          "Reversed": false,
+          "TStart": 0,
+          "TEnd": 0.375,
+          "TExact": false,
+          "PolylineLen": 49
+        },
+        {
+          "SourceIndex": 5,
+          "Whole": false,
+          "Reversed": false,
+          "TStart": 0.875,
+          "TEnd": 1,
+          "TExact": false,
+          "PolylineLen": 17
+        }
+      ],
+      "Holes": null
+    },
+    {
+      "Area": 151.1111111111112,
+      "Degenerate": false,
+      "SelfIntersecting": true,
+      "Outer": [
+        {
+          "SourceIndex": 5,
+          "Whole": false,
+          "Reversed": true,
+          "TStart": 0.375,
+          "TEnd": 0.875,
+          "TExact": false,
+          "PolylineLen": 65
+        }
+      ],
+      "Holes": null
+    }
+  ]
+}

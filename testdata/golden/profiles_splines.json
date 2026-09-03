@@ -1,0 +1,146 @@
+[
+  {
+    "Area": 979.6500000000001,
+    "Valid": true,
+    "SelfIntersecting": false,
+    "Outer": [
+      {
+        "EntityIdx": 4,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": false
+      },
+      {
+        "EntityIdx": 5,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": false
+      },
+      {
+        "EntityIdx": 6,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": false
+      },
+      {
+        "EntityIdx": 7,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": false
+      }
+    ],
+    "Holes": null
+  },
+  {
+    "Area": 979.6500000000001,
+    "Valid": true,
+    "SelfIntersecting": false,
+    "Outer": [
+      {
+        "EntityIdx": 8,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": false
+      },
+      {
+        "EntityIdx": 9,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": false
+      },
+      {
+        "EntityIdx": 10,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": false
+      },
+      {
+        "EntityIdx": 11,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": false
+      }
+    ],
+    "Holes": null
+  },
+  {
+    "Area": 217.22803878259668,
+    "Valid": true,
+    "SelfIntersecting": false,
+    "Outer": [
+      {
+        "EntityIdx": 0,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": false
+      }
+    ],
+    "Holes": null
+  },
+  {
+    "Area": 217.2280387825965,
+    "Valid": true,
+    "SelfIntersecting": false,
+    "Outer": [
+      {
+        "EntityIdx": 1,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": false
+      }
+    ],
+    "Holes": null
+  },
+  {
+    "Area": 217.22803878259668,
+    "Valid": true,
+    "SelfIntersecting": false,
+    "Outer": [
+      {
+        "EntityIdx": 2,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": false
+      }
+    ],
+    "Holes": null
+  },
+  {
+    "Area": 217.22803878259663,
+    "Valid": true,
+    "SelfIntersecting": false,
+    "Outer": [
+      {
+        "EntityIdx": 3,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": false
+      }
+    ],
+    "Holes": null
+  }
+]

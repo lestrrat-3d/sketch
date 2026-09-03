@@ -1,0 +1,42 @@
+{
+  "Degenerate": true,
+  "Degeneracies": [
+    [
+      15,
+      -100
+    ],
+    [
+      110,
+      -100
+    ]
+  ],
+  "SelfIntersections": null,
+  "Regions": [
+    {
+      "Area": 314.1592653589793,
+      "Degenerate": false,
+      "SelfIntersecting": false,
+      "Outer": [
+        {
+          "SourceIndex": 2,
+          "Whole": true,
+          "Reversed": false,
+          "TStart": 0,
+          "TEnd": 1,
+          "TExact": true,
+          "PolylineLen": 5
+        },
+        {
+          "SourceIndex": 3,
+          "Whole": false,
+          "Reversed": false,
+          "TStart": 0.25,
+          "TEnd": 1,
+          "TExact": true,
+          "PolylineLen": 13
+        }
+      ],
+      "Holes": null
+    }
+  ]
+}

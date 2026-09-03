@@ -1,0 +1,25 @@
+{
+  "Points": [
+    {
+      "X": 0,
+      "Y": 0
+    },
+    {
+      "X": 20,
+      "Y": 0
+    },
+    {
+      "X": 20,
+      "Y": 12
+    },
+    {
+      "X": 0,
+      "Y": 12
+    }
+  ],
+  "Converged": true,
+  "Iterations": 0,
+  "Residual": 0,
+  "DOF": 0,
+  "Redundant": 0
+}

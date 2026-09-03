@@ -1,0 +1,194 @@
+[
+  {
+    "Area": 314.1592653589793,
+    "Valid": true,
+    "SelfIntersecting": false,
+    "Outer": [
+      {
+        "EntityIdx": 0,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": true
+      }
+    ],
+    "Holes": null
+  },
+  {
+    "Area": 314.1592653589793,
+    "Valid": true,
+    "SelfIntersecting": false,
+    "Outer": [
+      {
+        "EntityIdx": 1,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": true
+      }
+    ],
+    "Holes": null
+  },
+  {
+    "Area": 314.1592653589793,
+    "Valid": true,
+    "SelfIntersecting": false,
+    "Outer": [
+      {
+        "EntityIdx": 2,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": true
+      }
+    ],
+    "Holes": null
+  },
+  {
+    "Area": 314.1592653589793,
+    "Valid": true,
+    "SelfIntersecting": false,
+    "Outer": [
+      {
+        "EntityIdx": 3,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": true
+      }
+    ],
+    "Holes": null
+  },
+  {
+    "Area": 314.1592653589793,
+    "Valid": true,
+    "SelfIntersecting": false,
+    "Outer": [
+      {
+        "EntityIdx": 4,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": true
+      }
+    ],
+    "Holes": null
+  },
+  {
+    "Area": 314.1592653589793,
+    "Valid": true,
+    "SelfIntersecting": false,
+    "Outer": [
+      {
+        "EntityIdx": 5,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": true
+      }
+    ],
+    "Holes": null
+  },
+  {
+    "Area": 314.1592653589793,
+    "Valid": true,
+    "SelfIntersecting": false,
+    "Outer": [
+      {
+        "EntityIdx": 6,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": true
+      }
+    ],
+    "Holes": null
+  },
+  {
+    "Area": 314.1592653589793,
+    "Valid": true,
+    "SelfIntersecting": false,
+    "Outer": [
+      {
+        "EntityIdx": 7,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": true
+      }
+    ],
+    "Holes": null
+  },
+  {
+    "Area": 314.1592653589793,
+    "Valid": true,
+    "SelfIntersecting": false,
+    "Outer": [
+      {
+        "EntityIdx": 8,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": true
+      }
+    ],
+    "Holes": null
+  },
+  {
+    "Area": 314.1592653589793,
+    "Valid": true,
+    "SelfIntersecting": false,
+    "Outer": [
+      {
+        "EntityIdx": 9,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": true
+      }
+    ],
+    "Holes": null
+  },
+  {
+    "Area": 314.1592653589793,
+    "Valid": true,
+    "SelfIntersecting": false,
+    "Outer": [
+      {
+        "EntityIdx": 10,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": true
+      }
+    ],
+    "Holes": null
+  },
+  {
+    "Area": 314.1592653589793,
+    "Valid": true,
+    "SelfIntersecting": false,
+    "Outer": [
+      {
+        "EntityIdx": 11,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": true
+      }
+    ],
+    "Holes": null
+  }
+]

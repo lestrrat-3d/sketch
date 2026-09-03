@@ -1,0 +1,58 @@
+[
+  {
+    "Area": 259.8076211353316,
+    "Valid": true,
+    "SelfIntersecting": false,
+    "Outer": [
+      {
+        "EntityIdx": 0,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": true
+      },
+      {
+        "EntityIdx": 2,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": true
+      },
+      {
+        "EntityIdx": 4,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": true
+      },
+      {
+        "EntityIdx": 6,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": true
+      },
+      {
+        "EntityIdx": 8,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": true
+      },
+      {
+        "EntityIdx": 10,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": true
+      }
+    ],
+    "Holes": null
+  }
+]

@@ -1,0 +1,58 @@
+{
+  "Degenerate": false,
+  "Degeneracies": null,
+  "SelfIntersections": null,
+  "Regions": [
+    {
+      "Area": 314.1592653589793,
+      "Degenerate": false,
+      "SelfIntersecting": false,
+      "Outer": [
+        {
+          "SourceIndex": 3,
+          "Whole": true,
+          "Reversed": false,
+          "TStart": 0,
+          "TEnd": 1,
+          "TExact": true,
+          "PolylineLen": 257
+        }
+      ],
+      "Holes": null
+    },
+    {
+      "Area": 314.1592653589793,
+      "Degenerate": false,
+      "SelfIntersecting": false,
+      "Outer": [
+        {
+          "SourceIndex": 4,
+          "Whole": true,
+          "Reversed": false,
+          "TStart": 0,
+          "TEnd": 1,
+          "TExact": true,
+          "PolylineLen": 257
+        }
+      ],
+      "Holes": null
+    },
+    {
+      "Area": 314.1592653589793,
+      "Degenerate": false,
+      "SelfIntersecting": false,
+      "Outer": [
+        {
+          "SourceIndex": 5,
+          "Whole": true,
+          "Reversed": false,
+          "TStart": 0,
+          "TEnd": 1,
+          "TExact": true,
+          "PolylineLen": 257
+        }
+      ],
+      "Holes": null
+    }
+  ]
+}
