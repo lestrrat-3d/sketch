@@ -21,7 +21,7 @@ import (
 // so it is accepted) — so no rank computed from a poisoned matrix is
 // trustworthy in EITHER direction. A Jacobian-level guard also cannot catch
 // the sharpest case: a DOF-0 candidate with every point fixed builds a
-// perfectly finite, zero-column matrix, and [Sketch.conditioning]'s own
+// perfectly finite, zero-column matrix, and [Sketch.conditioningOn]'s own
 // len(free)==0 shortcut returns +Inf (maximal trust) without ever looking at
 // a value. So the screen has to run over s.vars itself, before any Jacobian
 // is built from it, and it has to cover every variable regardless of
@@ -29,11 +29,10 @@ import (
 // centroid, and so still corrupts the analysis of every other point's
 // constraints.
 //
-// THE SCREEN IS CARRIED BY THE FOUR PRIMITIVES EVERY VERDICT IN THIS FAMILY
+// THE SCREEN IS CARRIED BY THE THREE PRIMITIVES EVERY VERDICT IN THIS FAMILY
 // DERIVES FROM, never by each reader calling it. [Sketch.movableVars]
-// (diagnose.go), [Sketch.rank]/[Sketch.committedRankAnalysis] (solver.go),
-// [Sketch.conditioning] (conditioning.go) and [Sketch.conflictAnalysis]
-// (diagnose.go) each return a final `ok` that is
+// (diagnose.go), [Sketch.rank]/[Sketch.committedRankAnalysis] (solver.go) and
+// [Sketch.conflictAnalysis] (diagnose.go) each return a final `ok` that is
 // false exactly when [Sketch.hasNonFiniteVars] is true, so a new reader must
 // ACCOUNT for the screen at the call site instead of never meeting it. Go cannot
 // require that a method be called; it can require that a second return be
@@ -172,9 +171,9 @@ func (s *Sketch) nonFiniteVars() nonFiniteFinding {
 }
 
 // hasNonFiniteVars is the cheap boolean form of [Sketch.nonFiniteVars] and the
-// screen the four analysis primitives ([Sketch.movableVars], [Sketch.rank] and
-// its committed analysis, [Sketch.conditioning], [Sketch.conflictAnalysis])
-// carry in their final return.
+// screen the three analysis primitives ([Sketch.movableVars], [Sketch.rank]
+// and its committed analysis, [Sketch.conflictAnalysis]) carry in their final
+// return.
 // It answers the same question over the same four sources in the same order,
 // but allocates nothing and stops at the first non-finite value, so a per-handle
 // read pays a scan of the sketch's points, entities and constraints and no

@@ -450,10 +450,13 @@ type committedJacobian struct {
 
 // buildCommittedJacobian builds one [committedJacobian] for the committed
 // constraint rows (residuals(), driven dims skipped) at the current
-// configuration, screened by the same non-finite-geometry guard the four
-// primitives it replaces (in a single [Sketch.Verify] call) each carry: the
-// second result is false — and no matrix is built — when
-// [Sketch.hasNonFiniteVars] holds.
+// configuration, screened by the same non-finite-geometry guard
+// [Sketch.committedRankAnalysis], [Sketch.conflictAnalysis] and
+// [Sketch.movableVars] each carry when called on their own: the second result
+// is false — and no matrix is built — when [Sketch.hasNonFiniteVars] holds.
+// The `Conditioning` report field reads straight off this same guarded call,
+// via [Sketch.conditioningOn], since no standalone wrapper computes it outside
+// [Sketch.Verify].
 //
 // Between this call and the last consumer that reads the returned value in the
 // SAME Verify call, the only code that touches s.vars is [Sketch.scaledJacobian]
@@ -562,36 +565,25 @@ func (s *Sketch) scaledJacobian(free []int, eval func([]float64) []float64, rowK
 	return A
 }
 
-// conditioning returns the scale-invariant reciprocal condition number
-// σ_min(A)/σ_max(A) of the nondimensional constraint Jacobian at the current
-// configuration. It returns +Inf when there is nothing to measure (no free
-// variables or no rows) and 0 when the matrix is numerically singular or the
-// row-kind table is misaligned. Intended for a DOF-0 candidate; the caller gates
-// on it only then.
+// conditioningOn returns the scale-invariant reciprocal condition number
+// σ_min(A)/σ_max(A) of the nondimensional constraint Jacobian held in a
+// prebuilt [committedJacobian] cj — the core [Sketch.Verify] calls directly so
+// this measure shares ONE Jacobian build with the rank/DOF, conflict and
+// free-point analyses of the same call. It returns +Inf when there is nothing
+// to measure (no free variables or no rows) and 0 when the matrix is
+// numerically singular or the row-kind table is misaligned. Intended for a
+// DOF-0 candidate; the caller gates on it only then.
 //
-// It is one of the four primitives that CARRY the non-finite-geometry screen
-// (see nonfinite.go): the second result is false — and no measure is computed —
-// when [Sketch.hasNonFiniteVars] holds. This one is the sharpest of the three,
-// because its "nothing to measure" answer is +Inf, its BEST possible reading and
-// the one the trust gate passes: an all-grounded sketch holding a NaN builds a
-// perfectly finite ZERO-COLUMN matrix, so the len(free)==0 shortcut below would
-// hand the gate maximal trust without ever looking at a value. The screen is on
-// the geometry precisely because no guard on the matrix can see that.
-func (s *Sketch) conditioning() (float64, bool) {
-	cj, ok := s.buildCommittedJacobian()
-	if !ok {
-		return 0, false
-	}
-	return s.conditioningOn(cj), true
-}
-
-// conditioningOn computes the same scale-invariant reciprocal condition number
-// as [Sketch.conditioning] over a prebuilt [committedJacobian] — the core
-// [Sketch.Verify] calls directly so this measure shares ONE Jacobian build
-// with the rank/DOF, conflict and free-point analyses of the same call. It
-// reads cj.A only ([jacobiSingularValues] copies it into its own column-major
-// working matrix), so it needs no clone the way [Sketch.rankAnalysisOn] and
-// [Sketch.movableVarsOn] do.
+// The non-finite-geometry screen is carried by [Sketch.buildCommittedJacobian],
+// which builds cj: a caller reaching this method already holds a cj built on
+// finite geometry. That screen has to sit on the geometry rather than on the
+// matrix precisely because of the case this method's own "nothing to measure"
+// shortcut produces: an all-grounded sketch holding a NaN still builds a
+// perfectly finite ZERO-COLUMN matrix, and the len(free)==0 shortcut below
+// would hand the trust gate its BEST possible reading, +Inf, without ever
+// looking at a value. It reads cj.A only ([jacobiSingularValues] copies it
+// into its own column-major working matrix), so it needs no clone the way
+// [Sketch.rankAnalysisOn] and [Sketch.movableVarsOn] do.
 func (s *Sketch) conditioningOn(cj committedJacobian) float64 {
 	if len(cj.free) == 0 || cj.m == 0 {
 		return math.Inf(1)

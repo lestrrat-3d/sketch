@@ -574,9 +574,9 @@ func dof(cj committedJacobian, ra rankAnalysis) int {
 }
 
 // margin derives the rank-decision margin from a [committedJacobian] and its
-// [rankAnalysis] — mirroring the unexported rankMargin helper's two-branch
-// shape: +Inf when there are no residual rows (vacuously well-separated), else
-// the analysis' own margin. Used only by [Sketch.Verify]; see [dof].
+// [rankAnalysis]: +Inf when there are no residual rows (vacuously
+// well-separated), else the analysis' own margin. Used only by [Sketch.Verify];
+// see [dof].
 func margin(cj committedJacobian, ra rankAnalysis) float64 {
 	if cj.m == 0 {
 		return math.Inf(1)
@@ -634,7 +634,7 @@ func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *Verificat
 	// sound answer either way (see [Sketch.nonFiniteVars]) — and a Jacobian-level
 	// guard could not catch the sharpest case, a DOF-0 candidate whose every
 	// point is fixed, which builds a perfectly finite zero-column matrix and hits
-	// [Sketch.conditioning]'s own len(free)==0 shortcut (+Inf, maximal trust)
+	// [Sketch.conditioningOn]'s own len(free)==0 shortcut (+Inf, maximal trust)
 	// without ever looking at a value. So this screens the geometry, not the
 	// matrix, and takes the same early-out ForeignHandles already does.
 	nf := s.nonFiniteVars()
