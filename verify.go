@@ -556,6 +556,34 @@ func WithProbe(opts ...ProbeOption) VerifyOption {
 	return verifyOption{option.New(identProbe{}, opts)}
 }
 
+// dof derives the DOF count from a [committedJacobian] and its [rankAnalysis]
+// — the same two-branch shape [Sketch.DOF] uses: the free-variable count
+// directly when there are no residual rows (no elimination ran), else the free
+// count minus the rank, floored at 0. Used only by [Sketch.Verify], which
+// builds cj and ra once and shares them across this and [margin] rather than
+// calling [Sketch.DOF] (which would rebuild its own Jacobian).
+func dof(cj committedJacobian, ra rankAnalysis) int {
+	if cj.m == 0 {
+		return len(cj.free)
+	}
+	d := len(cj.free) - ra.rank
+	if d < 0 {
+		return 0
+	}
+	return d
+}
+
+// margin derives the rank-decision margin from a [committedJacobian] and its
+// [rankAnalysis] — mirroring the unexported rankMargin helper's two-branch
+// shape: +Inf when there are no residual rows (vacuously well-separated), else
+// the analysis' own margin. Used only by [Sketch.Verify]; see [dof].
+func margin(cj committedJacobian, ra rankAnalysis) float64 {
+	if cj.m == 0 {
+		return math.Inf(1)
+	}
+	return ra.margin()
+}
+
 // Verify aggregates the sketch's verification signals into a single
 // [VerificationReport]: solvability, degrees of freedom, the redundant and
 // conflicting constraints (with each conflict's set), the still-free points,
@@ -649,30 +677,28 @@ func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *Verificat
 	rep.Residual = math.Sqrt(dot(r, r))
 	rep.Solvable = rep.Residual <= tolerance
 
-	rep.DOF = s.DOF()
-	rep.RankMargin = s.rankMargin() // advisory; does not gate Trustworthy (scale-dependent)
+	// One committed Jacobian serves every analysis below — rank/DOF, conditioning,
+	// conflict/redundancy, free points — instead of each rebuilding its own (see
+	// committedJacobian's doc comment in conditioning.go for why sharing it is
+	// sound within this one call, and only within it). ok is unreachable false:
+	// the early-out above already stopped on the same non-finite-geometry
+	// condition buildCommittedJacobian screens.
+	cj, ok := s.buildCommittedJacobian()
+	if !ok {
+		rep.analysisSkipped = true
+		return rep
+	}
+	ra := s.rankAnalysisOn(cj) // one elimination serves both DOF and RankMargin
+	rep.DOF = dof(cj, ra)
+	rep.RankMargin = margin(cj, ra) // advisory; does not gate Trustworthy (scale-dependent)
 	// The conditioning measure is meaningful only for a DOF-0 candidate: an
 	// under-constrained sketch is genuinely singular by its free DOF (a separate
 	// verdict), so leave Conditioning at +Inf (not applicable) there.
 	if rep.DOF == 0 {
-		cond, analysed := s.conditioning()
-		if !analysed {
-			// Unreachable below the early-out above, which stops on the same
-			// condition. Kept because the refusal must not fall through to the
-			// +Inf "not applicable" initialization: 0 fails the gate, +Inf passes it.
-			cond = 0
-		}
-		rep.Conditioning = cond
+		rep.Conditioning = s.conditioningOn(cj)
 	}
 
-	flagged, conflicts, analysed := s.conflictAnalysis()
-	if !analysed {
-		// Unreachable below the early-out above, which stops on the same
-		// condition. Kept because the refusal's empty result must not fall
-		// through unrecorded: two empty lists read as "no constraint problem
-		// found" on a report that otherwise says its analysis ran.
-		rep.analysisSkipped = true
-	}
+	flagged, conflicts := s.conflictAnalysisOn(cj)
 	rep.Conflicts = conflicts
 	if len(conflicts) < len(flagged) {
 		bad := make(map[Constraint]struct{}, len(conflicts))
@@ -685,6 +711,9 @@ func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *Verificat
 			}
 		}
 	}
+
+	movable := s.movableVarsOn(cj)
+	rep.FreePoints = freePoints(s.points, movable) // same loop Sketch.FreePoints uses
 
 	rep.ParametersValid = true
 	if s.params != nil {
@@ -704,7 +733,6 @@ func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *Verificat
 		}
 	}
 
-	rep.FreePoints = s.FreePoints()
 	profiles, degenerate, _ := s.buildProfiles()
 	rep.Profiles = profiles
 	rep.ProfilesValid = !degenerate

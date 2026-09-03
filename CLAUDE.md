@@ -247,7 +247,9 @@ auxiliary variables.
   configuration.** `rank()`/`DOF()` rebuild J via `jacobian` when called — after
   `Solve` that is the *solved* point. NEVER reuse the Solve loop's
   last-iteration Jacobian for rank analysis: it is stale (evaluated one step
-  before convergence) and yields wrong DOF/redundancy counts.
+  before convergence) and yields wrong DOF/redundancy counts. A single `Verify`
+  call builds that Jacobian once and shares it among its own analyses; it is
+  never cached across calls.
 - **Driven (reference) dimensions contribute no residuals.** `residuals()`
   skips any `Dimension` with `Driven() == true`, and `refreshDriven()` writes
   the measured value back into the dimension's target after every `Solve`.

@@ -1,6 +1,9 @@
 package sketch
 
-import "math"
+import (
+	"math"
+	"slices"
+)
 
 // Scale-invariant conditioning gate.
 //
@@ -427,15 +430,62 @@ func condRowKinds(c Constraint, out []rowKind) []rowKind {
 	}
 }
 
-// conditioningMatrix builds the nondimensional A = Drow·J·Dcol over the free
-// variables and the current residual rows, using a scale-aware finite-difference
-// step. Returns nil if the row-kind table does not align with the residual rows
-// (a defensive guard; the alignment is asserted by test).
-func (s *Sketch) conditioningMatrix(free []int, m int, L float64) [][]float64 {
-	if len(s.residualRowKinds()) != m {
-		return nil
+// committedJacobian is the nondimensional Jacobian A = Drow·J·Dcol over the
+// committed rows and the free variables at ONE call-time configuration. It is
+// built by a single public entry point ([Sketch.Verify], via
+// [Sketch.buildCommittedJacobian]) and consumed inside that same call by the
+// rank/DOF, conditioning, conflict and free-point analyses (their …On
+// methods) instead of each of them rebuilding it; it is never stored on the
+// Sketch, never keyed by [Sketch.Revision], and never outlives the call that
+// built it (see the rank/DOF invariant in CLAUDE.md — the configuration must
+// not move between build and use, and nothing between them does: see
+// buildCommittedJacobian's doc comment).
+type committedJacobian struct {
+	free     []int     // the free variable indices the columns of A are over
+	m        int       // rows residuals() produces at the call-time configuration
+	rowKinds []rowKind // residualRowKinds(); length may differ from m only in the
+	// unreachable classification-gap case conditioningOn's NaN path guards
+	A [][]float64 // nil when m == 0 — no rows means nothing to build
+}
+
+// buildCommittedJacobian builds one [committedJacobian] for the committed
+// constraint rows (residuals(), driven dims skipped) at the current
+// configuration, screened by the same non-finite-geometry guard the four
+// primitives it replaces (in a single [Sketch.Verify] call) each carry: the
+// second result is false — and no matrix is built — when
+// [Sketch.hasNonFiniteVars] holds.
+//
+// Between this call and the last consumer that reads the returned value in the
+// SAME Verify call, the only code that touches s.vars is [Sketch.scaledJacobian]
+// itself, which perturbs one variable at a time and restores its exact original
+// bit pattern before returning — so the configuration this Jacobian was built
+// at cannot have moved by the time any consumer reads it. Nothing may cache
+// this value beyond that one call: see [committedJacobian]'s own doc comment.
+func (s *Sketch) buildCommittedJacobian() (committedJacobian, bool) {
+	if s.hasNonFiniteVars() {
+		return committedJacobian{}, false
 	}
-	return s.committedScaledJacobian(free)
+	free := s.freeVars()
+	m := len(s.residuals(nil))
+	cj := committedJacobian{free: free, m: m, rowKinds: s.residualRowKinds()}
+	if m > 0 {
+		cj.A = s.committedScaledJacobian(free)
+	}
+	return cj, true
+}
+
+// cloneMatrix returns a deep copy of A. A consumer whose elimination mutates
+// its matrix in place ([rankAnalysisOfMatrix], [Sketch.movableVars]) clones a
+// shared [committedJacobian]'s A before running, so it does not corrupt what
+// another consumer of the same committedJacobian reads afterward; a consumer
+// that only reads rows ([Sketch.conflictAnalysis], [jacobiSingularValues])
+// needs no clone.
+func cloneMatrix(A [][]float64) [][]float64 {
+	out := make([][]float64, len(A))
+	for i, row := range A {
+		out[i] = slices.Clone(row)
+	}
+	return out
 }
 
 // committedScaledJacobian builds the nondimensional A = Drow·J·Dcol over the
@@ -528,25 +578,34 @@ func (s *Sketch) scaledJacobian(free []int, eval func([]float64) []float64, rowK
 // hand the gate maximal trust without ever looking at a value. The screen is on
 // the geometry precisely because no guard on the matrix can see that.
 func (s *Sketch) conditioning() (float64, bool) {
-	if s.hasNonFiniteVars() {
+	cj, ok := s.buildCommittedJacobian()
+	if !ok {
 		return 0, false
 	}
-	free := s.freeVars()
-	m := len(s.residuals(nil))
-	if len(free) == 0 || m == 0 {
-		return math.Inf(1), true
+	return s.conditioningOn(cj), true
+}
+
+// conditioningOn computes the same scale-invariant reciprocal condition number
+// as [Sketch.conditioning] over a prebuilt [committedJacobian] — the core
+// [Sketch.Verify] calls directly so this measure shares ONE Jacobian build
+// with the rank/DOF, conflict and free-point analyses of the same call. It
+// reads cj.A only ([jacobiSingularValues] copies it into its own column-major
+// working matrix), so it needs no clone the way [Sketch.rankAnalysisOn] and
+// [Sketch.movableVarsOn] do.
+func (s *Sketch) conditioningOn(cj committedJacobian) float64 {
+	if len(cj.free) == 0 || cj.m == 0 {
+		return math.Inf(1)
 	}
-	A := s.conditioningMatrix(free, m, s.lengthScale())
-	if A == nil {
+	if len(cj.rowKinds) != cj.m {
 		// The row-kind table did not align with the residual rows — a classification
-		// gap (a constraint kind missing from condRowKinds). Return NaN, distinct
-		// from a genuinely-singular 0; NaN fails the trust gate (NaN >= τ is false),
-		// so an unclassified constraint reads as untrustworthy, never falsely blessed.
-		return math.NaN(), true
+		// gap (a constraint kind missing from condRowKinds). NaN, distinct from a
+		// genuinely-singular 0; NaN fails the trust gate (NaN >= τ is false), so an
+		// unclassified constraint reads as untrustworthy, never falsely blessed.
+		return math.NaN()
 	}
-	sv := jacobiSingularValues(A)
+	sv := jacobiSingularValues(cj.A)
 	if len(sv) == 0 {
-		return math.Inf(1), true
+		return math.Inf(1)
 	}
 	smax, smin := sv[0], sv[0]
 	for _, v := range sv {
@@ -558,9 +617,9 @@ func (s *Sketch) conditioning() (float64, bool) {
 		}
 	}
 	if smax == 0 {
-		return 0, true
+		return 0
 	}
-	return smin / smax, true
+	return smin / smax
 }
 
 // jacobiSingularValues returns the singular values of an m×n matrix via a
