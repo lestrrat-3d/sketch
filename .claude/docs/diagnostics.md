@@ -324,8 +324,8 @@ calls: there is no `committedJacobian` field on `Sketch`, nothing is keyed by
 `Sketch.Revision`, and no `committedJacobian` value is passed to anything
 reachable from another public method. The public `Sketch.DOF`, `Sketch.Diagnose`,
 `Sketch.FreePoints` and `Sketch.RedundantConstraints` keep building their own
-matrix on every call, exactly as before — only `Verify`'s internal use is
-shared, and only for the duration of that one call.
+matrix on every call — only `Verify`'s internal use is shared, and only for the
+duration of that one call.
 
 ### The trust verdict has one definition and two shapes
 

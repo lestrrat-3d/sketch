@@ -308,21 +308,22 @@ type lmWorkspace struct {
 	r               []float64
 }
 
-// newLMWorkspace allocates an lmWorkspace's buffers for m residual rows and n
-// free variables.
-func newLMWorkspace(m, n int) *lmWorkspace {
-	ws := &lmWorkspace{
-		J:      make([][]float64, m),
-		A:      make([][]float64, n),
-		damped: make([][]float64, n),
-		M:      make([][]float64, n),
-		g:      make([]float64, n),
-		rhs:    make([]float64, n),
-		delta:  make([]float64, n),
-		rp:     make([]float64, 0, m),
-		rm:     make([]float64, 0, m),
-		rNew:   make([]float64, 0, m),
-	}
+// alloc sizes every buffer but r for m residual rows and n free variables. It is
+// called from inside the outer loop, past the termination checks, rather than
+// before it: a solve that is already converged (or has nothing free to move)
+// never builds a Jacobian, and would otherwise pay several m×n and n×n
+// allocations to do nothing.
+func (ws *lmWorkspace) alloc(m, n int) {
+	ws.J = make([][]float64, m)
+	ws.A = make([][]float64, n)
+	ws.damped = make([][]float64, n)
+	ws.M = make([][]float64, n)
+	ws.g = make([]float64, n)
+	ws.rhs = make([]float64, n)
+	ws.delta = make([]float64, n)
+	ws.rp = make([]float64, 0, m)
+	ws.rm = make([]float64, 0, m)
+	ws.rNew = make([]float64, 0, m)
 	for i := range ws.J {
 		ws.J[i] = make([]float64, n)
 	}
@@ -331,7 +332,6 @@ func newLMWorkspace(m, n int) *lmWorkspace {
 		ws.damped[i] = make([]float64, n)
 		ws.M[i] = make([]float64, n+1)
 	}
-	return ws
 }
 
 // lm runs the Levenberg–Marquardt loop on the residual vector produced by
@@ -355,8 +355,9 @@ func (s *Sketch) lm(ctx context.Context, free []int, eval func([]float64) []floa
 		return 0, nil
 	}
 
-	ws := newLMWorkspace(m, n)
-	ws.r = r // eval(nil) already returned a fresh buffer; no need to copy it in.
+	// eval(nil) already returned a fresh buffer; no need to copy it in. The rest
+	// of the workspace is sized lazily below, once an iteration actually needs it.
+	ws := &lmWorkspace{r: r}
 
 	cost := dot(ws.r, ws.r) // sum of squared residuals
 	lambda := 1e-3
@@ -370,6 +371,9 @@ func (s *Sketch) lm(ctx context.Context, free []int, eval func([]float64) []floa
 		}
 		if n == 0 {
 			break // nothing free to move
+		}
+		if ws.J == nil {
+			ws.alloc(m, n)
 		}
 
 		s.jacobianInto(ws.J, free, m, eval, ws.rp, ws.rm)
