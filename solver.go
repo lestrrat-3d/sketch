@@ -602,31 +602,13 @@ func (s *Sketch) refreshDriven() {
 	}
 }
 
-// jacobian computes the m×n Jacobian of the residual vector produced by eval
-// w.r.t. the free variables using central finite differences. Hard-constraint
-// analysis passes s.residuals; Solve passes its (possibly goal-augmented)
-// evaluator. A thin wrapper over [Sketch.jacobianInto] that allocates its own
-// matrix and residual buffers; [Sketch.lm] calls jacobianInto directly against
-// its per-solve workspace instead.
-func (s *Sketch) jacobian(free []int, m int, eval func([]float64) []float64) [][]float64 {
-	n := len(free)
-	J := make([][]float64, m)
-	for i := range J {
-		J[i] = make([]float64, n)
-	}
-	rp := make([]float64, 0, m)
-	rm := make([]float64, 0, m)
-	s.jacobianInto(J, free, m, eval, rp, rm)
-	return J
-}
-
 // jacobianInto fills the prebuilt m×n matrix J with the Jacobian of the
 // residual vector produced by eval w.r.t. the free variables, using central
-// finite differences — the body [Sketch.jacobian] used to allocate fresh every
-// call. rp and rm are scratch residual buffers (any length, reused via their
-// backing array across every perturbed variable); passing them in lets a
-// caller that evaluates many Jacobians in a loop (the [lmWorkspace] case) reuse
-// the same two buffers instead of allocating a pair per call.
+// finite differences. rp and rm are scratch residual buffers (any length,
+// reused via their backing array across every perturbed variable); passing
+// them in lets a caller that evaluates many Jacobians in a loop (the
+// [lmWorkspace] case, [Sketch.lm]) reuse the same two buffers instead of
+// allocating a pair per call.
 func (s *Sketch) jacobianInto(J [][]float64, free []int, m int, eval func([]float64) []float64, rp, rm []float64) {
 	for j, vi := range free {
 		orig := s.vars[vi]
@@ -698,7 +680,7 @@ func (s *Sketch) rank(free []int, m int) (int, bool) {
 // committedRankAnalysis runs the scale-invariant rank analysis over the committed
 // constraint rows (residuals(), driven dims skipped).
 //
-// It is one of the four primitives that CARRY the non-finite-geometry screen
+// It is one of the three primitives that CARRY the non-finite-geometry screen
 // (see nonfinite.go): the second result is false — and the analysis is not run —
 // when [Sketch.hasNonFiniteVars] holds, so a caller cannot read a rank built from
 // a poisoned Jacobian without handling the refusal. No rank from such a matrix is
@@ -815,30 +797,6 @@ func rankAnalysisOfMatrix(A [][]float64, n int) rankAnalysis {
 	}
 	ra.rank = row
 	return ra
-}
-
-// rankMargin reports the structural rank-decision margin at the current
-// configuration (see rankAnalysis.margin), over the same free variables and
-// residual rows DOF uses. It is +Inf when there are no residual rows.
-//
-// On non-finite geometry it reports 0 — maximally fragile, the reading that says
-// the rank decision cannot be relied on. +Inf is this measure's most reassuring
-// value and is exactly what a report that analysed nothing must not carry.
-// [Sketch.Verify] never reaches this on that path (it stops at the non-finite
-// screen), so the value is a floor rather than a route.
-func (s *Sketch) rankMargin() float64 {
-	free := s.freeVars()
-	if len(s.residuals(nil)) == 0 {
-		if s.hasNonFiniteVars() {
-			return 0
-		}
-		return math.Inf(1)
-	}
-	ra, ok := s.committedRankAnalysis(free)
-	if !ok {
-		return 0
-	}
-	return ra.margin()
 }
 
 // solveLinear solves A·x = b for a square matrix using Gaussian elimination

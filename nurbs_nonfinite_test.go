@@ -166,7 +166,7 @@ func TestStrayFixedFinitePointIsTrustworthy(t *testing.T) {
 // or an ordinary finite coordinate. Every variable in it is grounded, which is
 // what makes it the sharpest case a Jacobian-level guard cannot catch — the
 // matrix is perfectly finite because it has zero columns, only the GEOMETRY
-// behind it is not, and [Sketch.conditioning]'s own len(free)==0 shortcut
+// behind it is not, and [Sketch.conditioningOn]'s own len(free)==0 shortcut
 // returns +Inf (maximal trust) without ever looking at a value.
 func allFixedNaNStraySketch(t *testing.T, nan bool) (*sketch.Sketch, *sketch.Point) {
 	t.Helper()
