@@ -8,6 +8,7 @@ Detail moved out of CLAUDE.md's architecture table. Read before adding an annota
 |---|---|
 | Which overlays exist and what are their defaults? | `annotate.go` — overview |
 | What does the status badge show on a skipped report? | `writeStatusBadge` must branch on skipped analysis |
+| Why doesn't the status badge call `Sketch.Verify`? | `badgeVerify` computes only what the badge renders |
 | How does DOF colouring behave on non-finite geometry? | `WithDOFColoring` marks everything free when refused |
 | How is annotation geometry mapped to screen space? | The load-bearing annotation-geometry rule |
 | What does a framed render always carry? | `frame.go` — windowed framing |
@@ -30,27 +31,46 @@ reads distinctly, other constrained = black filled circle; points via
 blue — the per-entity `Sketch.EntityIsFullyConstrained`), `WithPixelWidth`
 (display px, viewBox unchanged), `WithConflicts` (conflicting geometry red via
 `Diagnose` + `constraintRefs`; conflict-red > DOF-blue), `WithStatusBadge`
-(`Verify` DOF/Status/Solvable card), `WithProfileFill` (valid `Profiles()`
-regions only, canonical sort for determinism),
+(DOF/Status/Solvable card via `badgeVerify`, see below), `WithProfileFill`
+(valid `Profiles()` regions only, canonical sort for determinism),
 `WithAnnotationColor`/`WithAnnotationScale`.
 
 ### `writeStatusBadge` must branch on skipped analysis
 
-**`writeStatusBadge` is the ONE overlay that reads a `VerificationReport`, and
-it must branch on that report's SKIPPED-ANALYSIS state**: on a report `Verify`
-stopped early — a nil/corrupt/foreign handle, or non-finite geometry, both
-causes alike — `DOF`, `Status` and `Solvable` hold unevaluated zero values the
-report's own doc comment says are not verdicts, so rendering them paints a
-number on the drawing for a sketch nothing analysed (`DOF 0` for geometry with
-free degrees of freedom). The card names the incomplete state instead, in the
-same visual shape, and one text serves both causes because the claim it makes is
-only that no analysis stands behind it. `TestStatusBadgeSkippedAnalysis`
+**`writeStatusBadge` is the ONE overlay driven by verification state, and it
+must branch on the SKIPPED-ANALYSIS case**: on a nil/corrupt/foreign handle, or
+non-finite geometry, both causes alike, DOF/Status/Solvable hold unevaluated
+zero values that are not verdicts, so rendering them paints a number on the
+drawing for a sketch nothing analysed (`DOF 0` for geometry with free degrees
+of freedom). The card names the incomplete state instead, in the same visual
+shape, and one text serves both causes because the claim it makes is only that
+no analysis stands behind it. `TestStatusBadgeSkippedAnalysis`
 (`annotate_test.go`) pins a subtest per cause, each on a fixture whose
 COORDINATES stay finite so the exporter's own `ErrNonFiniteGeometry` refusal
 cannot fire and the render really reaches the badge. The other overlays read no
 report — `WithDOFColoring`, `WithConflicts` and `WithProfileFill` compute live
 (`movableVars`, `Diagnose`, `Profiles`) — but that is not the same as being safe
 on this state.
+
+### `badgeVerify` computes only what the badge renders
+
+**`writeStatusBadge` does not call `Sketch.Verify`.** The card shows only
+DOF, Status, Solvable and whether analysis ran; `Verify` additionally builds
+free points, profiles, parameter validity and (opt-in) the ambiguity probe, of
+which `Sketch.Profiles`' arrangement pass alone dominates a `Verify` call's
+cost on any sketch with curved or many-entity geometry — real cost for a value
+the badge never reads. `badgeVerify` (`annotate.go`) instead calls the same
+unexported helpers `Verify` calls, in the same order, and stops after the
+DOF/Status/Solvable computation: `scanReferenceIntegrity` +
+`buildCommittedJacobian`'s own non-finite screen for the skip check (identical
+to `Verify`'s `nilCorrupt || rep.ForeignHandles || nf.found()` early-out),
+`rankAnalysisOn` + `dof` for DOF, `residuals` against the default tolerance for
+Solvable, `conflictAnalysisOn` for the conflicting/redundant sets, and
+`classifyStatus` (fed DOF/Solvable/Conflicts/Redundant) for Status. It does not run
+`scanReferenceStaleness`, since staleness feeds none of those four values.
+`TestStatusBadgeMatchesVerify` (`badge_verify_parity_test.go`) pins the two
+paths as agreeing across under-constrained, fully constrained, conflicting and
+invalid-profile fixtures.
 
 ### `WithDOFColoring` marks everything free when refused
 
