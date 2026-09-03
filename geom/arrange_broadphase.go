@@ -55,6 +55,22 @@ func (a *arranger) segBoxOf(i int) segBox {
 	return segBox{minX - r, minY - r, maxX + r, maxY + r}
 }
 
+// segBoxCache returns every tiny segment's reach-expanded bounding box, computing
+// it once and caching it on the arranger. a.segs is fixed by the time this is first
+// called (densify is the only appender, and it runs before intersect), so the boxes
+// stay valid for the arranger's remaining passes. Shared by candidatePairs' sweep and
+// sampledCrossingsExplained's box reject so neither recomputes a box the other
+// already has.
+func (a *arranger) segBoxCache() []segBox {
+	if a.segBoxes == nil && len(a.segs) > 0 {
+		a.segBoxes = make([]segBox, len(a.segs))
+		for i := range a.segs {
+			a.segBoxes[i] = a.segBoxOf(i)
+		}
+	}
+	return a.segBoxes
+}
+
 // boxesOverlap reports whether two boxes overlap, treating a touch (shared edge or
 // corner) as an overlap: the pair tests intersect's loop body guards on are
 // tolerance-bounded equalities, so a box touch is exactly the boundary case those
@@ -97,10 +113,9 @@ func (a *arranger) candidatePairs() [][]int {
 	if n == 0 {
 		return cand
 	}
-	boxes := make([]segBox, n)
+	boxes := a.segBoxCache()
 	order := make([]int, n)
 	for i := 0; i < n; i++ {
-		boxes[i] = a.segBoxOf(i)
 		order[i] = i
 	}
 	sort.Slice(order, func(x, y int) bool {
