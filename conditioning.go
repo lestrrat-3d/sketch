@@ -31,9 +31,10 @@ import (
 //
 //   Conditioning = σ_min(A) / σ_max(A)
 //
-// the smallest singular value relative to the largest, computed by a one-sided
-// Jacobi SVD (never via AᵀA, which would square the condition number into
-// floating-point noise). It is evaluated only for an otherwise fully-constrained
+// the smallest singular value relative to the largest, computed on A itself by
+// Householder bidiagonalization plus Sturm bisection for just the two extremes
+// (see [singularValueExtremes]; never via AᵀA, which would square the condition
+// number into floating-point noise). It is evaluated only for an otherwise fully-constrained
 // trust candidate (DOF 0); an under-constrained sketch is genuinely singular by
 // its free DOF, a separate already-reported verdict, so its conditioning is left
 // not-applicable (+Inf).
@@ -478,7 +479,7 @@ func (s *Sketch) buildCommittedJacobian() (committedJacobian, bool) {
 // its matrix in place ([rankAnalysisOfMatrix], [Sketch.movableVars]) clones a
 // shared [committedJacobian]'s A before running, so it does not corrupt what
 // another consumer of the same committedJacobian reads afterward; a consumer
-// that only reads rows ([Sketch.conflictAnalysis], [jacobiSingularValues])
+// that only reads rows ([Sketch.conflictAnalysis], [singularValueExtremes])
 // needs no clone.
 func cloneMatrix(A [][]float64) [][]float64 {
 	out := make([][]float64, len(A))
@@ -589,8 +590,8 @@ func (s *Sketch) conditioning() (float64, bool) {
 // as [Sketch.conditioning] over a prebuilt [committedJacobian] — the core
 // [Sketch.Verify] calls directly so this measure shares ONE Jacobian build
 // with the rank/DOF, conflict and free-point analyses of the same call. It
-// reads cj.A only ([jacobiSingularValues] copies it into its own column-major
-// working matrix), so it needs no clone the way [Sketch.rankAnalysisOn] and
+// reads cj.A only ([singularValueExtremes] copies it into its own working
+// matrix), so it needs no clone the way [Sketch.rankAnalysisOn] and
 // [Sketch.movableVarsOn] do.
 func (s *Sketch) conditioningOn(cj committedJacobian) float64 {
 	if len(cj.free) == 0 || cj.m == 0 {
@@ -603,18 +604,9 @@ func (s *Sketch) conditioningOn(cj committedJacobian) float64 {
 		// unclassified constraint reads as untrustworthy, never falsely blessed.
 		return math.NaN()
 	}
-	sv := jacobiSingularValues(cj.A)
-	if len(sv) == 0 {
+	smax, smin, ok := singularValueExtremes(cj.A)
+	if !ok {
 		return math.Inf(1)
-	}
-	smax, smin := sv[0], sv[0]
-	for _, v := range sv {
-		if v > smax {
-			smax = v
-		}
-		if v < smin {
-			smin = v
-		}
 	}
 	if smax == 0 {
 		return 0
@@ -622,69 +614,286 @@ func (s *Sketch) conditioningOn(cj committedJacobian) float64 {
 	return smin / smax
 }
 
-// jacobiSingularValues returns the singular values of an m×n matrix via a
-// one-sided Jacobi SVD: orthogonalize the columns by Jacobi plane rotations, then
-// the singular values are the converged column norms. One-sided Jacobi computes
-// small singular values to high relative accuracy and needs no AᵀA (which would
-// square the condition number). The input is not modified.
-func jacobiSingularValues(A [][]float64) []float64 {
+// dblEps is the double-precision unit roundoff spacing (2⁻⁵²) and safeMin the
+// smallest positive normal double; both are the constants LAPACK's bisection
+// (dstebz) is written in terms of.
+const (
+	dblEps  = 0x1p-52
+	safeMin = 0x1p-1022
+)
+
+// singularValueExtremes returns σ_max and σ_min of the m×n matrix A, taken over
+// its n COLUMNS the way the column-orthogonalizing one-sided Jacobi SVD it
+// replaces did: when m < n the n columns cannot be independent, so σ_min is
+// exactly 0. The third result is false when A has no rows or no columns. A
+// non-finite entry yields NaN for both values, which the trust gate reads as
+// untrustworthy (NaN ≥ τ is false) — defence in depth behind the geometry
+// screen in nonfinite.go, which stops Verify before a matrix is ever built.
+//
+// The measure needs only the two extreme singular values, never the full
+// spectrum, so this is Householder bidiagonalization (one O(m·n²) pass, cost
+// equivalent to roughly one Jacobi sweep, where the Jacobi SVD needed 8–17
+// sweeps on the benchmark fixtures) followed by Sturm-sequence bisection on the
+// Golub–Kahan tridiagonal form of the bidiagonal for exactly the largest and
+// the smallest value (O(n) per bisection step). Bisection is monotone and
+// certified — each step brackets the value by an eigenvalue count, so there is
+// no shift strategy, no deflation and no convergence heuristic — and the whole
+// pass has a fixed, input-independent cost.
+//
+// Accuracy: bidiagonalization is backward stable, so every computed singular
+// value is within c·ε·σ_max of the exact one (Weyl), with c a small multiple of
+// the matrix dimension; bisection then resolves each to its last bit. The
+// reported ratio σ_min/σ_max therefore carries an ABSOLUTE error of c·ε — far
+// below the finite-difference noise the Jacobian entries themselves carry
+// (condFDStep gives ~1e-9..1e-8 relative derivative noise, an absolute
+// σ_min error of that order relative to σ_max) and six orders of magnitude
+// below the trust gate. Relative to the reported value it is c·ε/Conditioning:
+// ~1e-13 for the healthy fixtures the golden tests pin and ~1e-8 at the gate
+// itself. Never via AᵀA, which would square the condition number into
+// floating-point noise. The input is not modified.
+func singularValueExtremes(A [][]float64) (float64, float64, bool) {
 	m := len(A)
 	if m == 0 {
-		return nil
+		return 0, 0, false
 	}
 	n := len(A[0])
 	if n == 0 {
-		return nil
+		return 0, 0, false
 	}
-	// Work on a column-major copy so column operations are cache-friendly.
-	U := make([][]float64, n)
-	for j := 0; j < n; j++ {
-		col := make([]float64, m)
-		for i := 0; i < m; i++ {
-			col[i] = A[i][j]
-		}
-		U[j] = col
+	// W is a TALL (rows ≥ cols) row-major working copy — A itself when m ≥ n,
+	// Aᵀ otherwise; the two share their nonzero singular values — backed by one
+	// contiguous allocation so the reflector loops below stream through memory.
+	rows, cols := m, n
+	if m < n {
+		rows, cols = n, m
 	}
-	const maxSweeps = 60
-	const eps = 1e-15
-	for sweep := 0; sweep < maxSweeps; sweep++ {
-		rotated := false
-		for p := 0; p < n-1; p++ {
-			for q := p + 1; q < n; q++ {
-				var alpha, beta, gamma float64
-				up, uq := U[p], U[q]
-				for i := 0; i < m; i++ {
-					alpha += up[i] * up[i]
-					beta += uq[i] * uq[i]
-					gamma += up[i] * uq[i]
-				}
-				if alpha == 0 || beta == 0 || math.Abs(gamma) <= eps*math.Sqrt(alpha*beta) {
-					continue
-				}
-				// Jacobi rotation zeroing the (p,q) inner product.
-				zeta := (beta - alpha) / (2 * gamma)
-				tval := math.Copysign(1, zeta) / (math.Abs(zeta) + math.Sqrt(1+zeta*zeta))
-				cval := 1 / math.Sqrt(1+tval*tval)
-				sval := cval * tval
-				for i := 0; i < m; i++ {
-					a, b := up[i], uq[i]
-					up[i] = cval*a - sval*b
-					uq[i] = sval*a + cval*b
-				}
-				rotated = true
+	buf := make([]float64, rows*cols)
+	W := make([][]float64, rows)
+	for i := range W {
+		W[i] = buf[i*cols : (i+1)*cols]
+	}
+	finite := true
+	for i := 0; i < m; i++ {
+		for j := 0; j < n; j++ {
+			v := A[i][j]
+			if math.IsNaN(v) || math.IsInf(v, 0) {
+				finite = false
+			}
+			if m >= n {
+				W[i][j] = v
+			} else {
+				W[j][i] = v
 			}
 		}
-		if !rotated {
+	}
+	if !finite {
+		return math.NaN(), math.NaN(), true
+	}
+	d, e := bidiagonalize(W)
+	smax, smin := bidiagonalExtremes(d, e)
+	if m < n {
+		smin = 0
+	}
+	return smax, smin, true
+}
+
+// bidiagonalize reduces the tall (rows ≥ cols) row-major matrix W IN PLACE to
+// upper bidiagonal form by alternating left and right Householder reflections
+// (Golub–Kahan), returning the diagonal d (len cols) and the superdiagonal e
+// (len cols; e[cols−1] is unused and 0). Orthogonal transforms preserve
+// singular values, so those of (d, e) are those of W. The reflectors are never
+// accumulated — only the values are wanted — and the entries each reflection
+// annihilates are never written back, since no later step reads them.
+func bidiagonalize(W [][]float64) ([]float64, []float64) {
+	rows, cols := len(W), len(W[0])
+	d := make([]float64, cols)
+	e := make([]float64, cols)
+	v := make([]float64, rows)    // left reflector, rows k..rows−1
+	u := make([]float64, cols)    // right reflector, columns k+1..cols−1
+	dots := make([]float64, cols) // vᵀ·W[:, j] per column j, for the left update
+	for k := 0; k < cols; k++ {
+		// Left reflection H = I − 2vvᵀ/vᵀv sends column k (rows k..) to α·e₁.
+		// Applied row by row so the inner loops run along the contiguous rows.
+		var s float64
+		for i := k; i < rows; i++ {
+			s += W[i][k] * W[i][k]
+		}
+		if s > 0 {
+			alpha := -math.Copysign(math.Sqrt(s), W[k][k])
+			v[k] = W[k][k] - alpha // |v[k]| = |W[k][k]| + √s > 0, so vᵀv > 0
+			vv := v[k] * v[k]
+			for i := k + 1; i < rows; i++ {
+				v[i] = W[i][k]
+				vv += v[i] * v[i]
+			}
+			for j := k + 1; j < cols; j++ {
+				dots[j] = 0
+			}
+			for i := k; i < rows; i++ {
+				row, vi := W[i], v[i]
+				for j := k + 1; j < cols; j++ {
+					dots[j] += vi * row[j]
+				}
+			}
+			for i := k; i < rows; i++ {
+				row, f := W[i], 2*v[i]/vv
+				for j := k + 1; j < cols; j++ {
+					row[j] -= f * dots[j]
+				}
+			}
+			d[k] = alpha
+		}
+		if k+1 >= cols {
 			break
 		}
-	}
-	sv := make([]float64, n)
-	for j := 0; j < n; j++ {
-		var nrm float64
-		for i := 0; i < m; i++ {
-			nrm += U[j][i] * U[j][i]
+		// Right reflection sends row k (columns k+1..) to α·e₁ᵀ. Row k itself is
+		// never read again, so only the rows below it are updated.
+		s = 0
+		for j := k + 1; j < cols; j++ {
+			s += W[k][j] * W[k][j]
 		}
-		sv[j] = math.Sqrt(nrm)
+		if s == 0 {
+			continue
+		}
+		alpha := -math.Copysign(math.Sqrt(s), W[k][k+1])
+		u[k+1] = W[k][k+1] - alpha
+		uu := u[k+1] * u[k+1]
+		for j := k + 2; j < cols; j++ {
+			u[j] = W[k][j]
+			uu += u[j] * u[j]
+		}
+		for i := k + 1; i < rows; i++ {
+			row := W[i]
+			var dd float64
+			for j := k + 1; j < cols; j++ {
+				dd += row[j] * u[j]
+			}
+			f := 2 * dd / uu
+			for j := k + 1; j < cols; j++ {
+				row[j] -= f * u[j]
+			}
+		}
+		e[k] = alpha
 	}
-	return sv
+	return d, e
+}
+
+// bidiagonalExtremes returns σ_max and σ_min of the n×n upper bidiagonal matrix
+// with diagonal d and superdiagonal e. The symmetric 2n×2n Golub–Kahan matrix
+// T = [[0, Bᵀ], [B, 0]], permuted to tridiagonal form, has zero diagonal and the
+// off-diagonal sequence (d₀, e₀, d₁, e₁, …, d_{n−1}); its eigenvalues are ±σᵢ.
+// For λ > 0 the Sturm count of eigenvalues below λ is therefore n + #{σᵢ < λ},
+// so σ_max is where the count first reaches 2n and σ_min where it first
+// reaches n+1, each found by bisection from a Gershgorin bound.
+func bidiagonalExtremes(d, e []float64) (float64, float64) {
+	n := len(d)
+	b := make([]float64, 2*n-1)
+	for k := 0; k < n; k++ {
+		b[2*k] = d[k]
+		if k+1 < n {
+			b[2*k+1] = e[k]
+		}
+	}
+	var bmax2, hi float64
+	for i, x := range b {
+		bmax2 = math.Max(bmax2, x*x)
+		r := math.Abs(x) // Gershgorin row sum: |b[i−1]| + |b[i]|
+		if i > 0 {
+			r += math.Abs(b[i-1])
+		}
+		hi = math.Max(hi, r)
+	}
+	if bmax2 == 0 {
+		return 0, 0
+	}
+	// pivmin is dstebz's pivot floor: the smallest |q| the recurrence keeps,
+	// chosen so b²/q never overflows.
+	pivmin := safeMin * math.Max(1, bmax2)
+	// Pad the bound past its own rounding so the count there is a full 2n.
+	hi = hi*(1+4*dblEps) + pivmin
+	b2 := make([]float64, len(b))
+	for i, x := range b {
+		b2[i] = x * x
+	}
+	return bisectSingularValues(b2, pivmin, hi, 2*n, n+1)
+}
+
+// sturmCounts returns, for each of the two thresholds la and lb, the number of
+// eigenvalues of the symmetric tridiagonal matrix with zero diagonal and
+// squared off-diagonals b2 that lie below it, by the LDLᵀ pivot recurrence
+// q_i = −λ − b_{i−1}²/q_{i−1} (the count of negative pivots, Sylvester's law
+// of inertia). A pivot smaller than pivmin in magnitude is replaced by −pivmin
+// exactly as LAPACK's dstebz does, which keeps the next quotient finite without
+// changing the count. The two thresholds are evaluated in one loop on purpose:
+// each recurrence is a serial chain of dependent divisions, so two independent
+// chains interleaved run in nearly the time of one.
+func sturmCounts(b2 []float64, pivmin, la, lb float64) (int, int) {
+	qa, qb := -la, -lb
+	if math.Abs(qa) < pivmin {
+		qa = -pivmin
+	}
+	if math.Abs(qb) < pivmin {
+		qb = -pivmin
+	}
+	ca, cb := 0, 0
+	if qa < 0 {
+		ca++
+	}
+	if qb < 0 {
+		cb++
+	}
+	for _, x2 := range b2 {
+		qa = -la - x2/qa
+		qb = -lb - x2/qb
+		if math.Abs(qa) < pivmin {
+			qa = -pivmin
+		}
+		if math.Abs(qb) < pivmin {
+			qb = -pivmin
+		}
+		if qa < 0 {
+			ca++
+		}
+		if qb < 0 {
+			cb++
+		}
+	}
+	return ca, cb
+}
+
+// bisectSingularValues returns the smallest λ ≥ 0 at which the Sturm count
+// reaches ta, and likewise for tb, bisecting [0, hi] for both in lockstep (hi
+// must already satisfy both counts) until each bracket is a couple of ulps wide
+// or has no representable midpoint left. A value of exactly 0 (a rank-deficient
+// matrix) drives its bracket down through the subnormals, so the loop is also
+// capped; at 4n flops per step the cap is still negligible next to the
+// bidiagonalization.
+func bisectSingularValues(b2 []float64, pivmin, hi float64, ta, tb int) (float64, float64) {
+	const maxSteps = 1200
+	loA, hiA := 0.0, hi
+	loB, hiB := 0.0, hi
+	for step := 0; step < maxSteps; step++ {
+		midA, midB := 0.5*(loA+hiA), 0.5*(loB+hiB)
+		doneA := hiA-loA <= 2*dblEps*hiA || midA <= loA || midA >= hiA
+		doneB := hiB-loB <= 2*dblEps*hiB || midB <= loB || midB >= hiB
+		if doneA && doneB {
+			break
+		}
+		ca, cb := sturmCounts(b2, pivmin, midA, midB)
+		switch {
+		case doneA:
+		case ca >= ta:
+			hiA = midA
+		default:
+			loA = midA
+		}
+		switch {
+		case doneB:
+		case cb >= tb:
+			hiB = midB
+		default:
+			loB = midB
+		}
+	}
+	return 0.5 * (loA + hiA), 0.5 * (loB + hiB)
 }
