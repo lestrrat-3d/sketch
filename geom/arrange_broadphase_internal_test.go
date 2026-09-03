@@ -268,18 +268,36 @@ func sampledCrossingsExplainedBruteForce(a *arranger, i, j int, events []xEvent)
 // that the box-guarded sampledCrossingsExplained agrees with the unguarded brute-force
 // reference — the box reject in geom/arrange.go must never be able to flip this
 // verdict, since (unlike candidatePairs) it feeds a returned answer rather than
-// guarding a side effect.
+// guarding a side effect. It returns how many of the reference verdicts it compared
+// were FALSE, so a caller can require that the refusing direction — the only one a
+// wrongly-skipped pair could corrupt — was actually reached.
+//
+// Each pair is checked twice: once on its real analytic events, and once on an EMPTY
+// event list, which leaves every sampled crossing unexplained and so refuses any pair
+// whose chords cross at all. The second pass is what exercises the refusing direction:
+// on the fixtures here the real events explain every sampled crossing, so the first
+// pass alone would only ever compare `true` against `true` and could not observe a
+// pair the box reject wrongly skipped.
 //
 // This reuses analyticPrepass's own pair-discovery loop (analytic-kind sources,
 // i < j, analyticEvents ok) rather than analyticPrepass itself, so it exercises
 // sampledCrossingsExplained on exactly the pairs production code would call it on,
 // without also running the cut/degeneracy machinery those pairs would otherwise
 // trigger.
-func checkSampledCrossingsExplained(t *testing.T, a *arranger) {
+func checkSampledCrossingsExplained(t *testing.T, a *arranger) int {
 	t.Helper()
 	a.sourceSegs = make([][]int, len(a.sources))
 	for i := range a.segs {
 		a.sourceSegs[a.segs[i].src] = append(a.sourceSegs[a.segs[i].src], i)
+	}
+	refused := 0
+	compare := func(i, j int, events []xEvent, mode string) {
+		want := sampledCrossingsExplainedBruteForce(a, i, j, events)
+		got := a.sampledCrossingsExplained(i, j, events)
+		require.Equal(t, want, got, "pair (%d,%d) with %s events disagrees with the unguarded brute force", i, j, mode)
+		if !want {
+			refused++
+		}
 	}
 	for i := 0; i < len(a.sources); i++ {
 		si := &a.sources[i]
@@ -295,11 +313,11 @@ func checkSampledCrossingsExplained(t *testing.T, a *arranger) {
 			if !ok {
 				continue
 			}
-			want := sampledCrossingsExplainedBruteForce(a, i, j, events)
-			got := a.sampledCrossingsExplained(i, j, events)
-			require.Equal(t, want, got, "pair (%d,%d) disagrees with the unguarded brute force", i, j)
+			compare(i, j, events, "analytic")
+			compare(i, j, nil, "no")
 		}
 	}
+	return refused
 }
 
 // TestSampledCrossingsExplainedBoxRejectAgrees is the proof for the box reject added
@@ -374,6 +392,7 @@ func TestSampledCrossingsExplainedBoxRejectAgrees(t *testing.T) {
 	})
 
 	t.Run("300 seeded random scenes", func(t *testing.T) {
+		refused := 0
 		for seed := int64(0); seed < 300; seed++ {
 			rng := rand.New(rand.NewSource(seed))
 			curves, closed := randomScene(t, rng)
@@ -385,8 +404,12 @@ func TestSampledCrossingsExplainedBoxRejectAgrees(t *testing.T) {
 			if len(a.segs) == 0 {
 				continue
 			}
-			checkSampledCrossingsExplained(t, a)
+			refused += checkSampledCrossingsExplained(t, a)
 		}
+		// The refusing direction is the only one a wrongly-skipped pair could
+		// corrupt (a hidden crossing turns a `false` into a `true`), so the suite
+		// is only a proof if it reached that direction on real geometry.
+		require.Greater(t, refused, 0, "no scene reached the refusing verdict, so the box reject was never tested against it")
 	})
 }
 

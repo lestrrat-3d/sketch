@@ -3,8 +3,8 @@ package sketch
 // In-package on purpose (see revision_internal_test.go for the repo's stance):
 // the property under test is that the singular-value kernel behind
 // [VerificationReport.Conditioning] — Householder bidiagonalization plus Sturm
-// bisection, [singularValueExtremes] — agrees with the straightforward
-// one-sided Jacobi SVD it replaced, on the raw matrix. The kernel is
+// bisection, [singularValueExtremes] — agrees with a straightforward
+// one-sided Jacobi SVD on the raw matrix. The kernel is
 // unexported and the right answer is not to export a linear-algebra routine
 // just to test it. The consumer-visible half of the contract (the reported
 // Conditioning, pinned to 1e-8 relative) is covered by golden_test.go and
@@ -18,10 +18,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// referenceSingularValues is the retired one-sided Jacobi SVD, verbatim: it
-// orthogonalizes the n columns by plane rotations and reads the singular
-// values off the converged column norms. It is the oracle here because it is
-// simple enough to be obviously right, at the cost of O(sweeps·n²·m).
+// referenceSingularValues is a textbook one-sided Jacobi SVD: it orthogonalizes
+// the n columns by plane rotations and reads the singular values off the
+// converged column norms. It is the oracle here because it shares no code and no
+// approach with the kernel under test and is simple enough to be obviously
+// right, at the cost of O(sweeps·n²·m).
 func referenceSingularValues(A [][]float64) []float64 {
 	m := len(A)
 	if m == 0 {
@@ -213,6 +214,40 @@ func TestSingularValueExtremesAgreeWithReference(t *testing.T) {
 		smax, smin, _ := singularValueExtremes(A)
 		require.Less(t, smin/smax, 1e-6, "reads below the trust gate")
 		require.Greater(t, smin/smax, 1e-10)
+	})
+	t.Run("classic ill-conditioned families", func(t *testing.T) {
+		// Hilbert and Kahan are the two textbook traps for a rank-revealing
+		// kernel: Hilbert is symmetric and graded to a condition number beyond
+		// double precision, and Kahan is upper triangular and looks well
+		// conditioned to a plain column-norm reading. Both come from a closed
+		// form rather than a seed, so they are adversarial by construction and
+		// not by luck.
+		for _, n := range []int{8, 12, 20, 40} {
+			A := make([][]float64, n)
+			for i := range A {
+				A[i] = make([]float64, n)
+				for j := range A[i] {
+					A[i][j] = 1 / float64(i+j+1)
+				}
+			}
+			requireExtremesAgree(t, A)
+		}
+		for _, n := range []int{20, 50, 90} {
+			c := 0.9
+			sn := math.Sqrt(1 - c*c)
+			A := make([][]float64, n)
+			for i := range A {
+				A[i] = make([]float64, n)
+			}
+			for i := 0; i < n; i++ {
+				si := math.Pow(sn, float64(i))
+				A[i][i] = si
+				for j := i + 1; j < n; j++ {
+					A[i][j] = -c * si
+				}
+			}
+			requireExtremesAgree(t, A)
+		}
 	})
 	t.Run("rank deficient", func(t *testing.T) {
 		zeroCol := randomMatrix(rng, 30, 30)
