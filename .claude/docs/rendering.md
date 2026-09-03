@@ -56,21 +56,28 @@ on this state.
 
 **`writeStatusBadge` does not call `Sketch.Verify`.** The card shows only
 DOF, Status, Solvable and whether analysis ran; `Verify` additionally builds
-free points, profiles, parameter validity and (opt-in) the ambiguity probe, of
-which `Sketch.Profiles`' arrangement pass alone dominates a `Verify` call's
-cost on any sketch with curved or many-entity geometry — real cost for a value
-the badge never reads. `badgeVerify` (`annotate.go`) instead calls the same
-unexported helpers `Verify` calls, in the same order, and stops after the
-DOF/Status/Solvable computation: `scanReferenceIntegrity` +
-`buildCommittedJacobian`'s own non-finite screen for the skip check (identical
-to `Verify`'s `nilCorrupt || rep.ForeignHandles || nf.found()` early-out),
-`rankAnalysisOn` + `dof` for DOF, `residuals` against the default tolerance for
-Solvable, `conflictAnalysisOn` for the conflicting/redundant sets, and
-`classifyStatus` (fed DOF/Solvable/Conflicts/Redundant) for Status. It does not run
-`scanReferenceStaleness`, since staleness feeds none of those four values.
-`TestStatusBadgeMatchesVerify` (`badge_verify_parity_test.go`) pins the two
-paths as agreeing across under-constrained, fully constrained, conflicting and
-invalid-profile fixtures.
+conditioning, free points, profiles, parameter validity and (opt-in) the
+ambiguity probe, of which `Sketch.Profiles`' arrangement pass alone dominates a
+`Verify` call's cost on any sketch with curved or many-entity geometry — real
+cost for values the badge never reads.
+
+**The two cannot drift, because they are not two computations.** Both call
+`Sketch.verifyCore` (`verify.go`), which owns the whole DOF/Status/Solvable
+pass: `scanReferenceIntegrity` + `scanReferenceStaleness`, the non-finite screen
+and its early-out, the residual norm against the tolerance, the one shared
+`buildCommittedJacobian`, `rankAnalysisOn` + `dof`, and `conflictAnalysisOn` for
+the conflicting/redundant sets. `badgeVerify` (`annotate.go`) calls it, runs
+`classifyStatus` on the report, and stops; `Verify` calls it and carries on with
+the rest. **Every field `classifyStatus` consults is filled inside
+`verifyCore`**, so a new one reaches both callers at once — put anything the
+status verdict depends on there, and anything only a full report needs after it.
+`Conditioning` is deliberately outside: it gates `Trustworthy()`, never
+`classifyStatus`, so the badge does not pay a singular-value pass for a number
+it does not show. `TestStatusBadgeMatchesVerify` (`badge_verify_parity_test.go`)
+pins the two paths as agreeing across under-constrained, fully constrained,
+conflicting, redundant and invalid-profile fixtures;
+`TestStatusBadgeSkippedAnalysis` (`annotate_test.go`) pins the skipped-analysis
+card on both of its causes.
 
 ### `WithDOFColoring` marks everything free when refused
 

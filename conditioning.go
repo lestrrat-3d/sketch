@@ -433,10 +433,11 @@ func condRowKinds(c Constraint, out []rowKind) []rowKind {
 
 // committedJacobian is the nondimensional Jacobian A = Drow·J·Dcol over the
 // committed rows and the free variables at ONE call-time configuration. It is
-// built by a single public entry point ([Sketch.Verify], via
-// [Sketch.buildCommittedJacobian]) and consumed inside that same call by the
-// rank/DOF, conditioning, conflict and free-point analyses (their …On
-// methods) instead of each of them rebuilding it; it is never stored on the
+// built by a single entry point ([Sketch.verifyCore], via
+// [Sketch.buildCommittedJacobian]) and consumed inside that same call — by the
+// rank/DOF and conflict analyses there, and by the conditioning and free-point
+// analyses in [Sketch.Verify], which holds it for the rest of the call (their
+// …On methods) — instead of each of them rebuilding it; it is never stored on the
 // Sketch, never keyed by [Sketch.Revision], and never outlives the call that
 // built it (see the rank/DOF invariant in CLAUDE.md — the configuration must
 // not move between build and use, and nothing between them does: see
@@ -460,7 +461,7 @@ type committedJacobian struct {
 // [Sketch.Verify].
 //
 // Between this call and the last consumer that reads the returned value in the
-// SAME Verify call, the only code that touches s.vars is [Sketch.scaledJacobian]
+// SAME call, the only code that touches s.vars is [Sketch.scaledJacobian]
 // itself, which perturbs one variable at a time and restores its exact original
 // bit pattern before returning — so the configuration this Jacobian was built
 // at cannot have moved by the time any consumer reads it. Nothing may cache
@@ -615,17 +616,17 @@ const (
 )
 
 // singularValueExtremes returns σ_max and σ_min of the m×n matrix A, taken over
-// its n COLUMNS the way the column-orthogonalizing one-sided Jacobi SVD it
-// replaces did: when m < n the n columns cannot be independent, so σ_min is
-// exactly 0. The third result is false when A has no rows or no columns. A
+// its n COLUMNS: when m < n the n columns cannot be independent, so σ_min is
+// exactly 0 — the reading the caller's own measure wants, since a column there
+// is a free variable the rows cannot pin.
+// The third result is false when A has no rows or no columns. A
 // non-finite entry yields NaN for both values, which the trust gate reads as
 // untrustworthy (NaN ≥ τ is false) — defence in depth behind the geometry
 // screen in nonfinite.go, which stops Verify before a matrix is ever built.
 //
 // The measure needs only the two extreme singular values, never the full
-// spectrum, so this is Householder bidiagonalization (one O(m·n²) pass, cost
-// equivalent to roughly one Jacobi sweep, where the Jacobi SVD needed 8–17
-// sweeps on the benchmark fixtures) followed by Sturm-sequence bisection on the
+// spectrum, so this is Householder bidiagonalization (one O(m·n²) pass)
+// followed by Sturm-sequence bisection on the
 // Golub–Kahan tridiagonal form of the bidiagonal for exactly the largest and
 // the smallest value (O(n) per bisection step). Bisection is monotone and
 // certified — each step brackets the value by an eigenvalue count, so there is

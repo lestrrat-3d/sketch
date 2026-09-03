@@ -8,14 +8,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestStatusBadgeMatchesVerify pins the status badge's cheaper computation
-// (writeStatusBadge no longer runs a full Sketch.Verify) against the full
-// report on every Status the badge can display: under-constrained, fully
-// constrained, over-constrained by a conflict, and a sketch whose profiles are
-// invalid (which Verify still analyses fully — profile validity does not
-// gate the DOF/Status/Solvable pass the badge reads). For every fixture the
-// rendered card must carry the exact "DOF %d · %s · solvable=%t" text a full
-// [sketch.Sketch.Verify] call would produce.
+// TestStatusBadgeMatchesVerify pins the status badge's own cheaper computation
+// (writeStatusBadge renders badgeVerify, not a full Sketch.Verify) against the
+// full report on every Status the badge can display: under-constrained, fully
+// constrained, over-constrained by a conflict, over-constrained by a redundant
+// but consistent constraint (Status alone separates it from the conflicting
+// case), and a sketch whose profiles are invalid (which Verify still analyses
+// fully — profile validity does not gate the DOF/Status/Solvable pass the badge
+// reads). For every fixture the rendered card must carry the exact
+// "DOF %d · %s · solvable=%t" text a full [sketch.Sketch.Verify] call would
+// produce. The skipped-analysis card, which neither path computes a verdict
+// for, is pinned separately by TestStatusBadgeSkippedAnalysis.
 func TestStatusBadgeMatchesVerify(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -61,6 +64,24 @@ func TestStatusBadgeMatchesVerify(t *testing.T) {
 			s.AddConstraint(sketch.NewDistance(a, b, 20))
 			s.AddConstraint(sketch.NewDistance(a, b, 30))
 			_, _ = s.Solve(t.Context())
+			return s
+		}},
+		{"over-constrained redundant", func(t *testing.T) *sketch.Sketch {
+			// A duplicated but CONSISTENT dimension: solvable and DOF 0, so only
+			// the redundancy makes it over-constrained. It separates the two
+			// classifyStatus branches the conflicting fixture cannot.
+			s := newSketch(t)
+			a := s.CreatePoint(0, 0)
+			b := s.CreatePoint(20, 0)
+			ab := s.CreateLine(a, b)
+			s.AddConstraint(
+				sketch.NewCoincident(a, s.Origin()),
+				sketch.NewHorizontal(ab),
+				sketch.NewDistance(a, b, 20),
+				sketch.NewDistance(a, b, 20),
+			)
+			_, err := s.Solve(t.Context())
+			require.NoError(t, err)
 			return s
 		}},
 		{"invalid profiles", func(t *testing.T) *sketch.Sketch {

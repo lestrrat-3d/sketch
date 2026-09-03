@@ -584,38 +584,22 @@ func margin(cj committedJacobian, ra rankAnalysis) float64 {
 	return ra.margin()
 }
 
-// Verify aggregates the sketch's verification signals into a single
-// [VerificationReport]: solvability, degrees of freedom, the redundant and
-// conflicting constraints (with each conflict's set), the still-free points,
-// the closed profiles and their validity (self-intersecting / degenerate
-// regions are reported and gate [VerificationReport.Trustworthy]), and — with
-// [WithProbe] — discrete configuration ambiguity.
+// verifyCore runs, into rep, every pass the DOF/Status/Solvable verdict rests on:
+// the reference-integrity and staleness scans, the non-finite screen and its
+// early-out, the residual norm, the ONE shared committed Jacobian, and the
+// rank/DOF and conflict/redundancy analyses that read it. It returns that
+// Jacobian and whether the analysis ran at all; on a skip it has already set
+// rep.analysisSkipped and the returned Jacobian must not be read.
 //
-// Like [Sketch.DOF] and [Sketch.Diagnose], Verify analyses the call-time
-// configuration and does not move any geometry; call [Sketch.Solve] first so
-// the report reflects the solved sketch. It recomputes the constraint Jacobian
-// at the current configuration (never reusing a solve's stale one), so the
-// counts are consistent with the geometry as it stands.
-//
-// The ctx argument bounds any probe run triggered by [WithProbe] (the only
-// potentially expensive, re-solving work Verify performs); pass
-// context.Background() when no bound is needed.
-func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *VerificationReport {
-	var probe bool
-	var probeOpts []ProbeOption
-	tolerance := defaultSolveConfig().tolerance
-	for _, opt := range options {
-		switch opt.Ident().(type) {
-		case identProbe:
-			probe = true
-			probeOpts = option.MustGet[[]ProbeOption](opt)
-		case identTolerance:
-			tolerance = option.MustGet[float64](opt)
-		}
-	}
-
-	rep := &VerificationReport{condGate: conditioningGate(tolerance)}
-
+// It is a separate method so [Sketch.Verify] and the status badge's
+// [Sketch.badgeVerify] cannot drift apart: the badge renders DOF, Status,
+// Solvable and nothing else, so it calls this and stops, while Verify goes on
+// to the passes the badge never reads (free points, parameter validity,
+// profiles and the opt-in probe) before classifying the status. Every field
+// [classifyStatus] consults is filled HERE, so a new one reaches both callers
+// at once. rep must already carry its condGate; tolerance is the solvability
+// threshold.
+func (s *Sketch) verifyCore(rep *VerificationReport, tolerance float64) (committedJacobian, bool) {
 	// Reference integrity + reachability first: it is nil-safe, and a nil/corrupt
 	// or foreign operand would otherwise panic the residual/profile/staleness
 	// analysis below (a foreign entity such as &Line{} can have nil endpoints).
@@ -660,7 +644,7 @@ func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *Verificat
 
 	if nilCorrupt || rep.ForeignHandles || nf.found() {
 		rep.analysisSkipped = true
-		return rep
+		return committedJacobian{}, false
 	}
 
 	// Conditioning's "not applicable" value is +Inf, its best possible reading,
@@ -677,26 +661,20 @@ func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *Verificat
 	rep.Residual = math.Sqrt(dot(r, r))
 	rep.Solvable = rep.Residual <= tolerance
 
-	// One committed Jacobian serves every analysis below — rank/DOF, conditioning,
-	// conflict/redundancy, free points — instead of each rebuilding its own (see
-	// committedJacobian's doc comment in conditioning.go for why sharing it is
-	// sound within this one call, and only within it). ok is unreachable false:
-	// the early-out above already stopped on the same non-finite-geometry
-	// condition buildCommittedJacobian screens.
+	// One committed Jacobian serves every analysis that reads it — rank/DOF and
+	// conflict/redundancy here, conditioning and free points in the caller —
+	// instead of each rebuilding its own (see committedJacobian's doc comment in
+	// conditioning.go for why sharing it is sound within one call, and only
+	// within it). ok is unreachable false: the early-out above already stopped
+	// on the same non-finite-geometry condition buildCommittedJacobian screens.
 	cj, ok := s.buildCommittedJacobian()
 	if !ok {
 		rep.analysisSkipped = true
-		return rep
+		return committedJacobian{}, false
 	}
 	ra := s.rankAnalysisOn(cj) // one elimination serves both DOF and RankMargin
 	rep.DOF = dof(cj, ra)
 	rep.RankMargin = margin(cj, ra) // advisory; does not gate Trustworthy (scale-dependent)
-	// The conditioning measure is meaningful only for a DOF-0 candidate: an
-	// under-constrained sketch is genuinely singular by its free DOF (a separate
-	// verdict), so leave Conditioning at +Inf (not applicable) there.
-	if rep.DOF == 0 {
-		rep.Conditioning = s.conditioningOn(cj)
-	}
 
 	flagged, conflicts := s.conflictAnalysisOn(cj)
 	rep.Conflicts = conflicts
@@ -710,6 +688,55 @@ func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *Verificat
 				rep.Redundant = append(rep.Redundant, c)
 			}
 		}
+	}
+	return cj, true
+}
+
+// Verify aggregates the sketch's verification signals into a single
+// [VerificationReport]: solvability, degrees of freedom, the redundant and
+// conflicting constraints (with each conflict's set), the still-free points,
+// the closed profiles and their validity (self-intersecting / degenerate
+// regions are reported and gate [VerificationReport.Trustworthy]), and — with
+// [WithProbe] — discrete configuration ambiguity.
+//
+// Like [Sketch.DOF] and [Sketch.Diagnose], Verify analyses the call-time
+// configuration and does not move any geometry; call [Sketch.Solve] first so
+// the report reflects the solved sketch. It recomputes the constraint Jacobian
+// at the current configuration (never reusing a solve's stale one), so the
+// counts are consistent with the geometry as it stands.
+//
+// The ctx argument bounds any probe run triggered by [WithProbe] (the only
+// potentially expensive, re-solving work Verify performs); pass
+// context.Background() when no bound is needed.
+func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *VerificationReport {
+	var probe bool
+	var probeOpts []ProbeOption
+	tolerance := defaultSolveConfig().tolerance
+	for _, opt := range options {
+		switch opt.Ident().(type) {
+		case identProbe:
+			probe = true
+			probeOpts = option.MustGet[[]ProbeOption](opt)
+		case identTolerance:
+			tolerance = option.MustGet[float64](opt)
+		}
+	}
+
+	rep := &VerificationReport{condGate: conditioningGate(tolerance)}
+	cj, ok := s.verifyCore(rep, tolerance)
+	if !ok {
+		return rep
+	}
+
+	// The conditioning measure is meaningful only for a DOF-0 candidate: an
+	// under-constrained sketch is genuinely singular by its free DOF (a separate
+	// verdict), so leave Conditioning at +Inf (not applicable) there. It sits
+	// here rather than in verifyCore because it gates only
+	// [VerificationReport.Trustworthy], never [classifyStatus]: the status badge
+	// has no use for it and should not pay a full singular-value pass to render
+	// a number it does not show.
+	if rep.DOF == 0 {
+		rep.Conditioning = s.conditioningOn(cj)
 	}
 
 	movable := s.movableVarsOn(cj)

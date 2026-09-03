@@ -825,8 +825,8 @@ func loopMin(loop []BoundaryEdge) (float64, float64) {
 	return minX, minY
 }
 
-// badgeTextIncomplete is what the status badge reads when [Sketch.Verify]
-// skipped its analysis, in place of the DOF/Status/Solvable summary.
+// badgeTextIncomplete is what the status badge reads when the analysis was
+// skipped, in place of the DOF/Status/Solvable summary.
 const badgeTextIncomplete = "verification incomplete · DOF/status not evaluated"
 
 // badgeVerify computes exactly the four values [writeStatusBadge] renders —
@@ -834,64 +834,33 @@ const badgeTextIncomplete = "verification incomplete · DOF/status not evaluated
 // rest of what [Sketch.Verify] aggregates (free points, profiles, parameter
 // validity, the opt-in ambiguity probe). On the gallery-style fixture used by
 // BenchmarkSVG, Profiles' arrangement pass alone is essentially the entire
-// cost of a Verify call; the badge never reads Profiles/InvalidProfiles/
-// ProfilesValid, FreePoints, ParametersValid/ParameterErrors or Probe, so
-// computing them on every annotated render bought the badge nothing.
+// cost of a Verify call, and the badge reads none of Profiles/InvalidProfiles/
+// ProfilesValid, FreePoints, ParametersValid/ParameterErrors or Probe — so an
+// annotated render pays for none of them.
 //
-// It mirrors Verify's own early-out and analysis EXACTLY — same helpers
-// ([Sketch.scanReferenceIntegrity], [Sketch.buildCommittedJacobian],
-// [Sketch.rankAnalysisOn], [dof], [Sketch.conflictAnalysisOn],
-// [classifyStatus]), same order — so the two can never disagree on a value
-// they both compute; see TestStatusBadgeMatchesVerify. It does not replicate
-// the staleness scan: staleness feeds none of Analysed/DOF/Status/Solvable, so
-// skipping it changes nothing the badge shows.
+// The two cannot disagree, because they are not two computations: both run
+// [Sketch.verifyCore] — which fills every field [classifyStatus] consults,
+// including the same early-out on a nil/corrupt or foreign handle and on
+// non-finite geometry — and both then classify from it. Verify simply carries
+// on afterwards with the passes this one stops before. TestStatusBadgeMatchesVerify
+// pins the agreement on every Status the card can show.
 func (s *Sketch) badgeVerify() (bool, int, Status, bool) {
-	rep := &VerificationReport{}
-	nilCorrupt := s.scanReferenceIntegrity(rep)
-	if nilCorrupt || rep.ForeignHandles {
-		return false, 0, Underconstrained, false
-	}
-
-	cj, ok := s.buildCommittedJacobian()
-	if !ok {
-		// ok is false exactly when hasNonFiniteVars holds — the same condition
-		// Verify's nf.found() early-out screens (see nonfinite.go).
-		return false, 0, Underconstrained, false
-	}
-
-	r := s.residuals(nil)
 	tolerance := defaultSolveConfig().tolerance
-	solvable := math.Sqrt(dot(r, r)) <= tolerance
-
-	ra := s.rankAnalysisOn(cj)
-	d := dof(cj, ra)
-
-	flagged, conflicts := s.conflictAnalysisOn(cj)
-	var redundant []Constraint
-	if len(conflicts) < len(flagged) {
-		bad := make(map[Constraint]struct{}, len(conflicts))
-		for _, cs := range conflicts {
-			bad[cs.Constraint] = struct{}{}
-		}
-		for _, c := range flagged {
-			if _, isBad := bad[c]; !isBad {
-				redundant = append(redundant, c)
-			}
-		}
+	rep := &VerificationReport{condGate: conditioningGate(tolerance)}
+	if _, ok := s.verifyCore(rep, tolerance); !ok {
+		return false, 0, Underconstrained, false
 	}
-
-	status := classifyStatus(&VerificationReport{DOF: d, Solvable: solvable, Conflicts: conflicts, Redundant: redundant})
-	return true, d, status, solvable
+	return true, rep.DOF, classifyStatus(rep), rep.Solvable
 }
 
 // writeStatusBadge draws a corner card summarizing the verification state. pad
 // is the outer frame padding (0 when unframed), so the badge tucks inside the
 // frame's top-left when windowed.
 //
-// On a report whose analysis was skipped — a nil, corrupt or foreign handle, or
+// When the analysis was skipped — a nil, corrupt or foreign handle, or
 // non-finite geometry — the card names that state instead of DOF, Status and
-// Solvable. Those three fields hold an unevaluated zero value there, which the
-// report's own doc comment says is not a verdict, so rendering them puts a
+// Solvable. Those three hold an unevaluated zero value there, which
+// [VerificationReport]'s own doc comment says is not a verdict, so rendering them puts a
 // number on the card for a sketch nothing analysed ("DOF 0" for geometry with
 // free degrees of freedom). Both skip causes read the same way because the card
 // is making one claim — that no analysis stands behind it.

@@ -303,9 +303,10 @@ passes each rebuilding it. `conditioning.go`'s `committedJacobian` holds the
 free-variable list, the residual row count and kinds, and the matrix itself;
 `Sketch.buildCommittedJacobian` builds one, screened by the same non-finite
 guard `committedRankAnalysis`, `conflictAnalysis` and `movableVars` each carry
-when called on their own. `Verify` builds it once, right after establishing
-`Solvable`/`Residual`, and passes it to `rankAnalysisOn`, `conditioningOn`,
-`conflictAnalysisOn` and `movableVarsOn` — the `…On` counterparts of
+when called on their own. `Sketch.verifyCore` builds it once, right after
+establishing `Solvable`/`Residual`, uses it for `rankAnalysisOn` and
+`conflictAnalysisOn`, and returns it to `Verify` for `conditioningOn` and
+`movableVarsOn` — the `…On` counterparts of
 `committedRankAnalysis`/`conflictAnalysis`/`movableVars` that read a prebuilt
 matrix instead of building their own; `conditioningOn` has no such standalone
 counterpart, since the `Conditioning` report field is computed only inside
@@ -316,7 +317,7 @@ mutate their matrix in place during elimination (`rankAnalysisOfMatrix`,
 other consumers in the same call; the two that only read rows
 (`conflictAnalysisOn`, `singularValueExtremes`) need no clone.
 
-This sharing is sound only WITHIN one `Verify` call, and only because nothing
+This sharing is sound only WITHIN one `Verify`/`badgeVerify` call, and only because nothing
 between building the Jacobian and its last consumer moves the sketch: the sole
 code that touches `s.vars` in that span is `scaledJacobian` itself, which
 perturbs one variable at a time and restores its exact original bit pattern
@@ -325,8 +326,8 @@ calls: there is no `committedJacobian` field on `Sketch`, nothing is keyed by
 `Sketch.Revision`, and no `committedJacobian` value is passed to anything
 reachable from another public method. The public `Sketch.DOF`, `Sketch.Diagnose`,
 `Sketch.FreePoints` and `Sketch.RedundantConstraints` keep building their own
-matrix on every call — only `Verify`'s internal use is shared, and only for the
-duration of that one call.
+matrix on every call — only the `verifyCore` path's internal use is shared, and
+only for the duration of that one call.
 
 ### The trust verdict has one definition and two shapes
 
