@@ -3,6 +3,7 @@ package sketch
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/lestrrat-3d/r3"
@@ -78,15 +79,21 @@ func (s *Sketch) DXF(opts ...DXFOption) (string, error) {
 	// thou-unit sketch) with no span arithmetic involved at all.
 	var nonFinite bool
 
-	// Minimal but valid R12 header.
+	// Minimal but valid R12 header. pair/pairf write directly rather than
+	// through fmt.Fprintf's format-string parsing; the emitted bytes are the
+	// same "code\nvalue\n" either way.
 	pair := func(code int, value string) {
-		fmt.Fprintf(&sb, "%d\n%s\n", code, value)
+		var buf [8]byte
+		sb.Write(strconv.AppendInt(buf[:0], int64(code), 10))
+		sb.WriteByte('\n')
+		sb.WriteString(value)
+		sb.WriteByte('\n')
 	}
 	pairf := func(code int, value float64) {
 		if math.IsNaN(value) || math.IsInf(value, 0) {
 			nonFinite = true
 		}
-		fmt.Fprintf(&sb, "%d\n%s\n", code, dxff(value))
+		pair(code, dxff(value))
 	}
 	// lengthMag converts a base-unit (millimetre) length into the sketch's
 	// display length unit through the units library — never by relabelling a
