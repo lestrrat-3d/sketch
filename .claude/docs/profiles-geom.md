@@ -15,6 +15,7 @@ Detail moved out of CLAUDE.md. Read before touching `Sketch.Profiles`, `Boundary
 | Why is a region flagged degenerate? | Chord-deviation degeneracy bounds |
 | Two curves lying on the same carrier? | Coincident-carrier overlap resolution |
 | What do `geom`'s constructors validate? | `geom` constructors are value holders |
+| Which segment pairs does `intersect` even look at? | The broad-phase reach (`intersect`'s pair enumeration) |
 
 Navigation only — the sections below are the authority.
 
@@ -243,6 +244,47 @@ points, so by the time `densify` samples it there is no non-finite value left
 to catch. `fitSplineCoords` therefore screens every raw fit point for
 finiteness itself, the same place it already screens for a nil point, closing
 the gap before `newFitEvaluator` ever runs.
+
+### The broad-phase reach (`intersect`'s pair enumeration)
+
+`intersect` (`geom/arrange.go`) does not test every pair of tiny segments against
+`segParams`/`collinearOverlap`/`forEachMergedEnd`. It first asks `candidatePairs`
+(`geom/arrange_broadphase.go`) for, per segment `i`, the ascending list of `j > i`
+whose bounding boxes — each expanded by that segment's own **reach** — overlap.
+`candidatePairs` may only ever return a SUPERSET of the pairs those three
+predicates fire on; they remain the sole deciders of what actually happens once a
+pair is visited. `intersect`'s loop body is unchanged by this — only which pairs it
+visits is.
+
+A tiny segment's reach is `a.merge + broadPhaseRel·(its own chord length)`, with
+`broadPhaseRel = 1e-6`. This dominates every OTHER tolerance the three predicates
+use, each stated relative to a chord's own length: `segParams`' `segEps = 1e-9` on
+the normalized chord parameter (so a hit lies within `segEps·length` of the chord),
+and `collinearOverlap`'s parallel/perpendicular bands (`1e-9`/`1e-7`, relative to
+the chord lengths). `forEachMergedEnd` welds two endpoints within `a.merge` of each
+other, which the `a.merge` term of the reach covers directly: an endpoint inside
+that distance of another segment's endpoint sits inside that segment's OWN raw box
+expanded by `a.merge`, so the two expanded boxes overlap. Expanding by reach only
+ever ADMITS more pairs than the exact tests would separately accept, so the broad
+phase cannot drop a pair the loop body would have acted on.
+
+The enumeration itself is a sort-and-sweep on each segment's box minX, with ties
+broken by original index so the sweep is deterministic: segments are visited in
+that order, an active set holds every segment whose box could still overlap a
+later one's, and a pair is recorded (under the smaller of the two original
+indices) on a y-axis overlap once the x-overlap is implied by the sweep order. Each
+`cand[i]` is sorted ascending before `intersect` sees it, so the `(i, cand[i])` walk
+visits pairs in the same relative order the exhaustive `(i, j)` scan did — this
+matters because `splitFragments` dedups near-equal cut parameters keeping the
+first, and `sort.Slice` is unstable. `TestBroadPhaseIsSuperset`
+(`geom/arrange_broadphase_internal_test.go`) checks the superset property against
+`segParams`/`collinearOverlap`/`forEachMergedEnd` directly, the ascending-order
+contract, and agreement with a naive box-overlap scan, over representative fixtures
+and 200 seeded random scenes.
+
+A dense scene (many mutually overlapping long segments, each with a large active
+set through most of the sweep) stays close to the same cost as the exhaustive scan;
+the win is for sparse curve-heavy scenes, where the active set stays small.
 
 ### Exact region area per curve type
 
