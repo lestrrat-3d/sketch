@@ -314,7 +314,7 @@ mutate their matrix in place during elimination (`rankAnalysisOfMatrix`,
 `movableVarsOn`) clone it first
 (`cloneMatrix`), since the same `committedJacobian.A` is still read by the
 other consumers in the same call; the two that only read rows
-(`conflictAnalysisOn`, `jacobiSingularValues`) need no clone.
+(`conflictAnalysisOn`, `singularValueExtremes`) need no clone.
 
 This sharing is sound only WITHIN one `Verify` call, and only because nothing
 between building the Jacobian and its last consumer moves the sketch: the sole

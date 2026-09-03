@@ -87,12 +87,16 @@ keeps scale `1`, so its `−2w` stays small) preserves the detection. The same
 argument rules out row-equilibration (it would mask a near-zero, i.e. ineffective,
 constraint row).
 
-### Why σ via one-sided Jacobi SVD, not AᵀA
+### Why σ from `A` directly, not from AᵀA
 
 The gate decides around `σ ≈ 1e-6`. Forming the Gram matrix `AᵀA` squares the
 condition number, moving the decision to `≈ 1e-12` — too close to double-precision
-noise for an oracle. A one-sided Jacobi SVD on `A` directly computes small
-singular values to high relative accuracy with no external dependency.
+noise for an oracle. `singularValueExtremes` works on `A` itself: a Householder
+bidiagonalization, then Sturm-sequence bisection on the Golub–Kahan tridiagonal
+for σ_max and σ_min alone. The gate needs only those two, not the whole spectrum.
+Bidiagonalization is backward stable, so each value comes back within `c·ε·σ_max`
+of exact and the reported ratio carries an absolute error of order `ε`, with no
+external dependency.
 
 ## Applicability and gating
 
