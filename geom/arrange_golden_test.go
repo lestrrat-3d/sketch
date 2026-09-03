@@ -47,12 +47,18 @@ func loadOrStoreJSON[T any](t *testing.T, name string, actual T) T {
 
 // requireRelClose asserts want and got agree to a relative tolerance rel,
 // scaled by the larger magnitude (both zero always passes).
+// requireRelClose compares two values to a relative tolerance, with the scale
+// floored at 1. Without the floor a quantity that cancels to near zero — a
+// coordinate on an axis, an area that sums away — would demand a tolerance far
+// below the platform's own noise, since the residue left by a fused
+// multiply-add is absolute, not relative to a result that is itself effectively
+// zero.
 func requireRelClose(t *testing.T, want, got, rel float64, msgAndArgs ...any) {
 	t.Helper()
 	if want == 0 && got == 0 {
 		return
 	}
-	scale := math.Max(math.Abs(want), math.Abs(got))
+	scale := math.Max(math.Max(math.Abs(want), math.Abs(got)), 1)
 	require.InDelta(t, want, got, rel*scale, msgAndArgs...)
 }
 

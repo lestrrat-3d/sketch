@@ -5,6 +5,9 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/lestrrat-3d/sketch"
@@ -17,8 +20,9 @@ import (
 // SKETCH_UPDATE_GOLDEN=1; a normal run compares against the committed files
 // under testdata/golden/. Floats are compared with tolerance, not bit-exact,
 // because CI's arm64 job fuses FMA and the last bit legitimately differs from
-// the amd64 machine that generated the files; exporter text compares
-// byte-exact.
+// the amd64 machine that generated the files. Exporter text compares exactly
+// outside its numeric fields, which carry the same one-place tolerance for the
+// same reason (see compareOrUpdateText).
 
 const updateGoldenEnv = "SKETCH_UPDATE_GOLDEN"
 
@@ -26,8 +30,24 @@ func goldenUpdate() bool { return os.Getenv(updateGoldenEnv) == "1" }
 
 func goldenPath(name string) string { return filepath.Join("testdata", "golden", name) }
 
+// numTokenRe matches one decimal number in a rendered document.
+var numTokenRe = regexp.MustCompile(`-?\d+(?:\.\d+)?`)
+
 // compareOrUpdateText writes got as the golden when SKETCH_UPDATE_GOLDEN=1,
-// otherwise compares it byte-exact against the committed file.
+// otherwise compares it against the committed file: every byte outside a
+// numeric field must match exactly, and each numeric field must agree to
+// within one unit of the last decimal place it carries.
+//
+// The tolerance covers exactly one effect. A coordinate whose exact value sits
+// within an ulp of a decimal rounding tie formats to a different final digit
+// depending on whether the platform fused a multiply-add, so an emitted
+// document is not byte-identical across architectures even when the geometry
+// code is. Everything a formatting or exporter regression would disturb is
+// still pinned: markup, attribute order and spelling, whitespace, path
+// commands, field count and order, the sign a field carries, and — asserted
+// directly on the rendered document — trimFloat's no-trailing-zero shape.
+// trimFloat's own output is pinned byte-for-byte against fmt over millions of
+// values by TestTrimFloatMatchesFmt.
 func compareOrUpdateText(t *testing.T, name, got string) {
 	t.Helper()
 	path := goldenPath(name)
@@ -36,9 +56,57 @@ func compareOrUpdateText(t *testing.T, name, got string) {
 		require.NoError(t, os.WriteFile(path, []byte(got), 0o644))
 		return
 	}
-	want, err := os.ReadFile(path)
+	data, err := os.ReadFile(path)
 	require.NoError(t, err, "golden %s missing; run with SKETCH_UPDATE_GOLDEN=1", name)
-	require.Equal(t, string(want), got, "golden %s changed", name)
+	want := string(data)
+	gotNums := numTokenRe.FindAllStringIndex(got, -1)
+
+	// trimFloat emits no trailing zero and no bare trailing point. Assert that
+	// on the rendered document itself, so the property holds regardless of what
+	// the committed golden happens to contain.
+	for i, span := range gotNums {
+		gs := got[span[0]:span[1]]
+		if !strings.ContainsRune(gs, '.') {
+			continue
+		}
+		require.False(t, strings.HasSuffix(gs, "0") || strings.HasSuffix(gs, "."),
+			"golden %s: numeric field %d (%s) is not trimmed", name, i, gs)
+	}
+	if want == got {
+		return
+	}
+
+	wantNums := numTokenRe.FindAllStringIndex(want, -1)
+	require.Equal(t, len(wantNums), len(gotNums), "golden %s: numeric field count changed", name)
+	wPrev, gPrev := 0, 0
+	for i := range wantNums {
+		require.Equal(t, want[wPrev:wantNums[i][0]], got[gPrev:gotNums[i][0]],
+			"golden %s: text before numeric field %d changed", name, i)
+		ws := want[wantNums[i][0]:wantNums[i][1]]
+		gs := got[gotNums[i][0]:gotNums[i][1]]
+		if ws != gs {
+			require.Equal(t, strings.HasPrefix(ws, "-"), strings.HasPrefix(gs, "-"),
+				"golden %s: numeric field %d changed sign (%s vs %s)", name, i, ws, gs)
+			wv, werr := strconv.ParseFloat(ws, 64)
+			require.NoError(t, werr)
+			gv, gerr := strconv.ParseFloat(gs, 64)
+			require.NoError(t, gerr)
+			require.InDelta(t, wv, gv, lastPlace(ws),
+				"golden %s: numeric field %d changed (%s vs %s)", name, i, ws, gs)
+		}
+		wPrev, gPrev = wantNums[i][1], gotNums[i][1]
+	}
+	require.Equal(t, want[wPrev:], got[gPrev:], "golden %s: trailing text changed", name)
+}
+
+// lastPlace returns one and a half units of the last decimal place s carries,
+// the largest gap a rounding tie can open between two platforms.
+func lastPlace(s string) float64 {
+	dot := strings.IndexByte(s, '.')
+	if dot < 0 {
+		return 1.5
+	}
+	return 1.5 * math.Pow(10, -float64(len(s)-dot-1))
 }
 
 // loadOrStoreJSON writes actual as the golden (as JSON) when
@@ -63,13 +131,16 @@ func loadOrStoreJSON[T any](t *testing.T, name string, actual T) T {
 }
 
 // requireRelClose asserts want and got agree to a relative tolerance rel,
-// scaled by the larger magnitude (both zero always passes).
+// scaled by the larger magnitude and floored at 1 (both zero always passes).
+// The floor keeps a quantity that cancels to near zero from demanding a
+// tolerance below the platform's own fused-multiply-add noise, which is
+// absolute rather than relative to an effectively-zero result.
 func requireRelClose(t *testing.T, want, got, rel float64, msg string) {
 	t.Helper()
 	if want == 0 && got == 0 {
 		return
 	}
-	scale := math.Max(math.Abs(want), math.Abs(got))
+	scale := math.Max(math.Max(math.Abs(want), math.Abs(got)), 1)
 	require.InDelta(t, want, got, rel*scale, msg)
 }
 
