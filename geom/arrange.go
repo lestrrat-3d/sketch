@@ -248,6 +248,12 @@ type arranger struct {
 	events     map[[2]int][]xEvent
 	sourceSegs [][]int
 
+	// segBoxes is every tiny segment's reach-expanded bounding box (see
+	// arrange_broadphase.go), computed once on first use and shared by
+	// candidatePairs' sweep and sampledCrossingsExplained's box reject so neither
+	// pays for it twice. Filled by segBoxCache.
+	segBoxes []segBox
+
 	// Curve/curve crossings the incidence certificate REFUSED, so the pair fell back
 	// to the sampled path (see analyticCrossingsCertified), and the contacts the
 	// SAMPLED loop actually recorded between two sources — a crossing it found, or a
@@ -1392,9 +1398,24 @@ func isCurvedKind(k srcKind) bool {
 // that no analytic crossing corresponds to). A line contributes no bound at all:
 // its polyline IS the line, so it deviates nowhere. The bound shrinks with sampling
 // density, so this only ever forgives what the sampling itself produced.
+//
+// This function is a CONJUNCTION over segment pairs — every sampled crossing found
+// must be explained, or the whole pair is refused (Degenerate) — so skipping a pair
+// must never be able to hide a real, unexplained crossing: that would flip an
+// unsafe "false" into a wrongly-blessed "true". A pair whose segments cannot
+// possibly cross at all contributes nothing to the conjunction either way, so it is
+// the only kind of pair safe to skip. The reach-expanded boxes candidatePairs uses
+// for exactly this reason (geom/arrange_broadphase.go, broadPhaseRel) are a proven
+// superset of every pair segParams can accept — segsCrossInteriorAt's interior-only
+// hit set is a subset of that, so the same box reject is safe here too: it can only
+// ever skip a pair segsCrossInteriorAt would have refused anyway.
 func (a *arranger) sampledCrossingsExplained(i, j int, events []xEvent) bool {
+	boxes := a.segBoxCache()
 	for _, ii := range a.sourceSegs[i] {
 		for _, jj := range a.sourceSegs[j] {
+			if !boxesOverlap(boxes[ii], boxes[jj]) {
+				continue
+			}
 			p, ok := a.segsCrossInteriorAt(ii, jj)
 			if !ok {
 				continue

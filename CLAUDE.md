@@ -244,7 +244,7 @@ auxiliary variables.
 - **The Jacobian is numerical** (central differences). Simple and robust; see
   the open questions for when this might change.
 - **DOF/redundancy analysis recomputes the Jacobian at the call-time
-  configuration.** `rank()`/`DOF()` rebuild J via `jacobian` when called — after
+  configuration.** `rank()`/`DOF()` rebuild J via `scaledJacobian` when called — after
   `Solve` that is the *solved* point. NEVER reuse the Solve loop's
   last-iteration Jacobian for rank analysis: it is stale (evaluated one step
   before convergence) and yields wrong DOF/redundancy counts. A single `Verify`

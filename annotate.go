@@ -1,7 +1,6 @@
 package sketch
 
 import (
-	"context"
 	"fmt"
 	"math"
 	"sort"
@@ -826,25 +825,49 @@ func loopMin(loop []BoundaryEdge) (float64, float64) {
 	return minX, minY
 }
 
-// badgeTextIncomplete is what the status badge reads when [Sketch.Verify]
-// skipped its analysis, in place of the DOF/Status/Solvable summary.
+// badgeTextIncomplete is what the status badge reads when the analysis was
+// skipped, in place of the DOF/Status/Solvable summary.
 const badgeTextIncomplete = "verification incomplete · DOF/status not evaluated"
+
+// badgeVerify computes exactly the four values [writeStatusBadge] renders —
+// whether analysis ran, DOF, [Status] and solvability — without paying for the
+// rest of what [Sketch.Verify] aggregates (free points, profiles, parameter
+// validity, the opt-in ambiguity probe). On the gallery-style fixture used by
+// BenchmarkSVG, Profiles' arrangement pass alone is essentially the entire
+// cost of a Verify call, and the badge reads none of Profiles/InvalidProfiles/
+// ProfilesValid, FreePoints, ParametersValid/ParameterErrors or Probe — so an
+// annotated render pays for none of them.
+//
+// The two cannot disagree, because they are not two computations: both run
+// [Sketch.verifyCore] — which fills every field [classifyStatus] consults,
+// including the same early-out on a nil/corrupt or foreign handle and on
+// non-finite geometry — and both then classify from it. Verify simply carries
+// on afterwards with the passes this one stops before. TestStatusBadgeMatchesVerify
+// pins the agreement on every Status the card can show.
+func (s *Sketch) badgeVerify() (bool, int, Status, bool) {
+	tolerance := defaultSolveConfig().tolerance
+	rep := &VerificationReport{condGate: conditioningGate(tolerance)}
+	if _, ok := s.verifyCore(rep, tolerance); !ok {
+		return false, 0, Underconstrained, false
+	}
+	return true, rep.DOF, classifyStatus(rep), rep.Solvable
+}
 
 // writeStatusBadge draws a corner card summarizing the verification state. pad
 // is the outer frame padding (0 when unframed), so the badge tucks inside the
 // frame's top-left when windowed.
 //
-// On a report whose analysis was skipped — a nil, corrupt or foreign handle, or
+// When the analysis was skipped — a nil, corrupt or foreign handle, or
 // non-finite geometry — the card names that state instead of DOF, Status and
-// Solvable. Those three fields hold an unevaluated zero value there, which the
-// report's own doc comment says is not a verdict, so rendering them puts a
+// Solvable. Those three hold an unevaluated zero value there, which
+// [VerificationReport]'s own doc comment says is not a verdict, so rendering them puts a
 // number on the card for a sketch nothing analysed ("DOF 0" for geometry with
 // free degrees of freedom). Both skip causes read the same way because the card
 // is making one claim — that no analysis stands behind it.
 func (s *Sketch) writeStatusBadge(sb *svgWriter, cfg svgConfig, pad, w float64) {
-	rep := s.Verify(context.Background())
-	txt := fmt.Sprintf("DOF %d · %s · solvable=%t", rep.DOF, rep.Status, rep.Solvable)
-	if !rep.Analysed() {
+	analysed, dof, status, solvable := s.badgeVerify()
+	txt := fmt.Sprintf("DOF %d · %s · solvable=%t", dof, status, solvable)
+	if !analysed {
 		txt = badgeTextIncomplete
 	}
 	size := w * 0.035 * cfg.annScale

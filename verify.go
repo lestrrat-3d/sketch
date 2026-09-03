@@ -574,14 +574,122 @@ func dof(cj committedJacobian, ra rankAnalysis) int {
 }
 
 // margin derives the rank-decision margin from a [committedJacobian] and its
-// [rankAnalysis] — mirroring the unexported rankMargin helper's two-branch
-// shape: +Inf when there are no residual rows (vacuously well-separated), else
-// the analysis' own margin. Used only by [Sketch.Verify]; see [dof].
+// [rankAnalysis]: +Inf when there are no residual rows (vacuously
+// well-separated), else the analysis' own margin. Used only by [Sketch.Verify];
+// see [dof].
 func margin(cj committedJacobian, ra rankAnalysis) float64 {
 	if cj.m == 0 {
 		return math.Inf(1)
 	}
 	return ra.margin()
+}
+
+// verifyCore runs, into rep, every pass the DOF/Status/Solvable verdict rests on:
+// the reference-integrity and staleness scans, the non-finite screen and its
+// early-out, the residual norm, the ONE shared committed Jacobian, and the
+// rank/DOF and conflict/redundancy analyses that read it. It returns that
+// Jacobian and whether the analysis ran at all; on a skip it has already set
+// rep.analysisSkipped and the returned Jacobian must not be read.
+//
+// It is a separate method so [Sketch.Verify] and the status badge's
+// [Sketch.badgeVerify] cannot drift apart: the badge renders DOF, Status,
+// Solvable and nothing else, so it calls this and stops, while Verify goes on
+// to the passes the badge never reads (free points, parameter validity,
+// profiles and the opt-in probe) before classifying the status. Every field
+// [classifyStatus] consults is filled HERE, so a new one reaches both callers
+// at once. rep must already carry its condGate; tolerance is the solvability
+// threshold.
+func (s *Sketch) verifyCore(rep *VerificationReport, tolerance float64) (committedJacobian, bool) {
+	// Reference integrity + reachability first: it is nil-safe, and a nil/corrupt
+	// or foreign operand would otherwise panic the residual/profile/staleness
+	// analysis below (a foreign entity such as &Line{} can have nil endpoints).
+	// Such a sketch is untrustworthy regardless, so report the broken/foreign
+	// handles and skip the analysis. The skip is recorded: the fields those
+	// passes would have filled keep their zero values, and Check must report the
+	// missing analysis rather than read them as findings.
+	nilCorrupt := s.scanReferenceIntegrity(rep)
+
+	// Non-finite geometry next. nonFiniteVars reads s.vars directly rather than
+	// following a point's coordinate accessor, so — like the scan above — it
+	// never panics on nil/corrupt topology and can run regardless of what that
+	// scan found. A NaN/Inf point coordinate, entity shape variable, dimension
+	// target or constraint-owned auxiliary variable poisons every pass below it
+	// in a way that reads as either too much or too little constraint, never a
+	// sound answer either way (see [Sketch.nonFiniteVars]) — and a Jacobian-level
+	// guard could not catch the sharpest case, a DOF-0 candidate whose every
+	// point is fixed, which builds a perfectly finite zero-column matrix and hits
+	// [Sketch.conditioningOn]'s own len(free)==0 shortcut (+Inf, maximal trust)
+	// without ever looking at a value. So this screens the geometry, not the
+	// matrix, and takes the same early-out ForeignHandles already does.
+	nf := s.nonFiniteVars()
+	rep.NonFinitePoints = nf.points
+	rep.NonFiniteEntities = nf.entities
+	rep.NonFiniteDimensions = nf.dims
+	rep.NonFiniteConstraints = nf.cons
+
+	// Reference staleness is established BEFORE the early-out, not after the
+	// analysis, because it is not part of the analysis: it reads the boolean
+	// provenance flags a snapshot carries and nothing a non-finite value or a
+	// foreign handle can corrupt. Skipping it bought nothing and lost a real
+	// finding whose ZERO VALUE is the blessing one — Stale=false reads as
+	// "verified against a current 3D snapshot", so one poisoned point beside a
+	// genuinely stale reference turned Stale=true into Stale=false with nothing
+	// left to say otherwise. It still must not run on NIL-corrupt topology: an
+	// entity's staleness is derived from its defining points (Line.IsStale reads
+	// Start and End), so a nil point panics here — which is the whole reason the
+	// scan sat below the early-out to begin with.
+	if !nilCorrupt {
+		s.scanReferenceStaleness(rep)
+	}
+
+	if nilCorrupt || rep.ForeignHandles || nf.found() {
+		rep.analysisSkipped = true
+		return committedJacobian{}, false
+	}
+
+	// Conditioning's "not applicable" value is +Inf, its best possible reading,
+	// so it is initialized only once the analysis is actually going to run. Set
+	// on the report literal it would survive the early-out above and have a
+	// report that evaluated nothing carry maximal trust in the one field a
+	// caller reads as "how far from singular is this" — the blessing direction,
+	// on both early-out causes (a foreign handle as much as non-finite
+	// geometry). Below the early-out the skipped path keeps the zero value the
+	// report's own doc comment promises for every unevaluated field.
+	rep.Conditioning = math.Inf(1)
+
+	r := s.residuals(nil)
+	rep.Residual = math.Sqrt(dot(r, r))
+	rep.Solvable = rep.Residual <= tolerance
+
+	// One committed Jacobian serves every analysis that reads it — rank/DOF and
+	// conflict/redundancy here, conditioning and free points in the caller —
+	// instead of each rebuilding its own (see committedJacobian's doc comment in
+	// conditioning.go for why sharing it is sound within one call, and only
+	// within it). ok is unreachable false: the early-out above already stopped
+	// on the same non-finite-geometry condition buildCommittedJacobian screens.
+	cj, ok := s.buildCommittedJacobian()
+	if !ok {
+		rep.analysisSkipped = true
+		return committedJacobian{}, false
+	}
+	ra := s.rankAnalysisOn(cj) // one elimination serves both DOF and RankMargin
+	rep.DOF = dof(cj, ra)
+	rep.RankMargin = margin(cj, ra) // advisory; does not gate Trustworthy (scale-dependent)
+
+	flagged, conflicts := s.conflictAnalysisOn(cj)
+	rep.Conflicts = conflicts
+	if len(conflicts) < len(flagged) {
+		bad := make(map[Constraint]struct{}, len(conflicts))
+		for _, cs := range conflicts {
+			bad[cs.Constraint] = struct{}{}
+		}
+		for _, c := range flagged {
+			if _, isBad := bad[c]; !isBad {
+				rep.Redundant = append(rep.Redundant, c)
+			}
+		}
+	}
+	return cj, true
 }
 
 // Verify aggregates the sketch's verification signals into a single
@@ -615,101 +723,20 @@ func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *Verificat
 	}
 
 	rep := &VerificationReport{condGate: conditioningGate(tolerance)}
-
-	// Reference integrity + reachability first: it is nil-safe, and a nil/corrupt
-	// or foreign operand would otherwise panic the residual/profile/staleness
-	// analysis below (a foreign entity such as &Line{} can have nil endpoints).
-	// Such a sketch is untrustworthy regardless, so report the broken/foreign
-	// handles and skip the analysis. The skip is recorded: the fields those
-	// passes would have filled keep their zero values, and Check must report the
-	// missing analysis rather than read them as findings.
-	nilCorrupt := s.scanReferenceIntegrity(rep)
-
-	// Non-finite geometry next. nonFiniteVars reads s.vars directly rather than
-	// following a point's coordinate accessor, so — like the scan above — it
-	// never panics on nil/corrupt topology and can run regardless of what that
-	// scan found. A NaN/Inf point coordinate, entity shape variable, dimension
-	// target or constraint-owned auxiliary variable poisons every pass below it
-	// in a way that reads as either too much or too little constraint, never a
-	// sound answer either way (see [Sketch.nonFiniteVars]) — and a Jacobian-level
-	// guard could not catch the sharpest case, a DOF-0 candidate whose every
-	// point is fixed, which builds a perfectly finite zero-column matrix and hits
-	// [Sketch.conditioning]'s own len(free)==0 shortcut (+Inf, maximal trust)
-	// without ever looking at a value. So this screens the geometry, not the
-	// matrix, and takes the same early-out ForeignHandles already does.
-	nf := s.nonFiniteVars()
-	rep.NonFinitePoints = nf.points
-	rep.NonFiniteEntities = nf.entities
-	rep.NonFiniteDimensions = nf.dims
-	rep.NonFiniteConstraints = nf.cons
-
-	// Reference staleness is established BEFORE the early-out, not after the
-	// analysis, because it is not part of the analysis: it reads the boolean
-	// provenance flags a snapshot carries and nothing a non-finite value or a
-	// foreign handle can corrupt. Skipping it bought nothing and lost a real
-	// finding whose ZERO VALUE is the blessing one — Stale=false reads as
-	// "verified against a current 3D snapshot", so one poisoned point beside a
-	// genuinely stale reference turned Stale=true into Stale=false with nothing
-	// left to say otherwise. It still must not run on NIL-corrupt topology: an
-	// entity's staleness is derived from its defining points (Line.IsStale reads
-	// Start and End), so a nil point panics here — which is the whole reason the
-	// scan sat below the early-out to begin with.
-	if !nilCorrupt {
-		s.scanReferenceStaleness(rep)
-	}
-
-	if nilCorrupt || rep.ForeignHandles || nf.found() {
-		rep.analysisSkipped = true
-		return rep
-	}
-
-	// Conditioning's "not applicable" value is +Inf, its best possible reading,
-	// so it is initialized only once the analysis is actually going to run. Set
-	// on the report literal it would survive the early-out above and have a
-	// report that evaluated nothing carry maximal trust in the one field a
-	// caller reads as "how far from singular is this" — the blessing direction,
-	// on both early-out causes (a foreign handle as much as non-finite
-	// geometry). Below the early-out the skipped path keeps the zero value the
-	// report's own doc comment promises for every unevaluated field.
-	rep.Conditioning = math.Inf(1)
-
-	r := s.residuals(nil)
-	rep.Residual = math.Sqrt(dot(r, r))
-	rep.Solvable = rep.Residual <= tolerance
-
-	// One committed Jacobian serves every analysis below — rank/DOF, conditioning,
-	// conflict/redundancy, free points — instead of each rebuilding its own (see
-	// committedJacobian's doc comment in conditioning.go for why sharing it is
-	// sound within this one call, and only within it). ok is unreachable false:
-	// the early-out above already stopped on the same non-finite-geometry
-	// condition buildCommittedJacobian screens.
-	cj, ok := s.buildCommittedJacobian()
+	cj, ok := s.verifyCore(rep, tolerance)
 	if !ok {
-		rep.analysisSkipped = true
 		return rep
 	}
-	ra := s.rankAnalysisOn(cj) // one elimination serves both DOF and RankMargin
-	rep.DOF = dof(cj, ra)
-	rep.RankMargin = margin(cj, ra) // advisory; does not gate Trustworthy (scale-dependent)
+
 	// The conditioning measure is meaningful only for a DOF-0 candidate: an
 	// under-constrained sketch is genuinely singular by its free DOF (a separate
-	// verdict), so leave Conditioning at +Inf (not applicable) there.
+	// verdict), so leave Conditioning at +Inf (not applicable) there. It sits
+	// here rather than in verifyCore because it gates only
+	// [VerificationReport.Trustworthy], never [classifyStatus]: the status badge
+	// has no use for it and should not pay a full singular-value pass to render
+	// a number it does not show.
 	if rep.DOF == 0 {
 		rep.Conditioning = s.conditioningOn(cj)
-	}
-
-	flagged, conflicts := s.conflictAnalysisOn(cj)
-	rep.Conflicts = conflicts
-	if len(conflicts) < len(flagged) {
-		bad := make(map[Constraint]struct{}, len(conflicts))
-		for _, cs := range conflicts {
-			bad[cs.Constraint] = struct{}{}
-		}
-		for _, c := range flagged {
-			if _, isBad := bad[c]; !isBad {
-				rep.Redundant = append(rep.Redundant, c)
-			}
-		}
 	}
 
 	movable := s.movableVarsOn(cj)

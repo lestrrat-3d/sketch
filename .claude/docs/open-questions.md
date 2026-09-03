@@ -258,8 +258,9 @@ Navigation only — the sections below are the authority.
   measure that DOES gate `Trustworthy()`. It builds a physically nondimensional
   Jacobian `A = Drow·J·Dcol` (length rows ×1/L, length columns ×L, with L the
   bounding-box diagonal and every other row/column ×1) and reports
-  `Conditioning = σ_min(A)/σ_max(A)` via a one-sided Jacobi SVD (never `AᵀA`,
-  which squares the condition number into fp noise). It is unit- and
+  `Conditioning = σ_min(A)/σ_max(A)` from `A` itself — bidiagonalization plus
+  bisection for the two extreme singular values, never `AᵀA`, which squares the
+  condition number into fp noise. It is unit- and
   scale-invariant (same value at 1×/1000×/inch, centred for the FD pass so it is
   also translation-invariant), so a dimensionless threshold is a sound pass/fail
   gate: a DOF-0 sketch whose constraint set is near-dependent (e.g. a point pinned

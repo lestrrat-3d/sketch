@@ -6,7 +6,7 @@ Detail moved out of CLAUDE.md's architecture table. Read before touching rank/DO
 
 | Your question | Section |
 |---|---|
-| What happens on non-finite geometry? | The four primitives that carry the non-finite screen |
+| What happens on non-finite geometry? | The three primitives that carry the non-finite screen |
 | Does `Verify` rebuild the Jacobian for every analysis it runs? | `Verify` builds its Jacobian once |
 | Why does `DOF` return the total variable count? | `DOF` answers with maximum ignorance |
 | Why do `FreePoints`/`Diagnose` name everything? | Maximum-ignorance answers for the bare reads |
@@ -26,7 +26,7 @@ Levenberg–Marquardt solver, numerical Jacobian, DOF/redundancy (rank) analysis
 
 ### `rank`/`committedRankAnalysis` carry the non-finite screen
 
-**`Sketch.rank`/`Sketch.committedRankAnalysis` are one of the FOUR primitives
+**`Sketch.rank`/`Sketch.committedRankAnalysis` are one of the THREE primitives
 that CARRY the non-finite screen in a second return** (see the `verify.go` row):
 the analysis is not run and `ok` is false when `hasNonFiniteVars` holds, so a
 reader cannot take a rank built from a poisoned Jacobian without writing the
@@ -46,8 +46,6 @@ res.Converged` must therefore read `-1` as a refusal, not as a small number.
 **The zero-ROW branch (`mh == 0`) asks the screen DIRECTLY**, because no rank
 pass runs there to carry it and the FREE-variable count it would report
 collapses to 0 on an all-grounded sketch — the same two-branch shape `DOF` uses.
-`rankMargin` reports 0 (maximally fragile) rather than its `+Inf` "vacuously
-well-separated" value.
 
 ### `DOF` answers with maximum ignorance
 
@@ -234,7 +232,7 @@ two bare-bool entity reads agree.
 ### `movableVars`/`conflictAnalysis` carry the screen
 
 **`Sketch.movableVars` and
-`Sketch.conflictAnalysis` are two of the FOUR primitives that CARRY the
+`Sketch.conflictAnalysis` are two of the THREE primitives that CARRY the
 non-finite screen in a final return** (see the `verify.go` row), so every
 free-point read — `FreePoints`, both per-handle bools, and the DOF colouring in
 `annotate.go` — and every dependency read — `Diagnose`, `RedundantConstraints`,
@@ -304,18 +302,22 @@ instead of the rank/DOF, conditioning, conflict/redundancy and free-point
 passes each rebuilding it. `conditioning.go`'s `committedJacobian` holds the
 free-variable list, the residual row count and kinds, and the matrix itself;
 `Sketch.buildCommittedJacobian` builds one, screened by the same non-finite
-guard the four primitives it replaces each carry. `Verify` builds it once,
-right after establishing `Solvable`/`Residual`, and passes it to
-`rankAnalysisOn`, `conditioningOn`, `conflictAnalysisOn` and `movableVarsOn` —
-the `…On` counterparts of `committedRankAnalysis`/`conditioning`/
-`conflictAnalysis`/`movableVars` that read a prebuilt matrix instead of
-building their own. The two consumers that mutate their matrix in place during
-elimination (`rankAnalysisOfMatrix`, `movableVarsOn`) clone it first
+guard `committedRankAnalysis`, `conflictAnalysis` and `movableVars` each carry
+when called on their own. `Sketch.verifyCore` builds it once, right after
+establishing `Solvable`/`Residual`, uses it for `rankAnalysisOn` and
+`conflictAnalysisOn`, and returns it to `Verify` for `conditioningOn` and
+`movableVarsOn` — the `…On` counterparts of
+`committedRankAnalysis`/`conflictAnalysis`/`movableVars` that read a prebuilt
+matrix instead of building their own; `conditioningOn` has no such standalone
+counterpart, since the `Conditioning` report field is computed only inside
+`Verify`, straight from this same shared matrix. The two consumers that
+mutate their matrix in place during elimination (`rankAnalysisOfMatrix`,
+`movableVarsOn`) clone it first
 (`cloneMatrix`), since the same `committedJacobian.A` is still read by the
 other consumers in the same call; the two that only read rows
-(`conflictAnalysisOn`, `jacobiSingularValues`) need no clone.
+(`conflictAnalysisOn`, `singularValueExtremes`) need no clone.
 
-This sharing is sound only WITHIN one `Verify` call, and only because nothing
+This sharing is sound only WITHIN one `Verify`/`badgeVerify` call, and only because nothing
 between building the Jacobian and its last consumer moves the sketch: the sole
 code that touches `s.vars` in that span is `scaledJacobian` itself, which
 perturbs one variable at a time and restores its exact original bit pattern
@@ -324,8 +326,8 @@ calls: there is no `committedJacobian` field on `Sketch`, nothing is keyed by
 `Sketch.Revision`, and no `committedJacobian` value is passed to anything
 reachable from another public method. The public `Sketch.DOF`, `Sketch.Diagnose`,
 `Sketch.FreePoints` and `Sketch.RedundantConstraints` keep building their own
-matrix on every call — only `Verify`'s internal use is shared, and only for the
-duration of that one call.
+matrix on every call — only the `verifyCore` path's internal use is shared, and
+only for the duration of that one call.
 
 ### The trust verdict has one definition and two shapes
 
@@ -437,13 +439,12 @@ refuse, and instead answer with a documented MAXIMUM-IGNORANCE value (see the
 `solver.go`/`diagnose.go` rows) rather than a number computed from a poisoned
 matrix.
 
-### The four primitives that carry the non-finite screen
+### The three primitives that carry the non-finite screen
 
-**THE SCREEN IS CARRIED BY THE FOUR PRIMITIVES EVERY VERDICT IN THIS
+**THE SCREEN IS CARRIED BY THE THREE PRIMITIVES EVERY VERDICT IN THIS
 FAMILY DERIVES FROM, never by each reader calling it**: `Sketch.movableVars`
-(`diagnose.go`), `Sketch.rank`/`committedRankAnalysis` (`solver.go`),
-`Sketch.conditioning` (`conditioning.go`) and `Sketch.conflictAnalysis`
-(`diagnose.go`, the dependency pass behind
+(`diagnose.go`), `Sketch.rank`/`committedRankAnalysis` (`solver.go`) and
+`Sketch.conflictAnalysis` (`diagnose.go`, the dependency pass behind
 `Diagnose`/`RedundantConstraints`/`Verify`'s `Redundant`/`Conflicts`) each
 return a final `ok`, false exactly when `hasNonFiniteVars` holds, so **a new
 reader must ACCOUNT for the screen at the call site** instead of never meeting
@@ -462,9 +463,7 @@ NOT unified; what is unified is the fact behind them. The ONE branch that must
 ask the screen directly is a caller whose rank pass does not run at all (no
 residual rows: `DOF`, `Solve`, `ProbeConfigurations`), since there is no second
 return to carry it there; `conflictAnalysis` has that branch INSIDE itself and
-screens above it, so its callers need no direct check. `conditioning` is the
-sharpest of them, since its own "nothing to measure" answer is `+Inf` — its BEST
-reading, and what the all-fixed zero-column matrix produces.
+screens above it, so its callers need no direct check.
 
 ### The scan covers every dimension target, driven ones included
 

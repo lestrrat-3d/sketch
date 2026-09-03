@@ -232,6 +232,187 @@ func TestBroadPhaseIsSuperset(t *testing.T) {
 	})
 }
 
+// sampledCrossingsExplainedBruteForce recomputes sampledCrossingsExplained's verdict
+// with NO box reject at all — an exhaustive scan of every segment pair from the two
+// sources — as the reference the box-guarded production function must agree with.
+func sampledCrossingsExplainedBruteForce(a *arranger, i, j int, events []xEvent) bool {
+	for _, ii := range a.sourceSegs[i] {
+		for _, jj := range a.sourceSegs[j] {
+			p, ok := a.segsCrossInteriorAt(ii, jj)
+			if !ok {
+				continue
+			}
+			var tol float64
+			if isCurvedKind(a.sources[i].kind) {
+				tol = math.Max(tol, a.segLen(ii))
+			}
+			if isCurvedKind(a.sources[j].kind) {
+				tol = math.Max(tol, a.segLen(jj))
+			}
+			explained := false
+			for _, e := range events {
+				if math.Hypot(e.x-p.x, e.y-p.y) <= tol {
+					explained = true
+					break
+				}
+			}
+			if !explained {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// checkSampledCrossingsExplained asserts, for every analytic-kind source pair in a,
+// that the box-guarded sampledCrossingsExplained agrees with the unguarded brute-force
+// reference — the box reject in geom/arrange.go must never be able to flip this
+// verdict, since (unlike candidatePairs) it feeds a returned answer rather than
+// guarding a side effect. It returns how many of the reference verdicts it compared
+// were FALSE, so a caller can require that the refusing direction — the only one a
+// wrongly-skipped pair could corrupt — was actually reached.
+//
+// Each pair is checked twice: once on its real analytic events, and once on an EMPTY
+// event list, which leaves every sampled crossing unexplained and so refuses any pair
+// whose chords cross at all. The second pass is what exercises the refusing direction:
+// on the fixtures here the real events explain every sampled crossing, so the first
+// pass alone would only ever compare `true` against `true` and could not observe a
+// pair the box reject wrongly skipped.
+//
+// This reuses analyticPrepass's own pair-discovery loop (analytic-kind sources,
+// i < j, analyticEvents ok) rather than analyticPrepass itself, so it exercises
+// sampledCrossingsExplained on exactly the pairs production code would call it on,
+// without also running the cut/degeneracy machinery those pairs would otherwise
+// trigger.
+func checkSampledCrossingsExplained(t *testing.T, a *arranger) int {
+	t.Helper()
+	a.sourceSegs = make([][]int, len(a.sources))
+	for i := range a.segs {
+		a.sourceSegs[a.segs[i].src] = append(a.sourceSegs[a.segs[i].src], i)
+	}
+	refused := 0
+	compare := func(i, j int, events []xEvent, mode string) {
+		want := sampledCrossingsExplainedBruteForce(a, i, j, events)
+		got := a.sampledCrossingsExplained(i, j, events)
+		require.Equal(t, want, got, "pair (%d,%d) with %s events disagrees with the unguarded brute force", i, j, mode)
+		if !want {
+			refused++
+		}
+	}
+	for i := 0; i < len(a.sources); i++ {
+		si := &a.sources[i]
+		if !analyticKind(si.kind) {
+			continue
+		}
+		for j := i + 1; j < len(a.sources); j++ {
+			sj := &a.sources[j]
+			if !analyticKind(sj.kind) {
+				continue
+			}
+			events, _, ok := analyticEvents(si, sj, a.scale)
+			if !ok {
+				continue
+			}
+			compare(i, j, events, "analytic")
+			compare(i, j, nil, "no")
+		}
+	}
+	return refused
+}
+
+// TestSampledCrossingsExplainedBoxRejectAgrees is the proof for the box reject added
+// to sampledCrossingsExplained: over the same representative fixtures
+// TestBroadPhaseIsSuperset uses (rebuilt fresh, since analyticPrepass-adjacent state
+// is not shared across checks) plus 300 further seeded random scenes, the guarded
+// answer never differs from the exhaustive one.
+func TestSampledCrossingsExplainedBoxRejectAgrees(t *testing.T) {
+	t.Run("disjoint curves", func(t *testing.T) {
+		var closed []ClosedCurve
+		n := 4
+		for i := 0; i < n; i++ {
+			for j := 0; j < 3; j++ {
+				closed = append(closed, bpCircle(float64(i)*30, float64(j)*30, 10))
+			}
+		}
+		checkSampledCrossingsExplained(t, scenePairArranger(nil, closed, 0))
+	})
+
+	t.Run("near miss outside the window", func(t *testing.T) {
+		closed := []ClosedCurve{bpCircle(0, 0, 10), bpCircle(20.001, 0, 10)}
+		curves := []Curve{bpLine(-20, 0, -0.001, 0)}
+		checkSampledCrossingsExplained(t, scenePairArranger(curves, closed, 0))
+	})
+
+	t.Run("near miss inside the window", func(t *testing.T) {
+		merge := 1e-3
+		curves := []Curve{
+			bpLine(0, 0, 10, 0),
+			bpLine(10+0.5*merge, 0, 20, 5),
+		}
+		checkSampledCrossingsExplained(t, scenePairArranger(curves, nil, merge))
+	})
+
+	t.Run("tangencies", func(t *testing.T) {
+		curves := []Curve{bpLine(-20, 10, 20, 10)}
+		closed := []ClosedCurve{bpCircle(0, 0, 10), bpCircle(0, 20, 10)}
+		checkSampledCrossingsExplained(t, scenePairArranger(curves, closed, 0))
+	})
+
+	t.Run("collinear overlaps", func(t *testing.T) {
+		curves := []Curve{bpLine(0, 0, 10, 0), bpLine(5, 0, 15, 0)}
+		checkSampledCrossingsExplained(t, scenePairArranger(curves, nil, 0))
+	})
+
+	t.Run("shallow circle/circle crossing beside a sample vertex", func(t *testing.T) {
+		// A near-tangent, near-sample-vertex pair — the kind of geometry the
+		// consistency gate's third part exists to police — so the box reject is
+		// exercised on a pair right at its own decision boundary, not just on
+		// well-separated geometry.
+		closed := []ClosedCurve{bpCircle(0, 0, 5), bpCircle(9.999, 0, 5)}
+		checkSampledCrossingsExplained(t, scenePairArranger(nil, closed, 0))
+	})
+
+	t.Run("many overlapping arcs and lines", func(t *testing.T) {
+		var curves []Curve
+		const n = 20
+		const r = 20.0
+		for i := 0; i < n; i++ {
+			cx, cy := float64(i%5)*0.5, float64(i/5)*0.5
+			a0 := float64(i) * 0.11
+			a1 := a0 + 5.5
+			start := NewPoint(cx+r*math.Cos(a0), cy+r*math.Sin(a0))
+			end := NewPoint(cx+r*math.Cos(a1), cy+r*math.Sin(a1))
+			curves = append(curves, NewArc(NewPoint(cx, cy), start, end))
+		}
+		for i := 0; i < 6; i++ {
+			y := -25.0 + float64(i)*10
+			curves = append(curves, bpLine(-30, y, 30, y+2))
+		}
+		checkSampledCrossingsExplained(t, scenePairArranger(curves, nil, 0))
+	})
+
+	t.Run("300 seeded random scenes", func(t *testing.T) {
+		refused := 0
+		for seed := int64(0); seed < 300; seed++ {
+			rng := rand.New(rand.NewSource(seed))
+			curves, closed := randomScene(t, rng)
+			vertexMerge := 0.0
+			if rng.Intn(3) != 0 {
+				vertexMerge = math.Pow(10, -1-rng.Float64()*6)
+			}
+			a := scenePairArranger(curves, closed, vertexMerge)
+			if len(a.segs) == 0 {
+				continue
+			}
+			refused += checkSampledCrossingsExplained(t, a)
+		}
+		// The refusing direction is the only one a wrongly-skipped pair could
+		// corrupt (a hidden crossing turns a `false` into a `true`), so the suite
+		// is only a proof if it reached that direction on real geometry.
+		require.Greater(t, refused, 0, "no scene reached the refusing verdict, so the box reject was never tested against it")
+	})
+}
+
 // randomScene builds a small scene of random lines, circles, arcs and (sometimes) a
 // spline, within a bounded region so near-misses and welds occur often enough to
 // exercise every deciding predicate.

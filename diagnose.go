@@ -142,7 +142,7 @@ type ConflictSet struct {
 // reports). The second lists only the conflicting ones (residual above
 // conflictTol) with their attribution. The sketch is not modified.
 //
-// It is one of the four primitives that CARRY the non-finite-geometry screen
+// It is one of the three primitives that CARRY the non-finite-geometry screen
 // (see nonfinite.go): the third result is false — and no analysis is run — when
 // [Sketch.hasNonFiniteVars] holds, so a caller cannot read a dependency verdict
 // built from a poisoned Jacobian without handling the refusal. The screen sits
@@ -681,7 +681,7 @@ func entityMovable(e Entity, movable map[int]struct{}) bool {
 // vector with support on itself and on every pivot column its elimination
 // touches.
 //
-// It is one of the four primitives that CARRY the non-finite-geometry screen
+// It is one of the three primitives that CARRY the non-finite-geometry screen
 // (see nonfinite.go): the second result is false — and no elimination is run —
 // when [Sketch.hasNonFiniteVars] holds, so a caller cannot read a null-space
 // support computed from a poisoned Jacobian without handling the refusal. The

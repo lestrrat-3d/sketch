@@ -16,6 +16,7 @@ Detail moved out of CLAUDE.md. Read before touching `Sketch.Profiles`, `Boundary
 | Two curves lying on the same carrier? | Coincident-carrier overlap resolution |
 | What do `geom`'s constructors validate? | `geom` constructors are value holders |
 | Which segment pairs does `intersect` even look at? | The broad-phase reach (`intersect`'s pair enumeration) |
+| Why does `sampledCrossingsExplained` skip some segment pairs? | The box reject in `sampledCrossingsExplained` |
 
 Navigation only — the sections below are the authority.
 
@@ -301,6 +302,43 @@ and 200 seeded random scenes.
 A dense scene (many mutually overlapping long segments, each with a large active
 set through most of the sweep) stays close to the same cost as the exhaustive scan;
 the win is for sparse curve-heavy scenes, where the active set stays small.
+
+Every tiny segment's reach-expanded box (`segBoxOf`) is computed once and cached on
+the arranger (`segBoxCache`, populated on first use, valid for the arranger's whole
+life since `densify` is the only appender to `a.segs` and it runs before `intersect`).
+`candidatePairs`' sweep and `sampledCrossingsExplained`'s box reject (below) share the
+one cache instead of each computing its own boxes.
+
+### The box reject in `sampledCrossingsExplained`
+
+`sampledCrossingsExplained` (the third part of the curved-pair consistency gate,
+above) is a CONJUNCTION over every pair of tiny segments from the two sources: it
+returns `false` — refusing the pair, so `analyticPrepass` flags it `Degenerate` — the
+first time it finds a sampled crossing with no analytic contact behind it, and `true`
+only once every such crossing has been checked and explained. Skipping a segment pair
+therefore drops it from that conjunction; a pair that would have crossed and gone
+unexplained is the one pair that must never be skipped, since dropping it silently
+flips a correct `false` (refuse, flag degenerate) into a wrongly-blessed `true`. This
+is the opposite direction from `candidatePairs`' own guard: that one only ever gates a
+side effect (whether `intersect`'s loop body runs at all for a pair), so widening it
+can only add work, never change an answer; this one gates the answer itself, so the
+reject must never be able to exclude a pair `segsCrossInteriorAt` would have found a
+crossing on. The only pair safe to skip is one that provably cannot cross at all —
+skipping it removes nothing from the conjunction either way.
+
+The reject reuses the SAME machinery `candidatePairs` already proves safe for exactly
+this reason: a pair is skipped only when its two segments' `segBoxCache` boxes (each
+already expanded by `segReach` = `a.merge + broadPhaseRel·(chord length)`) fail
+`boxesOverlap`. `segsCrossInteriorAt`'s positive set (an interior hit, `ti`/`tj`
+strictly inside `(segEps, 1-segEps)`) is a subset of plain `segParams`' positive set
+(endpoints included), and `TestBroadPhaseIsSuperset` already proves those
+reach-expanded boxes are a superset of everything `segParams` accepts — so they are
+necessarily also a superset of `segsCrossInteriorAt`'s stricter interior-only set,
+with no new constant and no new proof needed.
+`TestSampledCrossingsExplainedBoxRejectAgrees`
+(`geom/arrange_broadphase_internal_test.go`) checks the box-guarded verdict against an
+unguarded brute-force reference over representative fixtures and 300 seeded random
+scenes.
 
 ### Exact region area per curve type
 
