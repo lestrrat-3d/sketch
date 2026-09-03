@@ -294,6 +294,46 @@ func (s *Sketch) Solve(ctx context.Context, options ...SolveOption) (*Result, er
 	return res, nil
 }
 
+// lmWorkspace holds every buffer one [Sketch.lm] call needs across its outer
+// iterations and damping trials — the Jacobian, the normal-equation matrix and
+// gradient, the damped trial matrix and its solveLinearInto scratch, and the
+// residual buffers — so the loop and its trials mutate fixed-size buffers in
+// place instead of allocating fresh ones every iteration/trial. Sized once from
+// m (residual rows) and n (free variables), which are fixed for the life of one
+// lm call.
+type lmWorkspace struct {
+	J, A, damped, M [][]float64
+	g, rhs, delta   []float64
+	rp, rm, rNew    []float64
+	r               []float64
+}
+
+// newLMWorkspace allocates an lmWorkspace's buffers for m residual rows and n
+// free variables.
+func newLMWorkspace(m, n int) *lmWorkspace {
+	ws := &lmWorkspace{
+		J:      make([][]float64, m),
+		A:      make([][]float64, n),
+		damped: make([][]float64, n),
+		M:      make([][]float64, n),
+		g:      make([]float64, n),
+		rhs:    make([]float64, n),
+		delta:  make([]float64, n),
+		rp:     make([]float64, 0, m),
+		rm:     make([]float64, 0, m),
+		rNew:   make([]float64, 0, m),
+	}
+	for i := range ws.J {
+		ws.J[i] = make([]float64, n)
+	}
+	for i := range ws.A {
+		ws.A[i] = make([]float64, n)
+		ws.damped[i] = make([]float64, n)
+		ws.M[i] = make([]float64, n+1)
+	}
+	return ws
+}
+
 // lm runs the Levenberg–Marquardt loop on the residual vector produced by
 // eval, mutating the sketch's free variables in place, and reports the outer
 // iterations performed and any context error. It terminates when the residual
@@ -315,7 +355,10 @@ func (s *Sketch) lm(ctx context.Context, free []int, eval func([]float64) []floa
 		return 0, nil
 	}
 
-	cost := dot(r, r) // sum of squared residuals
+	ws := newLMWorkspace(m, n)
+	ws.r = r // eval(nil) already returned a fresh buffer; no need to copy it in.
+
+	cost := dot(ws.r, ws.r) // sum of squared residuals
 	lambda := 1e-3
 	var iter int
 	for iter = 0; iter < maxIterations; iter++ {
@@ -329,22 +372,25 @@ func (s *Sketch) lm(ctx context.Context, free []int, eval func([]float64) []floa
 			break // nothing free to move
 		}
 
-		J := s.jacobian(free, m, eval)
-		// Normal equations: A = JᵀJ, g = Jᵀr.
-		A := make([][]float64, n)
-		g := make([]float64, n)
+		s.jacobianInto(ws.J, free, m, eval, ws.rp, ws.rm)
+		J, A, g := ws.J, ws.A, ws.g
+		// Normal equations: A = JᵀJ, g = Jᵀr. A is symmetric, so only its upper
+		// triangle is computed and mirrored into the lower one — IEEE
+		// multiplication is commutative and the accumulation order over k is
+		// unchanged, so the mirrored entry is bit-identical to what the full
+		// double loop would have computed for (j, i).
 		for i := 0; i < n; i++ {
-			A[i] = make([]float64, n)
-			for j := 0; j < n; j++ {
+			for j := i; j < n; j++ {
 				var sum float64
 				for k := 0; k < m; k++ {
 					sum += J[k][i] * J[k][j]
 				}
 				A[i][j] = sum
+				A[j][i] = sum
 			}
 			var gs float64
 			for k := 0; k < m; k++ {
-				gs += J[k][i] * r[k]
+				gs += J[k][i] * ws.r[k]
 			}
 			g[i] = gs
 		}
@@ -374,28 +420,29 @@ func (s *Sketch) lm(ctx context.Context, free []int, eval func([]float64) []floa
 				return iter, err
 			}
 			mu := lambda * maxDiag
-			damped := make([][]float64, n)
-			rhs := make([]float64, n)
+			damped, rhs := ws.damped, ws.rhs
 			for i := 0; i < n; i++ {
-				damped[i] = make([]float64, n)
 				copy(damped[i], A[i])
 				damped[i][i] += mu + 1e-12 // Levenberg damping + numerical floor
 				rhs[i] = -g[i]
 			}
-			delta, ok := solveLinear(damped, rhs)
-			if !ok {
+			if !solveLinearInto(ws.M, damped, rhs, ws.delta) {
 				lambda *= 10
 				continue
 			}
+			delta := ws.delta
 			// Apply the trial step.
 			for j, vi := range free {
 				s.vars[vi] += delta[j]
 			}
-			rNew := eval(nil)
+			rNew := eval(ws.rNew[:0])
 			costNew := dot(rNew, rNew)
 			if costNew < cost {
 				cost = costNew
-				r = rNew
+				// Swap, never alias: rNew becomes the accepted r, and the
+				// previous r becomes the scratch buffer the next trial's eval
+				// writes into.
+				ws.r, ws.rNew = rNew, ws.r
 				lambda *= 0.5
 				improved = true
 				break
@@ -554,31 +601,42 @@ func (s *Sketch) refreshDriven() {
 // jacobian computes the m×n Jacobian of the residual vector produced by eval
 // w.r.t. the free variables using central finite differences. Hard-constraint
 // analysis passes s.residuals; Solve passes its (possibly goal-augmented)
-// evaluator.
+// evaluator. A thin wrapper over [Sketch.jacobianInto] that allocates its own
+// matrix and residual buffers; [Sketch.lm] calls jacobianInto directly against
+// its per-solve workspace instead.
 func (s *Sketch) jacobian(free []int, m int, eval func([]float64) []float64) [][]float64 {
 	n := len(free)
 	J := make([][]float64, m)
 	for i := range J {
 		J[i] = make([]float64, n)
 	}
-	// Reuse two residual buffers across columns instead of allocating fresh
-	// slices for every perturbed variable.
 	rp := make([]float64, 0, m)
 	rm := make([]float64, 0, m)
+	s.jacobianInto(J, free, m, eval, rp, rm)
+	return J
+}
+
+// jacobianInto fills the prebuilt m×n matrix J with the Jacobian of the
+// residual vector produced by eval w.r.t. the free variables, using central
+// finite differences — the body [Sketch.jacobian] used to allocate fresh every
+// call. rp and rm are scratch residual buffers (any length, reused via their
+// backing array across every perturbed variable); passing them in lets a
+// caller that evaluates many Jacobians in a loop (the [lmWorkspace] case) reuse
+// the same two buffers instead of allocating a pair per call.
+func (s *Sketch) jacobianInto(J [][]float64, free []int, m int, eval func([]float64) []float64, rp, rm []float64) {
 	for j, vi := range free {
 		orig := s.vars[vi]
 		h := 1e-7 * (1 + math.Abs(orig))
 		s.vars[vi] = orig + h
-		rp = eval(rp)
+		rp = eval(rp[:0])
 		s.vars[vi] = orig - h
-		rm = eval(rm)
+		rm = eval(rm[:0])
 		s.vars[vi] = orig
 		inv := 1.0 / (2 * h)
 		for i := 0; i < m; i++ {
 			J[i][j] = (rp[i] - rm[i]) * inv
 		}
 	}
-	return J
 }
 
 // rankZeroTol is the STRUCTURAL rank cutoff: a pivot of the NONDIMENSIONAL
@@ -648,7 +706,20 @@ func (s *Sketch) committedRankAnalysis(free []int) (rankAnalysis, bool) {
 	if s.hasNonFiniteVars() {
 		return rankAnalysis{}, false
 	}
-	return rankAnalysisOfMatrix(s.committedScaledJacobian(free), len(free)), true
+	cj := committedJacobian{free: free, A: s.committedScaledJacobian(free)}
+	return s.rankAnalysisOn(cj), true
+}
+
+// rankAnalysisOn runs the same partial-pivot elimination as
+// [Sketch.committedRankAnalysis] over a prebuilt [committedJacobian] — the core
+// [Sketch.Verify] calls directly so its rank/DOF and RankMargin fields share
+// ONE Jacobian build with the conditioning, conflict and free-point analyses of
+// the same call, instead of each rebuilding it (see committedJacobian's doc
+// comment in conditioning.go). The matrix is cloned first because elimination
+// mutates it in place, and cj.A may still be read by another consumer of the
+// same committedJacobian after this call returns.
+func (s *Sketch) rankAnalysisOn(cj committedJacobian) rankAnalysis {
+	return rankAnalysisOfMatrix(cloneMatrix(cj.A), len(cj.free))
 }
 
 // rankAnalysisOf computes the rank and the deciding pivot magnitudes on the
@@ -768,12 +839,33 @@ func (s *Sketch) rankMargin() float64 {
 
 // solveLinear solves A·x = b for a square matrix using Gaussian elimination
 // with partial pivoting. A and b are not modified. The second return is false
-// if A is singular.
+// if A is singular. A thin wrapper over [solveLinearInto] that allocates its
+// own scratch matrix and result slice; used directly by [rowCombo]
+// (diagnose.go), which solves a small system once rather than in a loop.
 func solveLinear(A [][]float64, b []float64) ([]float64, bool) {
 	n := len(b)
 	M := make([][]float64, n)
 	for i := range M {
 		M[i] = make([]float64, n+1)
+	}
+	x := make([]float64, n)
+	if !solveLinearInto(M, A, b, x) {
+		return nil, false
+	}
+	return x, true
+}
+
+// solveLinearInto solves A·x = b for a square matrix using Gaussian
+// elimination with partial pivoting, writing the result into x and using M (an
+// n×(n+1) scratch matrix) as its augmented working copy — the body
+// [solveLinear] used to allocate fresh every call. A and b are not modified;
+// M's rows may be reordered by pivoting, but every element is overwritten from
+// A/b before elimination reads it, so a caller reusing M across calls (the
+// [lmWorkspace] case) needs no reset between them. Returns false if A is
+// singular, leaving x unmodified.
+func solveLinearInto(M [][]float64, A [][]float64, b, x []float64) bool {
+	n := len(b)
+	for i := 0; i < n; i++ {
 		copy(M[i], A[i])
 		M[i][n] = b[i]
 	}
@@ -787,7 +879,7 @@ func solveLinear(A [][]float64, b []float64) ([]float64, bool) {
 			}
 		}
 		if best < 1e-15 {
-			return nil, false
+			return false
 		}
 		M[col], M[piv] = M[piv], M[col]
 		for r := col + 1; r < n; r++ {
@@ -797,7 +889,6 @@ func solveLinear(A [][]float64, b []float64) ([]float64, bool) {
 			}
 		}
 	}
-	x := make([]float64, n)
 	for i := n - 1; i >= 0; i-- {
 		sum := M[i][n]
 		for c := i + 1; c < n; c++ {
@@ -805,7 +896,7 @@ func solveLinear(A [][]float64, b []float64) ([]float64, bool) {
 		}
 		x[i] = sum / M[i][i]
 	}
-	return x, true
+	return true
 }
 
 func dot(a, b []float64) float64 {
