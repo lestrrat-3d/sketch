@@ -59,6 +59,54 @@ func controlCoords(control []*Point) [][2]float64 {
 	return pts
 }
 
+// maxStackKnots is the largest n+4 knot-vector length evalCubicBSplineKnots's
+// callers keep on the stack via a fixed-size array; a curve needing more
+// falls back to a heap-allocated slice (see clampedKnotsInto).
+const maxStackKnots = 64
+
+// clampedKnotsInto appends the clamped uniform knot vector for n control
+// points (the same values [ClampedKnots] produces: four zeros, n−4 evenly
+// spaced interior knots, four ones) onto buf, returning the result. Passing a
+// buf backed by a fixed-size array keeps the vector on the stack up to the
+// array's capacity; append growing past it falls back to the heap.
+func clampedKnotsInto(buf []float64, n int) []float64 {
+	spans := float64(n - 3)
+	for i := 0; i < n+4; i++ {
+		switch {
+		case i < 4:
+			buf = append(buf, 0)
+		case i >= n:
+			buf = append(buf, 1)
+		default:
+			buf = append(buf, float64(i-3)/spans)
+		}
+	}
+	return buf
+}
+
+// evalCubicBSplineKnots is [EvalCubicBSpline]'s body once its clamped knot
+// vector is already built, so a caller evaluating many parameters over the
+// same control points (a sampler, a nearest-point search) builds the knot
+// vector once rather than once per evaluation. ctrl must hold at least 4
+// points and knots must be the clamped vector [ClampedKnots](len(ctrl))
+// would produce; callers already guarantee both.
+func evalCubicBSplineKnots(ctrl [][2]float64, knots []float64, t float64) (float64, float64) {
+	n := len(ctrl)
+	if t <= 0 {
+		return ctrl[0][0], ctrl[0][1]
+	}
+	if t >= 1 {
+		return ctrl[n-1][0], ctrl[n-1][1]
+	}
+	var x, y float64
+	for i := 0; i < n; i++ {
+		b := bsplineBasis(i, 3, t, knots)
+		x += b * ctrl[i][0]
+		y += b * ctrl[i][1]
+	}
+	return x, y
+}
+
 // EvalCubicBSpline evaluates a clamped uniform cubic B-spline over the given
 // control coordinates at t ∈ [0, 1] (values outside are clamped). At t = 1
 // the last control point is returned directly: the standard half-open
@@ -70,19 +118,9 @@ func EvalCubicBSpline(ctrl [][2]float64, t float64) (float64, float64, error) {
 	if err := tooFewPoints(n, 4, ErrTooFewControlPoints); err != nil {
 		return 0, 0, err
 	}
-	if t <= 0 {
-		return ctrl[0][0], ctrl[0][1], nil
-	}
-	if t >= 1 {
-		return ctrl[n-1][0], ctrl[n-1][1], nil
-	}
-	knots := ClampedKnots(n)
-	var x, y float64
-	for i := 0; i < n; i++ {
-		b := bsplineBasis(i, 3, t, knots)
-		x += b * ctrl[i][0]
-		y += b * ctrl[i][1]
-	}
+	var buf [maxStackKnots]float64
+	knots := clampedKnotsInto(buf[:0], n)
+	x, y := evalCubicBSplineKnots(ctrl, knots, t)
 	return x, y, nil
 }
 
@@ -90,16 +128,18 @@ func EvalCubicBSpline(ctrl [][2]float64, t float64) (float64, float64, error) {
 // parameters (minimum 2 segments). It returns [ErrTooFewControlPoints] with
 // fewer than 4 control points.
 func SampleCubicBSpline(ctrl [][2]float64, segments int) ([][2]float64, error) {
-	if err := tooFewPoints(len(ctrl), 4, ErrTooFewControlPoints); err != nil {
+	n := len(ctrl)
+	if err := tooFewPoints(n, 4, ErrTooFewControlPoints); err != nil {
 		return nil, err
 	}
 	if segments < 2 {
 		segments = 2
 	}
+	var buf [maxStackKnots]float64
+	knots := clampedKnotsInto(buf[:0], n)
 	pts := make([][2]float64, segments+1)
 	for i := 0; i <= segments; i++ {
-		// length already validated up front; the in-loop error is unreachable.
-		x, y, _ := EvalCubicBSpline(ctrl, float64(i)/float64(segments))
+		x, y := evalCubicBSplineKnots(ctrl, knots, float64(i)/float64(segments))
 		pts[i] = [2]float64{x, y}
 	}
 	return pts, nil
@@ -159,10 +199,10 @@ func NearestParamCubicBSpline(ctrl [][2]float64, px, py float64) (float64, error
 	if err := tooFewPoints(n, 4, ErrTooFewControlPoints); err != nil {
 		return 0, err
 	}
-	// length already validated up front; the in-loop error is unreachable.
+	var buf [maxStackKnots]float64
+	knots := clampedKnotsInto(buf[:0], n)
 	eval := func(t float64) (float64, float64) {
-		x, y, _ := EvalCubicBSpline(ctrl, t)
-		return x, y
+		return evalCubicBSplineKnots(ctrl, knots, t)
 	}
 	return nearestParamSampled(eval, 16*(n-3), false, px, py), nil
 }
