@@ -1,0 +1,15 @@
+{
+  "DOF": 0,
+  "Status": 1,
+  "Solvable": true,
+  "Residual": 0,
+  "RankMarginInf": false,
+  "RankMargin": 999999999.9679904,
+  "ConditioningInf": false,
+  "Conditioning": 0.20905692646689464,
+  "FreePointIDs": null,
+  "RedundantCount": 0,
+  "Conflicts": null,
+  "ProfilesValid": true,
+  "ProfileCount": 1
+}

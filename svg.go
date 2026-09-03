@@ -1,9 +1,11 @@
 package sketch
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/lestrrat-go/option/v3"
@@ -470,19 +472,25 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 	}
 	// writePath emits one M/L SVG <path> for a sampled curve (arc, elliptical
 	// arc, every spline family, conic, NURBS); only the pts source differs
-	// between the curve cases below.
+	// between the curve cases below. It writes the "d" attribute's segments
+	// straight into sb rather than building them in a scratch buffer and
+	// trimming: the old form built "Mx y " for the first point and "Lx y "
+	// for every other, concatenated the fragments, then trimmed the single
+	// trailing space TrimSpace ever found. "Mx0 y0" followed by " Lx y" per
+	// remaining point is exactly those same bytes without the trailing one.
 	writePath := func(pts [][2]float64, stroke string, sw float64, dasharray string) {
-		d := sb.scratch()
+		sb.WriteString(`  <path d="`)
 		for i, p := range pts {
-			cmd := "L"
 			if i == 0 {
-				cmd = "M"
+				sb.WriteString("M")
+			} else {
+				sb.WriteString(" L")
 			}
-			fmt.Fprintf(d, "%s%s %s ", cmd, d.f(tx(p[0])), d.f(ty(p[1])))
+			sb.WriteString(sb.f(tx(p[0])))
+			sb.WriteByte(' ')
+			sb.WriteString(sb.f(ty(p[1])))
 		}
-		fmt.Fprintf(sb,
-			`  <path d="%s" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
-			strings.TrimSpace(d.String()), stroke, sb.f(sw), dasharray)
+		fmt.Fprintf(sb, `" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n", stroke, sb.f(sw), dasharray)
 	}
 
 	for _, e := range s.ents {
@@ -597,7 +605,17 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 func radToDeg(r float64) float64 { return r * 180 / math.Pi }
 
 // trimFloat formats v with prec decimals and drops trailing zeros (and a bare
-// trailing decimal point).
+// trailing decimal point). It is byte-identical to
+// strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.*f", prec, v), "0"), ".")
+// for every v, including NaN, +Inf, -Inf and negative zero: fmt's "%.*f" is
+// itself strconv.AppendFloat(…, 'f', prec, 64) plus sign handling that only
+// differs under flags this call never sets. Formatting into a stack-allocated
+// buffer instead of going through fmt avoids fmt's per-call boxing and format
+// string parsing.
 func trimFloat(v float64, prec int) string {
-	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.*f", prec, v), "0"), ".")
+	var buf [32]byte
+	b := strconv.AppendFloat(buf[:0], v, 'f', prec, 64)
+	b = bytes.TrimRight(b, "0")
+	b = bytes.TrimRight(b, ".")
+	return string(b)
 }

@@ -156,11 +156,23 @@ type ConflictSet struct {
 // constraint is flagged at all, which is exactly the "no problem found" reading
 // the screen exists to prevent.
 func (s *Sketch) conflictAnalysis() ([]Constraint, []ConflictSet, bool) {
-	if s.hasNonFiniteVars() {
+	cj, ok := s.buildCommittedJacobian()
+	if !ok {
 		return nil, nil, false
 	}
-	free := s.freeVars()
+	flagged, conflicts := s.conflictAnalysisOn(cj)
+	return flagged, conflicts, true
+}
 
+// conflictAnalysisOn runs the same dependency analysis as
+// [Sketch.conflictAnalysis] over a prebuilt [committedJacobian] — the core
+// [Sketch.Verify] calls directly so this pass shares ONE Jacobian build with
+// the rank/DOF, conditioning and free-point analyses of the same call. It
+// still evaluates the committed constraints' own residuals itself (to map each
+// row to its owning constraint and to read the violation each one carries),
+// since a committedJacobian carries only the Jacobian, not those raw residual
+// values or the owner mapping.
+func (s *Sketch) conflictAnalysisOn(cj committedJacobian) ([]Constraint, []ConflictSet) {
 	// Map each residual row to the constraint that produced it, mirroring the
 	// iteration (and therefore row) order of residuals().
 	var owners []Constraint
@@ -177,14 +189,16 @@ func (s *Sketch) conflictAnalysis() ([]Constraint, []ConflictSet, bool) {
 	}
 	m := len(owners)
 	if m == 0 {
-		return nil, nil, true
+		return nil, nil
 	}
 
 	// Dependency analysis runs on the NONDIMENSIONAL Jacobian A = Drow·J·Dcol (the
 	// same scaled basis as rank/DOF), so the structural cutoff is scale/unit
 	// invariant and the redundancy verdict matches DOF at any geometry size. Row
 	// kinds mirror residuals() iteration (and therefore owners) by construction.
-	J := s.committedScaledJacobian(free)
+	// Read-only below (only ever copied into v/accRows), so the shared cj.A needs
+	// no clone the way rankAnalysisOn/movableVarsOn's in-place elimination does.
+	J := cj.A
 
 	// Incremental Gram–Schmidt over the Jacobian rows: a row that projects to
 	// (numerically) zero against the rows accepted so far adds no independent
@@ -255,7 +269,7 @@ func (s *Sketch) conflictAnalysis() ([]Constraint, []ConflictSet, bool) {
 		}
 	}
 	if len(flagged) == 0 {
-		return nil, nil, true
+		return nil, nil
 	}
 
 	// Split into redundant (every dependent row satisfied) vs conflicting (a
@@ -276,7 +290,7 @@ func (s *Sketch) conflictAnalysis() ([]Constraint, []ConflictSet, bool) {
 		sort.Slice(members, func(i, j int) bool { return consIdx[members[i]] < consIdx[members[j]] })
 		conflicts = append(conflicts, ConflictSet{Constraint: c, With: members})
 	}
-	return flagged, conflicts, true
+	return flagged, conflicts
 }
 
 // rowCombo expresses target as a linear combination of accRows (assumed
@@ -542,8 +556,16 @@ func (s *Sketch) FreePoints() []*Point {
 	if !analysed {
 		return slices.Clone(s.points)
 	}
+	return freePoints(s.points, movable)
+}
+
+// freePoints filters points to the ones [pointMovable] reports free, in the
+// order given — the shared loop behind [Sketch.FreePoints] and (via
+// [Sketch.movableVarsOn]) [Sketch.Verify]'s FreePoints field, so the two
+// cannot diverge on how a null-space support is turned into a point list.
+func freePoints(points []*Point, movable map[int]struct{}) []*Point {
 	var out []*Point
-	for _, p := range s.points {
+	for _, p := range points {
 		if pointMovable(p, movable) {
 			out = append(out, p)
 		}
@@ -667,17 +689,28 @@ func entityMovable(e Entity, movable map[int]struct{}) bool {
 // way against a non-finite entry, so the support it would report is neither an
 // over- nor an under-estimate but simply meaningless.
 func (s *Sketch) movableVars() (map[int]struct{}, bool) {
-	if s.hasNonFiniteVars() {
+	cj, ok := s.buildCommittedJacobian()
+	if !ok {
 		return nil, false
 	}
-	free := s.freeVars()
+	return s.movableVarsOn(cj), true
+}
+
+// movableVarsOn runs the same null-space elimination as [Sketch.movableVars]
+// over a prebuilt [committedJacobian] — the core [Sketch.Verify] calls
+// directly so its FreePoints field shares ONE Jacobian build with the
+// rank/DOF, conditioning and conflict analyses of the same call. The matrix is
+// cloned first because the elimination mutates it in place, and cj.A may still
+// be read by another consumer of the same committedJacobian.
+func (s *Sketch) movableVarsOn(cj committedJacobian) map[int]struct{} {
+	free := cj.free
 	movable := make(map[int]struct{})
-	m := len(s.residuals(nil))
+	m := cj.m
 	if m == 0 {
 		for _, vi := range free {
 			movable[vi] = struct{}{}
 		}
-		return movable, true
+		return movable
 	}
 
 	// Null-space support is computed on the NONDIMENSIONAL Jacobian A = Drow·J·Dcol
@@ -685,7 +718,7 @@ func (s *Sketch) movableVars() (map[int]struct{}, bool) {
 	// scale-invariant. Positive diagonal column scaling preserves which variables a
 	// null direction touches, so the free-point support is unchanged in exact
 	// arithmetic — only the zero threshold becomes scale-invariant.
-	J := s.committedScaledJacobian(free)
+	J := cloneMatrix(cj.A)
 	n := len(free)
 	const eps = rankZeroTol
 	isPivot := make([]bool, n)
@@ -737,7 +770,7 @@ func (s *Sketch) movableVars() (map[int]struct{}, bool) {
 			}
 		}
 	}
-	return movable, true
+	return movable
 }
 
 // pointMovable reports whether either of a point's coordinates is in movable

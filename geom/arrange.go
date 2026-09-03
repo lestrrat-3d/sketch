@@ -1035,11 +1035,17 @@ func (a *arranger) sampleParams(s *source) []float64 {
 // intersect finds every bare crossing between tiny segments and records the
 // split parameters, classifying same-component interior crossings as
 // self-intersections.
+//
+// The pairs it visits come from candidatePairs, a conservative broad phase: it
+// may only ever return a SUPERSET of the pairs this loop's body acts on.
+// forEachMergedEnd, segParams and collinearOverlap remain the sole deciders of
+// what actually happens — candidatePairs decides only which pairs are worth
+// asking.
 func (a *arranger) intersect() {
 	a.analyticPrepass()
-	n := len(a.segs)
-	for i := 0; i < n; i++ {
-		for j := i + 1; j < n; j++ {
+	cand := a.candidatePairs()
+	for i := range a.segs {
+		for _, j := range cand[i] {
 			si, sj := &a.segs[i], &a.segs[j]
 			if si.src != sj.src {
 				// The planar map canonicalizes vertices by DISTANCE (a.merge), while the
@@ -2673,14 +2679,21 @@ func (a *arranger) splitFragments() []splitFrag {
 			{t: 1, px: s.bx, py: s.by, exact: a.endpointReproduces(src, s.param(1), s.bx, s.by), srcEnd: atDomainEnd(s.pb)},
 		}
 		bs = append(bs, s.cuts...)
-		sort.Slice(bs, func(i, j int) bool { return bs[i].t < bs[j].t })
+		// An uncut segment's two boundaries are already t=0 then t=1, in order — the
+		// sort would be a no-op, so skip it. Do not replace sort.Slice with a
+		// different algorithm for the cut case below: it is unstable, and the dedup
+		// keeps the FIRST of near-equal parameters, so a different order of equal ts
+		// changes which coordinates survive.
+		if len(s.cuts) > 0 {
+			sort.Slice(bs, func(i, j int) bool { return bs[i].t < bs[j].t })
+		}
 		// dedup near-equal local params (keep the first, which for an analytic cut at
 		// a seg boundary keeps the endpoint's exact point). Exactness and source-end
 		// provenance are ANDed into the survivor: a boundary coincident with a sampled
 		// cut is only as trustworthy as that cut, and a domain end a cut lands on is a
 		// cut — so the merge never launders inexact into exact, nor a cut into a
 		// curve's own end.
-		uniq := bs[:0:0]
+		uniq := make([]cut, 0, len(bs))
 		for _, b := range bs {
 			if len(uniq) == 0 || b.t-uniq[len(uniq)-1].t > segEps {
 				uniq = append(uniq, b)

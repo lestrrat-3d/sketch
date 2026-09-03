@@ -83,12 +83,17 @@ func findSpan(n, p int, u float64, U []float64) int {
 	return mid
 }
 
-// basisFuns returns the p+1 nonzero degree-p basis values at u in span i (The
-// NURBS Book A2.2); the slice is indexed 0..p for control points i-p..i.
-func basisFuns(i, p int, u float64, U []float64) []float64 {
-	N := make([]float64, p+1)
-	left := make([]float64, p+1)
-	right := make([]float64, p+1)
+// maxStackBasis is the largest p+1 nonzero-basis-value count basisFunsInto's
+// callers keep on the stack via fixed-size arrays; a curve of higher degree
+// falls back to heap-allocated slices (see [NURBS.Eval]/[NURBS.EvalDeriv]).
+const maxStackBasis = 48
+
+// basisFunsInto writes the p+1 nonzero degree-p basis values at u in span i
+// (The NURBS Book A2.2) into the caller-supplied N, using left/right (also
+// length p+1) as scratch, instead of allocating — so a caller evaluating many
+// points can carve the three slices out of one stack array and reuse them
+// across calls. N is indexed 0..p for control points i-p..i.
+func basisFunsInto(N, left, right []float64, i, p int, u float64, U []float64) {
 	N[0] = 1
 	for j := 1; j <= p; j++ {
 		left[j] = u - U[i+1-j]
@@ -101,19 +106,20 @@ func basisFuns(i, p int, u float64, U []float64) []float64 {
 		}
 		N[j] = saved
 	}
-	return N
 }
 
-// dersBasisFuns returns the p+1 nonzero degree-p basis values N and their first
-// derivatives dN at u in span i. The derivative uses
+// dersBasisFuns writes the p+1 nonzero degree-p basis values into N and their
+// first derivatives into dN (both length p+1) at u in span i, using low
+// (length p, the degree p-1 basis at the same span) and left/right (length
+// p+1, scratch for the N recursion) supplied by the caller. The derivative
+// uses
 //
 //	N'_{g,p} = p·(N_{g,p-1}/(U[g+p]−U[g]) − N_{g+1,p-1}/(U[g+p+1]−U[g+1]))
 //
-// with the lower-degree basis low (length p) supplying N_{g,p-1}.
-func dersBasisFuns(i, p int, u float64, U []float64) (N, dN []float64) {
-	N = basisFuns(i, p, u, U)
-	dN = make([]float64, p+1)
-	low := basisFuns(i, p-1, u, U) // length p
+// with low supplying N_{g,p-1}.
+func dersBasisFuns(N, dN, low, left, right []float64, i, p int, u float64, U []float64) {
+	basisFunsInto(N, left, right, i, p, u, U)
+	basisFunsInto(low, left, right, i, p-1, u, U)
 	for j := 0; j <= p; j++ {
 		g := i - p + j
 		var t1, t2 float64
@@ -129,7 +135,6 @@ func dersBasisFuns(i, p int, u float64, U []float64) (N, dN []float64) {
 		}
 		dN[j] = float64(p) * (t1 - t2)
 	}
-	return
 }
 
 // Eval returns the curve point at knot parameter u (clamped to the domain). The
@@ -145,7 +150,18 @@ func (c *NURBS) Eval(u float64) (float64, float64) {
 		u = hi
 	}
 	sp := findSpan(n, p, u, c.Knots)
-	N := basisFuns(sp, p, u, c.Knots)
+	var N, left, right []float64
+	if 3*(p+1) <= maxStackBasis {
+		var buf [maxStackBasis]float64
+		N = buf[0*(p+1) : 1*(p+1)]
+		left = buf[1*(p+1) : 2*(p+1)]
+		right = buf[2*(p+1) : 3*(p+1)]
+	} else {
+		N = make([]float64, p+1)
+		left = make([]float64, p+1)
+		right = make([]float64, p+1)
+	}
+	basisFunsInto(N, left, right, sp, p, u, c.Knots)
 	var X, Y, W float64
 	for j := 0; j <= p; j++ {
 		idx := sp - p + j
@@ -173,7 +189,22 @@ func (c *NURBS) EvalDeriv(u float64) (float64, float64) {
 		u = hi
 	}
 	sp := findSpan(n, p, u, c.Knots)
-	N, dN := dersBasisFuns(sp, p, u, c.Knots)
+	var N, dN, low, left, right []float64
+	if 5*(p+1) <= maxStackBasis {
+		var buf [maxStackBasis]float64
+		N = buf[0*(p+1) : 1*(p+1)]
+		dN = buf[1*(p+1) : 2*(p+1)]
+		low = buf[2*(p+1) : 3*(p+1)]
+		left = buf[3*(p+1) : 4*(p+1)]
+		right = buf[4*(p+1) : 5*(p+1)]
+	} else {
+		N = make([]float64, p+1)
+		dN = make([]float64, p+1)
+		low = make([]float64, p+1)
+		left = make([]float64, p+1)
+		right = make([]float64, p+1)
+	}
+	dersBasisFuns(N, dN, low, left, right, sp, p, u, c.Knots)
 	var X, Y, W, dX, dY, dW float64
 	for j := 0; j <= p; j++ {
 		idx := sp - p + j

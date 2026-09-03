@@ -7,6 +7,7 @@ Detail moved out of CLAUDE.md's architecture table. Read before touching rank/DO
 | Your question | Section |
 |---|---|
 | What happens on non-finite geometry? | The four primitives that carry the non-finite screen |
+| Does `Verify` rebuild the Jacobian for every analysis it runs? | `Verify` builds its Jacobian once |
 | Why does `DOF` return the total variable count? | `DOF` answers with maximum ignorance |
 | Why do `FreePoints`/`Diagnose` name everything? | Maximum-ignorance answers for the bare reads |
 | What gates `Trustworthy()`? | The trust verdict has one definition and two shapes |
@@ -294,6 +295,37 @@ reciprocal condition number of the nondimensionalized Jacobian — this one DOES
 gate `Trustworthy()`, below a tolerance-derived `max(1e-6, 4·√tol)` threshold),
 `Trustworthy()`, and (opt-in via `WithProbe`) discrete ambiguity. A pure
 consumer of the diagnostic building blocks.
+
+### `Verify` builds its Jacobian once
+
+**A single `Verify` call builds the committed
+nondimensional Jacobian exactly once and shares it among its own analyses**,
+instead of the rank/DOF, conditioning, conflict/redundancy and free-point
+passes each rebuilding it. `conditioning.go`'s `committedJacobian` holds the
+free-variable list, the residual row count and kinds, and the matrix itself;
+`Sketch.buildCommittedJacobian` builds one, screened by the same non-finite
+guard the four primitives it replaces each carry. `Verify` builds it once,
+right after establishing `Solvable`/`Residual`, and passes it to
+`rankAnalysisOn`, `conditioningOn`, `conflictAnalysisOn` and `movableVarsOn` —
+the `…On` counterparts of `committedRankAnalysis`/`conditioning`/
+`conflictAnalysis`/`movableVars` that read a prebuilt matrix instead of
+building their own. The two consumers that mutate their matrix in place during
+elimination (`rankAnalysisOfMatrix`, `movableVarsOn`) clone it first
+(`cloneMatrix`), since the same `committedJacobian.A` is still read by the
+other consumers in the same call; the two that only read rows
+(`conflictAnalysisOn`, `jacobiSingularValues`) need no clone.
+
+This sharing is sound only WITHIN one `Verify` call, and only because nothing
+between building the Jacobian and its last consumer moves the sketch: the sole
+code that touches `s.vars` in that span is `scaledJacobian` itself, which
+perturbs one variable at a time and restores its exact original bit pattern
+before returning, and every consumer only reads. It is never cached across
+calls: there is no `committedJacobian` field on `Sketch`, nothing is keyed by
+`Sketch.Revision`, and no `committedJacobian` value is passed to anything
+reachable from another public method. The public `Sketch.DOF`, `Sketch.Diagnose`,
+`Sketch.FreePoints` and `Sketch.RedundantConstraints` keep building their own
+matrix on every call — only `Verify`'s internal use is shared, and only for the
+duration of that one call.
 
 ### The trust verdict has one definition and two shapes
 

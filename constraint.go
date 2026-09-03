@@ -1916,7 +1916,7 @@ func (c *tangentLineCircle) residual(out []float64) []float64 {
 	// cos of the line/radius angle, zero when perpendicular (dimensionless). A
 	// degenerate (zero-length) line has no direction and is never tangent.
 	if isArc && c.shared != nil {
-		if math.Hypot(abx, aby) < 1e-9 {
+		if ablen < 1e-9 {
 			return append(out, 1)
 		}
 		dx, dy := c.shared.x()-ctr.x(), c.shared.y()-ctr.y()
@@ -2187,7 +2187,7 @@ func (c *tangentLineEllipse) localNormal() (float64, float64, float64, bool) {
 	ax, ay := l.Start.x(), l.Start.y()
 	abx, aby := l.End.x()-ax, l.End.y()-ay
 	ablen := norm(abx, aby)
-	if math.Hypot(abx, aby) < 1e-9 {
+	if ablen < 1e-9 {
 		return 0, 0, 0, false
 	}
 	nx, ny := -aby/ablen, abx/ablen
@@ -2234,7 +2234,7 @@ func (c *tangentLineEllipse) residual(out []float64) []float64 {
 		l := c.L
 		abx, aby := l.End.x()-l.Start.x(), l.End.y()-l.Start.y()
 		ablen := norm(abx, aby)
-		if degenerateEllipse || math.Hypot(abx, aby) < 1e-9 {
+		if degenerateEllipse || ablen < 1e-9 {
 			return append(out, 1)
 		}
 		nx, ny := ellipseNormalAt(c.shared, c.E)

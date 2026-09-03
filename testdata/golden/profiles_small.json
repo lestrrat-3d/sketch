@@ -1,0 +1,42 @@
+[
+  {
+    "Area": 240,
+    "Valid": true,
+    "SelfIntersecting": false,
+    "Outer": [
+      {
+        "EntityIdx": 0,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": true
+      },
+      {
+        "EntityIdx": 1,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": true
+      },
+      {
+        "EntityIdx": 2,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": true
+      },
+      {
+        "EntityIdx": 3,
+        "Partial": false,
+        "Reversed": false,
+        "TStart": 0,
+        "TEnd": 1,
+        "TExact": true
+      }
+    ],
+    "Holes": null
+  }
+]

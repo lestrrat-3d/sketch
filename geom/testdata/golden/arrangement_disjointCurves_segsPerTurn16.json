@@ -1,0 +1,262 @@
+{
+  "Degenerate": false,
+  "Degeneracies": null,
+  "SelfIntersections": null,
+  "Regions": [
+    {
+      "Area": 314.1592653589793,
+      "Degenerate": false,
+      "SelfIntersecting": false,
+      "Outer": [
+        {
+          "SourceIndex": 0,
+          "Whole": true,
+          "Reversed": false,
+          "TStart": 0,
+          "TEnd": 1,
+          "TExact": false,
+          "PolylineLen": 17
+        }
+      ],
+      "Holes": null
+    },
+    {
+      "Area": 314.1592653589793,
+      "Degenerate": false,
+      "SelfIntersecting": false,
+      "Outer": [
+        {
+          "SourceIndex": 1,
+          "Whole": true,
+          "Reversed": false,
+          "TStart": 0,
+          "TEnd": 1,
+          "TExact": false,
+          "PolylineLen": 17
+        }
+      ],
+      "Holes": null
+    },
+    {
+      "Area": 314.1592653589793,
+      "Degenerate": false,
+      "SelfIntersecting": false,
+      "Outer": [
+        {
+          "SourceIndex": 2,
+          "Whole": true,
+          "Reversed": false,
+          "TStart": 0,
+          "TEnd": 1,
+          "TExact": false,
+          "PolylineLen": 17
+        }
+      ],
+      "Holes": null
+    },
+    {
+      "Area": 314.1592653589793,
+      "Degenerate": false,
+      "SelfIntersecting": false,
+      "Outer": [
+        {
+          "SourceIndex": 3,
+          "Whole": true,
+          "Reversed": false,
+          "TStart": 0,
+          "TEnd": 1,
+          "TExact": false,
+          "PolylineLen": 17
+        }
+      ],
+      "Holes": null
+    },
+    {
+      "Area": 314.1592653589793,
+      "Degenerate": false,
+      "SelfIntersecting": false,
+      "Outer": [
+        {
+          "SourceIndex": 4,
+          "Whole": true,
+          "Reversed": false,
+          "TStart": 0,
+          "TEnd": 1,
+          "TExact": false,
+          "PolylineLen": 17
+        }
+      ],
+      "Holes": null
+    },
+    {
+      "Area": 314.1592653589793,
+      "Degenerate": false,
+      "SelfIntersecting": false,
+      "Outer": [
+        {
+          "SourceIndex": 5,
+          "Whole": true,
+          "Reversed": false,
+          "TStart": 0,
+          "TEnd": 1,
+          "TExact": false,
+          "PolylineLen": 17
+        }
+      ],
+      "Holes": null
+    },
+    {
+      "Area": 314.1592653589793,
+      "Degenerate": false,
+      "SelfIntersecting": false,
+      "Outer": [
+        {
+          "SourceIndex": 6,
+          "Whole": true,
+          "Reversed": false,
+          "TStart": 0,
+          "TEnd": 1,
+          "TExact": false,
+          "PolylineLen": 17
+        }
+      ],
+      "Holes": null
+    },
+    {
+      "Area": 314.1592653589793,
+      "Degenerate": false,
+      "SelfIntersecting": false,
+      "Outer": [
+        {
+          "SourceIndex": 7,
+          "Whole": true,
+          "Reversed": false,
+          "TStart": 0,
+          "TEnd": 1,
+          "TExact": false,
+          "PolylineLen": 17
+        }
+      ],
+      "Holes": null
+    },
+    {
+      "Area": 314.1592653589793,
+      "Degenerate": false,
+      "SelfIntersecting": false,
+      "Outer": [
+        {
+          "SourceIndex": 8,
+          "Whole": true,
+          "Reversed": false,
+          "TStart": 0,
+          "TEnd": 1,
+          "TExact": false,
+          "PolylineLen": 17
+        }
+      ],
+      "Holes": null
+    },
+    {
+      "Area": 314.1592653589793,
+      "Degenerate": false,
+      "SelfIntersecting": false,
+      "Outer": [
+        {
+          "SourceIndex": 9,
+          "Whole": true,
+          "Reversed": false,
+          "TStart": 0,
+          "TEnd": 1,
+          "TExact": false,
+          "PolylineLen": 17
+        }
+      ],
+      "Holes": null
+    },
+    {
+      "Area": 314.1592653589793,
+      "Degenerate": false,
+      "SelfIntersecting": false,
+      "Outer": [
+        {
+          "SourceIndex": 10,
+          "Whole": true,
+          "Reversed": false,
+          "TStart": 0,
+          "TEnd": 1,
+          "TExact": false,
+          "PolylineLen": 17
+        }
+      ],
+      "Holes": null
+    },
+    {
+      "Area": 314.1592653589793,
+      "Degenerate": false,
+      "SelfIntersecting": false,
+      "Outer": [
+        {
+          "SourceIndex": 11,
+          "Whole": true,
+          "Reversed": false,
+          "TStart": 0,
+          "TEnd": 1,
+          "TExact": false,
+          "PolylineLen": 17
+        }
+      ],
+      "Holes": null
+    },
+    {
+      "Area": 139.02594482086147,
+      "Degenerate": false,
+      "SelfIntersecting": false,
+      "Outer": [
+        {
+          "SourceIndex": 12,
+          "Whole": true,
+          "Reversed": false,
+          "TStart": 0,
+          "TEnd": 1,
+          "TExact": false,
+          "PolylineLen": 97
+        }
+      ],
+      "Holes": null
+    },
+    {
+      "Area": 139.02594482086124,
+      "Degenerate": false,
+      "SelfIntersecting": false,
+      "Outer": [
+        {
+          "SourceIndex": 13,
+          "Whole": true,
+          "Reversed": false,
+          "TStart": 0,
+          "TEnd": 1,
+          "TExact": false,
+          "PolylineLen": 97
+        }
+      ],
+      "Holes": null
+    },
+    {
+      "Area": 139.02594482086158,
+      "Degenerate": false,
+      "SelfIntersecting": false,
+      "Outer": [
+        {
+          "SourceIndex": 14,
+          "Whole": true,
+          "Reversed": false,
+          "TStart": 0,
+          "TEnd": 1,
+          "TExact": false,
+          "PolylineLen": 97
+        }
+      ],
+      "Holes": null
+    }
+  ]
+}
