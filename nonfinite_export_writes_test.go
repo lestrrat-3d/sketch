@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/lestrrat-3d/r3"
 	"github.com/lestrrat-3d/sketch"
 	"github.com/lestrrat-3d/units"
 	"github.com/stretchr/testify/require"
@@ -141,16 +142,39 @@ func TestDXFRefusesThouUnitConversionOverflow(t *testing.T) {
 }
 
 // TestDXFWorldSpaceRefusesOCSProjectionOverflow is another gap a bounds()-based
-// precondition cannot close: on a tilted plane (tiltedSketch, shared with
-// dxf_worldspace_test.go), a circle centered at (MaxFloat64, MaxFloat64) has a
-// perfectly finite bounding box in LOCAL coordinates — bbox.finite() passes —
-// but WithWorldSpace(true) routes CIRCLE/ARC through putOCS's arbitrary-axis
-// projection (w.Dot(ax)/w.Dot(ay)), and that dot product overflows float64 on
-// its own, after the precondition already ran clean. A LINE-only sketch does
-// not reach this: putWCS writes World() coordinates directly and stays finite
-// at the same values, so the case needs a circle (or arc) to reach putOCS.
+// precondition cannot close: on a tilted plane, a circle centered at
+// (MaxFloat64, MaxFloat64) has a perfectly finite bounding box in LOCAL
+// coordinates — bbox.finite() passes — but WithWorldSpace(true) routes
+// CIRCLE/ARC through putOCS's arbitrary-axis projection (w.Dot(ax)/w.Dot(ay)),
+// and that dot product overflows float64 on its own, after the precondition
+// already ran clean. A LINE-only sketch does not reach this: putWCS writes
+// World() coordinates directly and stays finite at the same values, so the case
+// needs a circle (or arc) to reach putOCS.
+//
+// The plane is NOT the shared tiltedSketch one, and the difference is the whole
+// point of the test rather than a stylistic choice. tiltedSketch's u/v happen to
+// coincide with the OCS axes the arbitrary-axis algorithm derives from its
+// normal, so the projection of (MaxFloat64, MaxFloat64) is MaxFloat64 EXACTLY:
+// the overflow is then decided by the last ulp of the frame basis and by whether
+// the target architecture fuses the multiply-add in Vec.Dot (arm64 does, amd64
+// does not), which is a coin toss, not a test. This frame instead sits ~45° from
+// the OCS basis in-plane, so the same point projects to ~1.407x MaxFloat64 —
+// past the overflow by a wide margin no rounding can close — while every world
+// COORDINATE stays finite (the largest is ~0.91x MaxFloat64), which is what
+// keeps the putWCS claim above true.
 func TestDXFWorldSpaceRefusesOCSProjectionOverflow(t *testing.T) {
-	s := tiltedSketch(t)
+	fr, err := r3.NewFrame(
+		r3.NewVec(10, -5, 7), // origin off the world origin
+		r3.NewVec(0, 2, 1),   // u, ~45 deg off the OCS x-axis derived from n
+		r3.NewVec(5, -1, 2),  // v (orthonormalized by NewFrame)
+	)
+	require.NoError(t, err)
+	w := sketch.NewWorld()
+	pl, err := w.CreatePlaneFromFrame(fr)
+	require.NoError(t, err)
+	s, err := w.CreateSketch(pl)
+	require.NoError(t, err)
+
 	c := s.CreatePoint(math.MaxFloat64, math.MaxFloat64)
 	s.CreateCircle(c, 3.5)
 
