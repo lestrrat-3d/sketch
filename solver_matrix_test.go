@@ -58,11 +58,11 @@ func referenceNormalEquations(j [][]float64, r []float64, m, n int) ([][]float64
 	return a, g
 }
 
-// requireSameBits compares two float64 values by their IEEE bit patterns, not
+// requireSameBitsf compares two float64 values by their IEEE bit patterns, not
 // by ==. Bit equality is the actual claim, and == is too weak for it twice
 // over: it reports +0 and -0 as equal, and it would report every NaN as
 // unequal. The fixtures carry signed zeros deliberately and no NaN at all.
-func requireSameBits(t *testing.T, want, got float64, format string, args ...any) {
+func requireSameBitsf(t *testing.T, want, got float64, format string, args ...any) {
 	t.Helper()
 	if math.Float64bits(want) == math.Float64bits(got) {
 		return
@@ -98,9 +98,9 @@ func requireMatchesReference(t *testing.T, name string, j [][]float64, r []float
 	for i := 0; i < n; i++ {
 		require.Len(t, gotA[i], n, "%s: A[%d] column count", name, i)
 		for c := 0; c < n; c++ {
-			requireSameBits(t, wantA[i][c], gotA[i][c], "%s: A[%d][%d]", name, i, c)
+			requireSameBitsf(t, wantA[i][c], gotA[i][c], "%s: A[%d][%d]", name, i, c)
 		}
-		requireSameBits(t, wantG[i], gotG[i], "%s: g[%d]", name, i)
+		requireSameBitsf(t, wantG[i], gotG[i], "%s: g[%d]", name, i)
 	}
 }
 
@@ -296,9 +296,9 @@ func TestNormalEquationsColumnLayoutMatchesReference(t *testing.T) {
 		wantA, wantG := referenceNormalEquations(second, secondR, m, n)
 		for i := 0; i < n; i++ {
 			for c := 0; c < n; c++ {
-				requireSameBits(t, wantA[i][c], ws.A[i][c], "second run A[%d][%d]", i, c)
+				requireSameBitsf(t, wantA[i][c], ws.A[i][c], "second run A[%d][%d]", i, c)
 			}
-			requireSameBits(t, wantG[i], ws.g[i], "second run g[%d]", i)
+			requireSameBitsf(t, wantG[i], ws.g[i], "second run g[%d]", i)
 		}
 	})
 }
