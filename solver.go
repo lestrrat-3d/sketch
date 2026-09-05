@@ -303,9 +303,16 @@ func (s *Sketch) Solve(ctx context.Context, options ...SolveOption) (*Result, er
 // lm call.
 type lmWorkspace struct {
 	J, A, damped, M [][]float64
-	g, rhs, delta   []float64
-	rp, rm, rNew    []float64
-	r               []float64
+	// JT is J transposed into one flat m*n buffer, column-major: column j of J
+	// occupies the contiguous run JT[j*m:(j+1)*m]. The normal equations read
+	// each column end to end (see normalEquationsInto), which J's row-major
+	// [][]float64 layout cannot serve — there a column walk strides across m
+	// separately allocated rows. One transpose per Jacobian pays for n*(n+1)/2
+	// column pairs plus n gradient dot products.
+	JT            []float64
+	g, rhs, delta []float64
+	rp, rm, rNew  []float64
+	r             []float64
 }
 
 // alloc sizes every buffer but r for m residual rows and n free variables. It is
@@ -315,6 +322,7 @@ type lmWorkspace struct {
 // allocations to do nothing.
 func (ws *lmWorkspace) alloc(m, n int) {
 	ws.J = make([][]float64, m)
+	ws.JT = make([]float64, m*n)
 	ws.A = make([][]float64, n)
 	ws.damped = make([][]float64, n)
 	ws.M = make([][]float64, n)
@@ -377,27 +385,9 @@ func (s *Sketch) lm(ctx context.Context, free []int, eval func([]float64) []floa
 		}
 
 		s.jacobianInto(ws.J, free, m, eval, ws.rp, ws.rm)
-		J, A, g := ws.J, ws.A, ws.g
-		// Normal equations: A = JᵀJ, g = Jᵀr. A is symmetric, so only its upper
-		// triangle is computed and mirrored into the lower one — IEEE
-		// multiplication is commutative and the accumulation order over k is
-		// unchanged, so the mirrored entry is bit-identical to what the full
-		// double loop would have computed for (j, i).
-		for i := 0; i < n; i++ {
-			for j := i; j < n; j++ {
-				var sum float64
-				for k := 0; k < m; k++ {
-					sum += J[k][i] * J[k][j]
-				}
-				A[i][j] = sum
-				A[j][i] = sum
-			}
-			var gs float64
-			for k := 0; k < m; k++ {
-				gs += J[k][i] * ws.r[k]
-			}
-			g[i] = gs
-		}
+		transposeInto(ws.JT, ws.J, m, n)
+		normalEquationsInto(ws.A, ws.g, ws.JT, ws.r, m, n)
+		A, g := ws.A, ws.g
 
 		// Absolute damping scale. Using λ·max(diag) rather than λ·A[i][i]
 		// regularizes every direction by the same amount, which keeps the
@@ -622,6 +612,65 @@ func (s *Sketch) jacobianInto(J [][]float64, free []int, m int, eval func([]floa
 		for i := 0; i < m; i++ {
 			J[i][j] = (rp[i] - rm[i]) * inv
 		}
+	}
+}
+
+// transposeInto fills jt with the column-major transpose of the m×n row-major
+// matrix j: jt[c*m+r] holds j[r][c], so column c of j lands in the contiguous
+// run jt[c*m:(c+1)*m]. jt must hold at least m*n entries and j at least m rows
+// of n columns; [lmWorkspace.alloc] sizes both from the same m and n.
+//
+// It only MOVES float64 values, so it introduces no arithmetic and cannot
+// perturb a single bit of what the caller then computes from jt.
+func transposeInto(jt []float64, j [][]float64, m, n int) {
+	for r := 0; r < m; r++ {
+		row := j[r]
+		for c := 0; c < n; c++ {
+			jt[c*m+r] = row[c]
+		}
+	}
+}
+
+// normalEquationsInto accumulates the normal equations of the least-squares
+// step into the caller's buffers: a = JᵀJ (n×n) and g = Jᵀr (n), read from the
+// column-major transpose jt that [transposeInto] produced and the residual
+// vector r. a is fully overwritten and g likewise, so neither needs clearing
+// between iterations.
+//
+// Every entry is a dot product of two Jacobian COLUMNS, and jt holds each
+// column as one contiguous run — the reason the transpose is worth its own
+// pass. Reading the columns out of the row-major J instead walks m separately
+// allocated rows per entry, which is a cache miss per term rather than per line
+// and is what dominated the solver profile.
+//
+// The arithmetic is deliberately unchanged from the row-major double loop this
+// replaces, term for term and in the same ascending k: same two factors, same
+// running sum from positive zero, no compensated summation, no skipped zero
+// terms, no reassociation. Float addition is neither associative nor
+// commutative, so any of those would move result bits; the equivalence is
+// pinned bit for bit by TestNormalEquationsColumnLayoutMatchesReference.
+//
+// a is symmetric, so only its upper triangle is accumulated and each sum is
+// mirrored into the lower one. IEEE multiplication is commutative and the
+// order over k does not depend on i or j, so the mirrored entry is bit-
+// identical to what a full double loop would have computed for (j, i).
+func normalEquationsInto(a [][]float64, g []float64, jt []float64, r []float64, m, n int) {
+	for i := 0; i < n; i++ {
+		ci := jt[i*m : (i+1)*m]
+		for j := i; j < n; j++ {
+			cj := jt[j*m : (j+1)*m]
+			var sum float64
+			for k := 0; k < m; k++ {
+				sum += ci[k] * cj[k]
+			}
+			a[i][j] = sum
+			a[j][i] = sum
+		}
+		var gs float64
+		for k := 0; k < m; k++ {
+			gs += ci[k] * r[k]
+		}
+		g[i] = gs
 	}
 }
 
