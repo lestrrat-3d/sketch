@@ -180,7 +180,20 @@ func (s *Sketch) ProbeConfigurations(ctx context.Context, options ...ProbeOption
 			cfg.seed = option.MustGet[uint64](opt)
 		}
 	}
+	return s.probeConfigurations(ctx, cfg, localJacobian)
+}
 
+// probeConfigurations is the probe's body, with the solver's Jacobian mode
+// (jacobian.go) as an explicit parameter. Every re-solve here runs
+// [Sketch.residuals] over this sketch's committed constraints — the one
+// evaluator a residual plan describes — and the constraint list never changes
+// while the search runs, so the exported entry point passes localJacobian.
+//
+// The mode is a parameter rather than a constant so a test can drive the SAME
+// search both ways and compare the configurations bit for bit: the probe's
+// whole value is that its result is deterministic, and "the local Jacobian is
+// bit-identical" has to be shown of the search, not only of one matrix.
+func (s *Sketch) probeConfigurations(ctx context.Context, cfg probeConfig, mode jacobianMode) (*ProbeResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -208,7 +221,7 @@ func (s *Sketch) ProbeConfigurations(ctx context.Context, options ...ProbeOption
 	// directly rather than Solve so that parameter bindings are not
 	// re-evaluated and refreshDriven never writes a probed configuration's
 	// measurements into driven dimensions.
-	if _, err := s.lm(ctx, free, s.residuals, sc.maxIterations, sc.tolerance); err != nil {
+	if _, err := s.lm(ctx, free, s.residuals, mode, sc.maxIterations, sc.tolerance); err != nil {
 		return nil, err // cancellation returns ctx.Err(), not a spurious ErrNotConverged
 	}
 	// The baseline solve finished, but ctx may have gone done as its last lm
@@ -278,7 +291,7 @@ func (s *Sketch) ProbeConfigurations(ctx context.Context, options ...ProbeOption
 		}
 		copy(s.vars, baseline)
 		perturb()
-		if _, err := s.lm(ctx, free, s.residuals, sc.maxIterations, sc.tolerance); err != nil {
+		if _, err := s.lm(ctx, free, s.residuals, mode, sc.maxIterations, sc.tolerance); err != nil {
 			return false // cancelled mid-solve — stop the caller loop promptly
 		}
 		rr := s.residuals(nil)
