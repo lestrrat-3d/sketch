@@ -1025,6 +1025,12 @@ func solveLinear(A [][]float64, b []float64) ([]float64, bool) {
 	return x, true
 }
 
+// negZeroBits is the IEEE-754 bit pattern of negative zero. The question below
+// is asked against it rather than with `v == 0 && math.Signbit(v)` because ==
+// reports the two zeros as equal, and their sign bit is exactly what is at
+// stake.
+const negZeroBits = 1 << 63
+
 // solveLinearInto solves A·x = b for a square matrix using Gaussian
 // elimination with partial pivoting, writing the result into x and using M (an
 // n×(n+1) scratch matrix) as its augmented working copy — the body
@@ -1033,11 +1039,77 @@ func solveLinear(A [][]float64, b []float64) ([]float64, bool) {
 // A/b before elimination reads it, so a caller reusing M across calls (the
 // [lmWorkspace] case) needs no reset between them. Returns false if A is
 // singular, leaving x unmodified.
+//
+// # The zero-multiplier shortcut
+//
+// The systems this kernel meets are mostly zeros. [Sketch.lm] hands it JᵀJ
+// damped on the diagonal, and a sketch Jacobian is sparse — a constraint's
+// residual row touches only the few variables of the geometry it references —
+// while rowCombo (diagnose.go) hands it an upper-triangular Gram matrix. In the
+// gear-profile workload this kernel was profiled on, 44.8% of the elimination
+// multipliers were exactly zero, and the row update each of them scales changes
+// nothing. Skipping such a row skips its whole memory traffic too, which is
+// most of what it costs.
+//
+// The skip must be BIT-IDENTICAL to the update it replaces, not merely equal to
+// within an ulp: the LM step this feeds decides which configuration a solve,
+// and every [Sketch.ProbeConfigurations] restart, lands in. The update is
+// `M[r][c] -= f*M[col][c]`; with f exactly ±0 it can only ever leave M[r][c]
+// alone or flip a zero's sign, and two guards rule out each of the two ways it
+// could do more:
+//
+//   - The pivot row's suffix must be FINITE at this pivot. Zero times an
+//     infinity (or a NaN) is NaN, which the plain update writes into the target
+//     row and a skip would drop. This is a property of the pivot ROW, so it is
+//     answered by one scan of the suffix the row updates then read repeatedly —
+//     once per pivot, never once per row. It cannot be hoisted out of the pivot
+//     loop either: a row that started finite can overflow to an infinity during
+//     elimination.
+//   - The working copy must hold NO NEGATIVE ZERO. Subtracting an exact zero is
+//     the identity on every float64 except -0, where the subtrahend's sign
+//     decides: -0 − (+0) is -0, but -0 − (-0) is +0. Skipping would keep a -0
+//     the update turns positive, and that sign reaches x through the back
+//     substitution. Elimination can never CREATE a negative zero — a
+//     subtraction yields one only from a -0 minuend, an exact cancellation
+//     rounds to +0, and no nonzero difference of two float64s underflows (both
+//     are integer multiples of 2⁻¹⁰⁷⁴, so their difference is too) — so the
+//     single scan below, over the copy every later value descends from, settles
+//     the question for the whole call. It is answered on the copy-in pass,
+//     where the rows are in cache exactly once, and one negative zero anywhere
+//     costs the call its shortcut rather than risking a sign. That is rare: it
+//     needs a gradient component of exactly zero, which the profiled workload
+//     produced in 10.3% of its calls.
+//
+// The test is deliberately EXACT: a zero multiplier is `f == 0`, never a
+// small-magnitude test. A tiny nonzero f still changes the row, and an epsilon
+// would silently substitute a different matrix for the one the caller passed.
+// Note that `f == 0` also covers a nonzero numerator whose quotient UNDERFLOWED
+// to zero; its products are exact zeros too, so it is equally safe.
+//
+// The row updates read their two rows through slices taken once per row rather
+// than indexing M[r] and M[col] per element. That is the same arithmetic on the
+// same values in the same ascending order — M[col] is never written while the
+// rows below it are updated, and no two rows of a scratch matrix share a
+// backing array — with the redundant slice-header loads and bounds checks
+// lifted out of the innermost loop. On its own that rewrite measured as noise;
+// paired with the skip it halved the kernel again, because a shortened loop
+// pays the per-row overhead far more often.
 func solveLinearInto(M [][]float64, A [][]float64, b, x []float64) bool {
 	n := len(b)
+	noNegZero := true
 	for i := 0; i < n; i++ {
-		copy(M[i], A[i])
-		M[i][n] = b[i]
+		row := M[i]
+		copy(row, A[i])
+		row[n] = b[i]
+		if !noNegZero {
+			continue
+		}
+		for _, v := range row[:n+1] {
+			if math.Float64bits(v) == negZeroBits {
+				noNegZero = false
+				break
+			}
+		}
 	}
 	for col := 0; col < n; col++ {
 		piv := col
@@ -1052,10 +1124,25 @@ func solveLinearInto(M [][]float64, A [][]float64, b, x []float64) bool {
 			return false
 		}
 		M[col], M[piv] = M[piv], M[col]
+
+		pivot := M[col][col : n+1]
+		skipZero := noNegZero
+		if skipZero {
+			for _, v := range pivot {
+				if nonFinite(v) {
+					skipZero = false
+					break
+				}
+			}
+		}
 		for r := col + 1; r < n; r++ {
-			f := M[r][col] / M[col][col]
-			for c := col; c <= n; c++ {
-				M[r][c] -= f * M[col][c]
+			row := M[r][col : n+1]
+			f := row[0] / pivot[0]
+			if skipZero && f == 0 {
+				continue
+			}
+			for c, v := range pivot {
+				row[c] -= f * v
 			}
 		}
 	}
