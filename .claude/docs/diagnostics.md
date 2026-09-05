@@ -15,6 +15,7 @@ Detail moved out of CLAUDE.md's architecture table. Read before touching rank/DO
 | Why does a per-handle read answer false? | The two per-handle reads |
 | Why does `CheckConstraint` refuse a candidate? | `diagnose.go` — overview and the `CheckConstraint` screens |
 | Why does the probe refuse or return NaN? | `probe.go` — the ambiguity probe |
+| When does the solver skip residual rows while building its Jacobian? | `jacobian.go` — the local residual Jacobian |
 
 Navigation only — the sections below are the authority.
 
@@ -91,6 +92,67 @@ ever reached from a public entry point: it reports 0 for a NaN/Inf matrix entry,
 so such an entry reads as the worst possible pivot candidate on both comparisons
 a plain `math.Abs` would get backwards, rather than making the result of an
 already-poisoned matrix meaningful.
+
+## `jacobian.go` — the local residual Jacobian
+
+### Overview
+
+`Sketch.jacobianInto` (`solver.go`) is the DEFINITION of the numerical
+Jacobian: per free variable it perturbs that variable and reevaluates the whole
+residual vector twice. `jacobian.go` holds the optimization of that definition —
+a `residualPlan` recording which rows each committed constraint owns and which
+constraints each variable reaches, and `Sketch.jacobianLocalInto`, which
+reevaluates only the affected constraints per variable and leaves every other
+entry cleared.
+
+### The result is bit-identical, and the plan refuses where it cannot be
+
+A row whose constraint does not read the perturbed variable is computed from
+identical inputs by identical code at both perturbations, so its difference is
+`+0` and the dense pass's `+0 * inv` is `+0` — exactly what the cleared entry
+holds. **That argument needs the unaffected rows to be FINITE**, so
+`jacobianLocalInto` scans the caller's base residual vector first and refuses
+the whole call on a NaN or infinity: there the dense pass computes `∞ − ∞` or
+`NaN − NaN` for every column, and clearing would replace a NaN a structurally
+independent row genuinely produces. Every other refusal is whole-call too — an
+unclassified dependency set, a row count that moved, a row vector the plan does
+not describe — and each falls through to the dense build, so **the mode selects
+an optimization, never a different result**.
+
+### The dependency inventory has no table of its own
+
+`Sketch.constraintVarIndices` is assembled from the definitions that already own
+each half of the question — `constraintRefs` (`removal.go`) for the operands,
+`entityPoints`/`entityShapeVars` (`sketch.go`) for what an entity operand owns,
+`auxVars` (`nonfinite.go`) for the constraint's own unknowns. It **refuses**
+rather than guesses on a constraint `constraintRefs` does not list (the shape a
+new constraint type added without its removal.go case takes — an empty
+dependency set would zero every entry of a real row), on an operand this sketch
+does not own, and on auxiliary variables another sketch allocated.
+`jacobian_inventory_test.go` carries the checked-in inventory of all 57 kinds,
+anchored against `constraint.go`'s constructor list, and — the load-bearing half
+— pins that perturbing any variable a kind does NOT name leaves its residual
+rows bit-identical.
+
+### The mode is passed by the call site, never inferred
+
+A plan describes `residuals()` and nothing else, so `Sketch.lm` takes an
+explicit `jacobianMode`: `Sketch.Solve`'s polish phase and
+`Sketch.probeConfigurations` pass `localJacobian`, the goal-augmented phase
+passes `denseJacobian`. Recognizing the evaluator by comparing Go function
+values is neither legal nor reliable, so it is not attempted; the row-count
+check is the second line of defence behind the call site's statement.
+
+### The plan is per-call state
+
+It is built inside one `lm` call, past the termination checks beside
+`lmWorkspace.alloc` so an already-converged solve pays nothing, and it is never
+stored on the `Sketch` and never reused across public calls — the same rule
+`committedJacobian` (`conditioning.go`) follows. Its cost scales with the
+CONSTRAINT count while the dense pass's scales with rows × free variables, so
+the build is kept allocation-lean: every buffer is sized once, the
+per-constraint variable list is sorted and deduplicated in place, and the
+occurrence counts double as the fill cursors.
 
 ## `diagnose.go` — constraint diagnostics
 

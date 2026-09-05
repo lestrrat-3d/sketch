@@ -189,13 +189,15 @@ func (s *Sketch) Solve(ctx context.Context, options ...SolveOption) (*Result, er
 	var iters int
 	var solveErr error
 	if len(o.goals) > 0 {
+		// The augmented system carries goal rows that are not constraints, so it
+		// has no residual plan: dense, the mode every arbitrary eval takes.
 		aug := func(buf []float64) []float64 { return s.goalResiduals(buf, o.goals) }
-		di, err := s.lm(ctx, free, aug, o.maxIterations, o.tolerance)
+		di, err := s.lm(ctx, free, aug, denseJacobian, o.maxIterations, o.tolerance)
 		iters += di
 		solveErr = err
 	}
 	if solveErr == nil {
-		di, err := s.lm(ctx, free, s.residuals, o.maxIterations, o.tolerance)
+		di, err := s.lm(ctx, free, s.residuals, localJacobian, o.maxIterations, o.tolerance)
 		iters += di
 		solveErr = err
 	}
@@ -372,7 +374,16 @@ func (ws *lmWorkspace) alloc(m, n int) {
 // outer iteration before the (expensive) Jacobian build, and at the top of the
 // damping trial loop — always at a point where no unaccepted trial step is
 // applied, so the geometry is left at the last accepted configuration.
-func (s *Sketch) lm(ctx context.Context, free []int, eval func([]float64) []float64, maxIterations int, tolerance float64) (int, error) {
+//
+// mode says whether this call may build a residual plan and take the local
+// Jacobian (jacobian.go). It is a property of the CALLER's eval, so the caller
+// states it: localJacobian is legal only when eval is [Sketch.residuals] over
+// this sketch's committed constraints. denseJacobian, the zero value, is always
+// legal and is what an arbitrary eval gets. The plan itself may still refuse —
+// on a dependency it cannot determine, on a row count that moved, on non-finite
+// residuals — and every refusal falls through to the dense build, so the mode
+// selects an optimization, never a different result.
+func (s *Sketch) lm(ctx context.Context, free []int, eval func([]float64) []float64, mode jacobianMode, maxIterations int, tolerance float64) (int, error) {
 	n := len(free)
 	if err := ctx.Err(); err != nil {
 		return 0, err
@@ -386,6 +397,7 @@ func (s *Sketch) lm(ctx context.Context, free []int, eval func([]float64) []floa
 	// eval(nil) already returned a fresh buffer; no need to copy it in. The rest
 	// of the workspace is sized lazily below, once an iteration actually needs it.
 	ws := &lmWorkspace{r: r}
+	var plan *residualPlan
 
 	cost := dot(ws.r, ws.r) // sum of squared residuals
 	lambda := 1e-3
@@ -402,9 +414,20 @@ func (s *Sketch) lm(ctx context.Context, free []int, eval func([]float64) []floa
 		}
 		if ws.J == nil {
 			ws.alloc(m, n)
+			// Built here rather than before the loop for the same reason the
+			// workspace is: a solve that is already converged, or has nothing
+			// free to move, never builds a Jacobian and must not pay for a plan
+			// it will not use. Built ONCE per lm call — the constraint list and
+			// the variable indices cannot change while the loop runs — and a
+			// refusal is remembered by leaving plan nil rather than retried.
+			if mode == localJacobian {
+				plan, _ = s.newResidualPlan(m)
+			}
 		}
 
-		s.jacobianInto(ws.J, free, m, eval, ws.rp, ws.rm)
+		if !s.jacobianLocalInto(ws.J, free, m, plan, ws.r) {
+			s.jacobianInto(ws.J, free, m, eval, ws.rp, ws.rm)
+		}
 		transposeInto(ws.JT, ws.J, m, n)
 		normalEquationsSparseInto(ws, m, n)
 		A, g := ws.A, ws.g
