@@ -505,7 +505,7 @@ func TestNormalEquationsSparseMatchesReference(t *testing.T) {
 				name := fmt.Sprintf("density %g at %dx%d", density, size.m, size.n)
 				t.Run(name, func(t *testing.T) {
 					tc := randomDensityMatrix(name, size.m, size.n,
-						density, uint64(size.m*1000+size.n)^uint64(math.Float64bits(density)))
+						density, uint64(size.m*1000+size.n)^math.Float64bits(density))
 					requireSparseMatchesBoth(t, tc.name, tc.j, tc.r, tc.m, tc.n)
 				})
 			}
