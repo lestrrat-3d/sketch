@@ -115,6 +115,7 @@ value flows to both `SVG` and `PNG`):
 | `WithConflicts(bool)` | `false` | highlight conflicting constraints' geometry in red (from `Diagnose()`/`ConflictSet()`) |
 | `WithStatusBadge(bool)` | `false` | draw a small text badge: `DOF=n`, `fully/under/over-constrained`, `converged` |
 | `WithProfileFill(bool)` | `false` | translucent fill under **valid** closed regions from `Profiles()` |
+| `WithLabels(bool)` | `false` | draw the optional names points and entities carry, placed clear of the drawing and leadered back to it when moved |
 | `WithAnnotationColor(string)` | `#5f6368` | dimension lines / glyph stroke |
 | `WithAnnotationScale(float64)` | `1.0` | multiplies glyph/text/arrow size (else derived from bbox diagonal) |
 
@@ -213,6 +214,39 @@ Glyphs render as tiny `<path>`/`<text>` groups via a shared
 `glyph(kind, x, y, size, color)` helper. Ticks/squares/chevrons are `<path>`;
 letters use `<text>` (with the Portability fallback).
 
+### Names (gated by `WithLabels`)
+
+The optional label a point or entity carries (`names.go`), drawn as `<text>`
+beside the geometry that carries it. A **point's** name is upright; an
+**entity's** is italic, and that style difference is what tells the two kinds
+apart on the page.
+
+Placement is a search, not an offset (`labels.go`), which is this document's
+"no global collision solver" limitation being lifted for labels. Each name is
+scored at a ring of candidate positions — its own first choice, then the eight
+compass directions at one step and again at two — against the boxes of the names
+already placed, the point markers, the drawing's sampled geometry
+(`entityPolyline`) and the canvas. Weights: off-canvas 1000, another name 100, a
+marker 10, a curve 1, plus 0.01 per candidate rank so an uncrowded drawing keeps
+its first choice and ties resolve identically on every run. A name is never
+dropped; when everything collides the least bad position is drawn. Text width is
+estimated (`labelWidthPerRune`), deliberately generously, because the exporter
+cannot know the viewer's font metrics.
+
+A name carries a CAD note leader — underlined text, a line off the end of that
+underline, an arrowhead just short of the marker — when the search MOVED it or
+when another marker is within `leaderRivalRatio` of its own anchor's distance
+(the lattice case: a name at its first choice is equally near the next dot). A
+leadered name is stood off to `outerRingStep` if it is too close to carry a
+visible line. Name and leader are both haloed in the page colour, without which a
+hairline along a dashed construction line is lost in the dashes.
+
+An entity's anchor is the mean of `entityPoints(e)` — the midpoint of a line, the
+centre of a circle — read through that accessor rather than through a type switch
+here, so a new entity type gets an anchor from the contract it already has to
+satisfy. Unnamed geometry emits nothing, and the pass walks `s.points` then
+`s.ents` in slice order, which is also the order the search places them in.
+
 ### DOF coloring & verification overlays
 
 - `WithDOFColoring`: recolor points via `Point.IsFullyConstrained()` — points
@@ -241,8 +275,9 @@ computed non-mutatingly from existing diagnostics.
 - Per-anchor stacking (above) prevents same-entity glyph pileup.
 - Dimension lines use `gap = k·bboxDiag`; multiple dims on the same feature pair
   stack by incrementing the gap.
-- No global collision solver (documented limitation; a layout pass is a
-  follow-up).
+- No global collision solver for dimensions and glyphs (documented limitation; a
+  layout pass is a follow-up). NAME LABELS have one, `labels.go` — see "Names
+  (gated by `WithLabels`)" — and it is per-label greedy rather than global.
 - **Determinism (byte-stable output) requires all of:** no timestamps/randomness;
   fixed float formatting (existing `trimFloat`/`f` at 4 dp); **map-free emit**
   (walk `s.cons`/`s.points`/`s.ents` in slice order; no `map[Entity]…` in the

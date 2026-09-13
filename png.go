@@ -188,30 +188,11 @@ func (s *Sketch) PNG(options ...PNGOption) ([]byte, error) {
 		case e.IsConstruction():
 			col = construction
 		}
-		switch t := e.(type) {
-		case *Line:
-			r.strokePolyline(toPixels([][2]float64{
-				{t.Start.x(), t.Start.y()},
-				{t.End.x(), t.End.y()},
-			}), width, col)
-		case *Circle:
-			r.strokePolyline(toPixels(circlePolyline(t, cfg.arcSegments)), width, col)
-		case *Arc:
-			r.strokePolyline(toPixels(arcPolyline(t, cfg.arcSegments)), width, col)
-		case *EllipticalArc:
-			r.strokePolyline(toPixels(ellipticalArcPolyline(t, cfg.arcSegments)), width, col)
-		case *Ellipse:
-			r.strokePolyline(toPixels(ellipsePolyline(t, cfg.arcSegments)), width, col)
-		case *Spline:
-			r.strokePolyline(toPixels(t.Polyline(cfg.arcSegments)), width, col)
-		case *ClosedSpline:
-			r.strokePolyline(toPixels(t.Polyline(cfg.arcSegments)), width, col)
-		case *FitSpline:
-			r.strokePolyline(toPixels(t.Polyline(cfg.arcSegments)), width, col)
-		case *Conic:
-			r.strokePolyline(toPixels(t.Polyline(cfg.arcSegments)), width, col)
-		case *NURBS:
-			r.strokePolyline(toPixels(t.Polyline(cfg.arcSegments)), width, col)
+		// Every entity is drawn as a sampled polyline here, so this path takes
+		// the shared sampler rather than repeating the per-kind switch the SVG
+		// exporter needs for its native elements.
+		if pts := entityPolyline(e, cfg.arcSegments); len(pts) > 0 {
+			r.strokePolyline(toPixels(pts), width, col)
 		}
 	}
 

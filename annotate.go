@@ -149,6 +149,7 @@ type annCtx struct {
 	text   float64 // font size
 	gap    float64 // dimension-line offset from the geometry
 	ext    float64 // extension beyond the dimension line
+	marker float64 // the point markers' own radius, which a name is set clear of
 
 	placed []v2 // base anchors of glyphs already drawn, for per-anchor stacking
 }
@@ -281,6 +282,7 @@ func newAnnCtx(sb *svgWriter, cfg svgConfig, b bbox, tx, ty func(float64) float6
 		text:   0.04 * diag * sz,
 		gap:    0.06 * diag * sz,
 		ext:    0.015 * diag * sz,
+		marker: pointRadius(cfg.pointRadius, b),
 	}
 }
 
@@ -370,9 +372,9 @@ func (a *annCtx) rimBadgeAnchor(c Circular) v2 {
 	return a.xy(cp.x()+c.R()*math.Cos(ang), cp.y()+c.R()*math.Sin(ang))
 }
 
-// badge draws a small boxed symbol at anchor, stacking downward when several
-// glyphs share an anchor.
-func (a *annCtx) badge(anchor v2, sym string) {
+// stackIndex records one more mark on anchor and reports how many were already
+// there, so the caller can step the new one clear of them.
+func (a *annCtx) stackIndex(anchor v2) int {
 	idx := 0
 	for _, p := range a.placed {
 		if vlen(vsub(p, anchor)) < a.text*0.5 {
@@ -380,7 +382,13 @@ func (a *annCtx) badge(anchor v2, sym string) {
 		}
 	}
 	a.placed = append(a.placed, anchor)
-	pos := vadd(anchor, v2{0, float64(idx) * a.text * 1.7})
+	return idx
+}
+
+// badge draws a small boxed symbol at anchor, stacking downward when several
+// glyphs share an anchor.
+func (a *annCtx) badge(anchor v2, sym string) {
+	pos := vadd(anchor, v2{0, float64(a.stackIndex(anchor)) * a.text * 1.7})
 	r := a.text * 0.85
 	fmt.Fprintf(a.sb,
 		`  <rect x="%s" y="%s" width="%s" height="%s" rx="%s" fill="white" stroke="%s" stroke-width="%s"/>`+"\n",
@@ -630,13 +638,17 @@ func (a *annCtx) dimLineOneArrow(p, q v2) {
 }
 
 // arrowAt draws a filled triangular arrowhead whose tip is at p, pointing along
-// dir.
-func (a *annCtx) arrowAt(p, dir v2) {
+// dir, at the pass's own arrow size.
+func (a *annCtx) arrowAt(p, dir v2) { a.arrowAtSize(p, dir, a.arrow) }
+
+// arrowAtSize is arrowAt with the head's length given, for a caller whose line
+// is too short to carry the standard one.
+func (a *annCtx) arrowAtSize(p, dir v2, size float64) {
 	if dir == (v2{}) {
 		return
 	}
-	back := vsub(p, vmul(dir, a.arrow))
-	n := vmul(vperp(dir), a.arrow*0.35)
+	back := vsub(p, vmul(dir, size))
+	n := vmul(vperp(dir), size*0.35)
 	l := vadd(back, n)
 	r := vsub(back, n)
 	fmt.Fprintf(a.sb,
