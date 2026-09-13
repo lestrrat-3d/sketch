@@ -18,7 +18,7 @@ import (
 // can say where the obstacles are.
 func placerFixture(canvas rect) *labelPlacer {
 	a := &annCtx{text: 4, marker: 2}
-	return &labelPlacer{a: a, canvas: canvas}
+	return &labelPlacer{a: a, canvas: canvas, weights: defaultLabelWeights()}
 }
 
 // placedBox is the box the placer chose for one name, which is the last box it

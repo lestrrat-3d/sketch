@@ -58,6 +58,30 @@ construction line the drawing has anyway. Nothing is ever dropped: when every
 position collides the least bad one is still drawn, because a crowded label says
 more than no label.
 
+**The ORDER of the weights is pinned by tests; the magnitudes are not, and that
+is honest rather than lazy.** They live in `labelWeights`
+(`defaultLabelWeights()`) as a value on `labelPlacer` rather than as constants
+read straight from `score`, so a test can switch one off and measure the drawing
+that comes out. `TestLabelWeightsEarnTheirPlace`
+(`labels_scoring_internal_test.go`) does exactly that: it places 80 names on a
+crowded cloud, zeroes one weight, and requires the collisions that weight exists
+to prevent to go UP. With every weight on, 0 names land on another name, 1 on
+someone else's vertex and 9 on a leader; zeroing them one at a time gives 33, 20
+and 14. A weight that changes nothing when removed is decoration, and this is
+what tells the two apart. `TestLabelWeightsRankHarmInOrder` holds the ranking
+and `TestLabelRankOnlyBreaksTies` holds the rank term below the cheapest real
+collision.
+
+**A uniform lattice cannot measure the marker weight, which is why the fixture
+is an irregular cloud.** On a grid every position a name can reach is near
+somebody's vertex, so the weight shuffles which vertex gets covered without ever
+reducing the count; measured across side 8, 10 and 12 at five spacings it moved
+the total by 0 or 1 in either direction. Open space between clusters is what
+gives a name somewhere better to go, and only then does a weight show up as an
+improvement. The same limit explains why the downstream gear drawing proved
+nothing about these numbers: its S10 figure renders byte-identically with the
+leader weight anywhere from 0 to 100.
+
 **A name gets a leader when it was MOVED or when it has a RIVAL.** Moved is the
 obvious case: the name is no longer where a reader looks for it. The rival case
 is the one the real drawing taught — a name at its own first choice, up and to
