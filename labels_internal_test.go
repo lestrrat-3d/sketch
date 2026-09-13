@@ -91,14 +91,51 @@ func TestLabelPlacerLabelsAnyway(t *testing.T) {
 	require.Contains(t, lp.a.sb.String(), ">A<")
 }
 
-// A name in the spot a reader expects needs no line to it, and drawing one
-// would add a mark per label to a drawing that was already legible.
-func TestLabelLeaderIsNotDrawnForAnAdjacentName(t *testing.T) {
+// A name beside its own geometry with nothing else near is already paired with
+// it, and a leader there would be ink spent saying what the drawing says.
+func TestLabelLeaderIsNotDrawnForALoneName(t *testing.T) {
 	lp := placerFixture(rect{maxX: 1000, maxY: 1000})
 	lp.a.sb = newSVGWriter()
+	anchor := v2{500, 500}
+	lp.markers = []rect{markerAt(lp, anchor)}
 
-	lp.place(v2{500, 500}, "A", labelPoint)
+	lp.place(anchor, "A", labelPoint)
 	require.NotContains(t, lp.a.sb.String(), "<line", "no leader for a name at its first choice")
+}
+
+// A name whose own vertex has a near neighbour cannot be paired by position at
+// all: it sits up and to the right of its own dot and up and to the left of the
+// next one. That name gets a leader even though the search never moved it.
+func TestLabelLeaderIsDrawnWhenAnotherVertexIsAsNear(t *testing.T) {
+	lp := placerFixture(rect{maxX: 1000, maxY: 1000})
+	lp.a.sb = newSVGWriter()
+	anchor := v2{500, 500}
+	lp.markers = []rect{markerAt(lp, anchor), markerAt(lp, v2{507, 497})}
+
+	lp.place(anchor, "A", labelPoint)
+	require.Contains(t, lp.a.sb.String(), "<line", "the rival makes the pairing ambiguous")
+}
+
+// A name that needs a leader is stood off far enough to carry a visible one: a
+// line of a few pixels with a smaller head on it says nothing.
+func TestLabelStandsOffFarEnoughToCarryItsLeader(t *testing.T) {
+	lp := placerFixture(rect{maxX: 1000, maxY: 1000})
+	lp.a.sb = newSVGWriter()
+	lp.a.arrow = 2
+	anchor := v2{500, 500}
+	lp.markers = []rect{markerAt(lp, anchor), markerAt(lp, v2{507, 497})}
+
+	lp.place(anchor, "A", labelPoint)
+	require.GreaterOrEqual(t, lp.reach(placedBox(lp), anchor), lp.a.arrow*leaderMinReach,
+		"the name stands clear of its own marker by more than its arrowhead")
+}
+
+// markerAt is the box a point marker covers at a screen position.
+func markerAt(lp *labelPlacer, c v2) rect {
+	return rect{
+		minX: c[0] - lp.a.marker, minY: c[1] - lp.a.marker,
+		maxX: c[0] + lp.a.marker, maxY: c[1] + lp.a.marker,
+	}
 }
 
 // A name the search had to move is tied to its geometry the way a CAD note is

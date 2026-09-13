@@ -42,20 +42,28 @@ type drawnText struct {
 	Text   string
 }
 
-// textAt returns every <text> element, in document order.
+// textAt returns every drawn name, in document order.
+//
+// A name is written twice, once as a thickened copy in the page's own colour
+// that clears the drawing under the letters and once as the letters themselves.
+// The halo copy is the one carrying a stroke, and it is skipped here: it says
+// nothing the name itself does not.
 func textAt(t *testing.T, svg string) []drawnText {
 	t.Helper()
-	re := regexp.MustCompile(`<text x="([^"]*)" y="([^"]*)"[^>]*text-anchor="([^"]*)"([^>]*)>([^<]*)</text>`)
+	re := regexp.MustCompile(`<text x="([^"]*)" y="([^"]*)"([^>]*)text-anchor="([^"]*)"([^>]*)>([^<]*)</text>`)
 	var out []drawnText
 	for _, m := range re.FindAllStringSubmatch(svg, -1) {
+		if strings.Contains(m[3], `stroke="`) {
+			continue
+		}
 		x, err := strconv.ParseFloat(m[1], 64)
 		require.NoError(t, err)
 		y, err := strconv.ParseFloat(m[2], 64)
 		require.NoError(t, err)
 		out = append(out, drawnText{
-			X: x, Y: y, Anchor: m[3],
-			Italic: strings.Contains(m[4], `font-style="italic"`),
-			Text:   m[5],
+			X: x, Y: y, Anchor: m[4],
+			Italic: strings.Contains(m[5], `font-style="italic"`),
+			Text:   m[6],
 		})
 	}
 	return out

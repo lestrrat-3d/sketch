@@ -40,10 +40,13 @@ type identLabels struct{}
 // a crowded drawing some overlap is unavoidable, and the search then keeps the
 // least bad position rather than refusing to label.
 //
-// A name the search moved is tied to its own geometry the way a CAD note is tied
-// to a feature: the text is underlined, a line leaves the end of that underline,
-// and an arrowhead lands on the vertex. A name that kept its first choice is
-// already beside what it names and gets none of that. SVG only.
+// A name is tied to its own geometry the way a CAD note is tied to a feature —
+// underlined text, a line off the end of that underline, an arrowhead on the
+// vertex — whenever the search had to move it, or another point sits near enough
+// that position alone cannot say which vertex is meant. A name beside its own
+// geometry with nothing else near gets none of that. Names and their leaders are
+// cleared against the page's own background colour, so they stay legible where
+// they cross the drawing. SVG only.
 func WithLabels(v bool) SVGPNGOption { return svgPNGOption{option.New(identLabels{}, v)} }
 
 // writeLabels draws the optional name every named point and entity carries.
@@ -173,6 +176,7 @@ func onSegment(p, q, r v2) bool {
 type labelPlacer struct {
 	a        *annCtx
 	canvas   rect
+	halo     string  // the page colour, painted under a name and its leader
 	segments [][2]v2 // the drawing's own geometry, sampled
 	markers  []rect  // the point markers
 	placed   []rect  // the names already drawn
@@ -181,7 +185,7 @@ type labelPlacer struct {
 // newLabelPlacer samples the drawing once, so each name is scored against the
 // same geometry rather than re-sampling per candidate.
 func (s *Sketch) newLabelPlacer(a *annCtx, cfg svgConfig, tx, ty func(float64) float64, canvas rect) *labelPlacer {
-	lp := &labelPlacer{a: a, canvas: canvas}
+	lp := &labelPlacer{a: a, canvas: canvas, halo: haloColor(cfg.background)}
 	for _, e := range s.ents {
 		pts := entityPolyline(e, cfg.arcSegments)
 		for i := 1; i < len(pts); i++ {
@@ -269,23 +273,86 @@ func (lp *labelPlacer) place(anchor v2, name string, kind labelKind) {
 	}
 	step := lp.a.marker + lp.a.text*0.4
 
-	best, bestBox, bestScore, bestRank := spots[0], rect{}, math.Inf(1), 0
+	best, bestBox, bestRank := lp.search(anchor, name, spots, step, 0)
+	leadered := lp.needsLeader(bestBox, anchor, bestRank)
+	if leadered && lp.reach(bestBox, anchor) < lp.a.arrow*leaderMinReach {
+		// The name needs a leader and is too close to its own anchor to carry a
+		// visible one: the line would be a few pixels and the head smaller
+		// still. Standing the name off by another step is what buys the room,
+		// and it costs nothing a reader values — a name that needs a line drawn
+		// to it is not being read by its position anyway.
+		if far, farBox, _ := lp.search(anchor, name, spots, step, outerRingStep); farBox != (rect{}) {
+			best, bestBox = far, farBox
+		}
+	}
+
+	lp.placed = append(lp.placed, bestBox)
+	pos := vadd(anchor, v2{best.dx * step, best.dy * step})
+	if lp.halo != "" {
+		lp.a.nameHalo(pos, name, best.anchor, kind == labelEntity, lp.halo)
+	}
+	lp.a.nameText(pos, name, best.anchor, kind == labelEntity)
+	if leadered {
+		lp.leader(bestBox, anchor)
+	}
+}
+
+// search returns the best-scoring candidate among those standing at least
+// minStep out from the anchor, with the rank it was found at.
+//
+// The rank is the candidate's own index in the ring, so rank 0 means the name
+// kept the position a reader expects. Ties resolve by that index, which is what
+// keeps an uncrowded drawing on its first choice and makes two runs agree.
+func (lp *labelPlacer) search(anchor v2, name string, spots []labelSpot, step, minStep float64) (labelSpot, rect, int) {
+	best, bestBox, bestScore, bestRank := labelSpot{}, rect{}, math.Inf(1), 0
 	for i, sp := range spots {
+		if math.Max(math.Abs(sp.dx), math.Abs(sp.dy)) < minStep {
+			continue
+		}
 		box := lp.box(anchor, name, sp, step)
 		if score := lp.score(box) + float64(i)*labelPenaltyRank; score < bestScore {
 			best, bestBox, bestScore, bestRank = sp, box, score, i
 		}
 	}
-
-	lp.placed = append(lp.placed, bestBox)
-	if bestRank > 0 {
-		lp.leader(bestBox, anchor)
-	}
-	pos := vadd(anchor, v2{best.dx * step, best.dy * step})
-	lp.a.nameText(pos, name, best.anchor, kind == labelEntity)
+	return best, bestBox, bestRank
 }
 
-// leader ties a moved name to the geometry it names, as a CAD note is tied to a
+// reach is how much line a leader would have between the marker's clearance and
+// the text's own box.
+func (lp *labelPlacer) reach(box rect, anchor v2) float64 {
+	gap := vlen(vsub(closestOnRect(box, anchor), anchor))
+	return gap - (lp.a.marker + lp.a.text*leaderClearance)
+}
+
+// needsLeader reports whether a name has to be tied to its geometry explicitly.
+//
+// Two things call for it. A name the search MOVED is no longer where a reader
+// looks for it. And a name with a RIVAL — another point whose marker is nearly
+// as close to the text as its own anchor — cannot be paired by proximity at all,
+// however conventional its position: on a lattice of two dozen points, a name
+// sitting up and to the right of its own dot is also sitting up and to the left
+// of the next one, and the reader has no way to choose.
+//
+// A name with neither problem is beside its own geometry with nothing else near,
+// and a leader on it would be ink spent saying what the drawing already says.
+func (lp *labelPlacer) needsLeader(box rect, anchor v2, rank int) bool {
+	if rank > 0 {
+		return true
+	}
+	own := vlen(vsub(closestOnRect(box, anchor), anchor))
+	for _, m := range lp.markers {
+		centre := v2{(m.minX + m.maxX) / 2, (m.minY + m.maxY) / 2}
+		if vlen(vsub(centre, anchor)) < 1e-9 {
+			continue // the name's own marker
+		}
+		if vlen(vsub(closestOnRect(box, centre), centre)) <= own*leaderRivalRatio {
+			return true
+		}
+	}
+	return false
+}
+
+// leader ties a name to the geometry it names, as a CAD note is tied to a
 // feature: an underline under the text, a line from the end of that underline,
 // and an arrowhead on the vertex itself.
 //
@@ -295,10 +362,6 @@ func (lp *labelPlacer) place(anchor v2, name string, kind labelKind) {
 // and the reader cannot see which end belongs to which name. The underline binds
 // the line to ITS text — the line leaves the word, not the space near the word —
 // and the arrowhead says which of the several nearby dots is the one meant.
-//
-// It is drawn ONLY for a name the search had to move. A name in the spot a
-// reader expects, beside its own marker, is already paired with it, and a note
-// leader on every label would bury the drawing in annotation.
 func (lp *labelPlacer) leader(box rect, anchor v2) {
 	// The underline sits just under the text, spanning its width.
 	y := box.maxY + lp.a.text*leaderUnderlineDrop
@@ -320,8 +383,8 @@ func (lp *labelPlacer) leader(box rect, anchor v2) {
 		return // the text already sits against the marker
 	}
 
-	lp.a.leaderLine(left, right)
-	lp.a.leaderLine(start, tip)
+	lp.leaderLine(left, right)
+	lp.leaderLine(start, tip)
 	// A short leader takes a proportionally shorter head, so the arrow cannot be
 	// longer than the line it sits on.
 	lp.a.arrowAtSize(tip, dir, math.Min(lp.a.arrow, reach*leaderArrowShare))
@@ -329,21 +392,33 @@ func (lp *labelPlacer) leader(box rect, anchor v2) {
 
 // leaderLine emits one hairline of a leader, thinner than the geometry so the
 // annotation does not read as another edge of the drawing.
-func (a *annCtx) leaderLine(p, q v2) {
-	fmt.Fprintf(a.sb,
-		`  <line x1="%s" y1="%s" x2="%s" y2="%s" stroke="%s" stroke-width="%s"/>`+"\n",
-		a.sb.f(p[0]), a.sb.f(p[1]), a.sb.f(q[0]), a.sb.f(q[1]),
-		a.col, a.sb.f(a.sw*leaderStrokeFraction))
+//
+// It is painted twice: once wide in the page's own colour, then the line itself
+// on top. The casing is what makes the leader visible where it crosses the
+// drawing — a hairline laid along a dashed construction line is lost in the
+// dashes, and on a lattice that is exactly where leaders run. A page with no
+// background of its own gets no casing, since there is no colour to clear with.
+func (lp *labelPlacer) leaderLine(p, q v2) {
+	if lp.halo != "" {
+		lp.a.strokeLine(p, q, lp.halo, lp.a.sw*leaderStrokeFraction*leaderHaloWidth)
+	}
+	lp.a.strokeLine(p, q, lp.a.col, lp.a.sw*leaderStrokeFraction)
 }
 
-// The leader's own sizes, each as a fraction of the font size or the stroke
-// width, so they scale with the drawing like every other annotation.
-const (
-	leaderClearance      = 0.25 // gap left between the marker and the arrow's tip
-	leaderUnderlineDrop  = 0.1  // how far under the text the underline sits
-	leaderArrowShare     = 0.5  // the most of a leader's length its head may take
-	leaderStrokeFraction = 0.6  // thinner than the geometry it points into
-)
+func (a *annCtx) strokeLine(p, q v2, stroke string, width float64) {
+	fmt.Fprintf(a.sb,
+		`  <line x1="%s" y1="%s" x2="%s" y2="%s" stroke="%s" stroke-width="%s"/>`+"\n",
+		a.sb.f(p[0]), a.sb.f(p[1]), a.sb.f(q[0]), a.sb.f(q[1]), stroke, a.sb.f(width))
+}
+
+// haloColor is the colour a name and its leader are cleared against: the page's
+// own background, or nothing when the page is transparent.
+func haloColor(background string) string {
+	if background == "" || background == "none" {
+		return ""
+	}
+	return background
+}
 
 // closestOnRect is the point of a box nearest p, which is p itself when p is
 // inside the box.
@@ -353,6 +428,19 @@ func closestOnRect(r rect, p v2) v2 {
 		math.Min(math.Max(p[1], r.minY), r.maxY),
 	}
 }
+
+// The leader's own sizes, each as a fraction of the font size, the stroke width
+// or the arrowhead, so they scale with the drawing like every other annotation.
+const (
+	leaderRivalRatio     = 2.0  // how near another marker may come before a name needs its leader
+	leaderMinReach       = 1.6  // a leadered name stands off this many arrowheads at least
+	outerRingStep        = 2    // the ring a name is pushed out to when it needs the room
+	leaderHaloWidth      = 3.5  // how much wider the casing under a leader is than the leader
+	leaderClearance      = 0.25 // gap left between the marker and the arrow's tip
+	leaderUnderlineDrop  = 0.1  // how far under the text the underline sits
+	leaderArrowShare     = 0.5  // the most of a leader's length its head may take
+	leaderStrokeFraction = 0.6  // thinner than the geometry it points into
+)
 
 // box is the area a name would cover at one candidate position.
 func (lp *labelPlacer) box(anchor v2, name string, sp labelSpot, step float64) rect {
@@ -415,11 +503,30 @@ func labelWidth(name string, fontSize float64) float64 {
 // differences they are meant to have: an entity's name is italic, and each kind
 // starts from its own ring of candidate positions.
 func (a *annCtx) nameText(pos v2, name, textAnchor string, italic bool) {
-	style := ""
-	if italic {
-		style = ` font-style="italic"`
-	}
 	fmt.Fprintf(a.sb,
 		`  <text x="%s" y="%s" font-size="%s" fill="%s" text-anchor="%s" dominant-baseline="central"%s>%s</text>`+"\n",
-		a.sb.f(pos[0]), a.sb.f(pos[1]), a.sb.f(a.text), a.col, textAnchor, style, svgEscape(name))
+		a.sb.f(pos[0]), a.sb.f(pos[1]), a.sb.f(a.text), a.col, textAnchor, italicStyle(italic), svgEscape(name))
 }
+
+// nameHalo paints the same name in the page's colour, thickened, so the letters
+// that follow it sit in a clearing of their own rather than on top of whatever
+// the drawing has there. It is emitted immediately before the name, and drawn as
+// a stroked copy rather than through paint-order, which not every renderer that
+// takes this SVG supports.
+func (a *annCtx) nameHalo(pos v2, name, textAnchor string, italic bool, halo string) {
+	fmt.Fprintf(a.sb,
+		`  <text x="%s" y="%s" font-size="%s" fill="%s" stroke="%s" stroke-width="%s" stroke-linejoin="round" text-anchor="%s" dominant-baseline="central"%s>%s</text>`+"\n",
+		a.sb.f(pos[0]), a.sb.f(pos[1]), a.sb.f(a.text), halo, halo,
+		a.sb.f(a.text*labelHaloWidth), textAnchor, italicStyle(italic), svgEscape(name))
+}
+
+func italicStyle(italic bool) string {
+	if italic {
+		return ` font-style="italic"`
+	}
+	return ""
+}
+
+// labelHaloWidth is how wide the clearing around a name's letters is, as a
+// fraction of the font size.
+const labelHaloWidth = 0.22

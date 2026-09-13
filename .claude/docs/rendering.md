@@ -53,10 +53,28 @@ tie resolve the same way on every run. Nothing is ever dropped: when every
 position collides the least bad one is still drawn, because a crowded label says
 more than no label.
 
-**A name the search moved gets a leader; one that did not, does not.** The test
-is "was it moved", not "how far": one step off the expected side is already
-enough to leave a reader on a crowded figure guessing which vertex the name
-belongs to, while a leader on every label would bury the drawing in annotation.
+**A name gets a leader when it was MOVED or when it has a RIVAL.** Moved is the
+obvious case: the name is no longer where a reader looks for it. The rival case
+is the one the real drawing taught — a name at its own first choice, up and to
+the right of its dot, is also up and to the left of the next dot, and on a
+lattice of two dozen points proximity cannot pair it at all. `needsLeader` calls
+a marker a rival when it comes within `leaderRivalRatio` of the name's own
+distance to its anchor. A name with neither problem gets none, so an uncrowded
+drawing stays clean.
+
+**A leadered name is stood off far enough to carry its leader** (`leaderMinReach`
+arrowheads, re-searched at `outerRingStep`). At one step of travel the line is a
+few pixels and the head is smaller still, which is how the first version of this
+failed; a name that needs a line drawn to it is not being read by its position
+anyway, so the extra step costs nothing.
+
+**A name and its leader are cleared against the page** with a halo: the text is
+written twice, once thickened in the background colour, and each leader line is
+painted over a wider casing of it. Without that, a hairline laid along a dashed
+construction line is lost in the dashes — and on a lattice that is exactly where
+leaders run. A transparent page (`WithBackground("none")`) gets no halo, since
+there is no colour to clear with. The halo copies are `<text>` elements carrying
+a `stroke`, which is how a reader of the output tells them from the names.
 
 **The leader is a CAD note leader — underline, line, arrowhead — and all three
 parts are load-bearing.** A bare line from the text to the point was tried first
