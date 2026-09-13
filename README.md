@@ -68,9 +68,10 @@ Every image below is generated from a compiled builder by
 (`WithDimensions`, `WithConstraints`, `WithDOFColoring`, `WithConflicts`,
 `WithStatusBadge`, `WithProfileFill`, `WithLabels`) to `SVG`/`PNG`; all default
 off. `WithLabels` writes the optional names points and entities carry onto the
-drawing — a point's beside its marker, an entity's italic and centred on it — so
-a sketch reasoned about as "A to B" says which word names which. The
-gallery also renders "windowed" — `WithFrame` draws a border and `WithGrid` lays
+drawing — a point's upright, an entity's italic — and searches for a spot for
+each one that is clear of the geometry and of the other names, so a sketch
+reasoned about as "A to B" says which point is which. The gallery also renders
+"windowed" — `WithFrame` draws a border and `WithGrid` lays
 a coordinate grid behind the sketch; a framed render always carries a small
 `github.com/lestrrat-3d/sketch` provenance footer.
 

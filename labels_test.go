@@ -109,8 +109,10 @@ func TestLabelsDrawn(t *testing.T) {
 	require.NotContains(t, out, "Inf")
 }
 
-// The two kinds of label are told apart by position and by style, so a drawing
-// carrying both says which word names a point and which names an edge.
+// The two kinds of label are told apart by style, so a drawing carrying both
+// says which word names a point and which names an edge. Style is the channel
+// that survives the placement search: where a name ends up depends on what else
+// is on the page, but an entity's name is italic wherever it lands.
 func TestLabelsDistinguishPointsFromEntities(t *testing.T) {
 	s := namedTriangle(t)
 
@@ -119,23 +121,21 @@ func TestLabelsDistinguishPointsFromEntities(t *testing.T) {
 	drawn := textAt(t, out)
 
 	for _, name := range []string{"A", "B", "C"} {
-		p := labelled(t, drawn, name)
-		require.Equal(t, "start", p.Anchor, "a point's name is hung to one side of its marker")
-		require.False(t, p.Italic, "a point's name is upright")
+		require.False(t, labelled(t, drawn, name).Italic, "a point's name is upright")
 	}
-
-	e := labelled(t, drawn, "hypotenuse")
-	require.Equal(t, "middle", e.Anchor, "an entity's name is centred on its anchor")
-	require.True(t, e.Italic, "an entity's name is italic")
+	require.True(t, labelled(t, drawn, "hypotenuse").Italic, "an entity's name is italic")
 }
 
-func TestLabelsSkipUnnamedGeometry(t *testing.T) {
+// An uncrowded drawing keeps each name at its first choice: a point's up and to
+// the right of its marker, an entity's centred on its own anchor.
+func TestLabelsKeepTheirFirstChoiceWhenThereIsRoom(t *testing.T) {
 	w := sketch.NewWorld()
 	s, err := w.CreateSketch(w.XY())
 	require.NoError(t, err)
 	a := s.CreatePoint(0, 0)
-	b := s.CreatePoint(10, 0)
-	s.CreateLine(a, b)
+	b := s.CreatePoint(60, 0)
+	a.SetName("A")
+	b.SetName("B")
 	s.Fix(a)
 	s.Fix(b)
 	_, err = s.Solve(t.Context())
@@ -143,45 +143,20 @@ func TestLabelsSkipUnnamedGeometry(t *testing.T) {
 
 	out, err := s.SVG(sketch.WithLabels(true))
 	require.NoError(t, err)
-	require.NotContains(t, out, "<text", "nothing is named, so nothing is labelled")
-}
-
-// A point's label is drawn beside its marker rather than on it, and an entity's
-// at the mean of the points that define it — the midpoint for a line.
-func TestLabelsSitBesideTheirGeometry(t *testing.T) {
-	s := namedTriangle(t)
-
-	out, err := s.SVG(sketch.WithLabels(true))
-	require.NoError(t, err)
 	drawn := textAt(t, out)
-	require.Len(t, drawn, 4)
+	require.Len(t, drawn, 2)
 
-	// B is 40 mm along +x from A, and C is 30 mm along +y. The y axis is flipped
-	// on the way to screen space, so C's label is ABOVE A's and B's is to its
-	// right, and each is offset off its own marker by the same amount.
-	a := labelled(t, drawn, "A")
-	b := labelled(t, drawn, "B")
-	c := labelled(t, drawn, "C")
-	require.InDelta(t, a.X+40, b.X, 1e-6, "B's label is 40 mm right of A's")
-	require.InDelta(t, a.Y, b.Y, 1e-6, "A and B are level")
-	require.InDelta(t, a.X, c.X, 1e-6, "A and C are in line")
-	require.InDelta(t, a.Y-30, c.Y, 1e-6, "C's label is 30 mm above A's, the y axis being flipped")
-
-	// The hypotenuse runs B->C, so its name is centred on the midpoint of those
-	// two points. Its label therefore sits at the midpoint of B's and C's labels
-	// LESS the offset those two carry — right by the same amount they were moved
-	// left, and down by the same amount they were moved up. Asserting the two
-	// differences against each other pins both the anchor and the offset without
-	// naming the offset's value.
-	h := labelled(t, drawn, "hypotenuse")
-	dx := (b.X+c.X)/2 - h.X
-	dy := h.Y - (b.Y+c.Y)/2
-	require.InDelta(t, dx, dy, 1e-6, "a point's label is offset equally right and up")
-	require.Greater(t, dx, 0.0, "and the offset is away from the marker, not onto it")
+	// B is 60 mm along +x from A and nothing else is on the page, so both names
+	// take the same offset from their own marker and stay level with each other.
+	la, lb := labelled(t, drawn, "A"), labelled(t, drawn, "B")
+	require.Equal(t, "start", la.Anchor)
+	require.InDelta(t, la.X+60, lb.X, 1e-6, "each name is offset from its own marker by the same amount")
+	require.InDelta(t, la.Y, lb.Y, 1e-6)
 }
 
-// Two names on one anchor stack downward instead of printing over each other.
-func TestLabelsStackOnASharedAnchor(t *testing.T) {
+// Two names that want the same spot do not print over each other: the second
+// one searched for is moved to a position the first left free.
+func TestLabelsMoveOffEachOther(t *testing.T) {
 	w := sketch.NewWorld()
 	s, err := w.CreateSketch(w.XY())
 	require.NoError(t, err)
@@ -198,8 +173,8 @@ func TestLabelsStackOnASharedAnchor(t *testing.T) {
 	require.NoError(t, err)
 	drawn := textAt(t, out)
 	require.Equal(t, []string{"first", "second"}, names(drawn))
-	require.InDelta(t, drawn[0].X, drawn[1].X, 1e-9, "both sit at the same x")
-	require.Greater(t, drawn[1].Y, drawn[0].Y, "the second name is stacked below the first")
+	require.NotEqual(t, [2]float64{drawn[0].X, drawn[0].Y}, [2]float64{drawn[1].X, drawn[1].Y},
+		"the two names are on the same anchor and must not be drawn on the same spot")
 }
 
 // A name is caller-supplied text, so it goes through the same escaping every

@@ -380,6 +380,40 @@ func pointRadius(configured float64, b bbox) float64 {
 	return math.Max(configured, pointRadiusMinFrac*math.Hypot(b.maxX-b.minX, b.maxY-b.minY))
 }
 
+// entityPolyline samples any entity as a screen-independent polyline in sketch
+// coordinates, or returns nil for an entity with no curve of its own.
+//
+// It is the one sampling switch in the package: the PNG rasterizer draws every
+// entity through it, and the label placer reads the same points to know what a
+// name has to stay clear of. The SVG exporter keeps its own switch because it
+// emits a native element per kind (a <line>, a <circle>) rather than a path, and
+// those elements are what a viewer scales cleanly.
+func entityPolyline(e Entity, segments int) [][2]float64 {
+	switch t := e.(type) {
+	case *Line:
+		return [][2]float64{{t.Start.x(), t.Start.y()}, {t.End.x(), t.End.y()}}
+	case *Circle:
+		return circlePolyline(t, segments)
+	case *Arc:
+		return arcPolyline(t, segments)
+	case *EllipticalArc:
+		return ellipticalArcPolyline(t, segments)
+	case *Ellipse:
+		return ellipsePolyline(t, segments)
+	case *Spline:
+		return t.Polyline(segments)
+	case *ClosedSpline:
+		return t.Polyline(segments)
+	case *FitSpline:
+		return t.Polyline(segments)
+	case *Conic:
+		return t.Polyline(segments)
+	case *NURBS:
+		return t.Polyline(segments)
+	}
+	return nil
+}
+
 // arcPolyline samples the arc counter-clockwise from start to end.
 // arcPolyline samples an arc for rendering. The sampling math lives in geom
 // (geom/sample.go) so the exporters and the world-space sampler agree exactly.
@@ -588,7 +622,7 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 	// anchor rather than under it: the two passes stack within themselves and
 	// know nothing of each other.
 	if cfg.labels {
-		s.writeLabels(sb, cfg, b, tx, ty)
+		s.writeLabels(sb, cfg, b, tx, ty, rect{maxX: canvasW, maxY: canvasH})
 	}
 	if cfg.statusBadge {
 		s.writeStatusBadge(sb, cfg, pad, w)

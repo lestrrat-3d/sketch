@@ -29,7 +29,6 @@ type (
 	identConflicts   struct{}
 	identStatusBadge struct{}
 	identProfileFill struct{}
-	identLabels      struct{}
 	identAnnColor    struct{}
 	identAnnScale    struct{}
 	identPixelWidth  struct{}
@@ -66,21 +65,6 @@ func WithStatusBadge(v bool) SVGPNGOption { return svgPNGOption{option.New(ident
 // WithProfileFill toggles a translucent fill under every valid closed region
 // (from [Sketch.Profiles]); self-intersecting or degenerate regions are skipped.
 func WithProfileFill(v bool) SVGPNGOption { return svgPNGOption{option.New(identProfileFill{}, v)} }
-
-// WithLabels toggles drawing the optional names points and entities carry (see
-// [Point.SetName] and [named.SetName]) beside the geometry they belong to.
-// Geometry with no name draws nothing, so a sketch that names its six hexagon
-// corners and leaves its construction lines unnamed labels the six corners.
-//
-// The two kinds are drawn differently, so a drawing carrying both says which is
-// which. A point's name is upright, up and to the right of its marker and clear
-// of it. An entity's is italic and centred on the mean of the points that define
-// it, which is the midpoint of a line and the centre of a circle.
-//
-// Several names on one anchor stack downward. Nothing moves a name off geometry
-// it happens to land on, and a long name on geometry at the drawing's edge can
-// run past that edge — widen [WithMargin] to leave room for it. SVG only.
-func WithLabels(v bool) SVGPNGOption { return svgPNGOption{option.New(identLabels{}, v)} }
 
 // WithAnnotationColor sets the color of dimension lines and constraint glyphs.
 func WithAnnotationColor(v string) SVGPNGOption {
@@ -322,98 +306,6 @@ func (s *Sketch) writeGlyphs(sb *svgWriter, cfg svgConfig, b bbox, tx, ty func(f
 	for _, c := range s.cons {
 		a.glyph(c)
 	}
-}
-
-// writeLabels draws the optional name every named point and entity carries.
-//
-// Points come first and entities second, each in creation order, so the output
-// is deterministic and a point's label is under an entity's where the two land
-// on the same spot. Unnamed geometry contributes nothing, which is what lets a
-// caller label the handful of points a drawing is reasoned about by and leave
-// the rest of the sketch clean.
-func (s *Sketch) writeLabels(sb *svgWriter, cfg svgConfig, b bbox, tx, ty func(float64) float64) {
-	a := newAnnCtx(sb, cfg, b, tx, ty)
-	for _, p := range s.points {
-		if p.Name() == "" {
-			continue
-		}
-		a.pointName(a.scr(p), p.Name())
-	}
-	for _, e := range s.ents {
-		if e.Name() == "" {
-			continue
-		}
-		anchor, ok := a.entityAnchor(e)
-		if !ok {
-			continue
-		}
-		a.entityName(anchor, e.Name())
-	}
-}
-
-// entityAnchor is where an entity's own name is drawn: the mean of the points
-// that define it, which is the midpoint of a line, the centre of a circle or
-// ellipse, and the average of a spline's control points.
-//
-// It reads those points through [entityPoints], the same accessor grounding and
-// the removal cascade read, rather than through a type switch of its own. A new
-// entity type then gets a label anchor by satisfying the contract it already has
-// to satisfy, instead of by someone remembering this file exists. An entity that
-// entityPoints does not know reports no anchor and is skipped rather than
-// labelled at the origin.
-func (a *annCtx) entityAnchor(e Entity) (v2, bool) {
-	pts := entityPoints(e)
-	if len(pts) == 0 {
-		return v2{}, false
-	}
-	var sum v2
-	for _, p := range pts {
-		sum = vadd(sum, a.scr(p))
-	}
-	return vmul(sum, 1/float64(len(pts))), true
-}
-
-// A point's name and an entity's are drawn differently, on two channels rather
-// than one, because a drawing that labels both otherwise says the same thing
-// about two different kinds of thing and leaves the reader to guess which a
-// given word belongs to. The channels are POSITION and STYLE:
-//
-//   - A point's name sits up and to the right of its marker, left-aligned there,
-//     upright. It reads as a tag hung on that point, and the offset clears the
-//     marker's own radius so the marker stays visible under its own name.
-//   - An entity's name is centred on its anchor and italic. It reads as naming
-//     the thing it sits on rather than a point beside it, which is what an
-//     entity's anchor is: the mean of the points that define it, a position no
-//     marker of its own occupies.
-//
-// Either channel alone carries the distinction, so it survives a greyscale
-// print (no colour is spent on it) and a viewer with no italic face (the
-// positions still differ). Names sharing an anchor stack downward, the way
-// constraint glyphs on one anchor do.
-func (a *annCtx) pointName(anchor v2, name string) {
-	off := a.marker + a.text*0.4
-	pos := vadd(anchor, v2{off, -off + float64(a.stackIndex(anchor))*a.text*1.3})
-	a.nameText(pos, name, "start", false)
-}
-
-// entityName draws one entity's name centred on its anchor, in italic. See
-// [annCtx.pointName] for why the two differ.
-func (a *annCtx) entityName(anchor v2, name string) {
-	pos := vadd(anchor, v2{0, float64(a.stackIndex(anchor)) * a.text * 1.3})
-	a.nameText(pos, name, "middle", true)
-}
-
-// nameText emits one name. It is the one place a label's text element is
-// written, so the two kinds cannot drift apart in anything but the two
-// differences they are meant to have.
-func (a *annCtx) nameText(pos v2, name, textAnchor string, italic bool) {
-	style := ""
-	if italic {
-		style = ` font-style="italic"`
-	}
-	fmt.Fprintf(a.sb,
-		`  <text x="%s" y="%s" font-size="%s" fill="%s" text-anchor="%s" dominant-baseline="central"%s>%s</text>`+"\n",
-		a.sb.f(pos[0]), a.sb.f(pos[1]), a.sb.f(a.text), a.col, textAnchor, style, svgEscape(name))
 }
 
 // glyph dispatches one geometric constraint to its badge(s). Dimensional

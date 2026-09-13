@@ -9,6 +9,7 @@ Detail moved out of CLAUDE.md's architecture table. Read before adding an annota
 | Which overlays exist and what are their defaults? | `annotate.go` — overview |
 | What does the status badge show on a skipped report? | `writeStatusBadge` must branch on skipped analysis |
 | Where does a named entity's label get drawn? | `WithLabels` takes its entity anchor from `entityPoints` |
+| How does a label avoid the geometry and other labels? | `WithLabels` searches for each name's position |
 | Why doesn't the status badge call `Sketch.Verify`? | `badgeVerify` computes only what the badge renders |
 | How does DOF colouring behave on non-finite geometry? | `WithDOFColoring` marks everything free when refused |
 | How is annotation geometry mapped to screen space? | The load-bearing annotation-geometry rule |
@@ -37,31 +38,50 @@ blue — the per-entity `Sketch.EntityIsFullyConstrained`), `WithPixelWidth`
 (the names points and entities carry, see below),
 `WithAnnotationColor`/`WithAnnotationScale`.
 
+### `WithLabels` searches for each name's position
+
+**Where a name goes is searched for, not fixed** (`labels.go`). A fixed offset
+does not survive a real drawing: on a sketch naming two dozen points inside one
+small figure, a name pinned up and to the right of every marker lands on the next
+marker, on a construction line, or on another name. `labelPlacer` tries a ring of
+positions about the anchor — the first choice, then the eight compass directions
+at one step and again at two — and keeps the lowest-scoring one. The score
+weights what the box sits on: off the canvas (1000) beats a name (100) beats a
+marker (10) beats the drawing's own curves (1), plus a small rank term (0.01 per
+candidate) that keeps an uncrowded drawing on its first choice and makes every
+tie resolve the same way on every run. Nothing is ever dropped: when every
+position collides the least bad one is still drawn, because a crowded label says
+more than no label.
+
+Scoring is against BOXES, so the text's width has to be guessed —
+`labelWidthPerRune`, deliberately generous, since a box too wide only moves a
+name that would have just fitted while one too narrow lets two names overlap
+after the search reported they would not. The exporter writes text for the
+viewer's own font, so no true advance width is knowable here. The geometry a name
+avoids comes from `entityPolyline`, the one sampling switch in the package, which
+the PNG rasterizer draws through as well.
+
 ### `WithLabels` takes its entity anchor from `entityPoints`
 
-**An entity's label is drawn at the mean of `entityPoints(e)`, not at a position
-a type switch in `annotate.go` assigns it.** That accessor is the one grounding
-and the removal cascade already read an entity's defining points through, so a
-new entity type gets a label anchor by satisfying the contract it has to satisfy
-anyway; a switch here would compile fine while silently labelling the new type at
-the origin, or not at all. The mean is the midpoint of a line, the centre of a
-circle or ellipse, and the average of a spline's control points. An entity
+**An entity's label reads off the mean of `entityPoints(e)`, not a position a
+type switch in the renderer assigns it.** That accessor is the one grounding and
+the removal cascade already read an entity's defining points through, so a new
+entity type gets an anchor by satisfying the contract it has to satisfy anyway; a
+switch here would compile fine while silently anchoring the new type at the
+origin, or not at all. The mean is the midpoint of a line, the centre of a circle
+or ellipse, and the average of a spline's control points. An entity
 `entityPoints` does not know reports no anchor and is skipped.
 
-**A point's name and an entity's are drawn on two channels, POSITION and
-STYLE.** A point's is up and to the right of its marker, left-aligned and
-upright, so the marker stays visible under it; an entity's is centred on its
-anchor and italic, a position no marker of its own occupies. A drawing that
-labels both otherwise says the same thing about two different kinds of thing.
-Either channel alone carries the distinction, so it survives a greyscale print
-(no colour is spent on it) and a viewer with no italic face. Both go through the
-one `nameText` emitter, so the two kinds cannot drift apart in anything but those
-two differences.
+### A point's label and an entity's are told apart by STYLE
 
-Names sharing an anchor stack downward through `annCtx.stackIndex`, which `badge`
-uses for the same reason; the two passes hold separate counters, so a glyph and a
-name on one anchor can still land together, and the label pass runs second so the
-name is on top.
+**An entity's name is italic and a point's is upright, and that is the channel
+the distinction rests on.** Position cannot carry it: the search moves a name to
+wherever there is room, so a point's name and an entity's can end up in the same
+relation to their anchors. The two kinds do start from different first choices —
+a point's beside its marker, which it has to clear, and an entity's centred on an
+anchor no marker occupies — but that is a preference, not a promise. Both go
+through the one `nameText` emitter, so nothing but the italic flag and the
+candidate ring can differ between them.
 
 ### `writeStatusBadge` must branch on skipped analysis
 

@@ -217,18 +217,27 @@ letters use `<text>` (with the Portability fallback).
 ### Names (gated by `WithLabels`)
 
 The optional label a point or entity carries (`names.go`), drawn as `<text>`
-beside the geometry that carries it. The two kinds are told apart on two
-channels, position and style: a **point's** name is up and to the right of its
-marker, left-aligned and upright, so the marker stays visible under its own name;
-an **entity's** is centred on its anchor and italic. Either channel alone carries
-the distinction, so it survives greyscale and a missing italic face.
+beside the geometry that carries it. A **point's** name is upright; an
+**entity's** is italic, and that style difference is what tells the two kinds
+apart on the page.
+
+Placement is a search, not an offset (`labels.go`), which is this document's
+"no global collision solver" limitation being lifted for labels. Each name is
+scored at a ring of candidate positions — its own first choice, then the eight
+compass directions at one step and again at two — against the boxes of the names
+already placed, the point markers, the drawing's sampled geometry
+(`entityPolyline`) and the canvas. Weights: off-canvas 1000, another name 100, a
+marker 10, a curve 1, plus 0.01 per candidate rank so an uncrowded drawing keeps
+its first choice and ties resolve identically on every run. A name is never
+dropped; when everything collides the least bad position is drawn. Text width is
+estimated (`labelWidthPerRune`), deliberately generously, because the exporter
+cannot know the viewer's font metrics.
 
 An entity's anchor is the mean of `entityPoints(e)` — the midpoint of a line, the
 centre of a circle — read through that accessor rather than through a type switch
 here, so a new entity type gets an anchor from the contract it already has to
-satisfy. Names sharing an anchor stack downward on the same counter the glyphs
-use. Unnamed geometry emits nothing, and the pass walks `s.points` then `s.ents`
-in slice order.
+satisfy. Unnamed geometry emits nothing, and the pass walks `s.points` then
+`s.ents` in slice order, which is also the order the search places them in.
 
 ### DOF coloring & verification overlays
 
@@ -258,8 +267,9 @@ computed non-mutatingly from existing diagnostics.
 - Per-anchor stacking (above) prevents same-entity glyph pileup.
 - Dimension lines use `gap = k·bboxDiag`; multiple dims on the same feature pair
   stack by incrementing the gap.
-- No global collision solver (documented limitation; a layout pass is a
-  follow-up).
+- No global collision solver for dimensions and glyphs (documented limitation; a
+  layout pass is a follow-up). NAME LABELS have one, `labels.go` — see "Names
+  (gated by `WithLabels`)" — and it is per-label greedy rather than global.
 - **Determinism (byte-stable output) requires all of:** no timestamps/randomness;
   fixed float formatting (existing `trimFloat`/`f` at 4 dp); **map-free emit**
   (walk `s.cons`/`s.points`/`s.ents` in slice order; no `map[Entity]…` in the
