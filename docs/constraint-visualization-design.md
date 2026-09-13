@@ -233,9 +233,11 @@ dropped; when everything collides the least bad position is drawn. Text width is
 estimated (`labelWidthPerRune`), deliberately generously, because the exporter
 cannot know the viewer's font metrics.
 
-A name the search moved is joined to its geometry by a thin leader, from the text
-box's nearest edge to just short of the anchor; a name that kept its first choice
-gets none.
+A name the search moved carries a CAD note leader: the text is underlined, a line
+leaves the end of that underline facing the anchor, and an arrowhead lands just
+short of the marker. A name that kept its first choice gets none. All three parts
+earn their place — a bare line proved unreadable at one step of travel, where the
+visible segment is a few pixels and neither end says which name it serves.
 
 An entity's anchor is the mean of `entityPoints(e)` — the midpoint of a line, the
 centre of a circle — read through that accessor rather than through a type switch

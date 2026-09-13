@@ -101,9 +101,10 @@ func TestLabelLeaderIsNotDrawnForAnAdjacentName(t *testing.T) {
 	require.NotContains(t, lp.a.sb.String(), "<line", "no leader for a name at its first choice")
 }
 
-// A name the search had to move is tied back to its anchor, because it is now
-// somewhere the reader has no reason to look.
-func TestLabelLeaderPointsAtTheAnchor(t *testing.T) {
+// A name the search had to move is tied to its geometry the way a CAD note is
+// tied to a feature: an underline under the text, a line off the end of it, and
+// an arrowhead on the vertex.
+func TestLabelLeaderUnderlinesTheNameAndPointsAtTheAnchor(t *testing.T) {
 	lp := placerFixture(rect{maxX: 1000, maxY: 1000})
 	lp.a.sb = newSVGWriter()
 	anchor := v2{500, 500}
@@ -115,34 +116,45 @@ func TestLabelLeaderPointsAtTheAnchor(t *testing.T) {
 	lp.place(anchor, "A", labelPoint)
 
 	out := lp.a.sb.String()
-	require.Contains(t, out, "<line", "a moved name is tied back to its anchor")
+	lines := leaderLines(t, out)
+	require.Len(t, lines, 2, "an underline and the line off it")
+	require.Contains(t, out, "<path", "and an arrowhead")
 
-	x1, y1, x2, y2 := leaderEnds(t, out)
-	near, far := v2{x1, y1}, v2{x2, y2}
 	box := placedBox(lp)
-
 	// The tolerance is the exporter's own: it writes coordinates at four decimal
 	// places, so a position read back off the document carries that rounding.
 	const written = 1e-3
-	require.InDelta(t, lp.a.marker+lp.a.text*leaderClearance, vlen(vsub(near, anchor)), written,
-		"the line stops clear of the marker")
-	require.InDelta(t, 0, vlen(vsub(far, closestOnRect(box, anchor))), written,
-		"and reaches the nearest edge of the text's own box")
-	require.False(t, box.holdsPoint(near), "it never runs under the letters")
+
+	underline := lines[0]
+	require.InDelta(t, box.minX, underline[0][0], written, "the underline spans the text")
+	require.InDelta(t, box.maxX, underline[1][0], written)
+	require.InDelta(t, underline[0][1], underline[1][1], written, "and is level")
+	require.Greater(t, underline[0][1], box.maxY, "sitting just under it")
+
+	leader := lines[1]
+	require.Contains(t, []v2{underline[0], underline[1]}, leader[0],
+		"the line leaves one end of the underline")
+	require.InDelta(t, lp.a.marker+lp.a.text*leaderClearance, vlen(vsub(leader[1], anchor)), written,
+		"and stops clear of the marker it points at")
+	require.False(t, box.holdsPoint(leader[1]), "it never runs under the letters")
 }
 
-// leaderEnds reads the one leader line back off a rendered fragment.
-func leaderEnds(t *testing.T, svg string) (float64, float64, float64, float64) {
+// leaderLines reads every <line> back off a rendered fragment, as endpoint
+// pairs in document order.
+func leaderLines(t *testing.T, svg string) [][2]v2 {
 	t.Helper()
-	m := regexp.MustCompile(`<line x1="([^"]*)" y1="([^"]*)" x2="([^"]*)" y2="([^"]*)"`).FindStringSubmatch(svg)
-	require.Len(t, m, 5)
-	var out [4]float64
-	for i := range out {
-		v, err := strconv.ParseFloat(m[i+1], 64)
-		require.NoError(t, err)
-		out[i] = v
+	re := regexp.MustCompile(`<line x1="([^"]*)" y1="([^"]*)" x2="([^"]*)" y2="([^"]*)"`)
+	var out [][2]v2
+	for _, m := range re.FindAllStringSubmatch(svg, -1) {
+		var v [4]float64
+		for i := range v {
+			f, err := strconv.ParseFloat(m[i+1], 64)
+			require.NoError(t, err)
+			v[i] = f
+		}
+		out = append(out, [2]v2{{v[0], v[1]}, {v[2], v[3]}})
 	}
-	return out[0], out[1], out[2], out[3]
+	return out
 }
 
 func TestClosestOnRect(t *testing.T) {

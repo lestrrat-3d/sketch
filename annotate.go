@@ -638,13 +638,17 @@ func (a *annCtx) dimLineOneArrow(p, q v2) {
 }
 
 // arrowAt draws a filled triangular arrowhead whose tip is at p, pointing along
-// dir.
-func (a *annCtx) arrowAt(p, dir v2) {
+// dir, at the pass's own arrow size.
+func (a *annCtx) arrowAt(p, dir v2) { a.arrowAtSize(p, dir, a.arrow) }
+
+// arrowAtSize is arrowAt with the head's length given, for a caller whose line
+// is too short to carry the standard one.
+func (a *annCtx) arrowAtSize(p, dir v2, size float64) {
 	if dir == (v2{}) {
 		return
 	}
-	back := vsub(p, vmul(dir, a.arrow))
-	n := vmul(vperp(dir), a.arrow*0.35)
+	back := vsub(p, vmul(dir, size))
+	n := vmul(vperp(dir), size*0.35)
 	l := vadd(back, n)
 	r := vsub(back, n)
 	fmt.Fprintf(a.sb,

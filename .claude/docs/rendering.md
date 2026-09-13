@@ -53,17 +53,25 @@ tie resolve the same way on every run. Nothing is ever dropped: when every
 position collides the least bad one is still drawn, because a crowded label says
 more than no label.
 
-**A name the search moved gets a leader line; one that did not, does not.** The
-test is "was it moved", not "how far": one step off the expected side is already
+**A name the search moved gets a leader; one that did not, does not.** The test
+is "was it moved", not "how far": one step off the expected side is already
 enough to leave a reader on a crowded figure guessing which vertex the name
-belongs to, while a line drawn to every label would add a mark per name to a
-drawing that was already legible. The line runs from the text box's nearest edge
-to `leaderClearance` short of the anchor, so it touches neither the letters nor
-the marker, and it is drawn at `leaderStrokeFraction` of the geometry's stroke so
-it reads as an annotation rather than as another edge. Leaders are not obstacles
-for the names placed after them, which is a limitation rather than a decision:
-they are thin and short, and scoring against them would make each placement
-depend on the leaders of every earlier one.
+belongs to, while a leader on every label would bury the drawing in annotation.
+
+**The leader is a CAD note leader — underline, line, arrowhead — and all three
+parts are load-bearing.** A bare line from the text to the point was tried first
+and failed on the real drawing it was built for: at one step of travel the
+visible segment is a few pixels, and the reader cannot see which end belongs to
+which name. The UNDERLINE binds the line to its own text, so the line leaves the
+word rather than the space near it; the ARROWHEAD says which of several nearby
+dots is meant. The head is sized down on a short leader
+(`leaderArrowShare`) so it can never be longer than the line carrying it, and
+both lines are drawn at `leaderStrokeFraction` of the geometry's stroke so the
+annotation does not read as another edge.
+
+Leaders are not obstacles for the names placed after them, which is a limitation
+rather than a decision: scoring against them would make each placement depend on
+the leaders of every earlier one.
 
 Scoring is against BOXES, so the text's width has to be guessed —
 `labelWidthPerRune`, deliberately generous, since a box too wide only moves a

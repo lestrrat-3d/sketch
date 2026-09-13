@@ -40,10 +40,10 @@ type identLabels struct{}
 // a crowded drawing some overlap is unavoidable, and the search then keeps the
 // least bad position rather than refusing to label.
 //
-// A name the search moved is joined to its own geometry by a thin leader line,
-// since a name away from the spot a reader expects is otherwise as near some
-// other vertex as its own. A name that kept its first choice gets no line. SVG
-// only.
+// A name the search moved is tied to its own geometry the way a CAD note is tied
+// to a feature: the text is underlined, a line leaves the end of that underline,
+// and an arrowhead lands on the vertex. A name that kept its first choice is
+// already beside what it names and gets none of that. SVG only.
 func WithLabels(v bool) SVGPNGOption { return svgPNGOption{option.New(identLabels{}, v)} }
 
 // writeLabels draws the optional name every named point and entity carries.
@@ -285,41 +285,63 @@ func (lp *labelPlacer) place(anchor v2, name string, kind labelKind) {
 	lp.a.nameText(pos, name, best.anchor, kind == labelEntity)
 }
 
-// leader draws the line that ties a moved name back to the geometry it names.
+// leader ties a moved name to the geometry it names, as a CAD note is tied to a
+// feature: an underline under the text, a line from the end of that underline,
+// and an arrowhead on the vertex itself.
+//
+// The three parts are what make the pairing legible rather than merely present.
+// A bare line from the text to the point was the first attempt and it failed on
+// a crowded drawing: at one step of travel the visible segment is a few pixels,
+// and the reader cannot see which end belongs to which name. The underline binds
+// the line to ITS text — the line leaves the word, not the space near the word —
+// and the arrowhead says which of the several nearby dots is the one meant.
 //
 // It is drawn ONLY for a name the search had to move. A name in the spot a
-// reader expects — beside its own marker, or centred on its own entity — needs
-// no line, and drawing one there would add a mark per label to a drawing that
-// was already legible. A name that was moved is somewhere a reader has no reason
-// to look, and on a crowded figure it is as near some other vertex as its own.
-// That is what this line answers, and it is why the test is "was it moved" and
-// not "how far": one step off the expected side is already enough to leave the
-// reader guessing.
-//
-// It runs from the edge of the text's own box to just short of the anchor, so it
-// touches neither the letters nor the marker, and it is drawn thinner than the
-// geometry so it reads as an annotation rather than as another edge of the
-// drawing.
+// reader expects, beside its own marker, is already paired with it, and a note
+// leader on every label would bury the drawing in annotation.
 func (lp *labelPlacer) leader(box rect, anchor v2) {
-	from := closestOnRect(box, anchor)
-	dir := vunit(vsub(from, anchor))
+	// The underline sits just under the text, spanning its width.
+	y := box.maxY + lp.a.text*leaderUnderlineDrop
+	left, right := v2{box.minX, y}, v2{box.maxX, y}
+
+	// The line leaves the underline at whichever end faces the anchor, so it
+	// never has to cross back under the word it came from.
+	start := right
+	if anchor[0] < (box.minX+box.maxX)/2 {
+		start = left
+	}
+	dir := vunit(vsub(anchor, start))
 	if dir == (v2{}) {
-		return // the anchor is inside the text's own box: nothing to point at
+		return
 	}
-	to := vadd(anchor, vmul(dir, lp.a.marker+lp.a.text*leaderClearance))
-	if vlen(vsub(from, anchor)) <= vlen(vsub(to, anchor)) {
-		return // the text begins inside the clearance: there is no line to draw
+	tip := vadd(anchor, vmul(dir, -(lp.a.marker+lp.a.text*leaderClearance)))
+	reach := vlen(vsub(tip, start))
+	if reach <= 0 {
+		return // the text already sits against the marker
 	}
-	fmt.Fprintf(lp.a.sb,
+
+	lp.a.leaderLine(left, right)
+	lp.a.leaderLine(start, tip)
+	// A short leader takes a proportionally shorter head, so the arrow cannot be
+	// longer than the line it sits on.
+	lp.a.arrowAtSize(tip, dir, math.Min(lp.a.arrow, reach*leaderArrowShare))
+}
+
+// leaderLine emits one hairline of a leader, thinner than the geometry so the
+// annotation does not read as another edge of the drawing.
+func (a *annCtx) leaderLine(p, q v2) {
+	fmt.Fprintf(a.sb,
 		`  <line x1="%s" y1="%s" x2="%s" y2="%s" stroke="%s" stroke-width="%s"/>`+"\n",
-		lp.a.sb.f(to[0]), lp.a.sb.f(to[1]), lp.a.sb.f(from[0]), lp.a.sb.f(from[1]),
-		lp.a.col, lp.a.sb.f(lp.a.sw*leaderStrokeFraction))
+		a.sb.f(p[0]), a.sb.f(p[1]), a.sb.f(q[0]), a.sb.f(q[1]),
+		a.col, a.sb.f(a.sw*leaderStrokeFraction))
 }
 
 // The leader's own sizes, each as a fraction of the font size or the stroke
 // width, so they scale with the drawing like every other annotation.
 const (
-	leaderClearance      = 0.25 // gap left between the marker and the line's near end
+	leaderClearance      = 0.25 // gap left between the marker and the arrow's tip
+	leaderUnderlineDrop  = 0.1  // how far under the text the underline sits
+	leaderArrowShare     = 0.5  // the most of a leader's length its head may take
 	leaderStrokeFraction = 0.6  // thinner than the geometry it points into
 )
 
