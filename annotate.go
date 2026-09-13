@@ -72,12 +72,14 @@ func WithProfileFill(v bool) SVGPNGOption { return svgPNGOption{option.New(ident
 // Geometry with no name draws nothing, so a sketch that names its six hexagon
 // corners and leaves its construction lines unnamed labels the six corners.
 //
-// A point's name is drawn up and to the right of its marker, clear of it; an
-// entity's is drawn at the mean of the points that define it, which is the
-// midpoint of a line and the centre of a circle. Several names on one anchor
-// stack downward. Nothing moves a name off geometry it happens to land on, and a
-// long name on geometry at the drawing's edge can run past that edge — widen
-// [WithMargin] to leave room for it. SVG only.
+// The two kinds are drawn differently, so a drawing carrying both says which is
+// which. A point's name is upright, up and to the right of its marker and clear
+// of it. An entity's is italic and centred on the mean of the points that define
+// it, which is the midpoint of a line and the centre of a circle.
+//
+// Several names on one anchor stack downward. Nothing moves a name off geometry
+// it happens to land on, and a long name on geometry at the drawing's edge can
+// run past that edge — widen [WithMargin] to leave room for it. SVG only.
 func WithLabels(v bool) SVGPNGOption { return svgPNGOption{option.New(identLabels{}, v)} }
 
 // WithAnnotationColor sets the color of dimension lines and constraint glyphs.
@@ -335,7 +337,7 @@ func (s *Sketch) writeLabels(sb *svgWriter, cfg svgConfig, b bbox, tx, ty func(f
 		if p.Name() == "" {
 			continue
 		}
-		a.nameLabel(a.scr(p), p.Name())
+		a.pointName(a.scr(p), p.Name())
 	}
 	for _, e := range s.ents {
 		if e.Name() == "" {
@@ -345,7 +347,7 @@ func (s *Sketch) writeLabels(sb *svgWriter, cfg svgConfig, b bbox, tx, ty func(f
 		if !ok {
 			continue
 		}
-		a.nameLabel(anchor, e.Name())
+		a.entityName(anchor, e.Name())
 	}
 }
 
@@ -371,20 +373,47 @@ func (a *annCtx) entityAnchor(e Entity) (v2, bool) {
 	return vmul(sum, 1/float64(len(pts))), true
 }
 
-// nameLabel draws one name beside anchor.
+// A point's name and an entity's are drawn differently, on two channels rather
+// than one, because a drawing that labels both otherwise says the same thing
+// about two different kinds of thing and leaves the reader to guess which a
+// given word belongs to. The channels are POSITION and STYLE:
 //
-// The text sits up and to the right of the anchor and is left-aligned there, so
-// the marker or curve the name belongs to stays visible under it rather than
-// being covered by its own label. The offset clears the point markers' own
-// radius, which is itself scale-relative, so a name stays off its marker on a
-// drawing of any size. Names sharing an anchor stack downward, the way
+//   - A point's name sits up and to the right of its marker, left-aligned there,
+//     upright. It reads as a tag hung on that point, and the offset clears the
+//     marker's own radius so the marker stays visible under its own name.
+//   - An entity's name is centred on its anchor and italic. It reads as naming
+//     the thing it sits on rather than a point beside it, which is what an
+//     entity's anchor is: the mean of the points that define it, a position no
+//     marker of its own occupies.
+//
+// Either channel alone carries the distinction, so it survives a greyscale
+// print (no colour is spent on it) and a viewer with no italic face (the
+// positions still differ). Names sharing an anchor stack downward, the way
 // constraint glyphs on one anchor do.
-func (a *annCtx) nameLabel(anchor v2, name string) {
+func (a *annCtx) pointName(anchor v2, name string) {
 	off := a.marker + a.text*0.4
 	pos := vadd(anchor, v2{off, -off + float64(a.stackIndex(anchor))*a.text*1.3})
+	a.nameText(pos, name, "start", false)
+}
+
+// entityName draws one entity's name centred on its anchor, in italic. See
+// [annCtx.pointName] for why the two differ.
+func (a *annCtx) entityName(anchor v2, name string) {
+	pos := vadd(anchor, v2{0, float64(a.stackIndex(anchor)) * a.text * 1.3})
+	a.nameText(pos, name, "middle", true)
+}
+
+// nameText emits one name. It is the one place a label's text element is
+// written, so the two kinds cannot drift apart in anything but the two
+// differences they are meant to have.
+func (a *annCtx) nameText(pos v2, name, textAnchor string, italic bool) {
+	style := ""
+	if italic {
+		style = ` font-style="italic"`
+	}
 	fmt.Fprintf(a.sb,
-		`  <text x="%s" y="%s" font-size="%s" fill="%s" text-anchor="start" dominant-baseline="central">%s</text>`+"\n",
-		a.sb.f(pos[0]), a.sb.f(pos[1]), a.sb.f(a.text), a.col, svgEscape(name))
+		`  <text x="%s" y="%s" font-size="%s" fill="%s" text-anchor="%s" dominant-baseline="central"%s>%s</text>`+"\n",
+		a.sb.f(pos[0]), a.sb.f(pos[1]), a.sb.f(a.text), a.col, textAnchor, style, svgEscape(name))
 }
 
 // glyph dispatches one geometric constraint to its badge(s). Dimensional

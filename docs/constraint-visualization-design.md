@@ -217,14 +217,18 @@ letters use `<text>` (with the Portability fallback).
 ### Names (gated by `WithLabels`)
 
 The optional label a point or entity carries (`names.go`), drawn as `<text>`
-beside the geometry that carries it: up and to the right of a point's marker,
-left-aligned there so the marker stays visible under its own name. An entity's
-anchor is the mean of `entityPoints(e)` — the midpoint of a line, the centre of a
-circle — read through that accessor rather than through a type switch here, so a
-new entity type gets an anchor from the contract it already has to satisfy. Names
-sharing an anchor stack downward on the same counter the glyphs use. Unnamed
-geometry emits nothing, and the pass walks `s.points` then `s.ents` in slice
-order.
+beside the geometry that carries it. The two kinds are told apart on two
+channels, position and style: a **point's** name is up and to the right of its
+marker, left-aligned and upright, so the marker stays visible under its own name;
+an **entity's** is centred on its anchor and italic. Either channel alone carries
+the distinction, so it survives greyscale and a missing italic face.
+
+An entity's anchor is the mean of `entityPoints(e)` — the midpoint of a line, the
+centre of a circle — read through that accessor rather than through a type switch
+here, so a new entity type gets an anchor from the contract it already has to
+satisfy. Names sharing an anchor stack downward on the same counter the glyphs
+use. Unnamed geometry emits nothing, and the pass walks `s.points` then `s.ents`
+in slice order.
 
 ### DOF coloring & verification overlays
 

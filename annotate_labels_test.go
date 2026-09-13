@@ -34,15 +34,52 @@ func namedTriangle(t *testing.T) *sketch.Sketch {
 	return s
 }
 
-// textAt returns every <text> element's x, y and content, in document order.
-func textAt(t *testing.T, svg string) [][3]string {
+// drawnText is one <text> element read back off the rendered document.
+type drawnText struct {
+	X, Y   float64
+	Anchor string
+	Italic bool
+	Text   string
+}
+
+// textAt returns every <text> element, in document order.
+func textAt(t *testing.T, svg string) []drawnText {
 	t.Helper()
-	re := regexp.MustCompile(`<text x="([^"]*)" y="([^"]*)"[^>]*>([^<]*)</text>`)
-	var out [][3]string
+	re := regexp.MustCompile(`<text x="([^"]*)" y="([^"]*)"[^>]*text-anchor="([^"]*)"([^>]*)>([^<]*)</text>`)
+	var out []drawnText
 	for _, m := range re.FindAllStringSubmatch(svg, -1) {
-		out = append(out, [3]string{m[1], m[2], m[3]})
+		x, err := strconv.ParseFloat(m[1], 64)
+		require.NoError(t, err)
+		y, err := strconv.ParseFloat(m[2], 64)
+		require.NoError(t, err)
+		out = append(out, drawnText{
+			X: x, Y: y, Anchor: m[3],
+			Italic: strings.Contains(m[4], `font-style="italic"`),
+			Text:   m[5],
+		})
 	}
 	return out
+}
+
+// names returns the text of each drawn label, in document order.
+func names(drawn []drawnText) []string {
+	out := make([]string, 0, len(drawn))
+	for _, d := range drawn {
+		out = append(out, d.Text)
+	}
+	return out
+}
+
+// labelled returns the one label with the given text.
+func labelled(t *testing.T, drawn []drawnText, name string) drawnText {
+	t.Helper()
+	for _, d := range drawn {
+		if d.Text == name {
+			return d
+		}
+	}
+	t.Fatalf("no label %q in %v", name, names(drawn))
+	return drawnText{}
 }
 
 func TestLabelsDefaultOffByteIdentical(t *testing.T) {
@@ -66,15 +103,30 @@ func TestLabelsDrawn(t *testing.T) {
 	out, err := s.SVG(sketch.WithLabels(true))
 	require.NoError(t, err)
 
-	texts := textAt(t, out)
-	var drawn []string
-	for _, tx := range texts {
-		drawn = append(drawn, tx[2])
-	}
-	require.Equal(t, []string{"A", "B", "C", "hypotenuse"}, drawn,
+	require.Equal(t, []string{"A", "B", "C", "hypotenuse"}, names(textAt(t, out)),
 		"every named point in creation order, then every named entity")
 	require.NotContains(t, out, "NaN")
 	require.NotContains(t, out, "Inf")
+}
+
+// The two kinds of label are told apart by position and by style, so a drawing
+// carrying both says which word names a point and which names an edge.
+func TestLabelsDistinguishPointsFromEntities(t *testing.T) {
+	s := namedTriangle(t)
+
+	out, err := s.SVG(sketch.WithLabels(true))
+	require.NoError(t, err)
+	drawn := textAt(t, out)
+
+	for _, name := range []string{"A", "B", "C"} {
+		p := labelled(t, drawn, name)
+		require.Equal(t, "start", p.Anchor, "a point's name is hung to one side of its marker")
+		require.False(t, p.Italic, "a point's name is upright")
+	}
+
+	e := labelled(t, drawn, "hypotenuse")
+	require.Equal(t, "middle", e.Anchor, "an entity's name is centred on its anchor")
+	require.True(t, e.Italic, "an entity's name is italic")
 }
 
 func TestLabelsSkipUnnamedGeometry(t *testing.T) {
@@ -101,41 +153,31 @@ func TestLabelsSitBesideTheirGeometry(t *testing.T) {
 
 	out, err := s.SVG(sketch.WithLabels(true))
 	require.NoError(t, err)
-	texts := textAt(t, out)
-	require.Len(t, texts, 4)
-
-	at := func(name string) (float64, float64) {
-		t.Helper()
-		for _, tx := range texts {
-			if tx[2] != name {
-				continue
-			}
-			x, err := strconv.ParseFloat(tx[0], 64)
-			require.NoError(t, err)
-			y, err := strconv.ParseFloat(tx[1], 64)
-			require.NoError(t, err)
-			return x, y
-		}
-		t.Fatalf("no label %q in %v", name, texts)
-		return 0, 0
-	}
+	drawn := textAt(t, out)
+	require.Len(t, drawn, 4)
 
 	// B is 40 mm along +x from A, and C is 30 mm along +y. The y axis is flipped
 	// on the way to screen space, so C's label is ABOVE A's and B's is to its
-	// right, and neither sits on top of its own marker.
-	ax, ay := at("A")
-	bx, by := at("B")
-	cx, cy := at("C")
-	require.InDelta(t, ax+40, bx, 1e-6, "B's label is 40 mm right of A's")
-	require.InDelta(t, ay, by, 1e-6, "A and B are level")
-	require.InDelta(t, ax, cx, 1e-6, "A and C are in line")
-	require.InDelta(t, ay-30, cy, 1e-6, "C's label is 30 mm above A's, the y axis being flipped")
+	// right, and each is offset off its own marker by the same amount.
+	a := labelled(t, drawn, "A")
+	b := labelled(t, drawn, "B")
+	c := labelled(t, drawn, "C")
+	require.InDelta(t, a.X+40, b.X, 1e-6, "B's label is 40 mm right of A's")
+	require.InDelta(t, a.Y, b.Y, 1e-6, "A and B are level")
+	require.InDelta(t, a.X, c.X, 1e-6, "A and C are in line")
+	require.InDelta(t, a.Y-30, c.Y, 1e-6, "C's label is 30 mm above A's, the y axis being flipped")
 
-	// The hypotenuse runs B->C, so its label sits at that line's midpoint, offset
-	// the same way a point's is.
-	hx, hy := at("hypotenuse")
-	require.InDelta(t, (bx+cx)/2, hx, 1e-6)
-	require.InDelta(t, (by+cy)/2, hy, 1e-6)
+	// The hypotenuse runs B->C, so its name is centred on the midpoint of those
+	// two points. Its label therefore sits at the midpoint of B's and C's labels
+	// LESS the offset those two carry — right by the same amount they were moved
+	// left, and down by the same amount they were moved up. Asserting the two
+	// differences against each other pins both the anchor and the offset without
+	// naming the offset's value.
+	h := labelled(t, drawn, "hypotenuse")
+	dx := (b.X+c.X)/2 - h.X
+	dy := h.Y - (b.Y+c.Y)/2
+	require.InDelta(t, dx, dy, 1e-6, "a point's label is offset equally right and up")
+	require.Greater(t, dx, 0.0, "and the offset is away from the marker, not onto it")
 }
 
 // Two names on one anchor stack downward instead of printing over each other.
@@ -154,17 +196,10 @@ func TestLabelsStackOnASharedAnchor(t *testing.T) {
 
 	out, err := s.SVG(sketch.WithLabels(true))
 	require.NoError(t, err)
-	texts := textAt(t, out)
-	require.Len(t, texts, 2)
-	require.Equal(t, "first", texts[0][2])
-	require.Equal(t, "second", texts[1][2])
-	require.Equal(t, texts[0][0], texts[1][0], "both sit at the same x")
-
-	firstY, err := strconv.ParseFloat(texts[0][1], 64)
-	require.NoError(t, err)
-	secondY, err := strconv.ParseFloat(texts[1][1], 64)
-	require.NoError(t, err)
-	require.Greater(t, secondY, firstY, "the second name is stacked below the first")
+	drawn := textAt(t, out)
+	require.Equal(t, []string{"first", "second"}, names(drawn))
+	require.InDelta(t, drawn[0].X, drawn[1].X, 1e-9, "both sit at the same x")
+	require.Greater(t, drawn[1].Y, drawn[0].Y, "the second name is stacked below the first")
 }
 
 // A name is caller-supplied text, so it goes through the same escaping every

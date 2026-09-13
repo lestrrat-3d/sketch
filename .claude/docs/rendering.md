@@ -48,11 +48,20 @@ the origin, or not at all. The mean is the midpoint of a line, the centre of a
 circle or ellipse, and the average of a spline's control points. An entity
 `entityPoints` does not know reports no anchor and is skipped.
 
-A point's own name is drawn up and to the right of its marker, left-aligned, so
-the marker stays visible under it. Names sharing an anchor stack downward through
-`annCtx.stackIndex`, which `badge` uses for the same reason; the two passes hold
-separate counters, so a glyph and a name on one anchor can still land together,
-and the label pass runs second so the name is on top.
+**A point's name and an entity's are drawn on two channels, POSITION and
+STYLE.** A point's is up and to the right of its marker, left-aligned and
+upright, so the marker stays visible under it; an entity's is centred on its
+anchor and italic, a position no marker of its own occupies. A drawing that
+labels both otherwise says the same thing about two different kinds of thing.
+Either channel alone carries the distinction, so it survives a greyscale print
+(no colour is spent on it) and a viewer with no italic face. Both go through the
+one `nameText` emitter, so the two kinds cannot drift apart in anything but those
+two differences.
+
+Names sharing an anchor stack downward through `annCtx.stackIndex`, which `badge`
+uses for the same reason; the two passes hold separate counters, so a glyph and a
+name on one anchor can still land together, and the label pass runs second so the
+name is on top.
 
 ### `writeStatusBadge` must branch on skipped analysis
 
