@@ -36,17 +36,20 @@ type identLabels struct{}
 //
 // Where each name goes is searched for, not fixed: a ring of positions about the
 // anchor is tried and the one that sits on the least — other names first, then
-// the drawing's own geometry, and never off the edge of the canvas — is kept. On
-// a crowded drawing some overlap is unavoidable, and the search then keeps the
-// least bad position rather than refusing to label.
+// their leaders, the point markers and the drawing's own geometry, and never off
+// the edge of the canvas — is kept. On a crowded drawing some overlap is
+// unavoidable, and the search then keeps the least bad position rather than
+// refusing to label.
 //
 // A name is tied to its own geometry the way a CAD note is tied to a feature —
-// underlined text, a line off the end of that underline, an arrowhead on the
-// vertex — whenever the search had to move it, or another point sits near enough
-// that position alone cannot say which vertex is meant. A name beside its own
-// geometry with nothing else near gets none of that. Names and their leaders are
-// cleared against the page's own background colour, so they stay legible where
-// they cross the drawing. SVG only.
+// a landing line along the text, a line off the end of that landing, an
+// arrowhead on the vertex — whenever the search had to move it, or another point
+// sits near enough that position alone cannot say which vertex is meant. A name
+// beside its own geometry with nothing else near gets none of that. The landing
+// takes the edge of the text that faces away from the vertex, so the line to the
+// arrow never runs back through the name it belongs to. Names and their leaders
+// are cleared against the page's own background colour, so they stay legible
+// where they cross the drawing. SVG only.
 func WithLabels(v bool) SVGPNGOption { return svgPNGOption{option.New(identLabels{}, v)} }
 
 // writeLabels draws the optional name every named point and entity carries.
@@ -180,6 +183,7 @@ type labelPlacer struct {
 	segments [][2]v2 // the drawing's own geometry, sampled
 	markers  []rect  // the point markers
 	placed   []rect  // the names already drawn
+	leaders  [][2]v2 // the leaders already drawn, landing and angled line alike
 }
 
 // newLabelPlacer samples the drawing once, so each name is scored against the
@@ -255,12 +259,17 @@ func spotRing(n float64) []labelSpot {
 // The weights the search scores a position by. A name on another name is the
 // worst thing on the page, because two texts on one spot are both unreadable
 // while a name over a line still reads; a name off the canvas is worse still,
-// since it is not there at all. The rank term is what keeps an uncrowded drawing
-// on its first choice and makes ties resolve the same way on every run.
+// since it is not there at all. A leader sits between a marker and a curve: it
+// hides no vertex, so it costs less than a marker, but it is the line a reader
+// follows from a name to the vertex it belongs to, so a name dropped across it
+// costs more than one crossing a construction line the drawing has anyway. The
+// rank term is what keeps an uncrowded drawing on its first choice and makes
+// ties resolve the same way on every run.
 const (
 	labelPenaltyOffCanvas = 1000.0
 	labelPenaltyOnLabel   = 100.0
 	labelPenaltyOnMarker  = 10.0
+	labelPenaltyOnLeader  = 5.0
 	labelPenaltyOnCurve   = 1.0
 	labelPenaltyRank      = 0.01
 )
@@ -353,41 +362,108 @@ func (lp *labelPlacer) needsLeader(box rect, anchor v2, rank int) bool {
 }
 
 // leader ties a name to the geometry it names, as a CAD note is tied to a
-// feature: an underline under the text, a line from the end of that underline,
-// and an arrowhead on the vertex itself.
+// feature: a landing line along one edge of the text, a line from the end of
+// that landing, and an arrowhead on the vertex itself.
 //
 // The three parts are what make the pairing legible rather than merely present.
 // A bare line from the text to the point was the first attempt and it failed on
 // a crowded drawing: at one step of travel the visible segment is a few pixels,
-// and the reader cannot see which end belongs to which name. The underline binds
+// and the reader cannot see which end belongs to which name. The landing binds
 // the line to ITS text — the line leaves the word, not the space near the word —
 // and the arrowhead says which of the several nearby dots is the one meant.
+//
+// Every segment drawn is kept, because a leader is an obstacle for the names
+// placed after it just as a marker or an earlier name is.
 func (lp *labelPlacer) leader(box rect, anchor v2) {
-	// The underline sits just under the text, spanning its width.
-	y := box.maxY + lp.a.text*leaderUnderlineDrop
-	left, right := v2{box.minX, y}, v2{box.maxX, y}
-
-	// The line leaves the underline at whichever end faces the anchor, so it
-	// never has to cross back under the word it came from.
-	start := right
-	if anchor[0] < (box.minX+box.maxX)/2 {
-		start = left
+	r, ok := lp.leaderRoute(box, anchor)
+	if !ok {
+		return // the text already sits against the marker
 	}
+	lp.leaderLine(r.landing[0], r.landing[1])
+	lp.leaderLine(r.start, r.tip)
+	lp.leaders = append(lp.leaders, r.landing, [2]v2{r.start, r.tip})
+	// A short leader takes a proportionally shorter head, so the arrow cannot be
+	// longer than the line it sits on.
+	lp.a.arrowAtSize(r.tip, r.dir, math.Min(lp.a.arrow, r.reach*leaderArrowShare))
+}
+
+// leaderRoute is one way a leader could leave its text: a landing line along the
+// top or the bottom edge of the name's box, and the end of that landing the
+// angled line sets off from.
+type leaderRoute struct {
+	landing [2]v2   // the horizontal line along one edge of the text
+	start   v2      // whichever end of it the angled line leaves
+	tip     v2      // where the angled line stops, clear of the marker
+	dir     v2      // the direction the arrowhead points
+	reach   float64 // how long the angled line is
+}
+
+// leaderRoute picks the route that does not run back through the name it came
+// from.
+//
+// A leader that crosses its own text is not a blemish but a misreading: the line
+// is cased in the page colour so it stays visible over the drawing, so where it
+// crosses a letter it ERASES part of it. The case that taught this had a name
+// sitting directly below its vertex, where the line up to the arrow left the
+// bottom-right of the word and re-entered it — the casing took the right-hand
+// side out of an "O" and a reader saw a "C".
+//
+// The four routes are the two edges the landing can sit on crossed with the two
+// ends it can leave from, tried in the order a draughtsman would: the underline
+// first, since that is the conventional note and the one an uncrowded drawing
+// keeps; then the overline, which is what reaches a vertex standing above the
+// word without passing through it; and only then the far end of each, which
+// means the line travels back past its own word and is ugly rather than wrong.
+// When every route crosses — a vertex inside the name's own box — the first is
+// drawn anyway, on the same reasoning the placement search keeps its least bad
+// position: a crossed leader still pairs the name with its vertex.
+func (lp *labelPlacer) leaderRoute(box rect, anchor v2) (leaderRoute, bool) {
+	gap := lp.a.text * leaderLandingGap
+	below := [2]v2{{box.minX, box.maxY + gap}, {box.maxX, box.maxY + gap}}
+	above := [2]v2{{box.minX, box.minY - gap}, {box.maxX, box.minY - gap}}
+
+	// The end of a landing that faces the anchor, so the angled line does not
+	// have to travel back past the word it came from.
+	near := 1
+	if anchor[0] < (box.minX+box.maxX)/2 {
+		near = 0
+	}
+	far := 1 - near
+
+	var fallback leaderRoute
+	var found bool
+	for _, c := range [4]struct {
+		landing [2]v2
+		end     int
+	}{{below, near}, {above, near}, {below, far}, {above, far}} {
+		r, ok := lp.routeFrom(c.landing, c.end, anchor)
+		if !ok {
+			continue
+		}
+		if !box.crossedBy(r.start, r.tip) {
+			return r, true
+		}
+		if !found {
+			fallback, found = r, true
+		}
+	}
+	return fallback, found
+}
+
+// routeFrom completes one candidate route, or reports that it cannot be drawn
+// because the text already sits against the marker it would point at.
+func (lp *labelPlacer) routeFrom(landing [2]v2, end int, anchor v2) (leaderRoute, bool) {
+	start := landing[end]
 	dir := vunit(vsub(anchor, start))
 	if dir == (v2{}) {
-		return
+		return leaderRoute{}, false
 	}
 	tip := vadd(anchor, vmul(dir, -(lp.a.marker+lp.a.text*leaderClearance)))
 	reach := vlen(vsub(tip, start))
 	if reach <= 0 {
-		return // the text already sits against the marker
+		return leaderRoute{}, false
 	}
-
-	lp.leaderLine(left, right)
-	lp.leaderLine(start, tip)
-	// A short leader takes a proportionally shorter head, so the arrow cannot be
-	// longer than the line it sits on.
-	lp.a.arrowAtSize(tip, dir, math.Min(lp.a.arrow, reach*leaderArrowShare))
+	return leaderRoute{landing: landing, start: start, tip: tip, dir: dir, reach: reach}, true
 }
 
 // leaderLine emits one hairline of a leader, thinner than the geometry so the
@@ -437,7 +513,7 @@ const (
 	outerRingStep        = 2    // the ring a name is pushed out to when it needs the room
 	leaderHaloWidth      = 3.5  // how much wider the casing under a leader is than the leader
 	leaderClearance      = 0.25 // gap left between the marker and the arrow's tip
-	leaderUnderlineDrop  = 0.1  // how far under the text the underline sits
+	leaderLandingGap     = 0.1  // how far off the text's edge the landing line sits
 	leaderArrowShare     = 0.5  // the most of a leader's length its head may take
 	leaderStrokeFraction = 0.6  // thinner than the geometry it points into
 )
@@ -472,6 +548,11 @@ func (lp *labelPlacer) score(box rect) float64 {
 	for _, m := range lp.markers {
 		if box.overlaps(m) {
 			score += labelPenaltyOnMarker
+		}
+	}
+	for _, seg := range lp.leaders {
+		if box.crossedBy(seg[0], seg[1]) {
+			score += labelPenaltyOnLeader
 		}
 	}
 	for _, seg := range lp.segments {
