@@ -29,6 +29,7 @@ type (
 	identConflicts   struct{}
 	identStatusBadge struct{}
 	identProfileFill struct{}
+	identLabels      struct{}
 	identAnnColor    struct{}
 	identAnnScale    struct{}
 	identPixelWidth  struct{}
@@ -65,6 +66,19 @@ func WithStatusBadge(v bool) SVGPNGOption { return svgPNGOption{option.New(ident
 // WithProfileFill toggles a translucent fill under every valid closed region
 // (from [Sketch.Profiles]); self-intersecting or degenerate regions are skipped.
 func WithProfileFill(v bool) SVGPNGOption { return svgPNGOption{option.New(identProfileFill{}, v)} }
+
+// WithLabels toggles drawing the optional names points and entities carry (see
+// [Point.SetName] and [named.SetName]) beside the geometry they belong to.
+// Geometry with no name draws nothing, so a sketch that names its six hexagon
+// corners and leaves its construction lines unnamed labels the six corners.
+//
+// A point's name is drawn up and to the right of its marker, clear of it; an
+// entity's is drawn at the mean of the points that define it, which is the
+// midpoint of a line and the centre of a circle. Several names on one anchor
+// stack downward. Nothing moves a name off geometry it happens to land on, and a
+// long name on geometry at the drawing's edge can run past that edge — widen
+// [WithMargin] to leave room for it. SVG only.
+func WithLabels(v bool) SVGPNGOption { return svgPNGOption{option.New(identLabels{}, v)} }
 
 // WithAnnotationColor sets the color of dimension lines and constraint glyphs.
 func WithAnnotationColor(v string) SVGPNGOption {
@@ -149,6 +163,7 @@ type annCtx struct {
 	text   float64 // font size
 	gap    float64 // dimension-line offset from the geometry
 	ext    float64 // extension beyond the dimension line
+	marker float64 // the point markers' own radius, which a name is set clear of
 
 	placed []v2 // base anchors of glyphs already drawn, for per-anchor stacking
 }
@@ -281,6 +296,7 @@ func newAnnCtx(sb *svgWriter, cfg svgConfig, b bbox, tx, ty func(float64) float6
 		text:   0.04 * diag * sz,
 		gap:    0.06 * diag * sz,
 		ext:    0.015 * diag * sz,
+		marker: pointRadius(cfg.pointRadius, b),
 	}
 }
 
@@ -304,6 +320,71 @@ func (s *Sketch) writeGlyphs(sb *svgWriter, cfg svgConfig, b bbox, tx, ty func(f
 	for _, c := range s.cons {
 		a.glyph(c)
 	}
+}
+
+// writeLabels draws the optional name every named point and entity carries.
+//
+// Points come first and entities second, each in creation order, so the output
+// is deterministic and a point's label is under an entity's where the two land
+// on the same spot. Unnamed geometry contributes nothing, which is what lets a
+// caller label the handful of points a drawing is reasoned about by and leave
+// the rest of the sketch clean.
+func (s *Sketch) writeLabels(sb *svgWriter, cfg svgConfig, b bbox, tx, ty func(float64) float64) {
+	a := newAnnCtx(sb, cfg, b, tx, ty)
+	for _, p := range s.points {
+		if p.Name() == "" {
+			continue
+		}
+		a.nameLabel(a.scr(p), p.Name())
+	}
+	for _, e := range s.ents {
+		if e.Name() == "" {
+			continue
+		}
+		anchor, ok := a.entityAnchor(e)
+		if !ok {
+			continue
+		}
+		a.nameLabel(anchor, e.Name())
+	}
+}
+
+// entityAnchor is where an entity's own name is drawn: the mean of the points
+// that define it, which is the midpoint of a line, the centre of a circle or
+// ellipse, and the average of a spline's control points.
+//
+// It reads those points through [entityPoints], the same accessor grounding and
+// the removal cascade read, rather than through a type switch of its own. A new
+// entity type then gets a label anchor by satisfying the contract it already has
+// to satisfy, instead of by someone remembering this file exists. An entity that
+// entityPoints does not know reports no anchor and is skipped rather than
+// labelled at the origin.
+func (a *annCtx) entityAnchor(e Entity) (v2, bool) {
+	pts := entityPoints(e)
+	if len(pts) == 0 {
+		return v2{}, false
+	}
+	var sum v2
+	for _, p := range pts {
+		sum = vadd(sum, a.scr(p))
+	}
+	return vmul(sum, 1/float64(len(pts))), true
+}
+
+// nameLabel draws one name beside anchor.
+//
+// The text sits up and to the right of the anchor and is left-aligned there, so
+// the marker or curve the name belongs to stays visible under it rather than
+// being covered by its own label. The offset clears the point markers' own
+// radius, which is itself scale-relative, so a name stays off its marker on a
+// drawing of any size. Names sharing an anchor stack downward, the way
+// constraint glyphs on one anchor do.
+func (a *annCtx) nameLabel(anchor v2, name string) {
+	off := a.marker + a.text*0.4
+	pos := vadd(anchor, v2{off, -off + float64(a.stackIndex(anchor))*a.text*1.3})
+	fmt.Fprintf(a.sb,
+		`  <text x="%s" y="%s" font-size="%s" fill="%s" text-anchor="start" dominant-baseline="central">%s</text>`+"\n",
+		a.sb.f(pos[0]), a.sb.f(pos[1]), a.sb.f(a.text), a.col, svgEscape(name))
 }
 
 // glyph dispatches one geometric constraint to its badge(s). Dimensional
@@ -370,9 +451,9 @@ func (a *annCtx) rimBadgeAnchor(c Circular) v2 {
 	return a.xy(cp.x()+c.R()*math.Cos(ang), cp.y()+c.R()*math.Sin(ang))
 }
 
-// badge draws a small boxed symbol at anchor, stacking downward when several
-// glyphs share an anchor.
-func (a *annCtx) badge(anchor v2, sym string) {
+// stackIndex records one more mark on anchor and reports how many were already
+// there, so the caller can step the new one clear of them.
+func (a *annCtx) stackIndex(anchor v2) int {
 	idx := 0
 	for _, p := range a.placed {
 		if vlen(vsub(p, anchor)) < a.text*0.5 {
@@ -380,7 +461,13 @@ func (a *annCtx) badge(anchor v2, sym string) {
 		}
 	}
 	a.placed = append(a.placed, anchor)
-	pos := vadd(anchor, v2{0, float64(idx) * a.text * 1.7})
+	return idx
+}
+
+// badge draws a small boxed symbol at anchor, stacking downward when several
+// glyphs share an anchor.
+func (a *annCtx) badge(anchor v2, sym string) {
+	pos := vadd(anchor, v2{0, float64(a.stackIndex(anchor)) * a.text * 1.7})
 	r := a.text * 0.85
 	fmt.Fprintf(a.sb,
 		`  <rect x="%s" y="%s" width="%s" height="%s" rx="%s" fill="white" stroke="%s" stroke-width="%s"/>`+"\n",

@@ -101,6 +101,7 @@ type svgConfig struct {
 	conflicts   bool    // highlight conflicting-constraint geometry
 	statusBadge bool    // draw a verification status card
 	profileFill bool    // fill valid closed regions
+	labels      bool    // draw the names points and entities carry
 	annColor    string  // dimension line / glyph stroke color
 	annScale    float64 // multiplies annotation glyph/text/arrow sizes
 	pixelWidth  float64 // target display width in px (0 = geometry units); viewBox unchanged
@@ -163,6 +164,8 @@ func applyRenderOption(cfg *svgConfig, o option.Interface) bool {
 		cfg.statusBadge = option.MustGet[bool](o)
 	case identProfileFill:
 		cfg.profileFill = option.MustGet[bool](o)
+	case identLabels:
+		cfg.labels = option.MustGet[bool](o)
 	case identPixelWidth:
 		cfg.pixelWidth = option.MustGet[float64](o)
 	case identFrame:
@@ -580,6 +583,12 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 	}
 	if cfg.constraints {
 		s.writeGlyphs(sb, cfg, b, tx, ty)
+	}
+	// Names render after the glyphs, so a label lies over a badge that shares its
+	// anchor rather than under it: the two passes stack within themselves and
+	// know nothing of each other.
+	if cfg.labels {
+		s.writeLabels(sb, cfg, b, tx, ty)
 	}
 	if cfg.statusBadge {
 		s.writeStatusBadge(sb, cfg, pad, w)

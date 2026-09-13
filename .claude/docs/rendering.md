@@ -8,6 +8,7 @@ Detail moved out of CLAUDE.md's architecture table. Read before adding an annota
 |---|---|
 | Which overlays exist and what are their defaults? | `annotate.go` — overview |
 | What does the status badge show on a skipped report? | `writeStatusBadge` must branch on skipped analysis |
+| Where does a named entity's label get drawn? | `WithLabels` takes its entity anchor from `entityPoints` |
 | Why doesn't the status badge call `Sketch.Verify`? | `badgeVerify` computes only what the badge renders |
 | How does DOF colouring behave on non-finite geometry? | `WithDOFColoring` marks everything free when refused |
 | How is annotation geometry mapped to screen space? | The load-bearing annotation-geometry rule |
@@ -32,8 +33,26 @@ blue — the per-entity `Sketch.EntityIsFullyConstrained`), `WithPixelWidth`
 (display px, viewBox unchanged), `WithConflicts` (conflicting geometry red via
 `Diagnose` + `constraintRefs`; conflict-red > DOF-blue), `WithStatusBadge`
 (DOF/Status/Solvable card via `badgeVerify`, see below), `WithProfileFill`
-(valid `Profiles()` regions only, canonical sort for determinism),
+(valid `Profiles()` regions only, canonical sort for determinism), `WithLabels`
+(the names points and entities carry, see below),
 `WithAnnotationColor`/`WithAnnotationScale`.
+
+### `WithLabels` takes its entity anchor from `entityPoints`
+
+**An entity's label is drawn at the mean of `entityPoints(e)`, not at a position
+a type switch in `annotate.go` assigns it.** That accessor is the one grounding
+and the removal cascade already read an entity's defining points through, so a
+new entity type gets a label anchor by satisfying the contract it has to satisfy
+anyway; a switch here would compile fine while silently labelling the new type at
+the origin, or not at all. The mean is the midpoint of a line, the centre of a
+circle or ellipse, and the average of a spline's control points. An entity
+`entityPoints` does not know reports no anchor and is skipped.
+
+A point's own name is drawn up and to the right of its marker, left-aligned, so
+the marker stays visible under it. Names sharing an anchor stack downward through
+`annCtx.stackIndex`, which `badge` uses for the same reason; the two passes hold
+separate counters, so a glyph and a name on one anchor can still land together,
+and the label pass runs second so the name is on top.
 
 ### `writeStatusBadge` must branch on skipped analysis
 
