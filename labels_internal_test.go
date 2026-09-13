@@ -18,7 +18,7 @@ import (
 // can say where the obstacles are.
 func placerFixture(canvas rect) *labelPlacer {
 	a := &annCtx{text: 4, marker: 2}
-	return &labelPlacer{a: a, canvas: canvas, weights: defaultLabelWeights()}
+	return &labelPlacer{a: a, canvas: canvas, weights: defaultLabelWeights(), spots: defaultLabelSpots()}
 }
 
 // placedBox is the box the placer chose for one name, which is the last box it
@@ -214,7 +214,7 @@ func TestLabelPlacerMovesOffAnEarlierLeader(t *testing.T) {
 	lp.a.sb = newSVGWriter()
 
 	// A leader lying straight across the position the name would otherwise take.
-	first := lp.box(anchor, "A", pointSpots[0], step)
+	first := lp.box(anchor, "A", lp.spots.point[0], step)
 	drawn := [2]v2{
 		{first.minX - 10, (first.minY + first.maxY) / 2},
 		{first.maxX + 10, (first.minY + first.maxY) / 2},
@@ -246,7 +246,7 @@ func TestLabelLeaderUnderlinesTheNameAndPointsAtTheAnchor(t *testing.T) {
 	// Block exactly the first choice, so the name has to go somewhere else and
 	// the test does not depend on which of the remaining positions wins.
 	step := lp.a.marker + lp.a.text*0.4
-	lp.markers = []rect{lp.box(anchor, "A", pointSpots[0], step)}
+	lp.markers = []rect{lp.box(anchor, "A", lp.spots.point[0], step)}
 	lp.place(anchor, "A", labelPoint)
 
 	out := lp.a.sb.String()

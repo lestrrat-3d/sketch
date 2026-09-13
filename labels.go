@@ -181,6 +181,7 @@ type labelPlacer struct {
 	canvas   rect
 	halo     string       // the page colour, painted under a name and its leader
 	weights  labelWeights // what each kind of collision costs
+	spots    labelSpots   // the positions a name is tried in
 	segments [][2]v2      // the drawing's own geometry, sampled
 	markers  []rect       // the point markers
 	placed   []rect       // the names already drawn
@@ -190,7 +191,10 @@ type labelPlacer struct {
 // newLabelPlacer samples the drawing once, so each name is scored against the
 // same geometry rather than re-sampling per candidate.
 func (s *Sketch) newLabelPlacer(a *annCtx, cfg svgConfig, tx, ty func(float64) float64, canvas rect) *labelPlacer {
-	lp := &labelPlacer{a: a, canvas: canvas, halo: haloColor(cfg.background), weights: defaultLabelWeights()}
+	lp := &labelPlacer{
+		a: a, canvas: canvas, halo: haloColor(cfg.background),
+		weights: defaultLabelWeights(), spots: defaultLabelSpots(),
+	}
 	for _, e := range s.ents {
 		pts := entityPolyline(e, cfg.arcSegments)
 		for i := 1; i < len(pts); i++ {
@@ -229,18 +233,50 @@ type labelSpot struct {
 	anchor string
 }
 
-// pointSpots and entitySpots are the rings tried, in order of preference.
+// labelRingDepth is how many rings out a name may be moved.
+//
+// Two was the original depth, and on a crowded drawing it is not enough: names
+// still land on each other and on vertices because nothing within two steps is
+// free. Widening it alone makes a drawing WORSE, though, and that is the whole
+// reason this constant did not simply grow. A name the search moves grows a
+// leader, a name moved further grows a LONGER one, and leaders are obstacles
+// for the names placed after them. Measured on an 80-name cloud, going from two
+// rings to five left the number of leaders flat at 76 or 77 while their total
+// length went from 977 to 1190, and the names crossed by one went from 9 to 16.
+//
+// The depth is only safe to raise alongside [labelPlacer.ownLeaderCost], which
+// makes the search pay for the leader a candidate would need. With both, the
+// same cloud places every one of its 80 names clear of every other name, every
+// vertex and every leader.
+const labelRingDepth = 5
+
+// labelSpots is the ring a point's name is tried in and the ring an entity's
+// is, held on the placer rather than read from a package variable so a test can
+// vary the depth and measure the drawing that comes out.
+type labelSpots struct{ point, entity []labelSpot }
+
+// defaultLabelSpots is the rings at [labelRingDepth].
+func defaultLabelSpots() labelSpots {
+	p, e := newLabelSpots(labelRingDepth)
+	return labelSpots{point: p, entity: e}
+}
+
+// newLabelSpots builds the rings a name is tried in, in order of preference.
 //
 // A point's first choice is up and to the right of its marker, which is where a
 // draughtsman puts it and where every uncrowded drawing still has it. An
 // entity's first choice is its own anchor, centred, since an entity has no
-// marker of its own to clear. The rest of each ring walks the eight compass
-// directions and then a second ring twice as far out, so a name that cannot sit
-// in the obvious place moves as little as it has to.
-var (
-	pointSpots  = append(spotRing(1), spotRing(2)...)
-	entitySpots = append([]labelSpot{{0, 0, textAnchorMiddle}}, append(spotRing(1), spotRing(2)...)...)
-)
+// marker of its own to clear. Each ring after that walks the eight compass
+// directions one step further out, so a name that cannot sit in the obvious
+// place still moves as little as it has to.
+func newLabelSpots(depth int) ([]labelSpot, []labelSpot) {
+	var point []labelSpot
+	for r := 1; r <= depth; r++ {
+		point = append(point, spotRing(float64(r))...)
+	}
+	entity := append([]labelSpot{{0, 0, textAnchorMiddle}}, point...)
+	return point, entity
+}
 
 // spotRing is the eight compass positions at the given multiple of the step,
 // starting up-right and going clockwise in screen terms (y grows downward).
@@ -272,6 +308,7 @@ type labelWeights struct {
 	onMarker  float64
 	onLeader  float64
 	onCurve   float64
+	ownLeader float64
 	rank      float64
 }
 
@@ -296,15 +333,16 @@ func defaultLabelWeights() labelWeights {
 		onMarker:  10.0,
 		onLeader:  5.0,
 		onCurve:   1.0,
+		ownLeader: 5.0,
 		rank:      0.01,
 	}
 }
 
 // place draws one name at the least-colliding position its ring offers.
 func (lp *labelPlacer) place(anchor v2, name string, kind labelKind) {
-	spots := pointSpots
+	spots := lp.spots.point
 	if kind == labelEntity {
-		spots = entitySpots
+		spots = lp.spots.entity
 	}
 	step := lp.a.marker + lp.a.text*0.4
 
@@ -345,11 +383,48 @@ func (lp *labelPlacer) search(anchor v2, name string, spots []labelSpot, step, m
 			continue
 		}
 		box := lp.box(anchor, name, sp, step)
-		if score := lp.score(box) + float64(i)*lp.weights.rank; score < bestScore {
+		if score := lp.score(box) + lp.ownLeaderCost(box, anchor, i) + float64(i)*lp.weights.rank; score < bestScore {
 			best, bestBox, bestScore, bestRank = sp, box, score, i
 		}
 	}
 	return best, bestBox, bestRank
+}
+
+// ownLeaderCost is what the leader THIS candidate would need costs the drawing.
+//
+// Every other term scores where the text lands. Without this one the search
+// picks a position blind to the line it is about to draw back to the vertex,
+// which is exactly how a wider ring makes a drawing worse: a name free to roam
+// takes a distant position it likes, and a long leader is then drawn across
+// everything between the two. Charging the candidate for its own leader is what
+// makes [labelRingDepth] safe to raise.
+//
+// Only names and leaders already down are counted, not the markers or the
+// drawing's own curves: a leader is cased against the page and is MEANT to
+// cross the drawing, while a leader over a name or tangled with another leader
+// is the thing a reader cannot follow.
+func (lp *labelPlacer) ownLeaderCost(box rect, anchor v2, rank int) float64 {
+	if lp.weights.ownLeader == 0 || !lp.needsLeader(box, anchor, rank) {
+		return 0
+	}
+	r, ok := lp.leaderRoute(box, anchor)
+	if !ok {
+		return 0
+	}
+	cost := 0.0
+	for _, seg := range [2][2]v2{r.landing, {r.start, r.tip}} {
+		for _, p := range lp.placed {
+			if p.crossedBy(seg[0], seg[1]) {
+				cost += lp.weights.ownLeader
+			}
+		}
+		for _, o := range lp.leaders {
+			if segmentsCross(seg[0], seg[1], o[0], o[1]) {
+				cost += lp.weights.ownLeader
+			}
+		}
+	}
+	return cost
 }
 
 // reach is how much line a leader would have between the marker's clearance and

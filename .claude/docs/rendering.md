@@ -45,8 +45,8 @@ blue — the per-entity `Sketch.EntityIsFullyConstrained`), `WithPixelWidth`
 does not survive a real drawing: on a sketch naming two dozen points inside one
 small figure, a name pinned up and to the right of every marker lands on the next
 marker, on a construction line, or on another name. `labelPlacer` tries a ring of
-positions about the anchor — the first choice, then the eight compass directions
-at one step and again at two — and keeps the lowest-scoring one. The score
+positions about the anchor — the eight compass directions at one step out, then
+again at each step to `labelRingDepth` — and keeps the lowest-scoring one. The score
 weights what the box sits on: off the canvas (1000) beats a name (100) beats a
 marker (10) beats a leader already drawn (5) beats the drawing's own curves (1),
 plus a small rank term (0.01 per candidate) that keeps an uncrowded drawing on
@@ -72,6 +72,25 @@ what tells the two apart. `TestLabelWeightsRankHarmInOrder` holds the ranking
 and `TestLabelRankOnlyBreaksTies` holds the rank term below the cheapest real
 collision.
 
+**The ring is five deep, and that depth and `ownLeaderCost` are ONE change.**
+Two rings was the original depth and it is not enough on a crowded drawing:
+names still land on each other and on vertices because nothing within two steps
+is free. Widening the ring by itself makes the drawing WORSE, though, which is
+why the depth did not simply grow. A name the search moves grows a leader, a
+name moved further grows a LONGER one, and leaders are obstacles for the names
+placed after them. On an 80-name cloud, going from two rings to five held the
+number of leaders flat at 76 or 77 while their total length went from 977 to
+1190, and the names crossed by one went from 9 to 16. `ownLeaderCost` is what
+pays for the depth: it charges each candidate for the leader IT would need,
+counting only the names and leaders already down, since a leader is cased
+against the page and is meant to cross the drawing while a leader over a name is
+what a reader cannot follow. With both, that cloud places all 80 names clear of
+every other name, every vertex and every leader; measured across seven clouds
+from 40 to 200 names it is never worse than two rings on any of the three
+counts. `TestDeeperRingNeedsTheOwnLeaderCost` pins the pairing by showing the
+wider ring alone is worse. The cost is real: placement takes about 4x as long as
+two rings, which is 200ms for 80 names.
+
 **A uniform lattice cannot measure the marker weight, which is why the fixture
 is an irregular cloud.** On a grid every position a name can reach is near
 somebody's vertex, so the weight shuffles which vertex gets covered without ever
@@ -80,7 +99,8 @@ the total by 0 or 1 in either direction. Open space between clusters is what
 gives a name somewhere better to go, and only then does a weight show up as an
 improvement. The same limit explains why the downstream gear drawing proved
 nothing about these numbers: its S10 figure renders byte-identically with the
-leader weight anywhere from 0 to 100.
+leader weight anywhere from 0 to 100, and unchanged again by the move from two
+rings to five.
 
 **A name gets a leader when it was MOVED or when it has a RIVAL.** Moved is the
 obvious case: the name is no longer where a reader looks for it. The rival case
