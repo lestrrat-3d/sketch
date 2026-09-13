@@ -2,6 +2,8 @@ package sketch
 
 import (
 	"math"
+	"regexp"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -87,6 +89,67 @@ func TestLabelPlacerLabelsAnyway(t *testing.T) {
 	lp.place(v2{500, 500}, "A", labelPoint)
 	require.Len(t, lp.placed, 1)
 	require.Contains(t, lp.a.sb.String(), ">A<")
+}
+
+// A name in the spot a reader expects needs no line to it, and drawing one
+// would add a mark per label to a drawing that was already legible.
+func TestLabelLeaderIsNotDrawnForAnAdjacentName(t *testing.T) {
+	lp := placerFixture(rect{maxX: 1000, maxY: 1000})
+	lp.a.sb = newSVGWriter()
+
+	lp.place(v2{500, 500}, "A", labelPoint)
+	require.NotContains(t, lp.a.sb.String(), "<line", "no leader for a name at its first choice")
+}
+
+// A name the search had to move is tied back to its anchor, because it is now
+// somewhere the reader has no reason to look.
+func TestLabelLeaderPointsAtTheAnchor(t *testing.T) {
+	lp := placerFixture(rect{maxX: 1000, maxY: 1000})
+	lp.a.sb = newSVGWriter()
+	anchor := v2{500, 500}
+
+	// Block exactly the first choice, so the name has to go somewhere else and
+	// the test does not depend on which of the remaining positions wins.
+	step := lp.a.marker + lp.a.text*0.4
+	lp.markers = []rect{lp.box(anchor, "A", pointSpots[0], step)}
+	lp.place(anchor, "A", labelPoint)
+
+	out := lp.a.sb.String()
+	require.Contains(t, out, "<line", "a moved name is tied back to its anchor")
+
+	x1, y1, x2, y2 := leaderEnds(t, out)
+	near, far := v2{x1, y1}, v2{x2, y2}
+	box := placedBox(lp)
+
+	// The tolerance is the exporter's own: it writes coordinates at four decimal
+	// places, so a position read back off the document carries that rounding.
+	const written = 1e-3
+	require.InDelta(t, lp.a.marker+lp.a.text*leaderClearance, vlen(vsub(near, anchor)), written,
+		"the line stops clear of the marker")
+	require.InDelta(t, 0, vlen(vsub(far, closestOnRect(box, anchor))), written,
+		"and reaches the nearest edge of the text's own box")
+	require.False(t, box.holdsPoint(near), "it never runs under the letters")
+}
+
+// leaderEnds reads the one leader line back off a rendered fragment.
+func leaderEnds(t *testing.T, svg string) (float64, float64, float64, float64) {
+	t.Helper()
+	m := regexp.MustCompile(`<line x1="([^"]*)" y1="([^"]*)" x2="([^"]*)" y2="([^"]*)"`).FindStringSubmatch(svg)
+	require.Len(t, m, 5)
+	var out [4]float64
+	for i := range out {
+		v, err := strconv.ParseFloat(m[i+1], 64)
+		require.NoError(t, err)
+		out[i] = v
+	}
+	return out[0], out[1], out[2], out[3]
+}
+
+func TestClosestOnRect(t *testing.T) {
+	box := rect{minX: 10, minY: 10, maxX: 20, maxY: 20}
+	require.Equal(t, v2{10, 15}, closestOnRect(box, v2{0, 15}), "left of the box")
+	require.Equal(t, v2{20, 20}, closestOnRect(box, v2{30, 30}), "past a corner")
+	require.Equal(t, v2{15, 15}, closestOnRect(box, v2{15, 15}), "inside it")
 }
 
 func TestRectCrossedBySegment(t *testing.T) {

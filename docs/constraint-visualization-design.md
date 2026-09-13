@@ -115,7 +115,7 @@ value flows to both `SVG` and `PNG`):
 | `WithConflicts(bool)` | `false` | highlight conflicting constraints' geometry in red (from `Diagnose()`/`ConflictSet()`) |
 | `WithStatusBadge(bool)` | `false` | draw a small text badge: `DOF=n`, `fully/under/over-constrained`, `converged` |
 | `WithProfileFill(bool)` | `false` | translucent fill under **valid** closed regions from `Profiles()` |
-| `WithLabels(bool)` | `false` | draw the optional names points and entities carry, beside the geometry carrying them |
+| `WithLabels(bool)` | `false` | draw the optional names points and entities carry, placed clear of the drawing and leadered back to it when moved |
 | `WithAnnotationColor(string)` | `#5f6368` | dimension lines / glyph stroke |
 | `WithAnnotationScale(float64)` | `1.0` | multiplies glyph/text/arrow size (else derived from bbox diagonal) |
 
@@ -232,6 +232,10 @@ its first choice and ties resolve identically on every run. A name is never
 dropped; when everything collides the least bad position is drawn. Text width is
 estimated (`labelWidthPerRune`), deliberately generously, because the exporter
 cannot know the viewer's font metrics.
+
+A name the search moved is joined to its geometry by a thin leader, from the text
+box's nearest edge to just short of the anchor; a name that kept its first choice
+gets none.
 
 An entity's anchor is the mean of `entityPoints(e)` — the midpoint of a line, the
 centre of a circle — read through that accessor rather than through a type switch

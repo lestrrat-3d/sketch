@@ -38,7 +38,12 @@ type identLabels struct{}
 // anchor is tried and the one that sits on the least — other names first, then
 // the drawing's own geometry, and never off the edge of the canvas — is kept. On
 // a crowded drawing some overlap is unavoidable, and the search then keeps the
-// least bad position rather than refusing to label. SVG only.
+// least bad position rather than refusing to label.
+//
+// A name the search moved is joined to its own geometry by a thin leader line,
+// since a name away from the spot a reader expects is otherwise as near some
+// other vertex as its own. A name that kept its first choice gets no line. SVG
+// only.
 func WithLabels(v bool) SVGPNGOption { return svgPNGOption{option.New(identLabels{}, v)} }
 
 // writeLabels draws the optional name every named point and entity carries.
@@ -264,17 +269,67 @@ func (lp *labelPlacer) place(anchor v2, name string, kind labelKind) {
 	}
 	step := lp.a.marker + lp.a.text*0.4
 
-	best, bestBox, bestScore := spots[0], rect{}, math.Inf(1)
+	best, bestBox, bestScore, bestRank := spots[0], rect{}, math.Inf(1), 0
 	for i, sp := range spots {
 		box := lp.box(anchor, name, sp, step)
 		if score := lp.score(box) + float64(i)*labelPenaltyRank; score < bestScore {
-			best, bestBox, bestScore = sp, box, score
+			best, bestBox, bestScore, bestRank = sp, box, score, i
 		}
 	}
 
 	lp.placed = append(lp.placed, bestBox)
+	if bestRank > 0 {
+		lp.leader(bestBox, anchor)
+	}
 	pos := vadd(anchor, v2{best.dx * step, best.dy * step})
 	lp.a.nameText(pos, name, best.anchor, kind == labelEntity)
+}
+
+// leader draws the line that ties a moved name back to the geometry it names.
+//
+// It is drawn ONLY for a name the search had to move. A name in the spot a
+// reader expects — beside its own marker, or centred on its own entity — needs
+// no line, and drawing one there would add a mark per label to a drawing that
+// was already legible. A name that was moved is somewhere a reader has no reason
+// to look, and on a crowded figure it is as near some other vertex as its own.
+// That is what this line answers, and it is why the test is "was it moved" and
+// not "how far": one step off the expected side is already enough to leave the
+// reader guessing.
+//
+// It runs from the edge of the text's own box to just short of the anchor, so it
+// touches neither the letters nor the marker, and it is drawn thinner than the
+// geometry so it reads as an annotation rather than as another edge of the
+// drawing.
+func (lp *labelPlacer) leader(box rect, anchor v2) {
+	from := closestOnRect(box, anchor)
+	dir := vunit(vsub(from, anchor))
+	if dir == (v2{}) {
+		return // the anchor is inside the text's own box: nothing to point at
+	}
+	to := vadd(anchor, vmul(dir, lp.a.marker+lp.a.text*leaderClearance))
+	if vlen(vsub(from, anchor)) <= vlen(vsub(to, anchor)) {
+		return // the text begins inside the clearance: there is no line to draw
+	}
+	fmt.Fprintf(lp.a.sb,
+		`  <line x1="%s" y1="%s" x2="%s" y2="%s" stroke="%s" stroke-width="%s"/>`+"\n",
+		lp.a.sb.f(to[0]), lp.a.sb.f(to[1]), lp.a.sb.f(from[0]), lp.a.sb.f(from[1]),
+		lp.a.col, lp.a.sb.f(lp.a.sw*leaderStrokeFraction))
+}
+
+// The leader's own sizes, each as a fraction of the font size or the stroke
+// width, so they scale with the drawing like every other annotation.
+const (
+	leaderClearance      = 0.25 // gap left between the marker and the line's near end
+	leaderStrokeFraction = 0.6  // thinner than the geometry it points into
+)
+
+// closestOnRect is the point of a box nearest p, which is p itself when p is
+// inside the box.
+func closestOnRect(r rect, p v2) v2 {
+	return v2{
+		math.Min(math.Max(p[0], r.minX), r.maxX),
+		math.Min(math.Max(p[1], r.minY), r.maxY),
+	}
 }
 
 // box is the area a name would cover at one candidate position.
