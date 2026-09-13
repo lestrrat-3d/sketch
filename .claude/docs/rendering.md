@@ -10,6 +10,7 @@ Detail moved out of CLAUDE.md's architecture table. Read before adding an annota
 | What does the status badge show on a skipped report? | `writeStatusBadge` must branch on skipped analysis |
 | Where does a named entity's label get drawn? | `WithLabels` takes its entity anchor from `entityPoints` |
 | How does a label avoid the geometry and other labels? | `WithLabels` searches for each name's position |
+| Why does a leader sometimes sit above its name instead of below? | `WithLabels` searches for each name's position |
 | Why doesn't the status badge call `Sketch.Verify`? | `badgeVerify` computes only what the badge renders |
 | How does DOF colouring behave on non-finite geometry? | `WithDOFColoring` marks everything free when refused |
 | How is annotation geometry mapped to screen space? | The load-bearing annotation-geometry rule |
@@ -47,9 +48,13 @@ marker, on a construction line, or on another name. `labelPlacer` tries a ring o
 positions about the anchor — the first choice, then the eight compass directions
 at one step and again at two — and keeps the lowest-scoring one. The score
 weights what the box sits on: off the canvas (1000) beats a name (100) beats a
-marker (10) beats the drawing's own curves (1), plus a small rank term (0.01 per
-candidate) that keeps an uncrowded drawing on its first choice and makes every
-tie resolve the same way on every run. Nothing is ever dropped: when every
+marker (10) beats a leader already drawn (5) beats the drawing's own curves (1),
+plus a small rank term (0.01 per candidate) that keeps an uncrowded drawing on
+its first choice and makes every tie resolve the same way on every run. A leader
+sits between a marker and a curve because it hides no vertex, so it costs less
+than a marker, but it is the line a reader follows from a name to the vertex it
+belongs to, so a name dropped across it costs more than one crossing a
+construction line the drawing has anyway. Nothing is ever dropped: when every
 position collides the least bad one is still drawn, because a crowded label says
 more than no label.
 
@@ -76,20 +81,38 @@ leaders run. A transparent page (`WithBackground("none")`) gets no halo, since
 there is no colour to clear with. The halo copies are `<text>` elements carrying
 a `stroke`, which is how a reader of the output tells them from the names.
 
-**The leader is a CAD note leader — underline, line, arrowhead — and all three
-parts are load-bearing.** A bare line from the text to the point was tried first
-and failed on the real drawing it was built for: at one step of travel the
-visible segment is a few pixels, and the reader cannot see which end belongs to
-which name. The UNDERLINE binds the line to its own text, so the line leaves the
-word rather than the space near it; the ARROWHEAD says which of several nearby
-dots is meant. The head is sized down on a short leader
+**The leader is a CAD note leader — landing line, angled line, arrowhead — and
+all three parts are load-bearing.** A bare line from the text to the point was
+tried first and failed on the real drawing it was built for: at one step of
+travel the visible segment is a few pixels, and the reader cannot see which end
+belongs to which name. The LANDING binds the line to its own text, so the line
+leaves the word rather than the space near it; the ARROWHEAD says which of
+several nearby dots is meant. The head is sized down on a short leader
 (`leaderArrowShare`) so it can never be longer than the line carrying it, and
 both lines are drawn at `leaderStrokeFraction` of the geometry's stroke so the
 annotation does not read as another edge.
 
-Leaders are not obstacles for the names placed after them, which is a limitation
-rather than a decision: scoring against them would make each placement depend on
-the leaders of every earlier one.
+**A leader must never run back through its own text, and `leaderRoute` is what
+guarantees it.** The lines are cased in the page colour so they stay visible over
+the drawing, so a leader crossing its own name does not merely clutter the
+letters — it ERASES part of one. The drawing that taught this had a name directly
+below its vertex: the angled line left the bottom-right of the word and
+re-entered it, taking the right-hand side out of an "O" so the reader saw a "C".
+`leaderRoute` tries the two edges the landing may sit on crossed with the two
+ends it may leave from, in the order a draughtsman would — the underline first,
+since that is the conventional note an uncrowded drawing keeps; then the
+OVERLINE, which is what reaches a vertex standing above the word without passing
+through it; then the far end of each, which travels back past its own word and is
+ugly rather than wrong — and takes the first that `rect.crossedBy` clears. A
+vertex inside the name's own box clears none, and the first is drawn anyway, on
+the same reasoning the placement search keeps its least bad position.
+
+**Leaders ARE obstacles for the names placed after them** (`labelPlacer.leaders`,
+both the landing and the angled line). That makes each placement depend on the
+leaders of every earlier one, which is why it was left out at first; the ordering
+that makes it deterministic is the one `placed` already relies on — points then
+entities, each in creation order — so "already drawn" means the same thing on
+every run.
 
 Scoring is against BOXES, so the text's width has to be guessed —
 `labelWidthPerRune`, deliberately generous, since a box too wide only moves a

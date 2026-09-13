@@ -130,6 +130,103 @@ func TestLabelStandsOffFarEnoughToCarryItsLeader(t *testing.T) {
 		"the name stands clear of its own marker by more than its arrowhead")
 }
 
+// A leader must never run back through the name it belongs to. Its lines are
+// cased in the page colour so they stay visible over the drawing, so a crossing
+// does not merely clutter the letters — it ERASES part of one. The drawing this
+// came from had a name sitting directly below its vertex: the line up to the
+// arrow left the bottom-right of the word and re-entered it, taking the
+// right-hand side out of an "O" so that a reader saw a "C".
+func TestLabelLeaderNeverCrossesItsOwnText(t *testing.T) {
+	box := rect{minX: 100, minY: 96, maxX: 120, maxY: 104}
+	// The eight directions a vertex can lie in, each far enough out that a leader
+	// really is drawn. Straight above is the case that failed.
+	for _, tc := range []struct {
+		name   string
+		anchor v2
+	}{
+		{"straight above", v2{110, 40}},
+		{"straight below", v2{110, 160}},
+		{"above and left", v2{60, 40}},
+		{"above and right", v2{160, 40}},
+		{"below and left", v2{60, 160}},
+		{"below and right", v2{160, 160}},
+		{"level and left", v2{40, 100}},
+		{"level and right", v2{180, 100}},
+		// Barely off the top edge, where the landing line and the vertex are
+		// within a hair of each other.
+		{"just above the top edge", v2{110, 94}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			lp := placerFixture(rect{maxX: 1000, maxY: 1000})
+			lp.a.sb = newSVGWriter()
+			lp.a.arrow = 2
+
+			lp.leader(box, tc.anchor)
+
+			require.Len(t, lp.leaders, 2, "a landing line and the angled line off it")
+			for _, seg := range lp.leaders {
+				require.False(t, box.crossedBy(seg[0], seg[1]),
+					"the leader runs through the name it points from")
+			}
+		})
+	}
+}
+
+// The landing line stays flush against one edge of the text, whichever edge it
+// takes, so the leader still reads as leaving the word rather than passing near
+// it.
+func TestLabelLeaderLandingHugsTheText(t *testing.T) {
+	box := rect{minX: 100, minY: 96, maxX: 120, maxY: 104}
+	gap := 4 * leaderLandingGap // 4 is the fixture's font size
+
+	for _, tc := range []struct {
+		name   string
+		anchor v2
+		wantY  float64
+	}{
+		{"a vertex below takes the underline", v2{110, 160}, box.maxY + gap},
+		{"a vertex above takes the overline", v2{110, 40}, box.minY - gap},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			lp := placerFixture(rect{maxX: 1000, maxY: 1000})
+			lp.a.sb = newSVGWriter()
+			lp.a.arrow = 2
+
+			lp.leader(box, tc.anchor)
+
+			landing := lp.leaders[0]
+			require.InDelta(t, box.minX, landing[0][0], 1e-9, "the landing spans the text")
+			require.InDelta(t, box.maxX, landing[1][0], 1e-9)
+			require.InDelta(t, tc.wantY, landing[0][1], 1e-9)
+			require.InDelta(t, tc.wantY, landing[1][1], 1e-9)
+		})
+	}
+}
+
+// A leader already on the page is an obstacle for the names placed after it. It
+// is the line a reader follows from a name to its vertex, so a later name
+// dropped across it breaks a pairing the drawing has already made.
+func TestLabelPlacerMovesOffAnEarlierLeader(t *testing.T) {
+	anchor := v2{500, 500}
+	step := 2 + 4*0.4 // marker + 0.4 * text, the placer's own step
+
+	lp := placerFixture(rect{maxX: 1000, maxY: 1000})
+	lp.a.sb = newSVGWriter()
+
+	// A leader lying straight across the position the name would otherwise take.
+	first := lp.box(anchor, "A", pointSpots[0], step)
+	drawn := [2]v2{
+		{first.minX - 10, (first.minY + first.maxY) / 2},
+		{first.maxX + 10, (first.minY + first.maxY) / 2},
+	}
+	lp.leaders = [][2]v2{drawn}
+
+	lp.place(anchor, "A", labelPoint)
+
+	require.False(t, placedBox(lp).crossedBy(drawn[0], drawn[1]),
+		"the name was moved clear of the leader")
+}
+
 // markerAt is the box a point marker covers at a screen position.
 func markerAt(lp *labelPlacer, c v2) rect {
 	return rect{
