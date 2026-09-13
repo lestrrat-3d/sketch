@@ -346,15 +346,18 @@ func (lp *labelPlacer) place(anchor v2, name string, kind labelKind) {
 	}
 	step := lp.a.marker + lp.a.text*0.4
 
-	best, bestBox, bestRank := lp.search(anchor, name, spots, step, 0)
+	best, bestBox, bestRank := lp.search(anchor, name, spots, step, nil)
 	leadered := lp.needsLeader(bestBox, anchor, bestRank)
-	if leadered && lp.reach(bestBox, anchor) < lp.a.arrow*leaderMinReach {
-		// The name needs a leader and is too close to its own anchor to carry a
-		// visible one: the line would be a few pixels and the head smaller
-		// still. Standing the name off by another step is what buys the room,
+	if leadered && !lp.carriesLeader(bestBox, anchor) {
+		// The name needs a leader and stands too close to its own vertex to
+		// carry a visible one: the line would be a few pixels and the head
+		// smaller still. Standing the name further off is what buys the room,
 		// and it costs nothing a reader values — a name that needs a line drawn
-		// to it is not being read by its position anyway.
-		if far, farBox, _ := lp.search(anchor, name, spots, step, outerRingStep); farBox != (rect{}) {
+		// to it is not being read by its position anyway. Only positions that
+		// really can carry the leader are considered, so the search cannot
+		// settle again on one that cannot.
+		roomy := func(b rect) bool { return lp.carriesLeader(b, anchor) }
+		if far, farBox, _ := lp.search(anchor, name, spots, step, roomy); farBox != (rect{}) {
 			best, bestBox = far, farBox
 		}
 	}
@@ -370,19 +373,23 @@ func (lp *labelPlacer) place(anchor v2, name string, kind labelKind) {
 	}
 }
 
-// search returns the best-scoring candidate among those standing at least
-// minStep out from the anchor, with the rank it was found at.
+// search returns the best-scoring candidate the filter admits, with the rank it
+// was found at. A nil filter admits every candidate.
 //
 // The rank is the candidate's own index in the ring, so rank 0 means the name
 // kept the position a reader expects. Ties resolve by that index, which is what
 // keeps an uncrowded drawing on its first choice and makes two runs agree.
-func (lp *labelPlacer) search(anchor v2, name string, spots []labelSpot, step, minStep float64) (labelSpot, rect, int) {
+//
+// When the filter admits nothing the returned box is the zero rect, which the
+// caller checks: a name is never dropped for failing a filter, it keeps the
+// position the unfiltered search gave it.
+func (lp *labelPlacer) search(anchor v2, name string, spots []labelSpot, step float64, admit func(rect) bool) (labelSpot, rect, int) {
 	best, bestBox, bestScore, bestRank := labelSpot{}, rect{}, math.Inf(1), 0
 	for i, sp := range spots {
-		if math.Max(math.Abs(sp.dx), math.Abs(sp.dy)) < minStep {
+		box := lp.box(anchor, name, sp, step)
+		if admit != nil && !admit(box) {
 			continue
 		}
-		box := lp.box(anchor, name, sp, step)
 		if score := lp.score(box) + lp.ownLeaderCost(box, anchor, i) + float64(i)*lp.weights.rank; score < bestScore {
 			best, bestBox, bestScore, bestRank = sp, box, score, i
 		}
@@ -427,11 +434,20 @@ func (lp *labelPlacer) ownLeaderCost(box rect, anchor v2, rank int) float64 {
 	return cost
 }
 
-// reach is how much line a leader would have between the marker's clearance and
-// the text's own box.
-func (lp *labelPlacer) reach(box rect, anchor v2) float64 {
-	gap := vlen(vsub(closestOnRect(box, anchor), anchor))
-	return gap - (lp.a.marker + lp.a.text*leaderClearance)
+// carriesLeader reports whether the leader this position needs would be long
+// enough to carry an arrowhead a reader can see.
+//
+// It asks [leaderRoute] for the line that would actually be drawn rather than
+// measuring to the nearest edge of the text, and the difference is not academic.
+// A name sitting directly above or below its vertex has its nearest edge close
+// to it, but the leader leaves the END of a landing line off to one side, and
+// once the landing moved to whichever edge faces away from the vertex, the line
+// left over got shorter still. Three names on the bevel gear's own S10 drawing
+// came out with arrowheads a quarter the size of every other one, because the
+// old measure said they had room when the drawn line did not.
+func (lp *labelPlacer) carriesLeader(box rect, anchor v2) bool {
+	r, ok := lp.leaderRoute(box, anchor)
+	return ok && r.reach >= lp.a.arrow*leaderMinReach
 }
 
 // needsLeader reports whether a name has to be tied to its geometry explicitly.
@@ -610,8 +626,7 @@ func closestOnRect(r rect, p v2) v2 {
 // or the arrowhead, so they scale with the drawing like every other annotation.
 const (
 	leaderRivalRatio     = 2.0  // how near another marker may come before a name needs its leader
-	leaderMinReach       = 1.6  // a leadered name stands off this many arrowheads at least
-	outerRingStep        = 2    // the ring a name is pushed out to when it needs the room
+	leaderMinReach       = 1.6  // a drawn leader is at least this many arrowheads long
 	leaderHaloWidth      = 3.5  // how much wider the casing under a leader is than the leader
 	leaderClearance      = 0.25 // gap left between the marker and the arrow's tip
 	leaderLandingGap     = 0.1  // how far off the text's edge the landing line sits

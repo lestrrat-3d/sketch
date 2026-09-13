@@ -111,11 +111,26 @@ a marker a rival when it comes within `leaderRivalRatio` of the name's own
 distance to its anchor. A name with neither problem gets none, so an uncrowded
 drawing stays clean.
 
-**A leadered name is stood off far enough to carry its leader** (`leaderMinReach`
-arrowheads, re-searched at `outerRingStep`). At one step of travel the line is a
-few pixels and the head is smaller still, which is how the first version of this
+**A leadered name is stood off far enough to carry its leader**, and the
+standoff is measured on the line that is actually DRAWN (`carriesLeader`, at
+least `leaderMinReach` arrowheads). At one step of travel the line is a few
+pixels and the head is smaller still, which is how the first version of this
 failed; a name that needs a line drawn to it is not being read by its position
-anyway, so the extra step costs nothing.
+anyway, so the extra distance costs nothing.
+
+**Measuring that standoff to the nearest EDGE of the text instead is the bug
+this replaced.** A name sitting straight above or below its vertex has its
+nearest edge close to it, but the leader leaves the END of a landing line off to
+one side, and once the landing moved to whichever edge faces away from the
+vertex there was less line left still. The old measure said those names had room
+when the drawn line did not: on the bevel gear's own S10 drawing, C, E and O came
+out with arrowheads 0.214 units long against 0.847 for every other name on the
+sheet, and a reader could not see them. The re-search now ADMITS only positions
+whose routed leader really is long enough, rather than only positions past a
+fixed ring, so it cannot settle again on one that is too short — and because the
+position it needs is often three rings out, this depends on `labelRingDepth`
+being more than two. `TestEveryArrowheadIsFullSize` holds it on a crowded cloud
+and `TestLabelStandsOffFarEnoughToCarryItsLeader` on a vertex in each direction.
 
 **A name and its leader are cleared against the page** with a halo: the text is
 written twice, once thickened in the background colour, and each leader line is

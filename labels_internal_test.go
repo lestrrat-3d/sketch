@@ -1,6 +1,7 @@
 package sketch
 
 import (
+	"fmt"
 	"math"
 	"regexp"
 	"strconv"
@@ -118,16 +119,60 @@ func TestLabelLeaderIsDrawnWhenAnotherVertexIsAsNear(t *testing.T) {
 
 // A name that needs a leader is stood off far enough to carry a visible one: a
 // line of a few pixels with a smaller head on it says nothing.
+//
+// The standoff is measured on the line that is actually DRAWN, not on the gap
+// to the nearest edge of the text. The two differ most for a name sitting
+// straight above or below its vertex, which is how three names on a real
+// drawing ended up with quarter-sized arrowheads.
 func TestLabelStandsOffFarEnoughToCarryItsLeader(t *testing.T) {
-	lp := placerFixture(rect{maxX: 1000, maxY: 1000})
-	lp.a.sb = newSVGWriter()
-	lp.a.arrow = 2
-	anchor := v2{500, 500}
-	lp.markers = []rect{markerAt(lp, anchor), markerAt(lp, v2{507, 497})}
+	for _, tc := range []struct {
+		name  string
+		rival v2
+	}{
+		{"a rival up and to the right", v2{507, 497}},
+		{"a rival straight above", v2{500, 493}},
+		{"a rival straight below", v2{500, 503}},
+		{"a rival straight left", v2{497, 500}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			lp := placerFixture(rect{maxX: 1000, maxY: 1000})
+			lp.a.sb = newSVGWriter()
+			lp.a.arrow = 2
+			anchor := v2{500, 500}
+			lp.markers = []rect{markerAt(lp, anchor), markerAt(lp, tc.rival)}
 
-	lp.place(anchor, "A", labelPoint)
-	require.GreaterOrEqual(t, lp.reach(placedBox(lp), anchor), lp.a.arrow*leaderMinReach,
-		"the name stands clear of its own marker by more than its arrowhead")
+			lp.place(anchor, "A", labelPoint)
+
+			// The second segment of a leader is the angled line the arrowhead
+			// sits on. A name the placer decided needs no leader has none, and
+			// there is nothing to measure.
+			require.Len(t, lp.leaders, 2, "this rival should have forced a leader")
+			line := lp.leaders[1]
+			require.GreaterOrEqual(t, vlen(vsub(line[1], line[0])), lp.a.arrow*leaderMinReach,
+				"the drawn leader is too short to carry a full-size arrowhead")
+		})
+	}
+}
+
+// Every arrowhead on a crowded drawing is full size. A head sized down to a
+// quarter of the others reads as a smudge rather than as the thing saying which
+// vertex a name belongs to.
+func TestEveryArrowheadIsFullSize(t *testing.T) {
+	lp, anchors := scatterFixture(scatterNames, scatterSpread)
+	lp.a.sb = newSVGWriter()
+	for i, anchor := range anchors {
+		lp.place(anchor, fmt.Sprintf("P%d", i), labelPoint)
+	}
+
+	// lp.leaders holds the landing and then the angled line, per leader drawn.
+	var short int
+	for i := 1; i < len(lp.leaders); i += 2 {
+		if vlen(vsub(lp.leaders[i][1], lp.leaders[i][0])) < lp.a.arrow*leaderMinReach {
+			short++
+		}
+	}
+	require.Zero(t, short, "%d of %d leaders are too short for a full arrowhead",
+		short, len(lp.leaders)/2)
 }
 
 // A leader must never run back through the name it belongs to. Its lines are
