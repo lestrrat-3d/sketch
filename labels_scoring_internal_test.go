@@ -35,6 +35,7 @@ func scatterFixture(n int, spread float64) (*labelPlacer, []v2) {
 		a:       a,
 		canvas:  rect{minX: -300, minY: -300, maxX: 900, maxY: 900},
 		weights: defaultLabelWeights(),
+		spots:   defaultLabelSpots(),
 	}
 	// A linear congruential generator rather than math/rand, so the cloud is the
 	// same on every run and on every Go version.
@@ -72,6 +73,11 @@ func placeScatter(w labelWeights) ([]rect, labelCollisions) {
 		lp.place(anchor, fmt.Sprintf("P%d", i), labelPoint)
 	}
 
+	return lp.placed, collisionsOf(lp)
+}
+
+// collisionsOf counts what the finished drawing's names ended up sitting on.
+func collisionsOf(lp *labelPlacer) labelCollisions {
 	var got labelCollisions
 	for i, box := range lp.placed {
 		for j, other := range lp.placed {
@@ -93,7 +99,7 @@ func placeScatter(w labelWeights) ([]rect, labelCollisions) {
 			}
 		}
 	}
-	return lp.placed, got
+	return got
 }
 
 // The size of the cloud the weights are measured on. It is crowded enough that
@@ -136,6 +142,11 @@ func TestLabelWeightsEarnTheirPlace(t *testing.T) {
 		{
 			"a name landing on a leader",
 			func(w *labelWeights) { w.onLeader = 0 },
+			func(c labelCollisions) int { return c.onLeader },
+		},
+		{
+			"a name whose own leader would cross the drawing",
+			func(w *labelWeights) { w.ownLeader = 0 },
 			func(c labelCollisions) int { return c.onLeader },
 		},
 	} {
@@ -182,7 +193,8 @@ func TestLabelWeightsRankHarmInOrder(t *testing.T) {
 // position to keep a place nearer the front of the ring.
 func TestLabelRankOnlyBreaksTies(t *testing.T) {
 	w := defaultLabelWeights()
-	wholeRing := float64(len(pointSpots)) * w.rank
+	point, _ := newLabelSpots(labelRingDepth)
+	wholeRing := float64(len(point)) * w.rank
 	require.Less(t, wholeRing, w.onCurve,
 		"walking the whole ring must cost less than one collision, or rank would outrank harm")
 }
@@ -196,4 +208,35 @@ func TestLabelPlacementIsDeterministic(t *testing.T) {
 	second, secondCounts := placeScatter(defaultLabelWeights())
 	require.Equal(t, first, second, "the same drawing placed twice moved a name")
 	require.Equal(t, firstCounts, secondCounts)
+}
+
+// A name may be moved as far as [labelRingDepth] rings, and that depth is only
+// safe because the search pays for the leader each candidate would need. The
+// two are one change and this is the test that says so: widening the ring while
+// the own-leader cost is off leaves the drawing WORSE than not widening it.
+func TestDeeperRingNeedsTheOwnLeaderCost(t *testing.T) {
+	place := func(depth int, own float64) labelCollisions {
+		lp, anchors := scatterFixture(scatterNames, scatterSpread)
+		point, entity := newLabelSpots(depth)
+		lp.spots = labelSpots{point: point, entity: entity}
+		lp.weights.ownLeader = own
+		for i, anchor := range anchors {
+			lp.place(anchor, fmt.Sprintf("P%d", i), labelPoint)
+		}
+		return collisionsOf(lp)
+	}
+
+	shallow := place(2, 0)
+	wideAlone := place(labelRingDepth, 0)
+	wideWithCost := place(labelRingDepth, defaultLabelWeights().ownLeader)
+	t.Logf("two rings %+v, %d rings alone %+v, %d rings with the cost %+v",
+		shallow, labelRingDepth, wideAlone, labelRingDepth, wideWithCost)
+
+	require.Greater(t, wideAlone.onLeader, shallow.onLeader,
+		"widening the ring on its own should cost leader collisions, which is why the cost exists")
+	require.LessOrEqual(t, wideWithCost.onLabel, shallow.onLabel)
+	require.LessOrEqual(t, wideWithCost.onMarker, shallow.onMarker)
+	require.LessOrEqual(t, wideWithCost.onLeader, shallow.onLeader)
+	require.Less(t, wideWithCost.onLeader, wideAlone.onLeader,
+		"the own-leader cost is what pays for the wider ring")
 }
