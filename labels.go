@@ -179,17 +179,18 @@ func onSegment(p, q, r v2) bool {
 type labelPlacer struct {
 	a        *annCtx
 	canvas   rect
-	halo     string  // the page colour, painted under a name and its leader
-	segments [][2]v2 // the drawing's own geometry, sampled
-	markers  []rect  // the point markers
-	placed   []rect  // the names already drawn
-	leaders  [][2]v2 // the leaders already drawn, landing and angled line alike
+	halo     string       // the page colour, painted under a name and its leader
+	weights  labelWeights // what each kind of collision costs
+	segments [][2]v2      // the drawing's own geometry, sampled
+	markers  []rect       // the point markers
+	placed   []rect       // the names already drawn
+	leaders  [][2]v2      // the leaders already drawn, landing and angled line alike
 }
 
 // newLabelPlacer samples the drawing once, so each name is scored against the
 // same geometry rather than re-sampling per candidate.
 func (s *Sketch) newLabelPlacer(a *annCtx, cfg svgConfig, tx, ty func(float64) float64, canvas rect) *labelPlacer {
-	lp := &labelPlacer{a: a, canvas: canvas, halo: haloColor(cfg.background)}
+	lp := &labelPlacer{a: a, canvas: canvas, halo: haloColor(cfg.background), weights: defaultLabelWeights()}
 	for _, e := range s.ents {
 		pts := entityPolyline(e, cfg.arcSegments)
 		for i := 1; i < len(pts); i++ {
@@ -256,6 +257,24 @@ func spotRing(n float64) []labelSpot {
 	}
 }
 
+// labelWeights is what each kind of collision costs the search.
+//
+// It is a value rather than a set of constants read straight from [score] so a
+// test can vary one weight and watch the drawing that comes out. What the
+// numbers are worth cannot be argued from the page they are written on: the
+// question "is a leader worth five curves" is answerable only by placing names
+// on a crowded drawing twice and counting what each answer collides with. See
+// [defaultLabelWeights] for the ordering they encode and
+// labels_internal_test.go for the tests that hold it.
+type labelWeights struct {
+	offCanvas float64
+	onLabel   float64
+	onMarker  float64
+	onLeader  float64
+	onCurve   float64
+	rank      float64
+}
+
 // The weights the search scores a position by. A name on another name is the
 // worst thing on the page, because two texts on one spot are both unreadable
 // while a name over a line still reads; a name off the canvas is worse still,
@@ -265,14 +284,21 @@ func spotRing(n float64) []labelSpot {
 // costs more than one crossing a construction line the drawing has anyway. The
 // rank term is what keeps an uncrowded drawing on its first choice and makes
 // ties resolve the same way on every run.
-const (
-	labelPenaltyOffCanvas = 1000.0
-	labelPenaltyOnLabel   = 100.0
-	labelPenaltyOnMarker  = 10.0
-	labelPenaltyOnLeader  = 5.0
-	labelPenaltyOnCurve   = 1.0
-	labelPenaltyRank      = 0.01
-)
+//
+// The ORDER is what the tests hold and what a change here has to justify. The
+// magnitudes inside that order are not pinned to any drawing, and deliberately
+// so: no drawing in this repository can tell 1 from 100 for a single weight,
+// only the ranking against its neighbours.
+func defaultLabelWeights() labelWeights {
+	return labelWeights{
+		offCanvas: 1000.0,
+		onLabel:   100.0,
+		onMarker:  10.0,
+		onLeader:  5.0,
+		onCurve:   1.0,
+		rank:      0.01,
+	}
+}
 
 // place draws one name at the least-colliding position its ring offers.
 func (lp *labelPlacer) place(anchor v2, name string, kind labelKind) {
@@ -319,7 +345,7 @@ func (lp *labelPlacer) search(anchor v2, name string, spots []labelSpot, step, m
 			continue
 		}
 		box := lp.box(anchor, name, sp, step)
-		if score := lp.score(box) + float64(i)*labelPenaltyRank; score < bestScore {
+		if score := lp.score(box) + float64(i)*lp.weights.rank; score < bestScore {
 			best, bestBox, bestScore, bestRank = sp, box, score, i
 		}
 	}
@@ -538,26 +564,26 @@ func (lp *labelPlacer) box(anchor v2, name string, sp labelSpot, step float64) r
 func (lp *labelPlacer) score(box rect) float64 {
 	score := 0.0
 	if !lp.canvas.contains(box) {
-		score += labelPenaltyOffCanvas
+		score += lp.weights.offCanvas
 	}
 	for _, p := range lp.placed {
 		if box.overlaps(p) {
-			score += labelPenaltyOnLabel
+			score += lp.weights.onLabel
 		}
 	}
 	for _, m := range lp.markers {
 		if box.overlaps(m) {
-			score += labelPenaltyOnMarker
+			score += lp.weights.onMarker
 		}
 	}
 	for _, seg := range lp.leaders {
 		if box.crossedBy(seg[0], seg[1]) {
-			score += labelPenaltyOnLeader
+			score += lp.weights.onLeader
 		}
 	}
 	for _, seg := range lp.segments {
 		if box.crossedBy(seg[0], seg[1]) {
-			score += labelPenaltyOnCurve
+			score += lp.weights.onCurve
 		}
 	}
 	return score
