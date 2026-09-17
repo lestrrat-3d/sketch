@@ -97,6 +97,7 @@ from a solid — the seam is first-class reference geometry), live in
 | `svg.go` / `png.go` / `dxf.go` / `json.go` / `json_world.go` | Exporters / serialization. All three exporters refuse rather than emit a non-finite or out-of-range value (`ErrNonFiniteGeometry`); `json_world.go` is the v2 `World`/`Plane` serialization + the `kind`-discriminator preflight. | `.claude/docs/serialization.md` → "Exporters — `svg.go` / `png.go` / `dxf.go`" |
 | `geom/` | **Self-contained** context-agnostic 2D geometry (own package). | `.claude/docs/profiles-geom.md` → "The `geom` package (slated for extraction)" |
 | `param/` | **Self-contained** parameter & expression engine (own package). | `.claude/docs/modules.md` → "The `param` package (slated for extraction)" |
+| `sketchtest/` | Public test helpers for solve, verification, profile, and numeric geometry assertions. Every helper consumes the public `sketch` API and fails through `testing.TB`. Design in `docs/sketchtest-design.md`. | — |
 | `examples/` | Executable Go examples (`Example_sketch_…` in `package examples_test`, `go test`-verified `// Output:` blocks) that double as living documentation. Never `package main` programs. | — |
 
 ### The world & planes (`plane.go`/`world.go`)
