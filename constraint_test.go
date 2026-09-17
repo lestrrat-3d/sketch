@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/lestrrat-3d/sketch"
+	"github.com/lestrrat-3d/sketch/sketchtest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,13 +17,12 @@ func TestCoincident(t *testing.T) {
 	a := s.CreatePoint(2, 3)
 	s.Fix(a)
 	p := s.CreatePoint(10, -4)
-	s.AddConstraint(sketch.NewCoincident(a, p))
+	coincident := sketch.NewCoincident(a, p)
+	s.AddConstraint(coincident)
 
-	_, err := s.Solve(t.Context())
-	require.NoError(t, err)
-	require.InDelta(t, 2, p.X(), 1e-6, "coincident x")
-	require.InDelta(t, 3, p.Y(), 1e-6, "coincident y")
-	require.InDelta(t, 0, a.DistanceTo(p), 1e-6, "points occupy one location")
+	sketchtest.Solve(t, s)
+	sketchtest.MeasuresPoint(t, p, 2, 3, sketchtest.Within(1e-6))
+	sketchtest.Satisfies(t, coincident, sketchtest.Within(1e-6))
 }
 
 func TestParallel(t *testing.T) {
@@ -80,11 +80,12 @@ func TestPointOnCircle(t *testing.T) {
 	s.AddConstraint(sketch.NewRadius(circ, 5))
 
 	p := s.CreatePoint(7, 1)
-	s.AddConstraint(sketch.NewPointOnCircle(p, circ))
+	onCircle := sketch.NewPointOnCircle(p, circ)
+	s.AddConstraint(onCircle)
 
-	res, err := s.Solve(t.Context())
-	require.NoError(t, err)
-	require.InDelta(t, 5, p.DistanceTo(o), 1e-6, "point lands on the circle")
+	res := sketchtest.Solve(t, s)
+	sketchtest.Satisfies(t, onCircle, sketchtest.Within(1e-6))
+	sketchtest.Measures(t, "point distance from circle center", p.DistanceTo(o), 5, sketchtest.Within(1e-6))
 	require.Equal(t, 1, res.DOF, "point keeps one sliding freedom along the circle")
 }
 

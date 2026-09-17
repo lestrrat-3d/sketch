@@ -5,15 +5,18 @@ import (
 	"testing"
 
 	"github.com/lestrrat-3d/sketch"
+	"github.com/lestrrat-3d/sketch/sketchtest"
 	"github.com/stretchr/testify/require"
 )
 
 func TestProfilesRectangle(t *testing.T) {
 	s := newSketch(t)
 	s.CreateRectangle(0, 0, 20, 12)
-	profiles := s.Profiles()
-	require.Len(t, profiles, 1, "one profile")
-	require.Len(t, profiles[0].Entities, 4, "four sides")
+	profile := sketchtest.SingleProfile(t, sketchtest.Verify(t, s))
+	sketchtest.IsValidProfile(t, profile)
+	sketchtest.IsCurrentProfile(t, profile)
+	sketchtest.HasExactCuts(t, profile)
+	require.Len(t, profile.Entities, 4, "four sides")
 }
 
 func TestProfilesPolygonExcludesConstruction(t *testing.T) {
@@ -73,8 +76,7 @@ func TestProfilesReflectSolvedGeometry(t *testing.T) {
 	w := sketch.NewDistance(a, b, 20)
 	s.AddConstraint(w)
 	s.AddConstraint(sketch.NewDistance(a, d, 12))
-	_, err := s.Solve(t.Context())
-	require.NoError(t, err)
+	sketchtest.Solve(t, s)
 
 	perimeter := func(p *sketch.Profile) float64 {
 		var sum float64
@@ -86,17 +88,14 @@ func TestProfilesReflectSolvedGeometry(t *testing.T) {
 		return sum
 	}
 
-	profiles := s.Profiles()
-	require.Len(t, profiles, 1, "one closed profile")
-	require.Len(t, profiles[0].Entities, 4, "four sides")
-	require.InDelta(t, 2*(20+12), perimeter(profiles[0]), 1e-6, "perimeter at width 20")
+	profile := sketchtest.SingleProfile(t, sketchtest.Verify(t, s))
+	require.Len(t, profile.Entities, 4, "four sides")
+	sketchtest.Measures(t, "perimeter at width 20", perimeter(profile), 2*(20+12), sketchtest.Within(1e-6))
 
 	w.Set(35)
-	_, err = s.Solve(t.Context())
-	require.NoError(t, err)
-	profiles = s.Profiles()
-	require.Len(t, profiles, 1, "profile survives the edit")
-	require.InDelta(t, 2*(35+12), perimeter(profiles[0]), 1e-6, "perimeter at width 35")
+	sketchtest.Solve(t, s)
+	profile = sketchtest.SingleProfile(t, sketchtest.Verify(t, s))
+	sketchtest.Measures(t, "perimeter at width 35", perimeter(profile), 2*(35+12), sketchtest.Within(1e-6))
 }
 
 func TestProfilesPlateWithHole(t *testing.T) {
@@ -117,9 +116,12 @@ func TestProfilesPlateWithHole(t *testing.T) {
 	require.NotNil(t, plate, "plate carries the circular hole")
 	require.NotNil(t, disk, "the disk is a separate region")
 	require.Len(t, plate.Entities, 4, "plate outer is four sides")
-	require.InDelta(t, 100-math.Pi*4, plate.Area, 1e-2, "plate net area = square minus disk")
-	require.InDelta(t, math.Pi*4, disk.Area, 1e-2, "disk area")
-	require.True(t, plate.Valid)
+	sketchtest.MeasuresProfileArea(t, plate, 100-math.Pi*4, sketchtest.Within(1e-2))
+	sketchtest.MeasuresProfileArea(t, disk, math.Pi*4, sketchtest.Within(1e-2))
+	sketchtest.IsValidProfile(t, plate)
+	sketchtest.IsValidProfile(t, disk)
+	sketchtest.HasExactCuts(t, plate)
+	sketchtest.HasExactCuts(t, disk)
 	_, ok := plate.Holes[0][0].Entity.(*sketch.Circle)
 	require.True(t, ok, "the hole boundary is the circle")
 	require.False(t, plate.Holes[0][0].Partial, "an uncut circle hole is a whole edge, not a fragment")
@@ -134,8 +136,9 @@ func TestProfilesLoneCircleWhole(t *testing.T) {
 	profiles := s.Profiles()
 	require.Len(t, profiles, 1, "one disk region")
 	require.Len(t, profiles[0].Entities, 1, "the circle")
-	require.InDelta(t, math.Pi*9, profiles[0].Area, 1e-2)
-	require.True(t, profiles[0].Valid)
+	sketchtest.MeasuresProfileArea(t, profiles[0], math.Pi*9, sketchtest.Within(1e-2))
+	sketchtest.IsValidProfile(t, profiles[0])
+	sketchtest.HasExactCuts(t, profiles[0])
 	for _, e := range profiles[0].Outer {
 		require.False(t, e.Partial, "an uncut circle is a whole boundary")
 	}
@@ -151,7 +154,8 @@ func TestProfilesBareCrossingSubdivision(t *testing.T) {
 	var total float64
 	var sawPartial bool
 	for _, p := range profiles {
-		require.True(t, p.Valid)
+		sketchtest.IsValidProfile(t, p)
+		sketchtest.HasExactCuts(t, p)
 		total += p.Area
 		for _, e := range p.Outer {
 			if e.Partial {
@@ -159,7 +163,7 @@ func TestProfilesBareCrossingSubdivision(t *testing.T) {
 			}
 		}
 	}
-	require.InDelta(t, 24+24-6, total, 1e-9, "areas partition the union")
+	sketchtest.Measures(t, "areas partition the union", total, 24+24-6, sketchtest.Within(1e-9))
 	require.True(t, sawPartial, "split edges are reported as fragments")
 }
 
