@@ -5,6 +5,7 @@ import (
 
 	"github.com/lestrrat-3d/r3"
 	"github.com/lestrrat-3d/sketch"
+	"github.com/lestrrat-3d/sketch/sketchtest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -33,8 +34,7 @@ func TestNewEqualsNewOnWorldXY(t *testing.T) {
 	s := newSketch(t)
 	p := s.CreatePoint(3, 4)
 	// A bare sketch is a world-XY sketch: world == (x, y, 0).
-	worldVecEqual(t, r3.NewVec(3, 4, 0), p.World())
-	require.NoError(t, p.WorldErr())
+	sketchtest.MeasuresWorldPoint(t, p, r3.NewVec(3, 4, 0), sketchtest.Within(1e-9))
 }
 
 func TestSketchOnXZWorldCoords(t *testing.T) {
@@ -45,7 +45,7 @@ func TestSketchOnXZWorldCoords(t *testing.T) {
 	corners := [][2]float64{{0, 0}, {1, 0}, {1, 1}, {0, 1}}
 	for _, c := range corners {
 		p := s.CreatePoint(c[0], c[1])
-		worldVecEqual(t, r3.NewVec(c[0], 0, c[1]), p.World())
+		sketchtest.MeasuresWorldPoint(t, p, r3.NewVec(c[0], 0, c[1]), sketchtest.Within(1e-9))
 	}
 }
 
@@ -56,7 +56,7 @@ func TestOffsetPlaneShiftsWorldZ(t *testing.T) {
 	s, err := w.CreateSketch(off)
 	require.NoError(t, err)
 	p := s.CreatePoint(3, 4)
-	worldVecEqual(t, r3.NewVec(3, 4, 5), p.World())
+	sketchtest.MeasuresWorldPoint(t, p, r3.NewVec(3, 4, 5), sketchtest.Within(1e-9))
 }
 
 func TestPlaneFromPoints(t *testing.T) {
@@ -165,5 +165,5 @@ func TestSketchOnXYPlacement(t *testing.T) {
 	require.Same(t, s.Plane(), s.Plane())
 	require.Same(t, w.XY(), s.Plane())
 	p := s.CreatePoint(3, 4)
-	worldVecEqual(t, r3.NewVec(3, 4, 0), p.World())
+	sketchtest.MeasuresWorldPoint(t, p, r3.NewVec(3, 4, 0), sketchtest.Within(1e-9))
 }

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/lestrrat-3d/sketch"
+	"github.com/lestrrat-3d/sketch/sketchtest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -13,15 +14,13 @@ func TestVerifyUnderconstrained(t *testing.T) {
 	b := s.CreatePoint(10, 0)
 	s.CreateLine(a, b)
 
-	if _, err := s.Solve(t.Context()); err != nil {
-		t.Fatalf("a constraint-free sketch should solve: %v", err)
-	}
+	sketchtest.Solve(t, s)
 
-	rep := s.Verify(t.Context())
+	rep := sketchtest.Verify(t, s)
 	require.True(t, rep.Solvable, "no constraints to violate")
-	require.Equal(t, sketch.Underconstrained, rep.Status)
-	require.Equal(t, 4, rep.DOF, "two free points, four coordinates")
-	require.Len(t, rep.FreePoints, 2, "both endpoints can move")
+	sketchtest.HasStatus(t, rep, sketch.Underconstrained)
+	sketchtest.HasDOF(t, rep, 4)
+	sketchtest.HasFreePoints(t, rep, a, b)
 	require.Empty(t, rep.Redundant)
 	require.Empty(t, rep.Conflicts)
 	require.Empty(t, rep.Profiles, "an open line is not a closed profile")
@@ -34,21 +33,21 @@ func TestVerifyFullyConstrained(t *testing.T) {
 	s.Fix(r.A)
 	s.AddConstraint(sketch.NewDistance(r.A, r.B, 20), sketch.NewDistance(r.A, r.D, 12))
 
-	if _, err := s.Solve(t.Context()); err != nil {
-		t.Fatalf("solve: %v", err)
-	}
+	sketchtest.Solve(t, s)
 
-	rep := s.Verify(t.Context())
+	rep := sketchtest.IsTrustworthy(t, s)
 	require.True(t, rep.Solvable)
-	require.Equal(t, 0, rep.DOF)
-	require.Equal(t, sketch.FullyConstrained, rep.Status)
+	sketchtest.HasDOF(t, rep, 0)
+	sketchtest.HasStatus(t, rep, sketch.FullyConstrained)
 	require.Empty(t, rep.Redundant)
 	require.Empty(t, rep.Conflicts)
-	require.Empty(t, rep.FreePoints)
-	require.Len(t, rep.Profiles, 1, "the rectangle is one closed profile")
+	sketchtest.HasFreePoints(t, rep)
+	profile := sketchtest.SingleProfile(t, rep)
+	sketchtest.IsValidProfile(t, profile)
+	sketchtest.IsCurrentProfile(t, profile)
+	sketchtest.HasExactCuts(t, profile)
 	require.True(t, rep.ProfilesValid, "the region is a valid profile")
 	require.Empty(t, rep.InvalidProfiles)
-	require.True(t, rep.Trustworthy(), "a clean, fully-constrained rectangle is trustworthy")
 }
 
 func TestVerifySelfIntersectingUntrustworthy(t *testing.T) {
@@ -67,16 +66,15 @@ func TestVerifySelfIntersectingUntrustworthy(t *testing.T) {
 	s.CreateLine(c, d)
 	s.CreateLine(d, a) // a-b crosses c-d
 
-	if _, err := s.Solve(t.Context()); err != nil {
-		t.Fatalf("solve: %v", err)
-	}
-	rep := s.Verify(t.Context())
+	sketchtest.Solve(t, s)
+	rep := sketchtest.Verify(t, s)
 	require.True(t, rep.Solvable)
-	require.Equal(t, 0, rep.DOF)
-	require.Equal(t, sketch.FullyConstrained, rep.Status, "structurally fully constrained")
+	sketchtest.HasDOF(t, rep, 0)
+	sketchtest.HasStatus(t, rep, sketch.FullyConstrained)
 	require.False(t, rep.ProfilesValid, "the boundary self-intersects")
 	require.NotEmpty(t, rep.InvalidProfiles, "the offending region is reported")
 	require.False(t, rep.Trustworthy(), "a self-intersecting sketch is not trustworthy")
+	sketchtest.HasOnlyReasons(t, rep, sketch.ErrInvalidProfile)
 }
 
 func TestVerifyRedundant(t *testing.T) {
@@ -88,16 +86,16 @@ func TestVerifyRedundant(t *testing.T) {
 	dup := sketch.NewDistance(r.A, r.B, 20) // consistent duplicate of the width dimension
 	s.AddConstraint(dup)
 
-	if _, err := s.Solve(t.Context()); err != nil {
-		t.Fatalf("a consistent redundancy still solves: %v", err)
-	}
+	sketchtest.Solve(t, s)
 
-	rep := s.Verify(t.Context())
+	rep := sketchtest.Verify(t, s)
 	require.True(t, rep.Solvable, "the duplicate agrees, so the sketch solves")
-	require.Equal(t, sketch.Overconstrained, rep.Status)
+	sketchtest.HasStatus(t, rep, sketch.Overconstrained)
 	require.Len(t, rep.Redundant, 1)
 	require.Same(t, dup, rep.Redundant[0], "creation order: the later duplicate is reported")
 	require.Empty(t, rep.Conflicts, "a satisfied duplicate is not a conflict")
+	sketchtest.FindReasons(t, rep, sketch.ErrRedundant)
+	sketchtest.HasOnlyReasons(t, rep, sketch.ErrNotFullyConstrained, sketch.ErrRedundant)
 }
 
 func TestVerifyConflictSet(t *testing.T) {
@@ -121,14 +119,15 @@ func TestVerifyConflictSet(t *testing.T) {
 	_, err := s.Solve(t.Context())
 	require.ErrorIs(t, err, sketch.ErrNotConverged, "contradictory dimensions cannot converge")
 
-	rep := s.Verify(t.Context())
+	rep := sketchtest.Verify(t, s)
 	require.False(t, rep.Solvable, "the contradiction leaves residuals")
-	require.Equal(t, sketch.Overconstrained, rep.Status)
+	sketchtest.HasStatus(t, rep, sketch.Overconstrained)
 	require.Empty(t, rep.Redundant)
 	require.Len(t, rep.Conflicts, 1, "one conflicting constraint")
-	require.Same(t, conflict, rep.Conflicts[0].Constraint, "creation order: the later dimension is blamed")
-	require.Len(t, rep.Conflicts[0].With, 1, "it fights exactly the width-20 dimension")
-	require.Same(t, width, rep.Conflicts[0].With[0], "the conflict set names the width-20 dimension")
+	set := sketchtest.FindConflict(t, rep, conflict)
+	require.Same(t, conflict, set.Constraint, "creation order: the later dimension is blamed")
+	require.Len(t, set.With, 1, "it fights exactly the width-20 dimension")
+	require.Same(t, width, set.With[0], "the conflict set names the width-20 dimension")
 }
 
 func TestVerifyGroundedConflict(t *testing.T) {
@@ -145,12 +144,13 @@ func TestVerifyGroundedConflict(t *testing.T) {
 
 	s.Solve(t.Context()) // cannot converge: grounded points cannot move
 
-	rep := s.Verify(t.Context())
+	rep := sketchtest.Verify(t, s)
 	require.False(t, rep.Solvable)
-	require.Equal(t, sketch.Overconstrained, rep.Status)
+	sketchtest.HasStatus(t, rep, sketch.Overconstrained)
 	require.Len(t, rep.Conflicts, 1)
-	require.Same(t, bad, rep.Conflicts[0].Constraint)
-	require.Empty(t, rep.Conflicts[0].With, "violated by grounded geometry, no constraint to fight")
+	set := sketchtest.FindConflict(t, rep, bad)
+	require.Same(t, bad, set.Constraint)
+	require.Empty(t, set.With, "violated by grounded geometry, no constraint to fight")
 }
 
 func TestVerifyCoincidentConflictSet(t *testing.T) {
@@ -169,11 +169,12 @@ func TestVerifyCoincidentConflictSet(t *testing.T) {
 
 	s.Solve(t.Context())
 
-	rep := s.Verify(t.Context())
+	rep := sketchtest.Verify(t, s)
 	require.False(t, rep.Solvable)
 	require.Len(t, rep.Conflicts, 1)
-	require.Same(t, c2, rep.Conflicts[0].Constraint, "creation order: the later coincident is blamed")
-	require.Contains(t, rep.Conflicts[0].With, c1, "it fights the first coincident constraint")
+	set := sketchtest.FindConflict(t, rep, c2)
+	require.Same(t, c2, set.Constraint, "creation order: the later coincident is blamed")
+	require.Contains(t, set.With, c1, "it fights the first coincident constraint")
 }
 
 func TestVerifyProbeOptIn(t *testing.T) {
@@ -188,19 +189,17 @@ func TestVerifyProbeOptIn(t *testing.T) {
 		s.Fix(b)
 		apex := s.CreatePoint(5, 3)
 		s.AddConstraint(sketch.NewDistance(a, apex, 8), sketch.NewDistance(b, apex, 8))
-		if _, err := s.Solve(t.Context()); err != nil {
-			t.Fatalf("solve: %v", err)
-		}
+		sketchtest.Solve(t, s)
 		return s, apex
 	}
 
 	s, _ := build()
-	rep := s.Verify(t.Context())
-	require.Equal(t, 0, rep.DOF)
-	require.Equal(t, sketch.FullyConstrained, rep.Status)
+	rep := sketchtest.Verify(t, s)
+	sketchtest.HasDOF(t, rep, 0)
+	sketchtest.HasStatus(t, rep, sketch.FullyConstrained)
 	require.Nil(t, rep.Probe, "the probe does not run unless requested")
 
-	rep = s.Verify(t.Context(), sketch.WithProbe())
+	rep = sketchtest.Verify(t, s, sketch.WithProbe())
 	require.NotNil(t, rep.Probe, "WithProbe runs the ambiguity probe")
 	require.True(t, rep.Probe.Ambiguous(), "the mirror-image branch is found")
 }
@@ -213,14 +212,12 @@ func TestVerifyDoesNotMutate(t *testing.T) {
 	s.Fix(b)
 	apex := s.CreatePoint(5, 3)
 	s.AddConstraint(sketch.NewDistance(a, apex, 8), sketch.NewDistance(b, apex, 8))
-	if _, err := s.Solve(t.Context()); err != nil {
-		t.Fatalf("solve: %v", err)
-	}
+	sketchtest.Solve(t, s)
 	x, y := apex.X(), apex.Y()
 
 	// Even with the probe (which re-solves from many perturbations) Verify must
 	// leave the geometry exactly where it found it.
-	s.Verify(t.Context(), sketch.WithProbe())
+	sketchtest.Verify(t, s, sketch.WithProbe())
 	require.Equal(t, x, apex.X(), "Verify must not move geometry")
 	require.Equal(t, y, apex.Y())
 }
@@ -239,7 +236,7 @@ func TestVerifyUnsolvedDOF0NotFullyConstrained(t *testing.T) {
 	// Knock a corner off the solution without re-solving.
 	r.B.MoveTo(25, 1)
 
-	rep := s.Verify(t.Context())
+	rep := sketchtest.Verify(t, s)
 	t.Logf("perturbed: solvable=%v DOF=%d status=%s redundant=%d conflicts=%d",
 		rep.Solvable, rep.DOF, rep.Status, len(rep.Redundant), len(rep.Conflicts))
 	require.False(t, rep.Solvable)
@@ -256,6 +253,7 @@ func TestVerifyToleranceOption(t *testing.T) {
 	s.AddConstraint(sketch.NewDistance(a, b, 10))
 	// Deliberately do NOT solve: the residual stays at 5e-7.
 
-	require.False(t, s.Verify(t.Context()).Solvable, "5e-7 exceeds the default 1e-10 tolerance")
-	require.True(t, s.Verify(t.Context(), sketch.WithTolerance(1e-6)).Solvable, "5e-7 is within a 1e-6 tolerance")
+	require.False(t, sketchtest.Verify(t, s).Solvable, "5e-7 exceeds the default 1e-10 tolerance")
+	require.True(t, sketchtest.Verify(t, s, sketch.WithTolerance(1e-6)).Solvable,
+		"5e-7 is within a 1e-6 tolerance")
 }
