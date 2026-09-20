@@ -677,6 +677,84 @@ func TestChainsCoincidentWalksPublishDistinctLengths(t *testing.T) {
 	}
 }
 
+// TestChainsPartialCarrierOverlapInheritsTheArrangementRule pins the boundary of
+// what the chain layer promises, for two arcs that PARTIALLY overlap on one
+// carrier. A 0..180 degree arc and a 90..270 degree arc on one r=10 circle cover
+// 270 degrees between them, so the GEOMETRY published is the same whichever was
+// authored first: one open chain of 47.1239 mm, walking the same coordinates.
+//
+// Which arc OWNS the shared quarter is not this layer's choice. The arrangement
+// names one coincident-carrier source for a shared span and publishes the other
+// as a trimmed fragment, and it names the lower-indexed one — a source index is
+// authoring order, so the arc authored first comes back whole and the other
+// comes back Partial. Sketch.Profiles inherits that same choice for a region
+// boundary. Replacing it with a rule that reads no source position is a change
+// in geom, landing on both publications at once; this test is what such a change
+// flips, so the inherited rule is pinned rather than only described.
+func TestChainsPartialCarrierOverlapInheritsTheArrangementRule(t *testing.T) {
+	type published struct {
+		length float64
+		walk   [][2]float64
+		whole  int // position in s.Entities() of the arc published un-trimmed
+		part   int // and of the one published as a fragment
+	}
+	build := func(upperFirst bool) published {
+		s := newSketch(t)
+		center := s.CreatePoint(0, 0)
+		upperStart, upperEnd := s.CreatePoint(10, 0), s.CreatePoint(-10, 0) // 0..180 degrees
+		leftStart, leftEnd := s.CreatePoint(0, 10), s.CreatePoint(0, -10)   // 90..270 degrees
+		if upperFirst {
+			s.CreateArc(center, upperStart, upperEnd)
+			s.CreateArc(center, leftStart, leftEnd)
+		} else {
+			s.CreateArc(center, leftStart, leftEnd)
+			s.CreateArc(center, upperStart, upperEnd)
+		}
+		// An entity's id is its position in this slice, so the arc authored first
+		// is the lower-id one.
+		id := map[sketch.Entity]int{}
+		for i, e := range s.Entities() {
+			id[e] = i
+		}
+
+		require.Empty(t, s.Profiles(), "270 degrees of arc close no region")
+		chains := s.Chains()
+		require.Len(t, chains, 1, "one open run over both arcs")
+		ch := chains[0]
+		require.Len(t, ch.Edges, 2, "one arc keeps the shared quarter, the other is trimmed off it")
+		out := published{length: ch.Length, whole: -1, part: -1}
+		for i, e := range ch.Edges {
+			if i > 0 {
+				out.walk = append(out.walk, e.Polyline[1:]...) // less the joint with the edge before
+			} else {
+				out.walk = append(out.walk, e.Polyline...)
+			}
+			if e.Partial {
+				out.part = id[e.Entity]
+				continue
+			}
+			out.whole = id[e.Entity]
+		}
+		return out
+	}
+
+	first, second := build(true), build(false)
+	require.InDelta(t, 47.1239, first.length, 1e-4, "three quarters of an r=10 circle")
+	require.InDelta(t, first.length, second.length, 1e-9, "the same length either way")
+	require.Equal(t, len(first.walk), len(second.walk), "the same walk, point for point")
+	for i := range first.walk {
+		require.InDelta(t, first.walk[i][0], second.walk[i][0], 1e-12, "walk point %d, x", i)
+		require.InDelta(t, first.walk[i][1], second.walk[i][1], 1e-12, "walk point %d, y", i)
+	}
+	require.InDelta(t, 0.0, first.walk[0][0], 1e-9, "walked from the lexicographically smaller free end")
+	require.InDelta(t, -10.0, first.walk[0][1], 1e-9)
+
+	require.Equal(t, 0, first.whole, "the lower-id arc owns the shared span")
+	require.Equal(t, 1, first.part)
+	require.Equal(t, 0, second.whole, "and owns it in the other authoring order too")
+	require.Equal(t, 1, second.part)
+}
+
 // TestChainsExcludeConstruction pins that the two publications share one rule
 // about construction geometry: it is excluded from both.
 func TestChainsExcludeConstruction(t *testing.T) {

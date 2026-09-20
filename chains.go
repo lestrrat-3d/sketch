@@ -127,12 +127,17 @@ func (c *Chain) IsStale() bool {
 // publications.
 //
 // The chains come back in a deterministic order, each walked in a deterministic
-// direction, so the same drawing publishes the same chains however it was
-// authored. That is a promise about the SET published and about each chain's own
-// walk, never about a chain's INDEX in this slice: a consumer compares a held
-// chain against a freshly resolved one by content or by handle, never by list
-// position. Both are decided by the walk itself first — its
-// COORDINATES, then how many edges it is cut into — and never by entity order.
+// direction, and neither consults entity id or authoring position: both are
+// decided by the walk itself first — its COORDINATES, then how many edges it is
+// cut into — and then by what the chain publishes, listed below. That is a
+// promise about the SET published and about each chain's own walk, never about
+// a chain's INDEX in this slice: a consumer compares a held chain against a
+// freshly resolved one by content or by handle, never by list position. It is
+// also a promise about what THIS layer adds, not about the arrangement it ranks:
+// where the arrangement breaks a tie by source position — welding two vertices
+// closer than its merge distance in insertion order, or naming which of two
+// coincident-carrier sources represents their shared span — a chain inherits
+// that choice exactly as a [Profile] does.
 // The walk alone cannot rank two chains whose walks are point-for-point
 // identical (coincident duplicate geometry, which is a degenerate arrangement —
 // such chains report Valid false), so those are ranked by everything else the
