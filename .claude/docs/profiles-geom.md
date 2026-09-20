@@ -855,9 +855,10 @@ up to twice it, and the region vanished with `Degenerate=false`.
 `Sketch.Profiles` + `BoundaryEdge.Entity` (`profiles.go`) and on `geom.Regions` +
 `geom.BoundaryEdge.SourceIndex` owns the consumer-facing statement of it.** Reordering
 one pair decides which of the two is named, and EVERYTHING the report says about that
-span follows from the naming: the source index or entity, `TStart`/`TEnd`,
-`Whole`/`Partial`, how the boundary is cut into edges, which sources appear on the
-boundary at all, and the region's area. The godoc states it as a blanket caveat — treat
+span follows from the naming. Among the outputs that move are the source index or
+entity, `TStart`/`TEnd`, `Whole`/`Partial`, the `Polyline`, how the boundary is cut into
+edges, which sources appear on the boundary at all, and the number and area of the
+regions; that is a set of examples, not an inventory. The godoc states it as a blanket caveat — treat
 the whole report for such a scene as order-dependent, and read the span's source off the
 edge rather than looking for a source you expect.
 
