@@ -549,11 +549,19 @@ func newArranger(curves []Curve, closed []ClosedCurve, cfg arrangeConfig) *arran
 				s.kind = srcDegenerate
 				break
 			}
-			// All three defining points coincident: the rational quadratic
-			// collapses to that point, so it is no curve either. Screened on the
-			// same absolute threshold, and for the same reason, as the line above.
-			if math.Hypot(t.Apex.X-t.Start.X, t.Apex.Y-t.Start.Y) < 1e-9 &&
-				math.Hypot(t.End.X-t.Start.X, t.End.Y-t.Start.Y) < 1e-9 {
+			// Defining points that span no extent: the rational quadratic
+			// collapses to a point, so it is no curve either. Screened by the
+			// same measure, on the same absolute threshold and for the same
+			// reason as the line above — splineExtent over start/apex/end. The
+			// extent is over the whole SET, never each point's distance from
+			// start: an apex and an end straddling start by 0.9e-9 each are both
+			// inside that distance while the set spans 1.8e-9, and flagging that
+			// curve invalidates every region in the arrangement.
+			if splineExtent([][2]float64{
+				{t.Start.X, t.Start.Y},
+				{t.Apex.X, t.Apex.Y},
+				{t.End.X, t.End.Y},
+			}) < 1e-9 {
 				a.flagDegenerate(t.Start.X, t.Start.Y)
 				s.kind = srcDegenerate
 				break
@@ -866,8 +874,12 @@ func closedSplineControlCoords(sp *ClosedSpline) ([][2]float64, bool) {
 	return cc, true
 }
 
-// splineExtent returns the bounding-box diagonal of the control points; a
-// near-zero extent means a degenerate (point-like) spline.
+// splineExtent returns the bounding-box diagonal of a source's defining
+// points — a spline family's control or fit points, or a conic's start, apex
+// and end. A near-zero extent means the source has collapsed to a point and is
+// no curve at all. It is the whole SET that is measured, never each point's
+// distance from the first: two points straddling the first by just under the
+// threshold each are a real curve whose extent is twice that.
 func splineExtent(cc [][2]float64) float64 {
 	minX, minY := math.Inf(1), math.Inf(1)
 	maxX, maxY := math.Inf(-1), math.Inf(-1)

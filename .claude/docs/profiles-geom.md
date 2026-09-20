@@ -182,12 +182,23 @@ structure — nil control points, a malformed knot vector), `fitSplineCoords`
 (a nil or non-finite fit point, screened before `newFitEvaluator` can drop
 one), the per-kind extent guards in `newArranger` (a source that has collapsed
 to a point rather than a curve: a line whose endpoints coincide, a conic whose
-start, apex and end all coincide, or an all-coincident control/fit-point set —
-each screened on the same absolute `1e-9` separation, since the scene scale is
-not known until `densify` has run, and each recording an UNATTRIBUTABLE
+start, apex and end span no extent, or an all-coincident control/fit-point set —
+each screened by `splineExtent`, the bounding-box DIAGONAL over that source's
+whole defining point set, against the same absolute `1e-9`, since the scene
+scale is not known until `densify` has run, and each recording an UNATTRIBUTABLE
 degeneracy, because the curve is dropped before it can form an edge; an arc or
 elliptical arc with `Start == End` is NOT this case, it sweeps a full turn), and
 `densify`'s `finitePt` as the last net over every evaluated sample (see below).
+
+That extent is measured over the SET, never as each point's distance from the
+first. A conic whose apex and end straddle its start by `0.9e-9` each has both
+inside that distance while the set spans `1.8e-9`, and a per-point screen is not
+even monotonic in the extent it claims to measure: it admits a set spanning
+`1.01e-9` and refuses one spanning `1.9e-9`. The error runs one way only —
+`extent < 1e-9` implies every start-relative distance is under `1e-9` too — so a
+per-point screen lets nothing degenerate through; what it costs is a FALSE
+degeneracy, which invalidates every region in the arrangement
+(`TestRegionsZeroExtentLineAndConicDegenerate`).
 
 ### The construction toolkit
 

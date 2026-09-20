@@ -359,6 +359,28 @@ func TestRegionsZeroExtentLineAndConicDegenerate(t *testing.T) {
 	flat := geom.NewConic(geom.NewPoint(0, 0), geom.NewPoint(5, 0), geom.NewPoint(10, 0), 0.5)
 	arr = geom.Regions([]geom.Curve{flat}, nil)
 	require.False(t, arr.Degenerate, "a conic with extent is not screened away")
+
+	// The screen measures the EXTENT of the three defining points, not each
+	// point's distance from start. Apex and end straddle start by 0.9e-9 each,
+	// so both are inside the threshold while the set spans 1.8e-9 — above it.
+	// That is a real, if tiny, curve, and a per-point screen flags it degenerate
+	// and invalidates every region in the arrangement.
+	straddle := geom.NewConic(geom.NewPoint(0, 0), geom.NewPoint(0.9e-9, 0), geom.NewPoint(-0.9e-9, 0), 0.5)
+	arr = geom.Regions([]geom.Curve{straddle}, nil)
+	require.False(t, arr.Degenerate, "extent 1.8e-9 clears the threshold the set is judged by")
+
+	// A per-point screen is not even monotonic in the extent it claims to
+	// measure: this pair of conics is ordered the one way by extent and the
+	// other way by the larger start-relative distance, so a per-point screen
+	// admits the SMALLER of the two and flags the larger. Both span more than
+	// 1e-9 and both are usable curves.
+	wider := geom.NewConic(geom.NewPoint(0, 0), geom.NewPoint(0.95e-9, 0), geom.NewPoint(-0.95e-9, 1e-12), 0.5)
+	arr = geom.Regions([]geom.Curve{wider}, nil)
+	require.False(t, arr.Degenerate, "extent 1.9e-9 is a curve")
+
+	narrower := geom.NewConic(geom.NewPoint(0, 0), geom.NewPoint(0.5e-9, 1e-12), geom.NewPoint(1.01e-9, 0), 0.5)
+	arr = geom.Regions([]geom.Curve{narrower}, nil)
+	require.False(t, arr.Degenerate, "extent 1.01e-9 is a curve too, and the smaller of the pair")
 }
 
 func TestRegionsCircleCutByChord(t *testing.T) {
