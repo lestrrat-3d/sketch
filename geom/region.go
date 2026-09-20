@@ -23,9 +23,8 @@ type BoundaryEdge struct {
 	// emits no edge over it. Input order decides which is named, and everything the
 	// report says about that span follows from the naming, so a boundary need not
 	// carry an index for every curve that bounds it. A same-carrier overlap Regions
-	// refuses instead — more than one shared span, two full-turn carriers, and the
-	// rest listed there — sets Degenerate and leaves both curves emitting their own
-	// edges. See [Regions].
+	// refuses instead sets Degenerate and leaves both curves emitting their own
+	// edges; [Regions] lists the cases.
 	SourceIndex int
 	// Whole is true when this edge spans the entire source curve; false when it is
 	// a fragment covering a strict sub-range.

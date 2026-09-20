@@ -93,7 +93,9 @@ type BoundaryEdge struct {
 	// [Sketch.Entities], or the arc of an arc and a circle. Input order decides which,
 	// and everything the report says about that span follows from the naming — so read
 	// the span's entity off this field rather than looking for an entity you expect.
-	// See [Sketch.Profiles].
+	// A same-carrier overlap [Sketch.Profiles] refuses instead leaves the regions it
+	// reaches reported invalid, with both entities keeping their own edges;
+	// [Sketch.Profiles] lists the cases.
 	Entity Entity
 	// Partial is true when this edge covers only a sub-range of Entity; false when
 	// it spans the whole entity.
