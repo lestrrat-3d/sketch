@@ -247,6 +247,46 @@ func TestRegionsUnusableInputDegeneratesEveryRegion(t *testing.T) {
 	require.True(t, arr.Regions[0].Degenerate, "an unattributable condition reaches every region")
 }
 
+func TestRegionsZeroExtentSourceDegeneratesEveryRegion(t *testing.T) {
+	// The same unattributable record, raised by the two sources that carry no
+	// radius of their own: a line whose endpoints coincide, and a conic whose
+	// start, apex and end all coincide. Both would otherwise be dropped in
+	// splitFragments with no record, leaving the arrangement reporting itself
+	// clean while an input curve silently vanished.
+	//
+	// The region is bounded by two FREE-FORM curves on purpose. Against analytic
+	// partners the pairwise event pass flags such a pair degenerate incidentally,
+	// which would mask whatever the source screen does or does not do.
+	lens := func(t *testing.T) []geom.Curve {
+		t.Helper()
+		a := geom.NewPoint(0, 0)
+		b := geom.NewPoint(10, 0)
+		up, err := geom.NewSpline(a, geom.NewPoint(3, 4), geom.NewPoint(7, 4), b)
+		require.NoError(t, err)
+		down, err := geom.NewSpline(a, geom.NewPoint(3, -4), geom.NewPoint(7, -4), b)
+		require.NoError(t, err)
+		return []geom.Curve{up, down}
+	}
+
+	// The two splines alone bound one clean lens: the baseline the cases below move.
+	arr := geom.Regions(lens(t), nil)
+	require.Len(t, arr.Regions, 1)
+	require.False(t, arr.Degenerate, "two splines sharing both endpoints are sound")
+	require.False(t, arr.Regions[0].Degenerate)
+
+	far := geom.NewPoint(40, 40)
+	arr = geom.Regions(append(lens(t), geom.NewLine(far, far)), nil)
+	require.True(t, arr.Degenerate, "a zero-length line is unusable input")
+	require.Len(t, arr.Regions, 1, "it bounds nothing of its own")
+	require.True(t, arr.Regions[0].Degenerate, "an unattributable condition reaches every region")
+
+	collapsed := geom.NewConic(geom.NewPoint(40, 40), geom.NewPoint(40, 40), geom.NewPoint(40, 40), 0.5)
+	arr = geom.Regions(append(lens(t), collapsed), nil)
+	require.True(t, arr.Degenerate, "an all-coincident conic is unusable input")
+	require.Len(t, arr.Regions, 1)
+	require.True(t, arr.Regions[0].Degenerate, "an unattributable condition reaches every region")
+}
+
 func TestRegionsDanglingSpurPruned(t *testing.T) {
 	// A square with a line spur sticking out of a corner. The spur bounds no
 	// region and is pruned; the square's region is unaffected.
@@ -296,6 +336,51 @@ func TestRegionsZeroRadiusDegenerate(t *testing.T) {
 	e := geom.NewEllipse(geom.NewPoint(0, 0), 4, 0, 0)
 	arr = geom.Regions(nil, []geom.ClosedCurve{e})
 	require.True(t, arr.Degenerate, "a zero-axis ellipse is degenerate")
+}
+
+func TestRegionsZeroExtentLineAndConicDegenerate(t *testing.T) {
+	// The open-curve analogue of the zero radius above: a line and a conic that
+	// have collapsed to a point are no curve at all, and must be reported
+	// degenerate rather than silently dropped.
+	p := geom.NewPoint(2, 2)
+	arr := geom.Regions([]geom.Curve{geom.NewLine(p, p)}, nil)
+	require.True(t, arr.Degenerate, "a line whose endpoints coincide has no extent")
+
+	// Distinct point values at the same coordinates: the screen is on position,
+	// not on pointer identity.
+	arr = geom.Regions([]geom.Curve{geom.NewLine(geom.NewPoint(2, 2), geom.NewPoint(2, 2))}, nil)
+	require.True(t, arr.Degenerate, "coincident endpoints, whichever points carry them")
+
+	arr = geom.Regions([]geom.Curve{geom.NewConic(p, p, p, 0.5)}, nil)
+	require.True(t, arr.Degenerate, "an all-coincident conic has no extent")
+
+	// A conic that still spans two points keeps its arm: only a full collapse is
+	// screened, so a flat conic (apex on the chord) stays a usable curve.
+	flat := geom.NewConic(geom.NewPoint(0, 0), geom.NewPoint(5, 0), geom.NewPoint(10, 0), 0.5)
+	arr = geom.Regions([]geom.Curve{flat}, nil)
+	require.False(t, arr.Degenerate, "a conic with extent is not screened away")
+
+	// The screen measures the EXTENT of the three defining points, not each
+	// point's distance from start. Apex and end straddle start by 0.9e-9 each,
+	// so both are inside the threshold while the set spans 1.8e-9 — above it.
+	// That is a real, if tiny, curve, and a per-point screen flags it degenerate
+	// and invalidates every region in the arrangement.
+	straddle := geom.NewConic(geom.NewPoint(0, 0), geom.NewPoint(0.9e-9, 0), geom.NewPoint(-0.9e-9, 0), 0.5)
+	arr = geom.Regions([]geom.Curve{straddle}, nil)
+	require.False(t, arr.Degenerate, "extent 1.8e-9 clears the threshold the set is judged by")
+
+	// A per-point screen is not even monotonic in the extent it claims to
+	// measure: this pair of conics is ordered the one way by extent and the
+	// other way by the larger start-relative distance, so a per-point screen
+	// admits the SMALLER of the two and flags the larger. Both span more than
+	// 1e-9 and both are usable curves.
+	wider := geom.NewConic(geom.NewPoint(0, 0), geom.NewPoint(0.95e-9, 0), geom.NewPoint(-0.95e-9, 1e-12), 0.5)
+	arr = geom.Regions([]geom.Curve{wider}, nil)
+	require.False(t, arr.Degenerate, "extent 1.9e-9 is a curve")
+
+	narrower := geom.NewConic(geom.NewPoint(0, 0), geom.NewPoint(0.5e-9, 1e-12), geom.NewPoint(1.01e-9, 0), 0.5)
+	arr = geom.Regions([]geom.Curve{narrower}, nil)
+	require.False(t, arr.Degenerate, "extent 1.01e-9 is a curve too, and the smaller of the pair")
 }
 
 func TestRegionsCircleCutByChord(t *testing.T) {

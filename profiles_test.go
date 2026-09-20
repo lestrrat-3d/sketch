@@ -323,6 +323,44 @@ func TestProfilesUnattributableDegeneracyInvalidatesEveryProfile(t *testing.T) {
 	require.Len(t, rep.InvalidProfiles, 1, "every detected profile is listed")
 }
 
+func TestProfilesZeroLengthLineInvalidatesEveryProfile(t *testing.T) {
+	// A line whose two endpoints have collapsed onto each other is unusable input
+	// exactly like the zero-radius circle above: it forms no edge, so what it
+	// would have subdivided is unknown and every profile is invalid.
+	//
+	// The lens is bounded by two SPLINES on purpose. Against analytic neighbours
+	// the pairwise event pass flags a collapsed line degenerate incidentally, so
+	// only free-form partners exercise the source screen itself.
+	s := newSketch(t)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
+	_, err := s.CreateSpline(a, s.CreatePoint(3, 4), s.CreatePoint(7, 4), b)
+	require.NoError(t, err)
+	_, err = s.CreateSpline(a, s.CreatePoint(3, -4), s.CreatePoint(7, -4), b)
+	require.NoError(t, err)
+
+	// Before the zero-length line, the lens is a sound profile.
+	clean := s.Profiles()
+	require.Len(t, clean, 1)
+	require.True(t, clean[0].Valid, "two splines sharing both endpoints bound a sound lens")
+	require.True(t, s.Verify(t.Context()).ProfilesValid)
+
+	far := s.CreatePoint(40, 40)
+	s.CreateLine(far, far) // both endpoints are one point: no extent at all
+
+	profiles := s.Profiles()
+	require.Len(t, profiles, 1, "the collapsed line bounds nothing")
+	sketchtest.MeasuresProfileArea(t, profiles[0], clean[0].Area, sketchtest.Within(1e-9))
+	require.False(t, profiles[0].SelfIntersecting, "its boundary is clean")
+	require.False(t, profiles[0].Valid, "an unattributable condition reaches every region")
+
+	rep := s.Verify(t.Context())
+	require.False(t, rep.ProfilesValid)
+	require.Len(t, rep.InvalidProfiles, 1, "every detected profile is listed")
+	require.False(t, rep.Trustworthy())
+	require.ErrorIs(t, rep.Check(), sketch.ErrInvalidProfile)
+}
+
 // TestProfilesCoincidentCarrierGearTooth is a sketch-level equivalent of probe
 // case C (.tmp/decad-2d-region-asks/probe/main.go, ask 2's motivating example): a
 // root arc lying EXACTLY on a hub circle's carrier, closed by two flank lines and
