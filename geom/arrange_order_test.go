@@ -107,3 +107,90 @@ func sortedAreas(arr *geom.Arrangement) []float64 {
 	sort.Float64s(areas)
 	return areas
 }
+
+// TestWeldRepresentativeBitsAreOrderIndependent pins the half of the canonical weld
+// order that an ordinary float compare cannot see: the COORDINATES the shared vertex is
+// published with, compared bit for bit.
+//
+// The lexicographic pre-pass orders boundary points by (x, y), and for float64 the ONE
+// pair of distinct values that compares equal on both coordinates is a negative zero
+// against a positive zero — every other distinct pair is separated by `<` on one
+// coordinate or the other. A tie leaves the relative order to sort.Slice, which is
+// unstable, so the representative of that cluster was still whichever point the caller
+// authored first, and canon keeps the representative's coordinates.
+//
+// Reaching the vertex table with the sign intact is what each scene below has to
+// arrange, and the two sources do it differently. An elliptical arc PINS its ends to the
+// authored Start/End, so its coordinate arrives verbatim. A line's is recomputed as
+// ax + t*(bx-ax), which at t=0 keeps a negative zero only when the direction component
+// is itself negative (-0 + -0 = -0) and loses it when the line runs the other way
+// (-0 + +0 = +0) — so a line scene reproduces this on one direction and not on the
+// other, and a test built from lines drawn the wrong way passes against the untied
+// comparator and proves nothing.
+//
+// Both scenes publish the same region count and the same area in either order, so the
+// published vertex is the only thing that separates them.
+func TestWeldRepresentativeBitsAreOrderIndependent(t *testing.T) {
+	negZero := math.Copysign(0, -1)
+
+	t.Run("arc pinned to a negative-zero start", func(t *testing.T) {
+		// A half disk: the arc's start is authored at (-0, -0) and the closing line's
+		// end at (+0, +0). Before the bit tie-break this published
+		// 0x8000000000000000 in order [arc, line] and 0x0 in order [line, arc].
+		arc := geom.NewEllipticalArc(
+			geom.NewPoint(1, 0), geom.NewPoint(negZero, negZero), geom.NewPoint(2, 0), 1, 1, 0)
+		line := geom.NewLine(geom.NewPoint(2, 0), geom.NewPoint(0, 0))
+		requireSameVertexBits(t,
+			[]geom.Curve{arc, line}, []geom.Curve{line, arc})
+	})
+
+	t.Run("line drawn away from a negative-zero start", func(t *testing.T) {
+		// A triangle with its apex at the origin, reached by two lines that both run
+		// AWAY from it in negative x: the lerp then keeps the authored sign, so the
+		// left line delivers (-0, -0) and the right one (+0, +0).
+		left := geom.NewLine(geom.NewPoint(negZero, negZero), geom.NewPoint(-1, -1))
+		right := geom.NewLine(geom.NewPoint(0, 0), geom.NewPoint(1, -1))
+		base := geom.NewLine(geom.NewPoint(-1, -1), geom.NewPoint(1, -1))
+		requireSameVertexBits(t,
+			[]geom.Curve{left, right, base}, []geom.Curve{right, left, base})
+	})
+}
+
+// requireSameVertexBits requires two authoring orders of the same drawing to publish one
+// region of the same area with bit-identical boundary vertices.
+func requireSameVertexBits(t *testing.T, forward, reversed []geom.Curve) {
+	t.Helper()
+
+	a := geom.Regions(forward, nil, geom.WithVertexMerge(1e-6))
+	b := geom.Regions(reversed, nil, geom.WithVertexMerge(1e-6))
+	require.Len(t, a.Regions, 1, "the drawing is one region in its first authoring order")
+	require.Len(t, b.Regions, 1, "the drawing is one region in its reversed authoring order")
+	require.InDelta(t, math.Abs(a.Regions[0].Area), math.Abs(b.Regions[0].Area), 1e-12,
+		"the region has the same area in either authoring order")
+	require.Equal(t, publishedVertexBits(a), publishedVertexBits(b),
+		"the welded vertex must carry the same coordinate BITS in either authoring order")
+}
+
+// publishedVertexBits returns the raw bit pattern of every boundary-edge endpoint the
+// arrangement publishes, as sorted "x,y" pairs. Sorting makes it comparable across
+// authoring orders, which renumber the sources and so reorder the edges; the bits make
+// it sensitive to a signed zero, which `==` is not.
+func publishedVertexBits(arr *geom.Arrangement) []string {
+	var bits []string
+	note := func(loop []geom.BoundaryEdge) {
+		for _, e := range loop {
+			for _, p := range [][2]float64{e.Polyline[0], e.Polyline[len(e.Polyline)-1]} {
+				bits = append(bits, fmt.Sprintf("%#016x,%#016x",
+					math.Float64bits(p[0]), math.Float64bits(p[1])))
+			}
+		}
+	}
+	for _, r := range arr.Regions {
+		note(r.Outer)
+		for _, h := range r.Holes {
+			note(h)
+		}
+	}
+	sort.Strings(bits)
+	return bits
+}

@@ -309,8 +309,31 @@ untouched, and a scene of line/circle/arc geometry with nothing distant in it ke
 every exact bound it had.
 
 **The vertex those two audit against is placed in a canonical order.** `splitFragments`
-collects every boundary point of every tiny segment, sorts them lexicographically by
-`(x, y)` and canonicalizes in that order, before it builds a fragment.
+collects every boundary point of every tiny segment, sorts them by `canonPointCompare` —
+lexicographically by `(x, y)` value, with the coordinates' raw bit patterns as the final
+tie-break — and canonicalizes in that order, before it builds a fragment. **That order
+is TOTAL, and total is the property the pre-pass rests on**: the sort is unstable, so
+any pair the comparator leaves tied keeps its collection order, which is the authoring
+order. A value compare alone leaves exactly one pair of distinct `float64` coordinates
+tied — a negative zero against a positive zero, which `==` reports equal — so a half
+disk whose arc starts at `(-0, -0)` and whose closing line ends at `(+0, +0)` published
+its shared vertex as `(-0, -0)` drawn one way and `(+0, +0)` drawn the other
+(`TestWeldRepresentativeBitsAreOrderIndependent`, which asserts BITWISE because
+`-0.0 == +0.0` hides it from an ordinary equality check). The scene uses an elliptical
+arc because an arc pins its ends to the authored Start/End, so the coordinate reaches
+the vertex table verbatim; a line's is recomputed as `ax + t·(bx-ax)` and at `t=0` keeps
+a negative zero only when the direction component is negative, so a line scene
+reproduces the defect on one direction and not the other. The cost is confined to the
+sign bit — region count,
+`Degenerate`, `Area`, `Whole`, `TStart`/`TEnd`/`TExact` and every other coordinate match
+— but it is not invisible to a caller: `%v` and `strconv` render `-0`, so a golden file
+or a hash flips with authoring order, and an `atan2` or a division on that coordinate
+changes sign.
+`NaN` is the other value `<` cannot order and it cannot reach the sort — `densify` drops
+any source with a non-finite evaluated sample as `srcDegenerate` before it emits a tiny
+segment — but `cmp.Compare` orders it anyway, so the comparator is total by construction
+rather than by that argument. The bits are consulted only after both value compares tie,
+so every pair the value compare already ordered keeps that order.
 `vertexTable.canon` is unchanged — it welds a point onto the first vertex within
 `a.merge` of it and keeps that vertex's coordinates — so the first member of a
 near-coincident cluster to arrive represents it, and the sort is what stops that member
@@ -325,7 +348,11 @@ which is the bound `boundVertexAt`'s reject and `eventExplains`' argument rest o
 which a union-find weld over a transitive cluster would drop. It orders the weld and
 nothing else — `intersect`'s pair enumeration, the keep-the-first cut dedup and the
 coincident-carrier rule naming the lower-indexed source stay authoring-order-keyed, so
-the cut set a permutation produces can still differ.
+the cut set a permutation produces can still differ. That list of accepted residual
+dependences is all UPSTREAM of the weld, and it is a complete account of what a
+permutation can still change only while the comparator is total — the ±0 tie sat inside
+the weld order itself, so a change to the ordering key owes that question again rather
+than inheriting the answer.
 
 **The fallback is the sampled path, never a degeneracy.** An uncertified pair is
 left unhandled exactly as before the lift, so it keeps the sampled topology with
