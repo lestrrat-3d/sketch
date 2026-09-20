@@ -180,9 +180,14 @@ fit coordinates. Everything else is caught later, at the point of use, by a
 small, named net: `posFinite` (a usable radius/semi-axis), `nurbsValid` (NURBS
 structure — nil control points, a malformed knot vector), `fitSplineCoords`
 (a nil or non-finite fit point, screened before `newFitEvaluator` can drop
-one), the per-kind extent guards in `newArranger` (an all-coincident
-control/fit-point set that is a point, not a curve), and `densify`'s
-`finitePt` as the last net over every evaluated sample (see below).
+one), the per-kind extent guards in `newArranger` (a source that has collapsed
+to a point rather than a curve: a line whose endpoints coincide, a conic whose
+start, apex and end all coincide, or an all-coincident control/fit-point set —
+each screened on the same absolute `1e-9` separation, since the scene scale is
+not known until `densify` has run, and each recording an UNATTRIBUTABLE
+degeneracy, because the curve is dropped before it can form an edge; an arc or
+elliptical arc with `Start == End` is NOT this case, it sweeps a full turn), and
+`densify`'s `finitePt` as the last net over every evaluated sample (see below).
 
 ### The construction toolkit
 

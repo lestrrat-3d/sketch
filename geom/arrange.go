@@ -494,6 +494,18 @@ func newArranger(curves []Curve, closed []ClosedCurve, cfg arrangeConfig) *arran
 				s.kind = srcDegenerate
 				break
 			}
+			// A line whose endpoints coincide has no geometric extent — it is a
+			// point, not a curve. splitFragments would drop its collapsed segment
+			// with no record at all, leaving the arrangement reporting itself
+			// clean while an input curve silently vanished. The threshold is the
+			// absolute one the spline families use: splineExtent over a two-point
+			// set IS this endpoint separation, and the scene scale is not known
+			// until densify has run.
+			if math.Hypot(t.End.X-t.Start.X, t.End.Y-t.Start.Y) < 1e-9 {
+				a.flagDegenerate(t.Start.X, t.Start.Y)
+				s.kind = srcDegenerate
+				break
+			}
 			s.kind = srcLine
 			s.ax, s.ay, s.bx, s.by = t.Start.X, t.Start.Y, t.End.X, t.End.Y
 		case *Arc:
@@ -534,6 +546,15 @@ func newArranger(curves []Curve, closed []ClosedCurve, cfg arrangeConfig) *arran
 			if t == nil || t.Start == nil || t.Apex == nil || t.End == nil ||
 				!(t.Rho > 0 && t.Rho < 1) {
 				a.flagDegenerate(0, 0)
+				s.kind = srcDegenerate
+				break
+			}
+			// All three defining points coincident: the rational quadratic
+			// collapses to that point, so it is no curve either. Screened on the
+			// same absolute threshold, and for the same reason, as the line above.
+			if math.Hypot(t.Apex.X-t.Start.X, t.Apex.Y-t.Start.Y) < 1e-9 &&
+				math.Hypot(t.End.X-t.Start.X, t.End.Y-t.Start.Y) < 1e-9 {
+				a.flagDegenerate(t.Start.X, t.Start.Y)
 				s.kind = srcDegenerate
 				break
 			}
