@@ -96,7 +96,11 @@ algorithms stay above.
   `BoundaryEdge` trim contract, carrying arc length, per-chain validity and the
   same snapshot/staleness handles a profile carries. No edge reaches both
   publications and every open run reaches one, so an open curve a 3D layer wants
-  to sweep into a surface is answered here rather than re-derived above.
+  to sweep into a surface is answered here rather than re-derived above. `Verify`
+  reports them (`Chains`/`InvalidChains`) without asserting them: an open run is
+  as often drafting leftovers as intended geometry, and the conditions that
+  invalidate one already reach the verdict through `ProfilesValid` or belong to
+  the single chain a consumer is about to sweep.
 - **Placement & I/O:** `World`/`Plane` 3D placement with local↔world readout;
   JSON v2 round-trip (sketch + world); SVG/PNG/DXF export; units system.
 - **Reference geometry:** the separation keystone — read-only, externally-locked

@@ -11,6 +11,7 @@ Detail moved out of CLAUDE.md's architecture table. Read before touching rank/DO
 | Why does `DOF` return the total variable count? | `DOF` answers with maximum ignorance |
 | Why do `FreePoints`/`Diagnose` name everything? | Maximum-ignorance answers for the bare reads |
 | What gates `Trustworthy()`? | The trust verdict has one definition and two shapes |
+| Why doesn't an invalid chain fail the verdict? | `Chains`/`InvalidChains` are reported, never asserted |
 | Which report fields are not verdicts? | `Check` asserts only conditions `Verify` evaluated |
 | Why does a per-handle read answer false? | The two per-handle reads |
 | Why does `CheckConstraint` refuse a candidate? | `diagnose.go` — overview and the `CheckConstraint` screens |
@@ -355,6 +356,20 @@ reciprocal condition number of the nondimensionalized Jacobian — this one DOES
 gate `Trustworthy()`, below a tolerance-derived `max(1e-6, 4·√tol)` threshold),
 `Trustworthy()`, and (opt-in via `WithProbe`) discrete ambiguity. A pure
 consumer of the diagnostic building blocks.
+
+### `Chains`/`InvalidChains` are reported, never asserted
+
+The report carries the arrangement's OPEN publication beside its regions
+(`Chains`/`InvalidChains`, from the same `buildProfiles` call, so a consumer
+wanting both does not arrange twice). Neither gates `Trustworthy()`, and that
+omission is deliberate: an open run is as often incidental drafting leftovers as
+it is geometry anyone means to sweep, so failing a whole sketch on one would
+report an obstacle where there is no plan to build. Nothing is lost by it — a
+degenerate arrangement already fails the verdict through `ProfilesValid`, and a
+self-touching walk is a property of the one chain a consumer is about to sweep,
+which it reads off `Chain.Valid` at that point. So `Check` gains no sentinel
+here, and the general rule above ("a new condition goes in `Check`") is not being
+bent: this is not a condition.
 
 ### `Verify` builds its Jacobian once
 

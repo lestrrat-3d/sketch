@@ -410,8 +410,8 @@ trim/extend/break/fillet/chamfer/mirror/pattern/offset on committed geometry) +
 sketches placed on planes in a 3D world, local↔world transform, v2
 serialization) +
 unified verification (`verify.go`: `Sketch.Verify` aggregating solvability,
-DOF/status, conflict sets, free points, profiles + profile validity, opt-in
-ambiguity) +
+DOF/status, conflict sets, free points, profiles + profile validity, open chains
++ chain validity as reported-not-asserted data, opt-in ambiguity) +
 reference geometry (`reference.go`: locked, externally-sourced 2D snapshots with
 provenance + staleness — the sketch/3D separation keystone) +
 the profile/region engine (`geom/arrange.go` + `profiles.go`: planar
