@@ -20,9 +20,9 @@ type BoundaryEdge struct {
 	//
 	// Where two same-carrier curves share one span and [Regions] resolves them, that
 	// span carries only the LOWER of the pair's two input positions; the higher one
-	// emits no edge over it, and none anywhere when the span is its whole sweep — so
-	// a boundary need not carry an index for every curve that bounds it, and which
-	// indices it does carry moves with the input order. A same-carrier overlap Regions
+	// emits no edge over it. Input order decides which is named, and everything the
+	// report says about that span follows from the naming, so a boundary need not
+	// carry an index for every curve that bounds it. A same-carrier overlap Regions
 	// refuses instead — more than one shared span, two full-turn carriers, and the
 	// rest listed there — sets Degenerate and leaves both curves emitting their own
 	// edges. See [Regions].

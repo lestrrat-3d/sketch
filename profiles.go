@@ -90,10 +90,10 @@ type BoundaryEdge struct {
 	//
 	// Where two entities on the same carrier share one span and [Sketch.Profiles]
 	// resolves them, that span names ONE of them: the earlier of two arcs in
-	// [Sketch.Entities], or the arc of an arc and a circle. TStart/TEnd then read in the named entity's own parameters, so the
-	// range reported for one physical span changes when the two arcs are authored in
-	// the other order — and so can the edge list the span sits in. See
-	// [Sketch.Profiles].
+	// [Sketch.Entities], or the arc of an arc and a circle. Input order decides which,
+	// and everything the report says about that span follows from the naming — so read
+	// the span's entity off this field rather than looking for an entity you expect.
+	// See [Sketch.Profiles].
 	Entity Entity
 	// Partial is true when this edge covers only a sub-range of Entity; false when
 	// it spans the whole entity.
@@ -225,16 +225,13 @@ type BoundaryEdge struct {
 // carrier, carriers equal only to within the near-tangency band, and a span the
 // arrangement cannot cut cleanly at both ends.
 //
-// Authoring the same two arcs in the other order names the other arc, and that
-// span's [BoundaryEdge.TStart]/[BoundaryEdge.TEnd] and [BoundaryEdge.Partial] then
-// read in the newly named arc's own parameters. The boundary's edge list moves with
-// the naming as well: the named arc's edge over the span can merge with an edge of
-// its own next to it, changing a region's edge count, and an arc whose whole sweep
-// lies in the span emits no edge anywhere — it is missing
-// from [Profile.Entities] and from every [BoundaryEdge] in the order that does not
-// name it. Read the span's entity off [BoundaryEdge.Entity]; do not expect a given
-// entity to appear. The region count and each region's area stay the same, up to
-// floating-point rounding.
+// Input order decides which of the two is named, and everything this report says
+// about that span follows from the naming: the entity itself,
+// [BoundaryEdge.TStart]/[BoundaryEdge.TEnd], [BoundaryEdge.Partial], how the boundary
+// is cut into edges, which entities appear on the boundary at all, and the region's
+// area. Treat the whole report for such a scene as order-dependent, and read the
+// span's entity off [BoundaryEdge.Entity] rather than looking for an entity you
+// expect.
 //
 // That validity scoping needs a curve to blame. A condition no curve can be
 // attributed to — an unusable input dropped before it reached the arrangement, such

@@ -31,14 +31,12 @@ import (
 // near-tangency band rather than at round-off, and a span whose two ends do not
 // come out of the split as distinct bounds of both curves.
 //
-// Which of two arcs is named follows the input order, so passing the same arcs in
-// the other order names the other arc — and TStart/TEnd measure a fraction of the
-// NAMED curve's own sweep, so the reported range and the Whole flag move with the
-// naming. So does the boundary's edge list: the named curve's edge over the span can
-// coalesce with an edge of its own next to it, changing a region's edge count, and a
-// curve whose whole sweep lies in the span emits no edge anywhere, so WHICH
-// SourceIndex values a boundary carries is order-dependent too. The region count and
-// each region's area do not change, up to floating-point rounding.
+// Input order decides which of the two is named, and everything this report says
+// about that span follows from the naming: the SourceIndex, TStart/TEnd, the Whole
+// flag, how the boundary is cut into edges, which sources appear on the boundary at
+// all, and the region's area. Treat the whole report for such a scene as
+// order-dependent, and read the span's source off the edge rather than looking for a
+// source you expect.
 func Regions(curves []Curve, closed []ClosedCurve, opts ...Option) *Arrangement {
 	cfg := arrangeConfig{}
 	for _, o := range opts {

@@ -1111,9 +1111,11 @@ func TestAnalyticSameCarrierArcsResolvedRegion(t *testing.T) {
 	}
 }
 
-// TestAnalyticCoincidentCarrierNamingIsOrderDependent pins what input order does
-// and does not change about a RESOLVED same-carrier overlap, which is what the
-// godoc on Regions and on BoundaryEdge.SourceIndex states. Both sub-cases put a
+// TestAnalyticCoincidentCarrierNamingIsOrderDependent is a regression pin on the two
+// concrete scenes below. It is evidence for those scenes and not for any universal:
+// the godoc on Regions and on BoundaryEdge.SourceIndex deliberately makes input order
+// a BLANKET caveat, because every attempt to enumerate what does and does not move was
+// falsified by a sharper scene. Both sub-cases put a
 // shorter arc wholly inside a longer one on the same r=10 carrier and close a region
 // with a chord; the shared span is reported on whichever arc was passed first, and a
 // bound is a fraction of THAT arc's own sweep (circleParam).

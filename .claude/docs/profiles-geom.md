@@ -854,18 +854,22 @@ up to twice it, and the region vanished with `Degenerate=false`.
 **Input ORDER is a public variable of the resolved case, and the godoc on
 `Sketch.Profiles` + `BoundaryEdge.Entity` (`profiles.go`) and on `geom.Regions` +
 `geom.BoundaryEdge.SourceIndex` owns the consumer-facing statement of it.** Reordering
-one pair always moves the reported `TStart`/`TEnd` and `Whole` (`Partial`), since a
-bound is a fraction of the NAMED source's own sweep (`circleParam`). Two further
-effects are conditional. WHICH sources reach the boundary moves when one source's
-whole sweep lies inside the span, because that source then emits no edge anywhere. A
-region's EDGE COUNT moves when the named source's span edge coalesces with an adjacent
-edge of its own. Neither is guaranteed: a pair where both sources keep a span of their
-own outside the overlap reports the same sources and the same edge count either way.
-Region count does not move. Each region's area
-moves by ROUNDING only — one ulp apart on the pinned case, so any assertion comparing
-the two orders' areas carries a tolerance rather than testing bit equality.
-`TestAnalyticCoincidentCarrierNamingIsOrderDependent` pins both shapes: two arcs
-sharing a START, where only the range and `Whole` move (`t=0..1` of the short arc one
-way, `t=0..160/170` of the long arc the other), and two arcs `0..160°`/`0..170°` closed
-by a chord PAST the short one, where short-first reports 3 boundary edges and long-first
-2 with the short arc on none of them.
+one pair decides which of the two is named, and EVERYTHING the report says about that
+span follows from the naming: the source index or entity, `TStart`/`TEnd`,
+`Whole`/`Partial`, how the boundary is cut into edges, which sources appear on the
+boundary at all, and the region's area. The godoc states it as a blanket caveat — treat
+the whole report for such a scene as order-dependent, and read the span's source off the
+edge rather than looking for a source you expect.
+
+**Do not narrow that into a list of what does and does not move.** Four review rounds
+each enumerated the effects and each was falsified by a sharper scene: identical sweeps
+leave `TStart`/`TEnd` and `Whole` unmoved, because a bound is a fraction of the named
+source's own sweep and equal sweeps make the fraction equal; source presence turns on
+whether an unsuppressed remainder survives `prune()` rather than on whether a source
+extends outside the overlap; and region count and area both move as well (see the
+`fu80`/`fu81` follow-ups, which are pre-existing engine defects rather than anything the
+caveat documents). Nothing in the code establishes order-independence as an invariant
+anywhere.
+`TestAnalyticCoincidentCarrierNamingIsOrderDependent` is a regression pin on two
+concrete scenes — two arcs sharing a START, and two arcs `0..160°`/`0..170°` closed by a
+chord PAST the short one — and is evidence for those scenes only, never for a universal.
