@@ -335,7 +335,8 @@ changes sign.
 `NaN` is the other value `<` cannot order and it cannot reach the sort — `densify` drops
 any source with a non-finite evaluated sample as `srcDegenerate` before it emits a tiny
 segment — but `cmp.Compare` puts a `NaN` ahead of every number while reporting two
-`NaN`s equal, so the raw-bit tie-break is what would separate distinct payloads and the
+`NaN`s equal, so the raw-bit tie-break — not `cmp.Compare` — is what would separate
+distinct payloads and the
 comparator is total without resting on the screen. The bits are consulted only after both value compares tie,
 so every pair the value compare already ordered keeps that order.
 `vertexTable.canon` is unchanged — it welds a point onto the first vertex within

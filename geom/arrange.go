@@ -2842,7 +2842,8 @@ func (a *arranger) splitFragments() []splitFrag {
 // either such a segment's endpoint, a bounded affine combination of two of them
 // (segParams confines its hit to the chords), or a closed-form intersection of sources
 // that survived that screen. cmp.Compare puts a NaN ahead of every number but reports
-// two NaNs equal, so the raw-bit tie-break is what would separate distinct payloads;
+// two NaNs equal, so the raw-bit tie-break — not cmp.Compare — is what would separate
+// distinct payloads;
 // the comparator is total without resting on the screen. With the
 // bit tie-break and that screen, the comparator returns 0 only for a bit-identical
 // pair, so no tie between DISTINCT points ever reaches the sorter and its discretion is

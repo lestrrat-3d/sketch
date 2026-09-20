@@ -197,8 +197,8 @@ drops any source with a non-finite evaluated sample as `srcDegenerate` before it
 tiny segment, and every boundary point is one of those segments' endpoints, a bounded
 affine combination of two of them (`segParams` confines its hit to the chords), or a
 closed-form intersection of sources that survived that screen. `cmp.Compare` puts a
-`NaN` ahead of every number but reports two `NaN`s equal, so the raw-bit tie-break is
-what would separate distinct payloads; the comparator is total without resting on the
+`NaN` ahead of every number but reports two `NaN`s equal, so the raw-bit tie-break —
+not `cmp.Compare` — is what would separate distinct payloads; the comparator is total without resting on the
 screen. The bits are consulted ONLY after both value compares tie, so every pair the
 value compare already ordered keeps that order — the tie-break decides the ±0 pair and
 nothing else, and the coordinate a ±0 cluster publishes is the positive zero.
