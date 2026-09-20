@@ -10,9 +10,12 @@ import (
 // trees), plus any surviving edge whose faces were not published — as [Chain]s.
 //
 // The candidate set is DERIVED, never named by the caller: an edge is a chain
-// edge exactly when it is not a region-boundary edge, so a caller asking for
-// both publications sees every edge of the arrangement exactly once and needs no
-// selection rule of its own.
+// candidate exactly when it is not a region-boundary edge, so a caller asking
+// for both publications needs no selection rule of its own and sees no edge
+// twice. Every candidate on an OPEN run is published as part of a chain. A
+// candidate on a closed run is published as no chain (see below), and a closed
+// loop that bounds nothing is already absent from the region set, so nothing the
+// region pass was reporting is lost.
 //
 // The walk is cut at every vertex where it cannot continue unambiguously, and
 // that question is asked of the WHOLE arrangement, not of the candidate set: a
@@ -55,7 +58,8 @@ func (a *arranger) buildChains(used []bool) []*Chain {
 	}
 	// Every maximal run starts at a vertex the walk cannot pass through, so those
 	// are the only starts worth trying. Which run an edge lands in does not depend
-	// on the order they are tried — the runs partition the candidate edges — so
+	// on the order they are tried — the runs are disjoint, and every candidate
+	// reachable from such a start lands in exactly one of them — so
 	// this order decides nothing but the order chains are discovered in, which
 	// chainLess then overrides for every pair of chains their coordinates can tell
 	// apart (see chainLess for the pair it cannot). Edges reachable from no such

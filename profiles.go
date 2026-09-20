@@ -248,11 +248,11 @@ func (s *Sketch) Profiles() []*Profile {
 }
 
 // sketchArrangement is what one arrangement pass publishes: the two edge
-// publications — the closed regions and the open chains, which partition the
-// same edge set — plus the arrangement-level degeneracy signal (collinear-
-// overlap / near-tangent conditions that make the region set unverifiable even
-// when, or especially when, no region is produced) and the representative points
-// of those conditions.
+// publications — the closed regions and the open chains, read off the same edge
+// set and never both reporting one edge — plus the arrangement-level degeneracy
+// signal (collinear-overlap / near-tangent conditions that make the region set
+// unverifiable even when, or especially when, no region is produced) and the
+// representative points of those conditions.
 type sketchArrangement struct {
 	profiles     []*Profile
 	chains       []*Chain

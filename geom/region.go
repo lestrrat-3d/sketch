@@ -197,11 +197,11 @@ type Region struct {
 // line, an arc joined to a line, or whatever a curve keeps after the regions
 // have taken their boundaries.
 //
-// An edge belongs to exactly one of the two publications: a region boundary, or
-// a chain. The walk is maximal between vertices where it cannot continue
-// unambiguously — it is CUT at every vertex whose degree is not 2, so three
-// lines meeting at a point publish three chains rather than one ambiguous walk
-// or nothing at all.
+// No edge belongs to BOTH publications, and an OPEN run's edge belongs to one of
+// them: a region boundary, or a chain. The walk is maximal between vertices
+// where it cannot continue unambiguously — it is CUT at every vertex whose
+// degree is not 2, so three lines meeting at a point publish three chains rather
+// than one ambiguous walk or nothing at all.
 //
 // A chain is open by definition. A closed run — one whose walk returns to its
 // own start vertex, and a component every one of whose vertices has degree 2 —

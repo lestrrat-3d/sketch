@@ -11,7 +11,7 @@ import (
 // what an open-curve operation (sweeping a line into a ribbon, revolving an open
 // profile into an uncapped shell) consumes.
 //
-// The two publications partition the sketch. The closed rectangle is a profile
+// No edge reaches both publications. The closed rectangle is a profile
 // and contributes no chain; the open run beside it is a chain and contributes no
 // profile.
 func Example_sketch_chains() {

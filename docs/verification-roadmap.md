@@ -94,9 +94,9 @@ algorithms stay above.
 - **Open chains:** the same arrangement's other publication (`Sketch.Chains`) —
   the ordered open runs of edges no region boundary uses, over the same
   `BoundaryEdge` trim contract, carrying arc length, per-chain validity and the
-  same snapshot/staleness handles a profile carries. The two publications
-  partition the edge set, so an open curve a 3D layer wants to sweep into a
-  surface is answered here rather than re-derived above.
+  same snapshot/staleness handles a profile carries. No edge reaches both
+  publications and every open run reaches one, so an open curve a 3D layer wants
+  to sweep into a surface is answered here rather than re-derived above.
 - **Placement & I/O:** `World`/`Plane` 3D placement with local↔world readout;
   JSON v2 round-trip (sketch + world); SVG/PNG/DXF export; units system.
 - **Reference geometry:** the separation keystone — read-only, externally-locked

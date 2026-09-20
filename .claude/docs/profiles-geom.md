@@ -248,9 +248,10 @@ rather than right. No flag reports it.
 ordered open runs of `BoundaryEdge` (`sketch.Chain`, built from `geom.Chain` in
 `geom/chain.go`) over the edges no published region boundary uses. One
 `buildProfiles` call runs one arrangement and returns both, so nothing arranges
-twice and the two sets PARTITION the edges — an edge is a region-boundary edge
-or a chain edge, never both and never neither. The candidate set is DERIVED, not
-named by the caller: `prune()` keeps the edges it drops in `arranger.pruned`
+twice and no edge is a region-boundary edge AND a chain edge. Every edge of an
+OPEN run is one or the other; the only edge set neither publishes is the closed
+run described below. The candidate set is DERIVED, not named by the caller:
+`prune()` keeps the edges it drops in `arranger.pruned`
 (spurs and open trees), `extract` marks the cycles it actually publishes through
 `arranger.cycleOf`, and the chain pass takes the complement. Construction
 geometry is excluded exactly as it is from `Profiles()`; reference geometry

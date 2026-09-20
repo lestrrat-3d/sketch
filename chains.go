@@ -17,10 +17,12 @@ import (
 // commonest thing to do with sketch geometry that encloses nothing. Like a
 // [Profile] it is a SNAPSHOT — check [Chain.IsStale] before acting on one.
 //
-// An entity's edge is published in exactly ONE of the two places: a region
-// boundary, or a chain. Close the four sides of a rectangle and [Sketch.Chains]
-// reports nothing while [Sketch.Profiles] reports the region; leave one side off
-// and the reverse happens.
+// An entity's edge is never published in BOTH places, and an OPEN run's edge is
+// published in exactly one of them: a region boundary, or a chain. Close the
+// four sides of a rectangle and [Sketch.Chains] reports nothing while
+// [Sketch.Profiles] reports the region; leave one side off and the reverse
+// happens. A closed run that bounds nothing is published by neither — see the
+// walk rule below.
 //
 // The walk is CUT at every vertex where it cannot continue unambiguously — a
 // point where three or more edges meet, and the crossing point of two curves
@@ -114,10 +116,15 @@ func (c *Chain) IsStale() bool {
 
 // Chains detects the OPEN connected runs of the sketch's non-construction
 // geometry — everything the closed regions [Sketch.Profiles] reports do not use.
-// The two publications partition the same arrangement, so an edge is never
-// reported by both and geometry is never lost between them: a sketch's entities
-// are split at their bare crossings once, and each resulting edge is either part
-// of a region boundary or part of a chain.
+// The two publications read one arrangement, so no edge is reported by both: a
+// sketch's entities are split at their bare crossings once, and each resulting
+// edge of an OPEN run is part of a region boundary or part of a chain.
+//
+// A CLOSED run is the one case an edge can reach neither publication. A closed
+// loop that bounds anything is a [Profile]; one that bounds nothing — its area
+// under the arrangement's floor — is already absent from the region set, and no
+// chain is published for it either, so nothing the region pass was reporting is
+// lost.
 //
 // Each chain reports its ordered walk, the entities on it, its arc length, and
 // whether it is a valid (non-self-intersecting, non-degenerate) curve to sweep.
