@@ -424,4 +424,7 @@ Navigation only — the sections below are the authority.
   cross-sketch/cross-plane constraints (the `planeDef` recompute is the seam),
   3D rendering, and the projection/intersection algorithms that *produce* the
   reference snapshots. Profiles feeding extrude/revolve remain a future consumer
-  of `Sketch.WorldPolyline`.
+  of `Sketch.WorldPolyline`, and open chains (`Sketch.Chains`, the arrangement's
+  open publication) are the same seam for a surface sweep: this layer decides
+  which edges form a chain, in what order, and whether it is trustworthy; the
+  3D layer above turns one into a sheet body and never re-derives the 2D answer.
