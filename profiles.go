@@ -94,8 +94,8 @@ type BoundaryEdge struct {
 	// and everything the report says about that span follows from the naming — so read
 	// the span's entity off this field rather than looking for an entity you expect.
 	// A same-carrier overlap [Sketch.Profiles] refuses instead leaves the regions it
-	// reaches reported invalid, with both entities keeping their own edges;
-	// [Sketch.Profiles] lists the cases.
+	// reaches reported invalid and neither entity loses a span to the other, though the
+	// returned boundary need not name either of them; [Sketch.Profiles] lists the cases.
 	Entity Entity
 	// Partial is true when this edge covers only a sub-range of Entity; false when
 	// it spans the whole entity.
@@ -222,16 +222,19 @@ type BoundaryEdge struct {
 // [Sketch.Entities], or the arc of an arc and a circle, since circles are arranged
 // after every open entity. Every other same-carrier overlap is one of the
 // unresolvable conditions above, so the regions it reaches are reported invalid and
-// both entities keep their own edges: two entities sharing more than one span of
+// neither entity loses a span to the other, though the returned boundary need not name
+// either of them: two entities sharing more than one span of
 // the carrier, two that each sweep the full turn, two lines overlapping along one
 // carrier, carriers equal only to within the near-tangency band, and a span the
 // arrangement cannot cut cleanly at both ends.
 //
 // Input order decides which of the two is named, and everything this report says
-// about that span follows from the naming: the entity itself,
-// [BoundaryEdge.TStart]/[BoundaryEdge.TEnd], [BoundaryEdge.Partial], how the boundary
-// is cut into edges, which entities appear on the boundary at all, and the region's
-// area. Treat the whole report for such a scene as order-dependent, and read the
+// about that span follows from the naming. Among the outputs that move are the entity
+// itself, [BoundaryEdge.TStart]/[BoundaryEdge.TEnd], [BoundaryEdge.Partial],
+// [BoundaryEdge.Polyline], how the boundary is cut into edges, which entities appear
+// on the boundary at all, and the number and area of the regions detected; that is a
+// set of examples, not an inventory.
+// Treat the whole report for such a scene as order-dependent, and read the
 // span's entity off [BoundaryEdge.Entity] rather than looking for an entity you
 // expect.
 //
