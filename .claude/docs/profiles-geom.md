@@ -169,9 +169,9 @@ drew first.
 sort is unstable, so the relative order of any pair the comparator leaves tied is the
 sorter's to choose, and that choice can still depend on the collection order — the
 authoring order the pre-pass exists to remove. The bit tie-break is what
-closes that, and it is needed for exactly one pair of the coordinates that can reach
-this sort — a negative zero against a positive zero, which `==` reports equal on both
-`x` and `y`; every other pair the sort can see is separated by `<` on one coordinate or
+closes that, and it is needed for exactly one KIND of pair among the coordinates that
+can reach this sort — a negative zero against a positive zero, which `==` reports equal
+on both `x` and `y`; every other pair the sort can see is separated by `<` on one coordinate or
 the other. A half
 disk whose elliptical arc starts at `(-0, -0)` and whose closing line ends at `(+0, +0)`
 published its shared vertex with bits `0x8000000000000000` drawn one way and `0x0` drawn
@@ -203,7 +203,9 @@ closed-form intersection of sources that survived that screen. `cmp.Compare` put
 not `cmp.Compare` — is what would separate distinct payloads; the comparator is total without resting on the
 screen. The bits are consulted ONLY after both value compares tie, so every pair the
 value compare already ordered keeps that order — the tie-break decides the ±0 pair and
-nothing else, and the coordinate a ±0 cluster publishes is the positive zero.
+nothing else, and among points whose coordinates compare equal the cluster publishes the
+one with the smallest raw bits, `x` first then `y`, so `+0` wins on `x`, and on `y` only
+when `x` already ties; a cluster of `(-0, +0)` and `(+0, -0)` publishes `(+0, -0)`.
 
 **A cluster whose span EXCEEDS `merge` is where the order shows.** Three curve endpoints
 `0.9e-6` apart on a scene 10 units across (where the default tolerance is `1e-6`) weld

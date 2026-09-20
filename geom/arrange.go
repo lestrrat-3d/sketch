@@ -2817,9 +2817,9 @@ func (a *arranger) splitFragments() []splitFrag {
 // The bit tie-break is what makes the order total, and total is the whole property the
 // pre-pass rests on: the sort is unstable, so any pair it leaves tied is ordered at the
 // sorter's discretion, and that order can still come out of the collection order — the
-// authoring order. A value compare leaves exactly one pair of the coordinates that can
-// reach this sort tied — a negative zero against a positive zero, which `==` reports
-// equal on both x and y; every other pair the sort can see is separated by `<` on one
+// authoring order. A value compare leaves exactly one KIND of pair among the
+// coordinates that can reach this sort tied — a negative zero against a positive zero,
+// which `==` reports equal on both x and y; every other pair the sort can see is separated by `<` on one
 // coordinate or the other. So two boundary points at opposite-signed zeros kept their
 // authoring order, and
 // since canon publishes its representative's coordinates, the same half disk published

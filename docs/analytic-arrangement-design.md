@@ -315,9 +315,9 @@ tie-break — and canonicalizes in that order, before it builds a fragment. **Th
 is TOTAL, and total is the property the pre-pass rests on**: the sort is unstable, so
 the relative order of any pair the comparator leaves tied is the sorter's to choose, and
 that choice can still depend on the collection order — the authoring order. A value
-compare alone leaves exactly one pair of the coordinates that can reach this sort
-tied — a negative zero against a positive zero, which `==` reports equal on both `x`
-and `y`; every other pair the sort can see is separated by `<` on one coordinate or the
+compare alone leaves exactly one KIND of pair among the coordinates that can reach this
+sort tied — a negative zero against a positive zero, which `==` reports equal on both
+`x` and `y`; every other pair the sort can see is separated by `<` on one coordinate or the
 other. So a half
 disk whose arc starts at `(-0, -0)` and whose closing line ends at `(+0, +0)` published
 its shared vertex as `(-0, -0)` drawn one way and `(+0, +0)` drawn the other
