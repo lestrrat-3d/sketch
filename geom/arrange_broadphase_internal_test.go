@@ -320,6 +320,35 @@ func checkSampledCrossingsExplained(t *testing.T, a *arranger) int {
 	return refused
 }
 
+func TestSourceBoxCacheUnionsSegmentBoxes(t *testing.T) {
+	curves := []Curve{
+		bpLine(-20, 0, -5, 3),
+		NewArc(NewPoint(0, 0), NewPoint(10, 0), NewPoint(0, 10)),
+	}
+	closed := []ClosedCurve{bpCircle(40, 20, 8)}
+	a := scenePairArranger(curves, closed, 1e-4)
+	a.sourceSegs = make([][]int, len(a.sources))
+	for i := range a.segs {
+		a.sourceSegs[a.segs[i].src] = append(a.sourceSegs[a.segs[i].src], i)
+	}
+
+	segmentBoxes := a.segBoxCache()
+	sourceBoxes := a.sourceBoxCache()
+	require.Len(t, sourceBoxes, len(a.sources))
+	for src, segs := range a.sourceSegs {
+		require.NotEmpty(t, segs)
+		want := segmentBoxes[segs[0]]
+		for _, si := range segs[1:] {
+			box := segmentBoxes[si]
+			want.minX = min(want.minX, box.minX)
+			want.minY = min(want.minY, box.minY)
+			want.maxX = max(want.maxX, box.maxX)
+			want.maxY = max(want.maxY, box.maxY)
+		}
+		require.Equal(t, want, sourceBoxes[src])
+	}
+}
+
 // TestSampledCrossingsExplainedBoxRejectAgrees is the proof for the box reject added
 // to sampledCrossingsExplained: over the same representative fixtures
 // TestBroadPhaseIsSuperset uses (rebuilt fresh, since analyticPrepass-adjacent state
