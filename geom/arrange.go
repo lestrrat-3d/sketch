@@ -34,8 +34,11 @@ import (
 // Which of two arcs is named follows the input order, so passing the same arcs in
 // the other order names the other arc — and TStart/TEnd measure a fraction of the
 // NAMED curve's own sweep, so the reported range and the Whole flag move with the
-// naming. The region count and each region's area do not, up to floating-point
-// rounding.
+// naming. So does the boundary's edge list: the named curve's edge over the span can
+// coalesce with an edge of its own next to it, changing a region's edge count, and a
+// curve whose whole sweep lies in the span emits no edge anywhere, so WHICH
+// SourceIndex values a boundary carries is order-dependent too. The region count and
+// each region's area do not change, up to floating-point rounding.
 func Regions(curves []Curve, closed []ClosedCurve, opts ...Option) *Arrangement {
 	cfg := arrangeConfig{}
 	for _, o := range opts {

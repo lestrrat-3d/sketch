@@ -1113,61 +1113,134 @@ func TestAnalyticSameCarrierArcsResolvedRegion(t *testing.T) {
 
 // TestAnalyticCoincidentCarrierNamingIsOrderDependent pins what input order does
 // and does not change about a RESOLVED same-carrier overlap, which is what the
-// godoc on Regions and on BoundaryEdge.SourceIndex states. Two arcs on one carrier,
-// the shorter one wholly inside the longer, closed into a region by a chord: either
-// order gives one region of the same area, but the shared span is reported on
-// whichever arc was passed first, and a bound is a fraction of THAT arc's own sweep
-// (circleParam), so TStart/TEnd and Whole move with the naming. The second arc emits
-// no edge either way — all of it that the region needs lies in the shared span.
+// godoc on Regions and on BoundaryEdge.SourceIndex states. Both sub-cases put a
+// shorter arc wholly inside a longer one on the same r=10 carrier and close a region
+// with a chord; the shared span is reported on whichever arc was passed first, and a
+// bound is a fraction of THAT arc's own sweep (circleParam).
+//
+// "shared start" closes the chord at the short arc's own end, so the long arc's tail
+// dangles and is pruned: the two orders differ only in the reported range and Whole.
+// "chord past the short arc" closes at the LONG arc's end instead, so that tail is a
+// real boundary edge — and naming the long arc merges the tail with the shared span
+// into one whole edge, which changes the region's edge count (3 against 2) and drops
+// the short arc off the boundary altogether.
 func TestAnalyticCoincidentCarrierNamingIsOrderDependent(t *testing.T) {
 	deg := math.Pi / 180
 	c := geom.NewPoint(0, 0)
 	at := func(ang float64) *geom.Point { return geom.NewPoint(10*math.Cos(ang*deg), 10*math.Sin(ang*deg)) }
-	short := geom.NewArc(c, at(10), at(170)) // 160° of the r=10 carrier
-	long := geom.NewArc(c, at(10), at(180))  // 170° of the same carrier, covering all of short
-	chord := geom.NewLine(at(170), at(10))   // closes the shared span into a region
-	for _, shortFirst := range []bool{true, false} {
-		curves := []geom.Curve{short, long, chord}
-		if !shortFirst {
-			curves = []geom.Curve{long, short, chord}
-		}
-		for _, spt := range []int{16, 32, 64} {
-			arr := geom.Regions(curves, nil, geom.WithSegmentsPerTurn(spt))
-			require.Falsef(t, arr.Degenerate, "shortFirst=%v spt=%d", shortFirst, spt)
-			require.Lenf(t, arr.Regions, 1, "shortFirst=%v spt=%d", shortFirst, spt)
-			requireExactBoundsReproduce(t, curves, nil, arr)
-			region := arr.Regions[0]
-			require.InDeltaf(t, 122.52533299326296, region.Area, 1e-9,
-				"the area is the same in either order: shortFirst=%v spt=%d", shortFirst, spt)
 
-			var named geom.BoundaryEdge
-			var namedCount, losingCount int
-			for _, e := range region.Outer {
-				switch e.SourceIndex {
-				case 0:
-					named, namedCount = e, namedCount+1
-				case 1:
-					losingCount++
+	t.Run("shared start", func(t *testing.T) {
+		short := geom.NewArc(c, at(10), at(170)) // 160° of the r=10 carrier
+		long := geom.NewArc(c, at(10), at(180))  // 170° of the same carrier, covering all of short
+		chord := geom.NewLine(at(170), at(10))   // closes the shared span into a region
+		for _, shortFirst := range []bool{true, false} {
+			curves := []geom.Curve{short, long, chord}
+			if !shortFirst {
+				curves = []geom.Curve{long, short, chord}
+			}
+			for _, spt := range []int{16, 32, 64} {
+				arr := geom.Regions(curves, nil, geom.WithSegmentsPerTurn(spt))
+				require.Falsef(t, arr.Degenerate, "shortFirst=%v spt=%d", shortFirst, spt)
+				require.Lenf(t, arr.Regions, 1, "shortFirst=%v spt=%d", shortFirst, spt)
+				requireExactBoundsReproduce(t, curves, nil, arr)
+				region := arr.Regions[0]
+				require.InDeltaf(t, 122.52533299326296, region.Area, 1e-9,
+					"the area is the same in either order: shortFirst=%v spt=%d", shortFirst, spt)
+
+				var named geom.BoundaryEdge
+				var namedCount, losingCount int
+				for _, e := range region.Outer {
+					switch e.SourceIndex {
+					case 0:
+						named, namedCount = e, namedCount+1
+					case 1:
+						losingCount++
+					}
 				}
-			}
-			require.Equalf(t, 1, namedCount,
-				"the first-passed arc carries the shared span: shortFirst=%v spt=%d", shortFirst, spt)
-			require.Zerof(t, losingCount,
-				"the second-passed arc emits no edge over the shared span: shortFirst=%v spt=%d", shortFirst, spt)
-			if shortFirst {
-				// The span IS all of short, so its edge is the whole arc.
-				require.Truef(t, named.Whole, "shortFirst=%v spt=%d", shortFirst, spt)
+				require.Equalf(t, 1, namedCount,
+					"the first-passed arc carries the shared span: shortFirst=%v spt=%d", shortFirst, spt)
+				require.Zerof(t, losingCount,
+					"the second-passed arc emits no edge over the shared span: shortFirst=%v spt=%d", shortFirst, spt)
+				if shortFirst {
+					// The span IS all of short, so its edge is the whole arc.
+					require.Truef(t, named.Whole, "shortFirst=%v spt=%d", shortFirst, spt)
+					require.InDeltaf(t, 0.0, named.TStart, 1e-12, "shortFirst=%v spt=%d", shortFirst, spt)
+					require.InDeltaf(t, 1.0, named.TEnd, 1e-12, "shortFirst=%v spt=%d", shortFirst, spt)
+					continue
+				}
+				// The same physical span is now a strict sub-range of long: 160° of its
+				// own 170° sweep, measured from long's own start.
+				require.Falsef(t, named.Whole, "shortFirst=%v spt=%d", shortFirst, spt)
 				require.InDeltaf(t, 0.0, named.TStart, 1e-12, "shortFirst=%v spt=%d", shortFirst, spt)
-				require.InDeltaf(t, 1.0, named.TEnd, 1e-12, "shortFirst=%v spt=%d", shortFirst, spt)
-				continue
+				require.InDeltaf(t, 160.0/170.0, named.TEnd, 1e-12, "shortFirst=%v spt=%d", shortFirst, spt)
 			}
-			// The same physical span is now a strict sub-range of long: 160° of its
-			// own 170° sweep, measured from long's own start.
-			require.Falsef(t, named.Whole, "shortFirst=%v spt=%d", shortFirst, spt)
-			require.InDeltaf(t, 0.0, named.TStart, 1e-12, "shortFirst=%v spt=%d", shortFirst, spt)
-			require.InDeltaf(t, 160.0/170.0, named.TEnd, 1e-12, "shortFirst=%v spt=%d", shortFirst, spt)
 		}
-	}
+	})
+
+	t.Run("chord past the short arc", func(t *testing.T) {
+		short := geom.NewArc(c, at(0), at(160)) // 160° of the r=10 carrier
+		long := geom.NewArc(c, at(0), at(170))  // 170° of the same carrier, covering all of short
+		chord := geom.NewLine(at(170), at(0))   // closes at the LONG arc's end, so its tail is boundary
+		areaByOrder := map[bool]float64{}
+		for _, shortFirst := range []bool{true, false} {
+			curves := []geom.Curve{short, long, chord}
+			shortIdx, longIdx := 0, 1
+			if !shortFirst {
+				curves = []geom.Curve{long, short, chord}
+				shortIdx, longIdx = 1, 0
+			}
+			for _, spt := range []int{16, 32, 64} {
+				arr := geom.Regions(curves, nil, geom.WithSegmentsPerTurn(spt))
+				require.Falsef(t, arr.Degenerate, "shortFirst=%v spt=%d", shortFirst, spt)
+				require.Lenf(t, arr.Regions, 1, "shortFirst=%v spt=%d", shortFirst, spt)
+				requireExactBoundsReproduce(t, curves, nil, arr)
+				region := arr.Regions[0]
+				areaByOrder[shortFirst] = region.Area
+
+				var onShort, onLong geom.BoundaryEdge
+				var shortCount, longCount int
+				for _, e := range region.Outer {
+					switch e.SourceIndex {
+					case shortIdx:
+						onShort, shortCount = e, shortCount+1
+					case longIdx:
+						onLong, longCount = e, longCount+1
+					}
+				}
+				if shortFirst {
+					// short carries the shared span whole; long keeps only its own
+					// 160°..170° tail, so the chord makes a third edge.
+					require.Lenf(t, region.Outer, 3,
+						"short-first: the span, long's tail and the chord: spt=%d", spt)
+					require.Equalf(t, 1, shortCount, "spt=%d", spt)
+					require.Truef(t, onShort.Whole, "spt=%d", spt)
+					require.Equalf(t, 1, longCount,
+						"long's tail beyond the span is its own edge: spt=%d", spt)
+					require.Falsef(t, onLong.Whole, "spt=%d", spt)
+					require.InDeltaf(t, 160.0/170.0, onLong.TStart, 1e-12, "spt=%d", spt)
+					require.InDeltaf(t, 1.0, onLong.TEnd, 1e-12, "spt=%d", spt)
+					continue
+				}
+				// Naming long makes the span and long's own tail one source, and they
+				// coalesce into a single whole edge — one edge fewer, and short is not
+				// on the boundary at all.
+				require.Lenf(t, region.Outer, 2,
+					"long-first: one whole arc edge and the chord: spt=%d", spt)
+				require.Equalf(t, 1, longCount, "spt=%d", spt)
+				require.Truef(t, onLong.Whole, "spt=%d", spt)
+				require.InDeltaf(t, 0.0, onLong.TStart, 1e-12, "spt=%d", spt)
+				require.InDeltaf(t, 1.0, onLong.TEnd, 1e-12, "spt=%d", spt)
+				require.Zerof(t, shortCount,
+					"the short arc reaches no boundary edge in this order: spt=%d", spt)
+			}
+		}
+		// The two orders integrate the same region over differently-cut edges, so the
+		// areas agree to rounding, NOT to the bit: they land one ulp apart
+		// (0x406175755f05693e short-first against 0x406175755f05693f long-first).
+		require.InDelta(t, areaByOrder[true], areaByOrder[false], 1e-12,
+			"the area is the same in either order, up to rounding")
+		require.InDelta(t, 139.67057753617149, areaByOrder[true], 1e-9, "short-first area")
+	})
 }
 
 func TestAnalyticMergedExternalTangentBlessed(t *testing.T) {

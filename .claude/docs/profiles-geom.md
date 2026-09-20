@@ -851,17 +851,18 @@ is the only thing left to close a region when the overlap covers nearly the whol
 carrier. An outward slop of `arcParamEps` deleted exactly that fragment for every gap
 up to twice it, and the region vanished with `Degenerate=false`.
 
-The public godoc carries the consumer-facing half of this: `Sketch.Profiles` and
-`BoundaryEdge.Entity` (`profiles.go`), plus `geom.Regions` and
-`geom.BoundaryEdge.SourceIndex`. They scope the naming rule to a pair sharing ONE
-span, say that input order picks which of two arcs is named while a circle never
-takes a span from an arc, and list the refused cases (more than one shared span, two
-complete carriers, overlapping lines, a carrier match holding only in the
-classification band, a withdrawn window) as staying `Degenerate` with nothing
-suppressed. They also split what reordering the input changes from what it does not:
-`TStart`/`TEnd` and `Whole` (`Partial`) move with the naming, because a bound is a
-fraction of the NAMED source's own sweep (`circleParam`), while region count and area
-do not. `TestAnalyticCoincidentCarrierNamingIsOrderDependent` pins that split on two
-arcs closed by a chord — one order reports the shared span as a whole arc at
-`t=0..1`, the other as `t=0..160/170` of the longer arc, with the same single region
-and area either way.
+**Input ORDER is a public variable of the resolved case, and the godoc on
+`Sketch.Profiles` + `BoundaryEdge.Entity` (`profiles.go`) and on `geom.Regions` +
+`geom.BoundaryEdge.SourceIndex` owns the consumer-facing statement of it.** Reordering
+one pair moves THREE things: the reported `TStart`/`TEnd` and `Whole` (`Partial`),
+since a bound is a fraction of the NAMED source's own sweep (`circleParam`); a region's
+EDGE COUNT, since the named source's span edge coalesces with an adjacent edge of its
+own; and WHICH sources reach the boundary at all, since a source whose whole sweep lies
+in the span emits no edge anywhere. Region count does not move. Each region's area
+moves by ROUNDING only — one ulp apart on the pinned case, so any assertion comparing
+the two orders' areas carries a tolerance rather than testing bit equality.
+`TestAnalyticCoincidentCarrierNamingIsOrderDependent` pins both shapes: two arcs
+sharing a START, where only the range and `Whole` move (`t=0..1` of the short arc one
+way, `t=0..160/170` of the long arc the other), and two arcs `0..160°`/`0..170°` closed
+by a chord PAST the short one, where short-first reports 3 boundary edges and long-first
+2 with the short arc on none of them.

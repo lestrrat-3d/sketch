@@ -90,8 +90,9 @@ type BoundaryEdge struct {
 	//
 	// Where two entities on the same carrier share one span, that span names ONE of
 	// them: the earlier of two arcs in [Sketch.Entities], or the arc of an arc and a
-	// circle. TStart/TEnd then read in the named entity's own parameters, so both
-	// bounds move when the two arcs are authored in the other order. See
+	// circle. TStart/TEnd then read in the named entity's own parameters, so the
+	// range reported for one physical span changes when the two arcs are authored in
+	// the other order — and so can the edge list the span sits in. See
 	// [Sketch.Profiles].
 	Entity Entity
 	// Partial is true when this edge covers only a sub-range of Entity; false when
@@ -226,8 +227,14 @@ type BoundaryEdge struct {
 //
 // Authoring the same two arcs in the other order names the other arc, and that
 // span's [BoundaryEdge.TStart]/[BoundaryEdge.TEnd] and [BoundaryEdge.Partial] then
-// read in the newly named arc's own parameters. The region count and each region's
-// area stay the same, up to floating-point rounding.
+// read in the newly named arc's own parameters. The boundary's edge list moves with
+// the naming as well: the named arc's edge over the span can merge with an edge of
+// its own next to it, so a region's edge count differs between the two orders, and
+// an arc whose whole sweep lies in the span emits no edge anywhere — it is missing
+// from [Profile.Entities] and from every [BoundaryEdge] in the order that does not
+// name it. Read the span's entity off [BoundaryEdge.Entity]; do not expect a given
+// entity to appear. The region count and each region's area stay the same, up to
+// floating-point rounding.
 //
 // That validity scoping needs a curve to blame. A condition no curve can be
 // attributed to — an unusable input dropped before it reached the arrangement, such
