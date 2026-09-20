@@ -1,6 +1,7 @@
 package sketch_test
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
@@ -355,8 +356,8 @@ func TestChainsCoincidentWalksOrderByName(t *testing.T) {
 }
 
 // TestChainsCoincidentWalksKeepTheCoordinateOrder pins the other half of that
-// rule: the name only ever settles a tie. Two chains the coordinates DO rank
-// keep that ranking whatever their names say.
+// rule: everything ranked under the coordinates only ever settles a tie. Two
+// chains the coordinates DO rank keep that ranking whatever their names say.
 func TestChainsCoincidentWalksKeepTheCoordinateOrder(t *testing.T) {
 	s := newSketch(t)
 	right := s.CreateLine(s.CreatePoint(20, 0), s.CreatePoint(30, 0))
@@ -368,6 +369,273 @@ func TestChainsCoincidentWalksKeepTheCoordinateOrder(t *testing.T) {
 	require.Len(t, chains, 2)
 	require.Equal(t, []sketch.Entity{left}, chains[0].Entities, "leftmost first, name notwithstanding")
 	require.Equal(t, []sketch.Entity{right}, chains[1].Entities)
+}
+
+// coincidentAuthorings is every order three coincident curves can be authored
+// in. A published order that survives all six is settled by the drawing, not by
+// which curve was written down first.
+var coincidentAuthorings = [][]string{
+	{"a", "b", "c"}, {"a", "c", "b"}, {"b", "a", "c"},
+	{"b", "c", "a"}, {"c", "a", "b"}, {"c", "b", "a"},
+}
+
+// publishedCoincidentOrder authors three coincident curves from (0,0) to (10,0)
+// in the given order and reports what each published chain says about itself
+// through read. Every chain walks one and the same polyline, so the coordinates
+// rank none of them and what read returns is decided by the rung under test.
+func publishedCoincidentOrder(t *testing.T, authored []string, build func(s *sketch.Sketch, label string), read func(c *sketch.Chain) string) []string {
+	t.Helper()
+	s := newSketch(t)
+	for _, label := range authored {
+		build(s, label)
+	}
+	chains := s.Chains()
+	require.Len(t, chains, len(authored), "one chain per coincident curve")
+	out := make([]string, 0, len(chains))
+	for _, ch := range chains {
+		require.Len(t, ch.Entities, 1, "each chain is one curve")
+		require.Equal(t, [2]float64{0, 0}, chainStart(ch), "one and the same walk, every time")
+		require.Equal(t, [2]float64{10, 0}, chainEnd(ch))
+		require.False(t, ch.Valid, "a coincident overlap is a degenerate arrangement")
+		out = append(out, read(ch))
+	}
+	return out
+}
+
+// TestChainsCoincidentWalksRankEqualNamesByPointName is cell B2: three coincident
+// lines carrying the SAME entity name. The name rung cannot separate them, so
+// the order falls through to the names on the points the lines are defined from
+// — which a caller reads straight off Chain.Entities through Line.Start.
+func TestChainsCoincidentWalksRankEqualNamesByPointName(t *testing.T) {
+	build := func(s *sketch.Sketch, label string) {
+		start := s.CreatePoint(0, 0)
+		start.SetName(label + "-start")
+		line := s.CreateLine(start, s.CreatePoint(10, 0))
+		line.SetName("duplicate")
+	}
+	read := func(c *sketch.Chain) string {
+		line, ok := c.Entities[0].(*sketch.Line)
+		require.True(t, ok)
+		require.Equal(t, "duplicate", line.Name(), "the entity names tie")
+		return line.Start.Name()
+	}
+	want := []string{"a-start", "b-start", "c-start"}
+	for _, authored := range coincidentAuthorings {
+		require.Equal(t, want, publishedCoincidentOrder(t, authored, build, read), "authored %v", authored)
+	}
+}
+
+// TestChainsCoincidentWalksRankUnnamedEntitiesByPointName is cell B3, the DEFAULT
+// case: nobody named the entities, so every entity name is the empty string and
+// the name rung says nothing at all. The point names still identify each chain to
+// a caller, so they decide the order rather than the authoring does.
+func TestChainsCoincidentWalksRankUnnamedEntitiesByPointName(t *testing.T) {
+	build := func(s *sketch.Sketch, label string) {
+		start := s.CreatePoint(0, 0)
+		start.SetName(label + "-start")
+		s.CreateLine(start, s.CreatePoint(10, 0))
+	}
+	read := func(c *sketch.Chain) string {
+		line, ok := c.Entities[0].(*sketch.Line)
+		require.True(t, ok)
+		require.Empty(t, line.Name(), "no entity was named")
+		return line.Start.Name()
+	}
+	want := []string{"a-start", "b-start", "c-start"}
+	for _, authored := range coincidentAuthorings {
+		require.Equal(t, want, publishedCoincidentOrder(t, authored, build, read), "authored %v", authored)
+	}
+}
+
+// TestChainsCoincidentWalksRankByEveryDefiningPointName is cell B4: the point
+// names are read in the entity's own point order, not just at the first point,
+// so two lines whose starts share a name are still ranked by their ends.
+func TestChainsCoincidentWalksRankByEveryDefiningPointName(t *testing.T) {
+	build := func(s *sketch.Sketch, label string) {
+		start := s.CreatePoint(0, 0)
+		start.SetName("shared")
+		end := s.CreatePoint(10, 0)
+		end.SetName(label + "-end")
+		s.CreateLine(start, end)
+	}
+	read := func(c *sketch.Chain) string {
+		line, ok := c.Entities[0].(*sketch.Line)
+		require.True(t, ok)
+		require.Equal(t, "shared", line.Start.Name(), "the start names tie")
+		return line.End.Name()
+	}
+	want := []string{"a-end", "b-end", "c-end"}
+	for _, authored := range coincidentAuthorings {
+		require.Equal(t, want, publishedCoincidentOrder(t, authored, build, read), "authored %v", authored)
+	}
+}
+
+// TestChainsCoincidentWalksRankReferenceGeometryLast is cell B6: an unnamed
+// reference line coincident with two unnamed ordinary lines. Nothing about the
+// names separates them, but a caller can tell the reference chain from the rest
+// through IsReference and Source, so the published order has to say which is
+// which — and it ranks ordinary geometry before reference geometry.
+func TestChainsCoincidentWalksRankReferenceGeometryLast(t *testing.T) {
+	build := func(s *sketch.Sketch, label string) {
+		if label != "b" {
+			s.CreateLine(s.CreatePoint(0, 0), s.CreatePoint(10, 0))
+			return
+		}
+		p1 := s.CreateReferencePoint(0, 0, "edge-7")
+		p2 := s.CreateReferencePoint(10, 0, "edge-7")
+		_, err := s.CreateReferenceLine(p1, p2, "edge-7")
+		require.NoError(t, err)
+	}
+	read := func(c *sketch.Chain) string {
+		if !c.Entities[0].IsReference() {
+			require.Empty(t, c.Entities[0].Source())
+			return "sketched"
+		}
+		return c.Entities[0].Source()
+	}
+	want := []string{"sketched", "sketched", "edge-7"}
+	for _, authored := range coincidentAuthorings {
+		require.Equal(t, want, publishedCoincidentOrder(t, authored, build, read), "authored %v", authored)
+	}
+}
+
+// TestChainsCoincidentWalksRankByWalkDirection is cell B9: three coincident
+// unnamed lines, one of them authored end-to-start. The walk is canonicalized to
+// start at the smaller end, so all three publish the same coordinates — but the
+// reversed one reports Reversed, and its Start and End points are the other way
+// round, so it is identifiable and must be ranked.
+func TestChainsCoincidentWalksRankByWalkDirection(t *testing.T) {
+	build := func(s *sketch.Sketch, label string) {
+		if label != "b" {
+			s.CreateLine(s.CreatePoint(0, 0), s.CreatePoint(10, 0))
+			return
+		}
+		s.CreateLine(s.CreatePoint(10, 0), s.CreatePoint(0, 0))
+	}
+	read := func(c *sketch.Chain) string {
+		require.Len(t, c.Edges, 1)
+		if c.Edges[0].Reversed {
+			return "against the entity"
+		}
+		return "with the entity"
+	}
+	want := []string{"with the entity", "with the entity", "against the entity"}
+	for _, authored := range coincidentAuthorings {
+		require.Equal(t, want, publishedCoincidentOrder(t, authored, build, read), "authored %v", authored)
+	}
+}
+
+// TestChainsCoincidentWalksRankWholeEdgesBeforeFragments is cell B7: two whole
+// lines from (0,0) to (10,0) tie with the first half of a line running to
+// (20,0), cut at x=10 by a crossing line. The three walk identical coordinates
+// and carry no names, but the fragment publishes Partial and a TStart..TEnd of
+// its own, so the trim rung ranks it apart from the whole edges.
+func TestChainsCoincidentWalksRankWholeEdgesBeforeFragments(t *testing.T) {
+	published := func(authored []string) []string {
+		s := newSketch(t)
+		for _, label := range authored {
+			if label == "c" {
+				s.CreateLine(s.CreatePoint(0, 0), s.CreatePoint(20, 0))
+				continue
+			}
+			s.CreateLine(s.CreatePoint(0, 0), s.CreatePoint(10, 0))
+		}
+		s.CreateLine(s.CreatePoint(10, -5), s.CreatePoint(10, 5)) // cuts the long line at x=10
+		var out []string
+		for _, ch := range s.Chains() {
+			if chainStart(ch) != [2]float64{0, 0} || chainEnd(ch) != [2]float64{10, 0} {
+				continue // a chain the coordinates already rank
+			}
+			require.Len(t, ch.Edges, 1)
+			e := ch.Edges[0]
+			out = append(out, fmt.Sprintf("partial=%v t=%.2f..%.2f", e.Partial, e.TStart, e.TEnd))
+		}
+		return out
+	}
+	want := []string{
+		"partial=false t=0.00..1.00",
+		"partial=false t=0.00..1.00",
+		"partial=true t=0.00..0.50",
+	}
+	for _, authored := range coincidentAuthorings {
+		require.Equal(t, want, published(authored), "authored %v", authored)
+	}
+}
+
+// coincidentSweeps authors an arc and an elliptical arc of the same radius over
+// the same three points, in the given order. The two sample to the same chords,
+// so the arrangement cuts them into coincident fragment PAIRS — every pair a tie
+// the coordinates cannot settle.
+func coincidentSweeps(t *testing.T, arcFirst bool) []*sketch.Chain {
+	t.Helper()
+	s := newSketch(t)
+	center, start, end := s.CreatePoint(0, 0), s.CreatePoint(10, 0), s.CreatePoint(0, 10)
+	addArc := func() { s.CreateArc(center, start, end) }
+	addElliptical := func() { s.CreateEllipticalArc(center, start, end, 10, 10, 0) }
+	if !arcFirst {
+		addElliptical()
+		addArc()
+	} else {
+		addArc()
+		addElliptical()
+	}
+	chains := s.Chains()
+	require.NotEmpty(t, chains)
+	require.Zero(t, len(chains)%2, "the two sweeps are cut into coincident pairs")
+	for i := 0; i+1 < len(chains); i += 2 {
+		require.Len(t, chains[i].Edges, 1)
+		require.Len(t, chains[i+1].Edges, 1)
+		require.Equal(t, chains[i].Edges[0].Polyline, chains[i+1].Edges[0].Polyline,
+			"pair %d walks one and the same polyline", i/2)
+	}
+	return chains
+}
+
+// TestChainsCoincidentWalksRankByEntityKind is cell B5: an arc and an elliptical
+// arc drawn over the same points, both unnamed and over the same points, so
+// names rank nothing. A caller tells them apart with a type switch on
+// Chain.Entities, so the kind of the entity has to rank them.
+func TestChainsCoincidentWalksRankByEntityKind(t *testing.T) {
+	kinds := func(chains []*sketch.Chain) []string {
+		out := make([]string, 0, len(chains))
+		for _, ch := range chains {
+			require.Len(t, ch.Entities, 1)
+			switch ch.Entities[0].(type) {
+			case *sketch.Arc:
+				out = append(out, "arc")
+			case *sketch.EllipticalArc:
+				out = append(out, "elliptical arc")
+			default:
+				t.Fatalf("unexpected entity %T", ch.Entities[0])
+			}
+		}
+		return out
+	}
+	first, second := kinds(coincidentSweeps(t, true)), kinds(coincidentSweeps(t, false))
+	require.Equal(t, first, second, "the same list, whichever sweep was authored first")
+	for i := 0; i+1 < len(first); i += 2 {
+		require.Equal(t, []string{"arc", "elliptical arc"}, first[i:i+2], "pair %d ranks by kind", i/2)
+	}
+}
+
+// TestChainsCoincidentWalksPublishDistinctLengths is cell B8: the same two
+// sweeps publish DIFFERENT Length values inside a tie — one closed-form, one a
+// chord sum — so Length is a published, coordinate-derived scalar that separates
+// two chains the walk cannot. The published sequence of lengths is one and the
+// same however the sweeps were authored.
+func TestChainsCoincidentWalksPublishDistinctLengths(t *testing.T) {
+	lengths := func(chains []*sketch.Chain) []float64 {
+		out := make([]float64, 0, len(chains))
+		for _, ch := range chains {
+			out = append(out, ch.Length)
+		}
+		return out
+	}
+	first, second := lengths(coincidentSweeps(t, true)), lengths(coincidentSweeps(t, false))
+	require.Equal(t, first, second, "the same lengths in the same places, whichever was authored first")
+	for i := 0; i+1 < len(first); i += 2 {
+		require.NotEqual(t, first[i], first[i+1], "pair %d: the tie publishes two different lengths", i/2)
+	}
 }
 
 // TestChainsExcludeConstruction pins that the two publications share one rule

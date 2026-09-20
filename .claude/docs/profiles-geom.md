@@ -293,14 +293,22 @@ up. Two chains walking the identical polyline — coincident duplicate geometry,
 already reported `Degenerate` — compare equal in every coordinate there is, and
 `geom` has no identity beyond coordinates to rank them by, so its stable sort
 leaves them in `SourceIndex` order. `Sketch.Chains` closes that: `orderChains`
-(`chains.go`) reorders each run of adjacent equal-walk chains by the
-`Entity.Name` labels along the walk — an authored property that survives
-permuting the authoring order — and touches nothing the coordinates already
-rank. Chains identical in both coordinates and names stay interchangeable, which
-is what they are: nothing published about them differs but the entity handles.
-Adding a NEW tie-break to either layer means changing both this rule and the one
-in `geom/chain.go`'s `chainLess`, since the two halves compose into the
-published order.
+(`chains.go`) sorts the published list with **`compareChains`, the ONE ordered
+comparison over a published chain**. It asks the coordinates first, by
+`chainLess`'s own rule, so it REFINES the arrangement's order and never disturbs
+it, and then ranks on every other source-independent property the chain
+publishes, in the fixed precedence `compareChains` itself states — read it there
+rather than from a second copy here.
+
+Entity identity is deliberately not consulted: the `Entity` pointer, and the
+entity id behind it, ARE the authoring order. Two chains equal on every rung stay
+tied and are interchangeable — nothing published about them differs, which is
+what makes that claim true rather than merely stated.
+
+A property added to `Chain` or `BoundaryEdge` belongs on a rung of its own in
+`compareChains`; that is the single place this layer ranks a chain. A new
+COORDINATE rule is the other half and lives in `geom/chain.go`'s `chainLess`, so
+changing either means reading both — the two compose into the published order.
 
 `Length` is closed-form for a
 line/arc/circle fragment and the emitted polyline's chord sum otherwise (a

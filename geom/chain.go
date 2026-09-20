@@ -256,9 +256,10 @@ func polylineLess(a, b [][2]float64) bool {
 // already reports as degenerate — compare equal in every coordinate there is,
 // and the stable sort below then leaves them in candidate order, which follows
 // SourceIndex. Nothing in this package can do better: a coordinate rule cannot
-// separate two walks that have the same coordinates. A caller that attaches its
-// own identity to a source (a name, a handle) and needs a total order settles
-// that tie itself, over the chains this returns; sketch.Sketch.Chains does.
+// separate two walks that have the same coordinates. A caller whose sources
+// carry identity beyond the coordinates handed in here, and which needs a total
+// order, settles that tie itself over the chains this returns;
+// sketch.Sketch.Chains does, on everything its own chains publish.
 func chainLess(x, y *Chain) bool {
 	xd, yd := chainDense(x.Edges), chainDense(y.Edges)
 	if len(xd) == 0 || len(yd) == 0 {

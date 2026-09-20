@@ -118,8 +118,8 @@ func TestChainsOrderIsIndependentOfInputOrder(t *testing.T) {
 // the seam it leaves it at. Three coincident lines walk one and the same
 // polyline, so no coordinate ranks them; what this package publishes is the
 // SourceIndex order, unchanged by which curve was handed in first, and a caller
-// with an identity of its own settles the rest (sketch.Sketch.Chains does, by
-// entity name).
+// with an identity of its own settles the rest (sketch.Sketch.Chains does, on
+// everything its chains publish).
 func TestChainsWithIdenticalWalksKeepSourceOrder(t *testing.T) {
 	arr := geom.Regions([]geom.Curve{
 		geom.NewLine(geom.NewPoint(0, 0), geom.NewPoint(10, 0)),
