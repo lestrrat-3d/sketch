@@ -71,6 +71,33 @@ func (a *arranger) segBoxCache() []segBox {
 	return a.segBoxes
 }
 
+// sourceBoxCache returns, for every source, the union of its tiny segments'
+// reach-expanded boxes. Two disjoint source boxes prove that no segment-box pair
+// from those sources overlaps, so sampledCrossingsExplained can skip its nested
+// segment scan. sourceSegs is fixed before analyticPrepass examines any source pair.
+func (a *arranger) sourceBoxCache() []segBox {
+	if a.sourceBoxes != nil || len(a.sources) == 0 {
+		return a.sourceBoxes
+	}
+	boxes := a.segBoxCache()
+	a.sourceBoxes = make([]segBox, len(a.sources))
+	for src, segs := range a.sourceSegs {
+		if len(segs) == 0 {
+			continue
+		}
+		box := boxes[segs[0]]
+		for _, si := range segs[1:] {
+			b := boxes[si]
+			box.minX = min(box.minX, b.minX)
+			box.minY = min(box.minY, b.minY)
+			box.maxX = max(box.maxX, b.maxX)
+			box.maxY = max(box.maxY, b.maxY)
+		}
+		a.sourceBoxes[src] = box
+	}
+	return a.sourceBoxes
+}
+
 // boxesOverlap reports whether two boxes overlap, treating a touch (shared edge or
 // corner) as an overlap: the pair tests intersect's loop body guards on are
 // tolerance-bounded equalities, so a box touch is exactly the boundary case those

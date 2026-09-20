@@ -251,8 +251,10 @@ type arranger struct {
 	// segBoxes is every tiny segment's reach-expanded bounding box (see
 	// arrange_broadphase.go), computed once on first use and shared by
 	// candidatePairs' sweep and sampledCrossingsExplained's box reject so neither
-	// pays for it twice. Filled by segBoxCache.
-	segBoxes []segBox
+	// pays for it twice. sourceBoxes is their union per source, used to reject a
+	// whole source pair before sampledCrossingsExplained scans its segment pairs.
+	// Filled by segBoxCache and sourceBoxCache.
+	segBoxes, sourceBoxes []segBox
 
 	// Curve/curve crossings the incidence certificate REFUSED, so the pair fell back
 	// to the sampled path (see analyticCrossingsCertified), and the contacts the
@@ -1410,6 +1412,13 @@ func isCurvedKind(k srcKind) bool {
 // hit set is a subset of that, so the same box reject is safe here too: it can only
 // ever skip a pair segsCrossInteriorAt would have refused anyway.
 func (a *arranger) sampledCrossingsExplained(i, j int, events []xEvent) bool {
+	if len(a.sourceSegs[i]) == 0 || len(a.sourceSegs[j]) == 0 {
+		return true
+	}
+	sourceBoxes := a.sourceBoxCache()
+	if !boxesOverlap(sourceBoxes[i], sourceBoxes[j]) {
+		return true
+	}
 	boxes := a.segBoxCache()
 	for _, ii := range a.sourceSegs[i] {
 		for _, jj := range a.sourceSegs[j] {

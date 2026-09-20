@@ -307,7 +307,8 @@ Every tiny segment's reach-expanded box (`segBoxOf`) is computed once and cached
 the arranger (`segBoxCache`, populated on first use, valid for the arranger's whole
 life since `densify` is the only appender to `a.segs` and it runs before `intersect`).
 `candidatePairs`' sweep and `sampledCrossingsExplained`'s box reject (below) share the
-one cache instead of each computing its own boxes.
+one cache instead of each computing its own boxes. `sourceBoxCache` also unions those
+cached boxes per source for the source-pair reject below.
 
 ### The box reject in `sampledCrossingsExplained`
 
@@ -327,14 +328,17 @@ crossing on. The only pair safe to skip is one that provably cannot cross at all
 skipping it removes nothing from the conjunction either way.
 
 The reject reuses the SAME machinery `candidatePairs` already proves safe for exactly
-this reason: a pair is skipped only when its two segments' `segBoxCache` boxes (each
-already expanded by `segReach` = `a.merge + broadPhaseRel·(chord length)`) fail
-`boxesOverlap`. `segsCrossInteriorAt`'s positive set (an interior hit, `ti`/`tj`
-strictly inside `(segEps, 1-segEps)`) is a subset of plain `segParams`' positive set
-(endpoints included), and `TestBroadPhaseIsSuperset` already proves those
-reach-expanded boxes are a superset of everything `segParams` accepts — so they are
-necessarily also a superset of `segsCrossInteriorAt`'s stricter interior-only set,
-with no new constant and no new proof needed.
+this reason. First, a source pair is skipped when the unions of its segments'
+`segBoxCache` boxes fail `boxesOverlap`; disjoint unions prove that no contained
+segment-box pair overlaps. Otherwise, a segment pair is skipped only when its two
+cached boxes (each already expanded by `segReach` =
+`a.merge + broadPhaseRel·(chord length)`) fail `boxesOverlap`.
+`segsCrossInteriorAt`'s positive set (an interior hit, `ti`/`tj` strictly inside
+`(segEps, 1-segEps)`) is a subset of plain `segParams`' positive set (endpoints
+included), and `TestBroadPhaseIsSuperset` already proves those reach-expanded boxes
+are a superset of everything `segParams` accepts — so they are necessarily also a
+superset of `segsCrossInteriorAt`'s stricter interior-only set, with no new constant
+and no new proof needed.
 `TestSampledCrossingsExplainedBoxRejectAgrees`
 (`geom/arrange_broadphase_internal_test.go`) checks the box-guarded verdict against an
 unguarded brute-force reference over representative fixtures and 300 seeded random
