@@ -302,8 +302,8 @@ func TestChainsSplitAtABranchVertex(t *testing.T) {
 }
 
 // TestChainsAreDeterministic is C10: arranging the same sketch twice publishes
-// the same chains, in the same order and the same walk direction — which is what
-// makes a consumer's snapshot comparison meaningful.
+// the same chains, in the same order and the same walk direction — the drawing
+// decides the published set and each walk, not the order it was authored in.
 func TestChainsAreDeterministic(t *testing.T) {
 	s := newSketch(t)
 	hub := s.CreatePoint(0, 0)
@@ -369,6 +369,45 @@ func TestChainsCoincidentWalksKeepTheCoordinateOrder(t *testing.T) {
 	require.Len(t, chains, 2)
 	require.Equal(t, []sketch.Entity{left}, chains[0].Entities, "leftmost first, name notwithstanding")
 	require.Equal(t, []sketch.Entity{right}, chains[1].Entities)
+}
+
+// TestChainsRenameReranksWithoutStaleness pins the contract between the chain
+// order key and [sketch.Sketch.Revision]. The order key consults names and the
+// revision hashes none of them, and that gap is deliberate: a rename moves a
+// chain's POSITION in the published list and nothing else. So the revision holds
+// still, a chain held across the rename is NOT stale, and its live entity handle
+// reads the new name straight back — while a fresh call re-ranks the list.
+//
+// Closing the gap either way is what this test forbids: hashing names into the
+// revision would fire IsStale on a rename that changes nothing a chain holds,
+// and dropping names from the order key would give the coincident lines back to
+// authoring order.
+func TestChainsRenameReranksWithoutStaleness(t *testing.T) {
+	s := newSketch(t)
+	for _, name := range []string{"A", "B", "C"} {
+		line := s.CreateLine(s.CreatePoint(0, 0), s.CreatePoint(10, 0))
+		line.SetName(name)
+	}
+	names := func(chains []*sketch.Chain) []string {
+		out := make([]string, 0, len(chains))
+		for _, ch := range chains {
+			require.Len(t, ch.Entities, 1, "each chain is one coincident line")
+			out = append(out, ch.Entities[0].Name())
+		}
+		return out
+	}
+
+	held := s.Chains()
+	require.Equal(t, []string{"A", "B", "C"}, names(held), "ranked by name under the tied coordinates")
+	before := s.Revision()
+	require.False(t, held[0].IsStale())
+
+	held[0].Entities[0].SetName("Z")
+
+	require.Equal(t, before, s.Revision(), "a rename changes nothing the revision covers")
+	require.False(t, held[0].IsStale(), "nothing the held chain HOLDS moved")
+	require.Equal(t, []string{"Z"}, names(held[:1]), "the held chain's live handle reads the new name")
+	require.Equal(t, []string{"B", "C", "Z"}, names(s.Chains()), "only the POSITION moved")
 }
 
 // coincidentAuthorings is every order three coincident curves can be authored

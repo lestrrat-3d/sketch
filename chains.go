@@ -76,6 +76,9 @@ func (c *Chain) Sketch() *Sketch { return c.sketch }
 // Revision is the value of [Sketch.Revision] at the moment this chain was built.
 // Compare it against the sketch's current revision to detect staleness — or just
 // call [Chain.IsStale].
+//
+// It covers what the chain HOLDS — its walk, its edges and the entities they lie
+// on — and not the chain's POSITION in the slice [Sketch.Chains] returned it in.
 func (c *Chain) Revision() uint64 { return c.revision }
 
 // IsStale reports whether the sketch has changed since this chain was built, so
@@ -94,6 +97,14 @@ func (c *Chain) Revision() uint64 { return c.revision }
 // A consumer that sweeps a chain into a surface, or records it, must check this
 // first: sweeping a stale chain silently builds the wrong shape, with no error
 // anywhere to catch it.
+//
+// What staleness covers is what the chain HOLDS, never its POSITION in the slice
+// [Sketch.Chains] returned it in. The published order consults names (see
+// [Sketch.Chains]) and [Sketch.Revision] hashes none of them, so renaming an
+// entity can re-rank that list while every held chain stays fresh — correctly
+// so, since nothing the chain holds has moved and Chain.Entities are live
+// handles, which read the new name straight back. Compare a held chain against a
+// freshly resolved one by content or by handle, never by list position.
 func (c *Chain) IsStale() bool {
 	if c.sketch == nil {
 		return false // a zero-value Chain was never built from a sketch
@@ -117,8 +128,10 @@ func (c *Chain) IsStale() bool {
 //
 // The chains come back in a deterministic order, each walked in a deterministic
 // direction, so the same drawing publishes the same chains however it was
-// authored — which is what lets a consumer compare a held chain against a
-// freshly resolved one. Both are decided by the walk itself first — its
+// authored. That is a promise about the SET published and about each chain's own
+// walk, never about a chain's INDEX in this slice: a consumer compares a held
+// chain against a freshly resolved one by content or by handle, never by list
+// position. Both are decided by the walk itself first — its
 // COORDINATES, then how many edges it is cut into — and never by entity order.
 // The walk alone cannot rank two chains whose walks are point-for-point
 // identical (coincident duplicate geometry, which is a degenerate arrangement —
@@ -133,6 +146,11 @@ func (c *Chain) IsStale() bool {
 // Two chains stay tied only when all of that is equal, and such chains are
 // interchangeable: nothing published about them differs, and which of their
 // entities lands at which index is not defined.
+//
+// Names are consumed for ORDER only, never for content: nothing a chain
+// publishes is derived from a name, and [Sketch.Revision] hashes none of them.
+// Renaming therefore re-ranks this list without making any held chain stale —
+// see [Chain.IsStale].
 func (s *Sketch) Chains() []*Chain {
 	return s.buildProfiles().chains
 }
@@ -193,6 +211,12 @@ type rankedChain struct {
 //
 // Rungs 2 through 7 are per-edge and are asked of the WHOLE walk before the next
 // rung is asked at all, so one property decides the order everywhere it differs.
+//
+// Rungs 2 and 3 consume names for ORDER only, never for content: no property a
+// [Chain] publishes is derived from a name, and [Sketch.Revision] hashes none of
+// them. So renaming an entity or one of its defining points can move a chain to
+// a different index here while leaving every held chain fresh — position is
+// outside what a revision covers (see [Chain.IsStale]).
 //
 // A property added to [Chain] or [BoundaryEdge] later belongs here, on a rung of
 // its own — this is the single place to put it, and [Sketch.Chains] states the

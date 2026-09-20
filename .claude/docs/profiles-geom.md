@@ -285,8 +285,9 @@ A chain with two free ends admits two walks, so the published one starts at the
 lexicographically smaller end point (`canonicalChainDirection`), and the chains
 are ordered by start point, then end point, then the whole walk
 (`chainLess`). Both are stated in COORDINATES, never in entity order, so the
-same drawing publishes the same chains however it was authored — which is what
-makes a consumer's snapshot comparison meaningful.
+same drawing publishes the same chains however it was authored — a promise about
+the SET published and each chain's own walk, never about a chain's INDEX. A
+consumer compares a held chain against a fresh one by content or by handle.
 
 `chainLess` is PARTIAL on purpose, and the tie it leaves is settled one layer
 up. Two chains walking the identical polyline — coincident duplicate geometry,
@@ -299,6 +300,13 @@ comparison over a published chain**. It asks the coordinates first, by
 it, and then ranks on every other source-independent property the chain
 publishes, in the fixed precedence `compareChains` itself states — read it there
 rather than from a second copy here.
+
+Two of those rungs consume NAMES (an entity's, and those of the points it is
+defined from), and they are consumed for ORDER only, never for content: nothing
+a `Chain` publishes is derived from a name, and `Sketch.Revision` hashes none of
+them. Renaming therefore re-ranks the published list while every held `Chain`
+stays fresh — see "Load-bearing rule — hash what is consumed and handed out" in
+`.claude/docs/sketch-core.md`, which owns that scoping.
 
 Entity identity is deliberately not consulted: the `Entity` pointer, and the
 entity id behind it, ARE the authoring order. Two chains equal on every rung stay
