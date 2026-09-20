@@ -1121,7 +1121,10 @@ func TestAnalyticSameCarrierArcsResolvedRegion(t *testing.T) {
 // bound is a fraction of THAT arc's own sweep (circleParam).
 //
 // "shared start" closes the chord at the short arc's own end, so the long arc's tail
-// dangles and is pruned: the two orders differ only in the reported range and Whole.
+// dangles and is pruned. The assertions below pin the order-specific reported range
+// and Whole value; other published fields move too (the named edge's Polyline is
+// sampled off the named arc's own sweep, so its vertices and even its vertex count
+// differ between the orders), and this comment enumerates nothing.
 // "chord past the short arc" closes at the LONG arc's end instead, so that tail is a
 // real boundary edge — and naming the long arc merges the tail with the shared span
 // into one whole edge, which changes the region's edge count (3 against 2) and drops
@@ -1147,7 +1150,7 @@ func TestAnalyticCoincidentCarrierNamingIsOrderDependent(t *testing.T) {
 				requireExactBoundsReproduce(t, curves, nil, arr)
 				region := arr.Regions[0]
 				require.InDeltaf(t, 122.52533299326296, region.Area, 1e-9,
-					"the area is the same in either order: shortFirst=%v spt=%d", shortFirst, spt)
+					"this scene's area is the same in either order: shortFirst=%v spt=%d", shortFirst, spt)
 
 				var named geom.BoundaryEdge
 				var namedCount, losingCount int
@@ -1236,11 +1239,12 @@ func TestAnalyticCoincidentCarrierNamingIsOrderDependent(t *testing.T) {
 					"the short arc reaches no boundary edge in this order: spt=%d", spt)
 			}
 		}
-		// The two orders integrate the same region over differently-cut edges, so the
-		// areas agree to rounding, NOT to the bit: they land one ulp apart
-		// (0x406175755f05693e short-first against 0x406175755f05693f long-first).
+		// The two orders integrate THIS region over differently-cut edges, so its areas
+		// agree to rounding here, NOT to the bit: they land one ulp apart
+		// (0x406175755f05693e short-first against 0x406175755f05693f long-first). That
+		// is a fact about this scene, not a bound on how far an area can move.
 		require.InDelta(t, areaByOrder[true], areaByOrder[false], 1e-12,
-			"the area is the same in either order, up to rounding")
+			"this scene's area agrees in either order, up to rounding")
 		require.InDelta(t, 139.67057753617149, areaByOrder[true], 1e-9, "short-first area")
 	})
 }
