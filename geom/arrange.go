@@ -2817,9 +2817,11 @@ func (a *arranger) splitFragments() []splitFrag {
 // The bit tie-break is what makes the order total, and total is the whole property the
 // pre-pass rests on: the sort is unstable, so any pair it leaves tied is ordered at the
 // sorter's discretion, and that order can still come out of the collection order — the
-// authoring order. A value compare leaves exactly one pair of DISTINCT float64
-// coordinates tied — a negative zero against a positive zero, which `==` reports equal
-// — so two boundary points at opposite-signed zeros kept their authoring order, and
+// authoring order. A value compare leaves exactly one pair of the coordinates that can
+// reach this sort tied — a negative zero against a positive zero, which `==` reports
+// equal on both x and y; every other pair the sort can see is separated by `<` on one
+// coordinate or the other. So two boundary points at opposite-signed zeros kept their
+// authoring order, and
 // since canon publishes its representative's coordinates, the same half disk published
 // its shared vertex as (-0, -0) drawn one way and (+0, +0) drawn the other (see
 // TestWeldRepresentativeBitsAreOrderIndependent). Reaching the vertex table with the
@@ -2839,8 +2841,9 @@ func (a *arranger) splitFragments() []splitFrag {
 // sample as srcDegenerate before it emits a tiny segment, and every boundary point is
 // either such a segment's endpoint, a bounded affine combination of two of them
 // (segParams confines its hit to the chords), or a closed-form intersection of sources
-// that survived that screen. cmp.Compare orders it anyway, ahead of every number, so the
-// comparator stays total rather than relying on that argument staying true. With the
+// that survived that screen. cmp.Compare puts a NaN ahead of every number but reports
+// two NaNs equal, so the raw-bit tie-break is what would separate distinct payloads;
+// the comparator is total without resting on the screen. With the
 // bit tie-break and that screen, the comparator returns 0 only for a bit-identical
 // pair, so no tie between DISTINCT points ever reaches the sorter and its discretion is
 // never exercised.

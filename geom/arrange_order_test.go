@@ -112,10 +112,11 @@ func sortedAreas(arr *geom.Arrangement) []float64 {
 // order that an ordinary float compare cannot see: the COORDINATES the shared vertex is
 // published with, compared bit for bit.
 //
-// The lexicographic pre-pass orders boundary points by (x, y), and for float64 the ONE
-// pair of distinct values that compares equal on both coordinates is a negative zero
-// against a positive zero — every other distinct pair is separated by `<` on one
-// coordinate or the other. A tie leaves the relative order to slices.SortFunc, which is
+// The lexicographic pre-pass orders boundary points by (x, y), and the ONE pair of the
+// coordinates that can reach this sort which compares equal on both is a negative zero
+// against a positive zero; every other pair the sort can see is separated by `<` on one
+// coordinate or the other. densify drops a source with a non-finite sample as
+// srcDegenerate, so only finite coordinates reach the sort. A tie leaves the relative order to slices.SortFunc, which is
 // unstable, so the representative of that cluster still depended on the order the caller
 // authored the curves in, and canon keeps the representative's coordinates.
 //

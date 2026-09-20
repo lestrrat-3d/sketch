@@ -315,8 +315,10 @@ tie-break — and canonicalizes in that order, before it builds a fragment. **Th
 is TOTAL, and total is the property the pre-pass rests on**: the sort is unstable, so
 the relative order of any pair the comparator leaves tied is the sorter's to choose, and
 that choice can still depend on the collection order — the authoring order. A value
-compare alone leaves exactly one pair of distinct `float64` coordinates
-tied — a negative zero against a positive zero, which `==` reports equal — so a half
+compare alone leaves exactly one pair of the coordinates that can reach this sort
+tied — a negative zero against a positive zero, which `==` reports equal on both `x`
+and `y`; every other pair the sort can see is separated by `<` on one coordinate or the
+other. So a half
 disk whose arc starts at `(-0, -0)` and whose closing line ends at `(+0, +0)` published
 its shared vertex as `(-0, -0)` drawn one way and `(+0, +0)` drawn the other
 (`TestWeldRepresentativeBitsAreOrderIndependent`, which asserts BITWISE because
@@ -332,8 +334,9 @@ or a hash flips with authoring order, and an `atan2` or a division on that coord
 changes sign.
 `NaN` is the other value `<` cannot order and it cannot reach the sort — `densify` drops
 any source with a non-finite evaluated sample as `srcDegenerate` before it emits a tiny
-segment — but `cmp.Compare` orders it anyway, so the comparator is total by construction
-rather than by that argument. The bits are consulted only after both value compares tie,
+segment — but `cmp.Compare` puts a `NaN` ahead of every number while reporting two
+`NaN`s equal, so the raw-bit tie-break is what would separate distinct payloads and the
+comparator is total without resting on the screen. The bits are consulted only after both value compares tie,
 so every pair the value compare already ordered keeps that order.
 `vertexTable.canon` is unchanged — it welds a point onto the first vertex within
 `a.merge` of it and keeps that vertex's coordinates — so the first member of a
