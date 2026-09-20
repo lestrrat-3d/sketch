@@ -253,9 +253,18 @@ type arranger struct {
 	scale  float64
 	merge  float64
 
-	verts     vertexTable
-	edges     []arrEdge        // undirected arrangement edges
-	halfs     []halfEdge       // directed half-edges (two per edge)
+	verts vertexTable
+	edges []arrEdge // undirected arrangement edges
+	// pruned holds the edges prune dropped, in the order it dropped them. They
+	// bound no face, so the region pass is done with them — but they are exactly
+	// the open runs Chains publishes, so they are kept rather than discarded. See
+	// buildChains.
+	pruned []arrEdge
+	halfs  []halfEdge // directed half-edges (two per edge)
+	// cycleOf maps a half-edge to the face-walk cycle that traverses it, filled by
+	// extract. Only the chain pass reads it.
+	cycleOf []int
+
 	selfX     [][2]float64     // self-intersection points
 	selfXc    map[int]struct{} // components that self-intersect
 	notSimple map[int]struct{} // core components that are NOT a simple closed loop (some vertex degree != 2)
@@ -3041,6 +3050,11 @@ const weldIdentEps = 1e-12
 // prune iteratively drops arrangement edges that have a degree-1 endpoint, so
 // dangling spurs and open trees (which bound no region) never enter a face
 // boundary. Only edges that lie on a cycle survive.
+//
+// A dropped edge is kept in a.pruned rather than thrown away: it is still a
+// real fragment of a real source curve, and the open chains [Chain] publishes
+// are assembled from exactly these (plus the surviving edges no region ends up
+// using). Nothing else reads a.pruned, so the region pass is unaffected.
 func (a *arranger) prune() {
 	for {
 		deg := map[int]int{}
@@ -3053,6 +3067,7 @@ func (a *arranger) prune() {
 		for _, e := range a.edges {
 			if deg[e.u] <= 1 || deg[e.v] <= 1 {
 				removed = true
+				a.pruned = append(a.pruned, e)
 				continue
 			}
 			kept = append(kept, e)
@@ -3290,16 +3305,24 @@ func (a *arranger) buildGraph() {
 // the regions, and returns the arrangement.
 func (a *arranger) extract() *Arrangement {
 	var cycles []cycle
+	// cycleOf maps each half-edge to the cycle that walks it — one int per
+	// half-edge, which is what lets the chain pass ask "did a published region use
+	// this edge" without every cycle carrying an edge list of its own.
+	a.cycleOf = make([]int, len(a.halfs))
 	for hi := range a.halfs {
 		if a.halfs[hi].visited {
 			continue
 		}
+		id := len(cycles)
 		var hs []int
 		for cur := hi; !a.halfs[cur].visited; cur = a.halfs[cur].next {
 			a.halfs[cur].visited = true
+			a.cycleOf[cur] = id
 			hs = append(hs, cur)
 		}
-		cycles = append(cycles, a.makeCycle(hs))
+		c := a.makeCycle(hs)
+		c.id = id
+		cycles = append(cycles, c)
 	}
 
 	epsArea := a.scale * a.scale * 1e-12
@@ -3342,18 +3365,34 @@ func (a *arranger) extract() *Arrangement {
 		}
 	}
 
+	// published marks the cycles a region actually reports — every face plus the
+	// hole cycles assigned to one. The edges of the rest, together with the edges
+	// prune dropped, are what the chain pass publishes, so an edge is never
+	// reported both as part of a region and as part of a chain. A cycle that is
+	// neither a face nor a hole, and a hole no face contains, are reported nowhere,
+	// so their edges stay available to the chain pass.
+	published := make([]bool, len(cycles))
 	for fi, f := range faces {
 		reg := &Region{Outer: f.boundary, Area: f.area, SelfIntersecting: f.selfX}
+		published[f.id] = true
 		for _, h := range holeOf[fi] {
 			reg.Holes = append(reg.Holes, h.boundary)
 			reg.Area -= -h.area // h.area is negative
 			if h.selfX {
 				reg.SelfIntersecting = true
 			}
+			published[h.id] = true
 		}
 		reg.Degenerate = a.regionDegenerate(reg)
 		arr.Regions = append(arr.Regions, reg)
 	}
+	used := make([]bool, len(a.edges))
+	for hi := range a.halfs {
+		if published[a.cycleOf[hi]] {
+			used[a.halfs[hi].edge] = true
+		}
+	}
+	arr.Chains = a.buildChains(used)
 	return arr
 }
 
@@ -3385,9 +3424,18 @@ func (a *arranger) regionDegenerate(reg *Region) bool {
 			srcs[e.SourceIndex] = struct{}{}
 		}
 	}
+	return a.degenReaches(srcs)
+}
+
+// degenReaches reports whether any recorded degenerate condition reaches a
+// boundary built from the given sources: one involving a curve in that set, or
+// one that could not be attributed to any curve at all. It is the attribution
+// rule [Region.Degenerate] and [Chain.Degenerate] share, so an open chain is
+// scoped exactly the way a region is.
+func (a *arranger) degenReaches(srcs map[int]struct{}) bool {
 	for _, d := range a.degen {
 		if len(d.srcs) == 0 {
-			return true // unattributable: every region carries it
+			return true // unattributable: every published boundary carries it
 		}
 		for _, s := range d.srcs {
 			if _, ok := srcs[s]; ok {
@@ -3404,8 +3452,91 @@ type cycle struct {
 	boundary []BoundaryEdge
 	dense    [][2]float64
 	frags    []cycFrag // source + natural-param range of each boundary fragment
-	area     float64
-	selfX    bool
+	// id is this cycle's index in extract's own cycle list, which is what
+	// arranger.cycleOf names. Publishing a cycle marks it, and the edges of the
+	// unmarked ones are what the chain pass takes.
+	id    int
+	area  float64
+	selfX bool
+}
+
+// boundaryFrag is a run of consecutive arrangement edges from one source,
+// coalesced into what becomes a single [BoundaryEdge]. Both boundary walks build
+// it — the cycle walk in makeCycle and the open-chain walk in buildChains — so an
+// edge of a chain and an edge of a region boundary mean the same thing by
+// construction rather than by two implementations agreeing.
+type boundaryFrag struct {
+	src      int
+	pStart   float64
+	pEnd     float64
+	dense    [][2]float64
+	reversed bool
+	// exactStart/exactEnd track the trustworthiness of pStart/pEnd, and
+	// endStart/endEnd their source-end provenance. Only the fragment's two OUTER
+	// bounds matter: an interior boundary coalesced away is not reported, so
+	// neither its exactness nor its provenance is folded in.
+	exactStart, exactEnd bool
+	endStart, endEnd     bool
+}
+
+// appendBoundaryFrag extends frags by one traversed arrangement edge, from
+// vertex coordinate from to coordinate to over the source's natural parameters
+// pStart→pEnd. Consecutive edges of the SAME source whose parameters meet
+// coalesce into the previous fragment; anything else starts a new one.
+func appendBoundaryFrag(frags []boundaryFrag, src int, pStart, pEnd float64,
+	exStart, exEnd, enStart, enEnd bool, from, to [2]float64) []boundaryFrag {
+	if n := len(frags); n > 0 && frags[n-1].src == src && approx(frags[n-1].pEnd, pStart, 1e-9) {
+		frags[n-1].pEnd = pEnd
+		frags[n-1].exactEnd = exEnd
+		frags[n-1].endEnd = enEnd
+		frags[n-1].dense = append(frags[n-1].dense, to)
+		return frags
+	}
+	return append(frags, boundaryFrag{src: src, pStart: pStart, pEnd: pEnd,
+		exactStart: exStart, exactEnd: exEnd,
+		endStart: enStart, endEnd: enEnd,
+		dense: [][2]float64{from, to}})
+}
+
+// boundaryEdgeOf publishes one coalesced fragment as a [BoundaryEdge]: the
+// parameter range in the source's NATURAL direction (so TStart < TEnd always,
+// and Reversed is what carries walk order), exactness ANDed over both surviving
+// bounds, and Whole read off their provenance.
+//
+// Whole is read off the fragment's OWN surviving bounds — the one thing that is
+// actually true of the edge being emitted — not off a per-source "was it cut
+// anywhere" flag (which outlives pruning and reports a phantom fragment on a
+// whole curve), and NOT off a numeric comparison of the range against [0,1]
+// (which cannot tell a bound that IS the curve's end from a crossing that landed
+// 1e-10 away from it, and so would bless a sampled-bounded fragment as the whole
+// curve — the unsafe direction).
+//
+// Instead each bound carries its PROVENANCE (cut.srcEnd → arrEdge.endU/endV): it
+// is either the source curve's own domain end, or a cut/weld. The edge is the
+// whole curve exactly when BOTH of its bounds are the curve's own ends. Deciding
+// here — after pruning and after the coalescing above — is what makes that agree
+// with the emitted geometry: a contact whose partner was pruned away, or a split
+// vertex the walk runs straight through, leaves a degree-2 vertex the fragments
+// coalesce back across, so the curve's own ends are the surviving bounds again
+// and it correctly reads whole. A CLOSED source cut once coalesces the same way
+// (the walk leaves the contact and returns to it), and the surviving bounds are
+// its seam — the curve's own domain ends — so it too reads whole. The lone
+// conservative corner is a closed source whose single cut lands ON the seam: both
+// bounds are then cuts, so it reads as a fragment spanning [0,1]. That errs
+// toward Partial (a consumer re-derives the same curve from the range either way)
+// and never toward a false Whole, which is the only direction that can mislead.
+func boundaryEdgeOf(f boundaryFrag) BoundaryEdge {
+	reversed := f.pEnd < f.pStart
+	tStart, tEnd := f.pStart, f.pEnd
+	exStart, exEnd := f.exactStart, f.exactEnd
+	if reversed {
+		tStart, tEnd = tEnd, tStart
+		exStart, exEnd = exEnd, exStart
+	}
+	return BoundaryEdge{
+		SourceIndex: f.src, Whole: f.endStart && f.endEnd, Reversed: reversed,
+		Polyline: f.dense, TStart: tStart, TEnd: tEnd, TExact: exStart && exEnd,
+	}
 }
 
 // cycFrag is one boundary fragment of a cycle: its source and the natural-param
@@ -3422,20 +3553,7 @@ type cycFrag struct {
 func (a *arranger) makeCycle(hs []int) cycle {
 	var c cycle
 	// Coalesce consecutive half-edges that share a source into one BoundaryEdge.
-	type frag struct {
-		src      int
-		pStart   float64
-		pEnd     float64
-		dense    [][2]float64
-		reversed bool
-		// exactStart/exactEnd track the trustworthiness of pStart/pEnd, and
-		// endStart/endEnd their source-end provenance. Only the fragment's two OUTER
-		// bounds matter: an interior boundary coalesced away is not reported, so
-		// neither its exactness nor its provenance is folded in.
-		exactStart, exactEnd bool
-		endStart, endEnd     bool
-	}
-	var frags []frag
+	var frags []boundaryFrag
 	for _, hi := range hs {
 		h := a.halfs[hi]
 		e := a.edges[h.edge]
@@ -3453,17 +3571,8 @@ func (a *arranger) makeCycle(hs []int) cycle {
 		}
 		fx, fy := a.verts.coord(h.from)
 		tx, ty := a.verts.coord(h.to)
-		if n := len(frags); n > 0 && frags[n-1].src == e.src && approx(frags[n-1].pEnd, pStart, 1e-9) {
-			frags[n-1].pEnd = pEnd
-			frags[n-1].exactEnd = exEnd
-			frags[n-1].endEnd = enEnd
-			frags[n-1].dense = append(frags[n-1].dense, [2]float64{tx, ty})
-		} else {
-			frags = append(frags, frag{src: e.src, pStart: pStart, pEnd: pEnd,
-				exactStart: exStart, exactEnd: exEnd,
-				endStart: enStart, endEnd: enEnd,
-				dense: [][2]float64{{fx, fy}, {tx, ty}}})
-		}
+		frags = appendBoundaryFrag(frags, e.src, pStart, pEnd, exStart, exEnd, enStart, enEnd,
+			[2]float64{fx, fy}, [2]float64{tx, ty})
 		if cm := a.comp[e.src]; cm >= 0 {
 			if _, ok := a.selfXc[cm]; ok {
 				c.selfX = true
@@ -3483,44 +3592,12 @@ func (a *arranger) makeCycle(hs []int) cycle {
 	var bulge float64
 	for _, f := range frags {
 		s := &a.sources[f.src]
-		reversed := f.pEnd < f.pStart
 		// TStart/TEnd are reported in the source's NATURAL parameter direction, so
-		// TStart < TEnd always; Reversed (above) is what says the walk traverses the
-		// fragment backwards. Both bounds must be trustworthy for TExact.
-		tStart, tEnd := f.pStart, f.pEnd
-		exStart, exEnd := f.exactStart, f.exactEnd
-		if reversed {
-			tStart, tEnd = tEnd, tStart
-			exStart, exEnd = exEnd, exStart
-		}
-		// Whole is read off the fragment's OWN surviving bounds — the one thing that
-		// is actually true of the edge being emitted — not off a per-source "was it cut
-		// anywhere" flag (which outlives pruning and reports a phantom fragment on a
-		// whole curve), and NOT off a numeric comparison of the range against [0,1]
-		// (which cannot tell a bound that IS the curve's end from a crossing that
-		// landed 1e-10 away from it, and so would bless a sampled-bounded fragment as
-		// the whole curve — the unsafe direction).
-		//
-		// Instead each bound carries its PROVENANCE (cut.srcEnd → arrEdge.endU/endV):
-		// it is either the source curve's own domain end, or a cut/weld. The edge is
-		// the whole curve exactly when BOTH of its bounds are the curve's own ends.
-		// Deciding here — after pruning and after the coalescing above — is what makes
-		// that agree with the emitted geometry: a contact whose partner was pruned
-		// away, or a split vertex the walk runs straight through, leaves a degree-2
-		// vertex the fragments coalesce back across, so the curve's own ends are the
-		// surviving bounds again and it correctly reads whole. A CLOSED source cut once
-		// coalesces the same way (the walk leaves the contact and returns to it), and
-		// the surviving bounds are its seam — the curve's own domain ends — so it too
-		// reads whole. The lone conservative corner is a closed source whose single cut
-		// lands ON the seam: both bounds are then cuts, so it reads as a fragment
-		// spanning [0,1]. That errs toward Partial (a consumer re-derives the same
-		// curve from the range either way) and never toward a false Whole, which is the
-		// only direction that can mislead.
-		whole := f.endStart && f.endEnd
-		c.boundary = append(c.boundary, BoundaryEdge{
-			SourceIndex: f.src, Whole: whole, Reversed: reversed, Polyline: f.dense,
-			TStart: tStart, TEnd: tEnd, TExact: exStart && exEnd,
-		})
+		// TStart < TEnd always; Reversed is what says the walk traverses the fragment
+		// backwards, and both bounds must be trustworthy for TExact. That publication
+		// — including how Whole is decided — is shared with the open-chain walk; see
+		// boundaryEdgeOf.
+		c.boundary = append(c.boundary, boundaryEdgeOf(f))
 		c.frags = append(c.frags, cycFrag{src: f.src, pStart: f.pStart, pEnd: f.pEnd})
 		c.dense = append(c.dense, f.dense[:len(f.dense)-1]...)
 		chord = append(chord, f.dense[0])

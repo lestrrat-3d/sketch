@@ -760,10 +760,10 @@ func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *Verificat
 		}
 	}
 
-	profiles, degenerate, _ := s.buildProfiles()
-	rep.Profiles = profiles
-	rep.ProfilesValid = !degenerate
-	for _, p := range profiles {
+	arrangement := s.buildProfiles()
+	rep.Profiles = arrangement.profiles
+	rep.ProfilesValid = !arrangement.degenerate
+	for _, p := range arrangement.profiles {
 		if !p.Valid {
 			rep.InvalidProfiles = append(rep.InvalidProfiles, p)
 			rep.ProfilesValid = false

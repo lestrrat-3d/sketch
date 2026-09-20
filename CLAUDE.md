@@ -17,7 +17,7 @@ stays cheap to load, not because it is optional.
 | Entities & grounding | Adding an entity type, touching `entityPoints`/`entityShapeVars`/`Entity.isNil`, grounding, or `Sketch.Revision` | `.claude/docs/sketch-core.md` |
 | Modification tools | Adding or changing a tool in `tools.go` (trim/extend/break/fillet/chamfer/mirror/pattern/offset) | `.claude/docs/sketch-core.md` |
 | Diagnostics & verification | Touching rank/DOF, conflict/redundancy analysis, `Verify`, `Check`/`Trustworthy`, the probe, or the non-finite screen | `.claude/docs/diagnostics.md` |
-| Profiles & geometry | Anything under `geom/`, `Sketch.Profiles`, `BoundaryEdge`/`TExact`, or the arrangement engine | `.claude/docs/profiles-geom.md` |
+| Profiles & geometry | Anything under `geom/`, `Sketch.Profiles`, `Sketch.Chains`, `BoundaryEdge`/`TExact`, or the arrangement engine | `.claude/docs/profiles-geom.md` |
 | Export & serialization | Changing an exporter, the JSON schema, a document version, or reference resolution | `.claude/docs/serialization.md` |
 | Constraints | Adding a constraint with auxiliary variables, or changing `AddConstraint`/`CheckConstraint`/introspection | `.claude/docs/constraints.md` |
 | Rendering overlays | Adding an annotation overlay, DOF colouring, the status badge, frame/grid/watermark | `.claude/docs/rendering.md` |
@@ -80,7 +80,8 @@ from a solid — the seam is first-class reference geometry), live in
 | `sketch.go` | `Sketch`, solver-bound geometry (`Point`/`Line`/`Circle`/`Arc`/`Ellipse`) authored from points, the parameter model, grounding, construction flag, `Geometry()` snapshots, the always-grounded origin point, and the contracts a new entity type must satisfy. | `.claude/docs/sketch-core.md` → "`sketch.go` — Sketch, solver-bound geometry, grounding" |
 | `compound.go` | Compound shape builders (`CreateRectangle`/`CreatePolygon`/`CreateSlot`): primitives + shape-holding constraints, returned as a grouping handle (handle itself is not serialized). | — |
 | `tools.go` | Sketch-modification tools on committed geometry (`Trim`/`Extend`/`Break`, `CreateFillet`/`CreateChamfer`, `CreateMirror`, `CreatePatternRect`/`CreatePatternCircular`, `CreateOffset`): build-then-replace via the `geom` toolkit + `RemoveEntity`. Design in `docs/modification-tools-design.md`. Every tool screens its inputs and its pattern/mirror seed. | `.claude/docs/sketch-core.md` → "`tools.go` — sketch-modification tools" |
-| `profiles.go` | `Sketch.Profiles()`: closed planar regions via the `geom` arrangement engine — bare-crossing subdivision, holes/nesting, net area, per-region validity, and the `TStart`/`TEnd`/`TExact` sub-range contract. | `.claude/docs/profiles-geom.md` → "`profiles.go` — closed planar regions" |
+| `profiles.go` | `Sketch.Profiles()`: closed planar regions via the `geom` arrangement engine — bare-crossing subdivision, holes/nesting, net area, per-region validity, and the `TStart`/`TEnd`/`TExact` sub-range contract. `buildProfiles` runs the one arrangement both publications come from. | `.claude/docs/profiles-geom.md` → "`profiles.go` — closed planar regions" |
+| `chains.go` | `Sketch.Chains()`: the arrangement's OPEN publication — ordered open runs of `BoundaryEdge` over the edges no region boundary uses, with arc length, per-chain validity and the same snapshot/staleness handles a `Profile` carries. Partitions the edge set with `Profiles()`; walks are cut at every vertex the whole arrangement gives a degree other than 2. | `.claude/docs/profiles-geom.md` → "`chains.go` — open boundary chains" |
 | `revision.go` | `Sketch.Revision()`: a fingerprint over the var vector, the entity set, per-entity instance identity, defining points and shape state — compare for equality only, never order. | `.claude/docs/sketch-core.md` → "`revision.go` — the `Sketch.Revision` fingerprint" |
 | `constraint.go` | `Constraint` interface and every constraint's residual + the public `New…` constructors. | — |
 | `introspect.go` | Constraint introspection over the sealed `Constraint` interface: `ConstraintKind`, `ConstraintRefs`, `ConstraintResiduals`, `IsInternal`. Read-only, package-level, and NOT sharing one nil-safety contract. | `.claude/docs/constraints.md` → "`introspect.go` — constraint introspection" |
@@ -416,4 +417,8 @@ provenance + staleness — the sketch/3D separation keystone) +
 the profile/region engine (`geom/arrange.go` + `profiles.go`: planar
 arrangement of sketch geometry into closed regions with bare-crossing
 subdivision, holes/nesting, net area, and self-intersection/degeneracy validity
-gating `Trustworthy()`) are implemented and tested.
+gating `Trustworthy()`) +
+open boundary chains (`geom/chain.go` + `chains.go`: `Sketch.Chains()`, the same
+arrangement's open publication — ordered runs of the edges no region uses, with
+arc length, per-chain validity and profile-equivalent staleness handles) are
+implemented and tested.
