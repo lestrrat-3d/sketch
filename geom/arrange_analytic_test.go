@@ -1358,41 +1358,53 @@ func TestAnalyticChainedWeldEndpointIsInexact(t *testing.T) {
 	// The vertex table welds a point onto the FIRST vertex within the merge tolerance
 	// of it and keeps that vertex's coordinates, so the relation is not transitive:
 	// three sources here chain into ONE graph vertex even though two of them are
-	// farther apart than merge.
+	// farther apart than merge. splitFragments canonicalizes in lexicographic order,
+	// so "first" is the point with the smallest (x, y) — a property of the geometry —
+	// and the chain forms the same way however the curves are ordered.
 	//
-	//	stub endpoint   (0, 0.991)  — inserted first, so it IS the vertex
-	//	chord endpoint  (0, 0.982)  — 0.009 from the stub: welds
-	//	circle sample   (0, 1)      — 0.009 from the stub: welds
+	//	stub endpoint   (0, 0)            — smallest x, so it IS the vertex
+	//	upper endpoint  ( 0.001,  0.0099) — 0.00995 from the stub: welds
+	//	lower endpoint  ( 0.001, -0.0099) — 0.00995 from the stub: welds
 	//
-	// The chord's endpoint and the circle's sample are 0.018 apart — MORE than merge —
-	// yet both canonicalize through the stub's representative. So the emitted chord
-	// fragment starts at (0, 0.991), not at its own t=0 point (0, 0.982): the reported
-	// range does not describe the emitted geometry and must not read exact. Nothing
-	// pairwise can catch this (the chord's bound is the curve's own endpoint, which is
-	// a join and is never cut, and its weld partner is a source endpoint too) — only
-	// the vertex the bound actually landed on tells the truth.
+	// The two rail endpoints are 0.0198 apart — MORE than merge — yet both
+	// canonicalize through the stub's representative, which is why the chain needs two
+	// dimensions: three points collinear in y cannot be mutually within merge of a
+	// lexicographically-first representative while being farther than merge from each
+	// other. So the emitted upper-rail fragment starts at (0, 0), not at its own t=0
+	// point (0.001, 0.0099): the reported range does not describe the emitted geometry
+	// and must not read exact. Nothing pairwise can catch this (each rail's bound is
+	// the curve's own endpoint, which is a join and is never cut, and its weld partner
+	// is a source endpoint too) — only the vertex the bound actually landed on tells
+	// the truth.
+	//
+	// The stub is a dangling spur that pruning removes, but it seeds the vertex first;
+	// without it the two rails are farther apart than merge, weld nowhere, dangle and
+	// leave no region at all. So the single region below is itself the evidence that
+	// all three points chained into one vertex.
 	merge := 0.01
 	curves := []geom.Curve{
-		geom.NewLine(geom.NewPoint(0, 0.991), geom.NewPoint(-0.5, 0.5)), // the stub
-		geom.NewLine(geom.NewPoint(0, 0.982), geom.NewPoint(1.5, 0.2)),  // the chord
+		geom.NewLine(geom.NewPoint(0, 0), geom.NewPoint(-0.5, -0.5)),        // the stub
+		geom.NewLine(geom.NewPoint(0.001, 0.0099), geom.NewPoint(2, 0.5)),   // upper rail
+		geom.NewLine(geom.NewPoint(0.001, -0.0099), geom.NewPoint(2, -0.5)), // lower rail
+		geom.NewLine(geom.NewPoint(2, 0.5), geom.NewPoint(2, -0.5)),         // the closing edge
 	}
-	closed := []geom.ClosedCurve{geom.NewCircle(geom.NewPoint(0, 0), 1)}
-	arr := geom.Regions(curves, closed, geom.WithVertexMerge(merge))
-	requireExactBoundsReproduce(t, curves, closed, arr)
+	arr := geom.Regions(curves, nil, geom.WithVertexMerge(merge))
+	requireExactBoundsReproduce(t, curves, nil, arr)
+	require.Len(t, arr.Regions, 1, "the three chained points must close one region")
 
-	chords := 0
+	rails := 0
 	for _, r := range arr.Regions {
 		for _, e := range append(append([]geom.BoundaryEdge{}, r.Outer...), flattenHoles(r)...) {
-			if e.SourceIndex != 1 { // the chord
+			if e.SourceIndex != 1 && e.SourceIndex != 2 { // the two rails
 				continue
 			}
-			chords++
+			rails++
 			require.Falsef(t, e.TExact,
-				"a chord fragment bounded by the chained weld must not read exact: t=[%v %v] whole=%v",
-				e.TStart, e.TEnd, e.Whole)
+				"a rail fragment bounded by the chained weld must not read exact: src=%d t=[%v %v] whole=%v",
+				e.SourceIndex, e.TStart, e.TEnd, e.Whole)
 		}
 	}
-	require.NotZero(t, chords, "the chord must bound an emitted region")
+	require.Equal(t, 2, rails, "both rails must bound the emitted region")
 }
 
 func TestAnalyticSpurEndingOnCircleClean(t *testing.T) {

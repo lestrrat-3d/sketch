@@ -308,6 +308,25 @@ Nothing else moves: topology, areas, `TStart`/`TEnd`, `Whole` and `Degenerate` a
 untouched, and a scene of line/circle/arc geometry with nothing distant in it keeps
 every exact bound it had.
 
+**The vertex those two audit against is placed in a canonical order.** `splitFragments`
+collects every boundary point of every tiny segment, sorts them lexicographically by
+`(x, y)` and canonicalizes in that order, before it builds a fragment.
+`vertexTable.canon` is unchanged — it welds a point onto the first vertex within
+`a.merge` of it and keeps that vertex's coordinates — so the first member of a
+near-coincident cluster to arrive represents it, and the sort is what stops that member
+from being whichever curve the caller drew first. It matters for a cluster whose span
+EXCEEDS the merge tolerance, where adjacent members weld and the outer ones do not: a
+triangle with a spoke to each of three points `0.9e-6` apart on a scene 10 units across
+published 2 regions in one authoring order and 3 in another, with `Degenerate` false and
+`ProfilesValid` true in both (`TestWeldIsAuthoringOrderIndependent`,
+`TestProfilesAreAuthoringOrderIndependent`). The weld's own invariant is what makes this
+the right shape of fix: every welded point still lies within `a.merge` of its vertex,
+which is the bound `boundVertexAt`'s reject and `eventExplains`' argument rest on, and
+which a union-find weld over a transitive cluster would drop. It orders the weld and
+nothing else — `intersect`'s pair enumeration, the keep-the-first cut dedup and the
+coincident-carrier rule naming the lower-indexed source stay authoring-order-keyed, so
+the cut set a permutation produces can still differ.
+
 **The fallback is the sampled path, never a degeneracy.** An uncertified pair is
 left unhandled exactly as before the lift, so it keeps the sampled topology with
 `TExact = false`, and no arrangement blessed before the lift is refused after it.

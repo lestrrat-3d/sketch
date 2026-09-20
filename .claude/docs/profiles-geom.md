@@ -14,6 +14,7 @@ Detail moved out of CLAUDE.md. Read before touching `Sketch.Profiles`, `Boundary
 | Why was a clean crossing refused? | Curve/curve transverse crossing authority |
 | Why is a region flagged degenerate? | Chord-deviation degeneracy bounds |
 | Two curves lying on the same carrier? | Coincident-carrier overlap resolution |
+| Why did one drawing publish different regions in a different authoring order? | The canonical weld order |
 | What do `geom`'s constructors validate? | `geom` constructors are value holders |
 | Which segment pairs does `intersect` even look at? | The broad-phase reach (`intersect`'s pair enumeration) |
 | Why does `sampledCrossingsExplained` skip some segment pairs? | The box reject in `sampledCrossingsExplained` |
@@ -147,7 +148,44 @@ that bound inexact when drawn with its chord alone, and ONE line parked at
 publishing a parameter that misses its own polyline endpoint by the whole
 `1e-9`. The gap is a displacement along the curve whose parameter is being
 certified, so the curve's own size is what it is judged against
-(`TestExactBoundIdentityBandIsSourceLocal`).
+(`TestExactBoundIdentityBandIsSourceLocal`). The vertex it compares against is the one
+the canonical weld order put there — see the next section.
+
+### The canonical weld order
+
+**`splitFragments` canonicalizes every boundary point of every tiny segment in ONE
+lexicographic order — sorted by `(x, y)` — before it builds a single fragment**, so the
+vertex set a drawing produces is a property of the geometry rather than of the order the
+curves were passed in. `vertexTable.canon` is unchanged and still decides identity by
+distance: it welds a point onto the first vertex within `a.merge` of it and keeps that
+vertex's coordinates, so the FIRST member of a near-coincident cluster to arrive
+represents it. Feeding canon in segment order made that member whichever curve the caller
+drew first.
+
+**A cluster whose span EXCEEDS `merge` is where the order shows.** Three curve endpoints
+`0.9e-6` apart on a scene 10 units across (where the default tolerance is `1e-6`) weld
+pairwise but not end to end, so the representative decides whether the third curve joins
+the map or dangles and is pruned: a triangle with a spoke to each of those three points
+published 2 regions in one authoring order and 3 in another, with `Degenerate` false and
+`ProfilesValid` true in both, so nothing flagged the disagreement. Pinned by
+`TestWeldIsAuthoringOrderIndependent` (through `geom.Regions`) and
+`TestProfilesAreAuthoringOrderIndependent` (through `Sketch.Profiles()`), each over all
+six orderings of the three clustered curves.
+
+**The weld keeps its bound: every point welded into a vertex lies within `merge` of that
+vertex's coordinates.** Only the order canon sees changed, never its rule. Two pieces of
+the exactness machinery are written against that bound and keep their arguments verbatim
+— `boundVertexAt`'s `d > a.merge` reject, and `eventExplains`' soundness argument. A
+union-find weld pooling a whole transitive cluster onto one representative drops the
+bound, and is NOT what this does.
+
+**It orders the WELD only.** Order dependence upstream of it is by design and untouched:
+`intersect`'s pair enumeration, `splitFragments`' keep-the-first cut dedup, and the
+coincident-carrier rule that names the lower-indexed source. A permutation can still
+change the cut set those produce, and the pre-pass claims nothing about that. What it
+also does not answer is whether a cluster spanning more than `merge` should weld at all
+— that case has no correct answer, and the canonical order makes the verdict repeatable
+rather than right. No flag reports it.
 
 ## The `geom` package (slated for extraction)
 

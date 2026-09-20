@@ -2277,6 +2277,15 @@ func (a *arranger) certifySuppression(frags []splitFrag) {
 // table's own merge tolerance, which is precisely the radius at which canon would
 // have welded the point onto it. Ties break to the lower vertex id so the answer
 // does not depend on map iteration order.
+//
+// The merge-tolerance reject is exactly canon's own weld radius, and splitFragments'
+// canonical insertion order is chosen to keep it so: it reorders the points canon sees
+// without touching canon's rule, so a vertex still carries the coordinates of one
+// member of its cluster and every member still lies within a.merge of it. A weld that
+// dropped that bound — pooling a cluster of unbounded span into one representative —
+// would put a window boundary outside this radius of the vertex it certifies against,
+// and the window would be withdrawn for a reason that has nothing to do with the
+// geometry.
 func (a *arranger) boundVertexAt(verts map[int]struct{}, x, y float64) (int, bool) {
 	best, bestD := -1, math.Inf(1)
 	for v := range verts {
@@ -2369,13 +2378,21 @@ func (a *arranger) auditMergedEndpoints(si, sj *tinySeg) {
 // vertex.
 //
 // The predicate mirrors vertexTable.canon, which decides identity by DISTANCE to an
-// existing vertex's stored coordinates (<= a.merge), and stores the coordinates of
-// whichever point reached the table first. The welded vertex is therefore located at
-// ONE of the two endpoints — which one depends on insertion order, which is not known
-// here — so an event canonicalizes to it only if it lies within a.merge of that
-// representative. Since either endpoint may be the representative, requiring the event
-// to be within a.merge of BOTH is the sound rule: it holds exactly when canon(event)
-// would return that vertex whichever endpoint happens to represent it.
+// existing vertex's stored coordinates (<= a.merge). The welded vertex's coordinates
+// are those of one MEMBER of the cluster the two endpoints joined — the cluster's
+// representative — and every member, these two included, lies within a.merge of it.
+// Which member that is, splitFragments' canonical insertion order decides, and this
+// pass runs before that order is even built, so it is not known here. Requiring the
+// event to be within a.merge of BOTH endpoints is therefore the conservative rule: it
+// is the canonicalization test against either endpoint, so it holds whichever of the
+// two represents the vertex.
+//
+// Chained welds are the residue the rule cannot settle on its own: the representative
+// may be a THIRD point that neither endpoint is, and an event within a.merge of both
+// endpoints need not be within a.merge of it. That is not this pass's job to catch.
+// split takes the last word on exactness after canonicalization, against the vertex a
+// bound actually landed on (vertexCertifies), which is the only place a chain is
+// visible at all.
 //
 // A looser window (a multiple of a.merge, or a distance to the endpoints' midpoint)
 // approximates canonicalization rather than mirroring it, and would let an unrelated
@@ -2429,8 +2446,17 @@ type mergedEnd struct {
 }
 
 // forEachMergedEnd calls fn for every pair of tiny-segment endpoints — one from each
-// of two DIFFERENT sources — that the vertex table would canonicalize into a single
-// graph vertex (they lie within the merge tolerance).
+// of two DIFFERENT sources — that lie within the merge tolerance of each other, which
+// is the pairwise condition for the vertex table to weld them into a single graph
+// vertex.
+//
+// It is the pairwise VIEW of the weld, never its verdict, and the two differ in both
+// directions: two endpoints this far apart can still canonicalize apart (each welding
+// onto a nearer earlier vertex of its own), and two endpoints farther apart than the
+// tolerance can still land together through a chain. splitFragments' canonical
+// insertion order changes neither — it fixes WHICH point of a cluster represents it,
+// not which pairs this enumeration reports — so the authority on where a bound ended
+// up stays the vertex table, read after canonicalization by vertexCertifies.
 func (a *arranger) forEachMergedEnd(si, sj *tinySeg, fn func(mergedEnd)) {
 	type end struct{ x, y, t float64 }
 	iEnds := [2]end{{si.ax, si.ay, si.pa}, {si.bx, si.by, si.pb}}
@@ -2717,55 +2743,55 @@ func (a *arranger) split() {
 // splitFragments dedups each tiny segment's boundaries and canonicalizes every
 // surviving fragment's two bounds into graph vertices, returning the fragments split
 // would emit if nothing were suppressed.
+//
+// Canonicalization runs as a PRE-PASS over every boundary point of every segment, in
+// one CANONICAL order: the points are collected first, sorted lexicographically by
+// (x, y), and fed to vertexTable.canon in that order. Only then are the fragments
+// built, and by then every point already has its vertex, so the per-fragment canon
+// calls below only look one up.
+//
+// The order matters because canon welds a point onto the FIRST vertex within the merge
+// tolerance of it and keeps that vertex's coordinates. Fed in segment order — which is
+// the order the caller authored the curves in — the representative of a near-coincident
+// cluster is whichever member was drawn first, so a cluster whose span EXCEEDS the merge
+// tolerance welds differently depending on authoring order alone: the same drawing then
+// publishes a different region count and different areas with nothing flagged. Sorting
+// the points first makes the representative a property of the geometry.
+//
+// This orders the WELD only. Order dependence upstream of it remains by design —
+// intersect's pair enumeration, the keep-the-first cut dedup below, and the
+// coincident-carrier rule that names the lower-indexed source — so the cut set a
+// permutation produces can still differ, and this pre-pass makes no claim about that.
+//
+// The weld's own invariant is untouched, because canon's algorithm is untouched: every
+// point welded into a vertex lies within a.merge of that vertex's coordinates.
+// boundVertexAt's reject and eventExplains' argument both rest on that bound, and both
+// keep it verbatim.
 func (a *arranger) splitFragments() []splitFrag {
+	bounds := make([][]cut, len(a.segs))
+	var pts [][2]float64
+	for i := range a.segs {
+		bounds[i] = a.segBoundaries(i)
+		for _, b := range bounds[i] {
+			pts = append(pts, [2]float64{b.px, b.py})
+		}
+	}
+	// Unlike the per-segment parameter sort in segBoundaries, this one does not care
+	// that sort.Slice is unstable: two points that compare equal here are the same
+	// point, so canon answers them identically whichever comes first.
+	sort.Slice(pts, func(i, j int) bool {
+		if pts[i][0] != pts[j][0] {
+			return pts[i][0] < pts[j][0]
+		}
+		return pts[i][1] < pts[j][1]
+	})
+	for _, p := range pts {
+		a.verts.canon(p[0], p[1])
+	}
+
 	var frags []splitFrag
 	for i := range a.segs {
-		s := &a.segs[i]
-		// Boundaries along the segment: the two endpoints (chord positions) plus
-		// every cut, each carrying the EXACT point to canonicalize the vertex at.
-		// A segment endpoint is exact only when evaluating its source at the endpoint's
-		// reported parameter reproduces the emitted coordinate — the general form that
-		// makes TExact's meaning ("eval(reported param) == emitted polyline endpoint")
-		// hold BY CONSTRUCTION for every source, evaluated or pinned. For all but one
-		// source densify stored the endpoint AS s.at(param), so the reproduction is
-		// bit-exact; but an elliptical arc PINS its ends to their sketch Start/End
-		// points, which sit off the parametric ellipse by solver tolerance, so
-		// s.at(param) does NOT reproduce them — identity of the welded vertex to the
-		// pinned coordinate would then pass vertexCertifies while the reported parameter
-		// misses the endpoint, the round-8 false certification this test guards against.
-		// The two endpoints also carry the source-end PROVENANCE (cut.srcEnd) when the
-		// segment endpoint is the source's own domain end — the fact Whole is read from
-		// (unchanged by this: Whole is topology, not parameter reproduction).
-		src := &a.sources[s.src]
-		bs := []cut{
-			{t: 0, px: s.ax, py: s.ay, exact: a.endpointReproduces(src, s.param(0), s.ax, s.ay), srcEnd: atDomainEnd(s.pa)},
-			{t: 1, px: s.bx, py: s.by, exact: a.endpointReproduces(src, s.param(1), s.bx, s.by), srcEnd: atDomainEnd(s.pb)},
-		}
-		bs = append(bs, s.cuts...)
-		// An uncut segment's two boundaries are already t=0 then t=1, in order — the
-		// sort would be a no-op, so skip it. Do not replace sort.Slice with a
-		// different algorithm for the cut case below: it is unstable, and the dedup
-		// keeps the FIRST of near-equal parameters, so a different order of equal ts
-		// changes which coordinates survive.
-		if len(s.cuts) > 0 {
-			sort.Slice(bs, func(i, j int) bool { return bs[i].t < bs[j].t })
-		}
-		// dedup near-equal local params (keep the first, which for an analytic cut at
-		// a seg boundary keeps the endpoint's exact point). Exactness and source-end
-		// provenance are ANDed into the survivor: a boundary coincident with a sampled
-		// cut is only as trustworthy as that cut, and a domain end a cut lands on is a
-		// cut — so the merge never launders inexact into exact, nor a cut into a
-		// curve's own end.
-		uniq := make([]cut, 0, len(bs))
-		for _, b := range bs {
-			if len(uniq) == 0 || b.t-uniq[len(uniq)-1].t > segEps {
-				uniq = append(uniq, b)
-				continue
-			}
-			last := &uniq[len(uniq)-1]
-			last.exact = last.exact && b.exact
-			last.srcEnd = last.srcEnd && b.srcEnd
-		}
+		uniq := bounds[i]
 		for k := 1; k < len(uniq); k++ {
 			b0, b1 := uniq[k-1], uniq[k]
 			u := a.verts.canon(b0.px, b0.py)
@@ -2777,6 +2803,62 @@ func (a *arranger) splitFragments() []splitFrag {
 		}
 	}
 	return frags
+}
+
+// segBoundaries returns tiny segment i's boundaries in increasing local parameter,
+// deduped: the two endpoints (chord positions) plus every cut, each carrying the EXACT
+// point to canonicalize the vertex at.
+//
+// A segment endpoint is exact only when evaluating its source at the endpoint's
+// reported parameter reproduces the emitted coordinate — the general form that makes
+// TExact's meaning ("eval(reported param) == emitted polyline endpoint") hold BY
+// CONSTRUCTION for every source, evaluated or pinned. For all but one source densify
+// stored the endpoint AS s.at(param), so the reproduction is bit-exact; but an
+// elliptical arc PINS its ends to their sketch Start/End points, which sit off the
+// parametric ellipse by solver tolerance, so s.at(param) does NOT reproduce them —
+// identity of the welded vertex to the pinned coordinate would then pass
+// vertexCertifies while the reported parameter misses the endpoint, the round-8 false
+// certification this test guards against. The two endpoints also carry the source-end
+// PROVENANCE (cut.srcEnd) when the segment endpoint is the source's own domain end —
+// the fact Whole is read from (unchanged by this: Whole is topology, not parameter
+// reproduction).
+//
+// The answer depends only on segment i, so splitFragments computes it once and both
+// walks it: the canonicalization pre-pass needs every boundary POINT before any
+// fragment is built, and the fragment loop needs the same boundaries again.
+func (a *arranger) segBoundaries(i int) []cut {
+	s := &a.segs[i]
+	src := &a.sources[s.src]
+	bs := []cut{
+		{t: 0, px: s.ax, py: s.ay, exact: a.endpointReproduces(src, s.param(0), s.ax, s.ay), srcEnd: atDomainEnd(s.pa)},
+		{t: 1, px: s.bx, py: s.by, exact: a.endpointReproduces(src, s.param(1), s.bx, s.by), srcEnd: atDomainEnd(s.pb)},
+	}
+	bs = append(bs, s.cuts...)
+	// An uncut segment's two boundaries are already t=0 then t=1, in order — the
+	// sort would be a no-op, so skip it. Do not replace sort.Slice with a
+	// different algorithm for the cut case below: it is unstable, and the dedup
+	// keeps the FIRST of near-equal parameters, so a different order of equal ts
+	// changes which coordinates survive.
+	if len(s.cuts) > 0 {
+		sort.Slice(bs, func(i, j int) bool { return bs[i].t < bs[j].t })
+	}
+	// dedup near-equal local params (keep the first, which for an analytic cut at
+	// a seg boundary keeps the endpoint's exact point). Exactness and source-end
+	// provenance are ANDed into the survivor: a boundary coincident with a sampled
+	// cut is only as trustworthy as that cut, and a domain end a cut lands on is a
+	// cut — so the merge never launders inexact into exact, nor a cut into a
+	// curve's own end.
+	uniq := make([]cut, 0, len(bs))
+	for _, b := range bs {
+		if len(uniq) == 0 || b.t-uniq[len(uniq)-1].t > segEps {
+			uniq = append(uniq, b)
+			continue
+		}
+		last := &uniq[len(uniq)-1]
+		last.exact = last.exact && b.exact
+		last.srcEnd = last.srcEnd && b.srcEnd
+	}
+	return uniq
 }
 
 // vertexCertifies reports whether the canonical vertex v that boundary point (px,py)
@@ -2792,7 +2874,10 @@ func (a *arranger) splitFragments() []splitFrag {
 // needed because vertexTable.canon is NOT transitive: it welds a point onto the first
 // vertex within a.merge of it and keeps THAT vertex's coordinates, so two points
 // farther apart than merge can still land on one vertex through a third one inserted
-// first. No pairwise reasoning over the cuts — which endpoints are within merge of
+// first. Canonicalizing in splitFragments' lexicographic order does not remove those
+// chains — it only makes "first" a property of the geometry instead of a property of
+// the order the caller drew it in, so the SAME chain forms every time. No pairwise
+// reasoning over the cuts — which endpoints are within merge of
 // which, which analytic event explains which weld (eventExplains) — can see that
 // chain; only the vertex table knows where the vertex ended up. So the last word on
 // exactness is taken here, after canonicalization: an unexplained move of the vertex
@@ -3714,6 +3799,16 @@ func newVertexTable(merge float64) vertexTable {
 
 // canon returns the id of the vertex at (x,y), merging with an existing vertex
 // within the merge tolerance (checking the 3×3 neighborhood of grid cells).
+//
+// A new vertex keeps the coordinates of the point that created it, and every later
+// point within the merge tolerance of those coordinates welds onto it — so the FIRST
+// point of a near-coincident cluster to arrive is the cluster's representative, and
+// the answer for every other member depends on which one that was. That invariant is
+// what boundVertexAt and eventExplains rest on (each welded point lies within merge of
+// its representative), and it is also why the CALLER owes canon an insertion order
+// that is a property of the geometry: splitFragments sorts every boundary point
+// lexicographically and canonicalizes in that order, so a drawing does not weld
+// differently for having been authored in a different order.
 func (t *vertexTable) canon(x, y float64) int {
 	cx, cy := int(math.Floor(x/t.cell)), int(math.Floor(y/t.cell))
 	for dx := -1; dx <= 1; dx++ {
