@@ -86,8 +86,8 @@ func (st Status) String() string {
 // report is not self-describing: every unevaluated field holds a value that is
 // also a legitimate analysed one, so a reader that renders or gates on DOF,
 // Status, Solvable, Residual, Conditioning, RankMargin, FreePoints, Profiles,
-// InvalidProfiles, ProfilesValid, Probe, ProbeIncomplete, Redundant, Conflicts
-// or the parameter fields must ask Analysed first.
+// InvalidProfiles, ProfilesValid, Chains, InvalidChains, Probe, ProbeIncomplete,
+// Redundant, Conflicts or the parameter fields must ask Analysed first.
 type VerificationReport struct {
 	// Solvable reports whether every (non-driven) constraint holds within the
 	// tolerance at the current configuration (the same default as [Sketch.Solve],
@@ -192,6 +192,30 @@ type VerificationReport struct {
 	// Meaningful only when [VerificationReport.Analysed] is true: the unevaluated
 	// nil value reads the same as a sketch with no invalid profiles.
 	InvalidProfiles []*Profile
+	// Chains lists the OPEN connected runs detected in the same arrangement the
+	// profiles come from (see [Sketch.Chains]) — the geometry that encloses
+	// nothing, which an open-curve operation (a swept surface) consumes. Verify
+	// already runs that arrangement, so reading them here spares a caller that
+	// wants both publications a second arrangement pass. Meaningful only when
+	// [VerificationReport.Analysed] is true: the unevaluated nil value reads the
+	// same as a sketch whose geometry is all closed.
+	Chains []*Chain
+	// InvalidChains lists the detected chains that failed chain validity — a walk
+	// that crosses or touches itself, or one reached by an unresolvable
+	// arrangement condition, on the same attribution rule InvalidProfiles states.
+	// A subset of Chains.
+	//
+	// It does NOT gate [VerificationReport.Trustworthy], and that is deliberate:
+	// an open run is as often incidental drafting leftovers — a dangling spur, an
+	// unfinished line — as it is geometry anyone intends to sweep, so failing the
+	// whole sketch on one would report an obstacle where there is no plan to
+	// build. The two conditions that could make a chain invalid are covered
+	// anyway: a degenerate arrangement already fails the verdict through
+	// ProfilesValid, and a self-touching walk is a property of the ONE chain a
+	// consumer is about to sweep, which it reads off [Chain.Valid] at that point.
+	// Meaningful only when [VerificationReport.Analysed] is true: the unevaluated
+	// nil value reads the same as a sketch with no invalid chains.
+	InvalidChains []*Chain
 	// ProfilesValid is true when every detected region is a valid profile and the
 	// arrangement resolved cleanly. It is vacuously true when no geometry forms a
 	// region (an open sketch has no regions, which is not itself invalid), but
@@ -767,6 +791,14 @@ func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *Verificat
 		if !p.Valid {
 			rep.InvalidProfiles = append(rep.InvalidProfiles, p)
 			rep.ProfilesValid = false
+		}
+	}
+	// The same arrangement's open publication. An invalid chain is reported and
+	// nothing more: it is not a condition Check asserts — see InvalidChains.
+	rep.Chains = arrangement.chains
+	for _, c := range arrangement.chains {
+		if !c.Valid {
+			rep.InvalidChains = append(rep.InvalidChains, c)
 		}
 	}
 	rep.Status = classifyStatus(rep)

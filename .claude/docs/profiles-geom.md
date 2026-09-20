@@ -280,6 +280,14 @@ two implementations agreeing. Every rule stated above for a region boundary's
 edge — the whole-sketch kind gate, the per-bound provenance behind `Whole`, the
 fused-map withdrawal — applies unchanged to a chain edge.
 
+### What `Verify` does with them
+
+`Sketch.Verify` reports the chains it already computed (`VerificationReport.
+Chains`/`InvalidChains`, from the same `buildProfiles` call) and asserts nothing
+about them: `Check`/`Trustworthy()` gain no chain condition. See
+`.claude/docs/diagnostics.md` → "`Chains`/`InvalidChains` are reported, never
+asserted" for why, which is the authority on that decision.
+
 ### Direction, order, length and validity
 
 A chain with two free ends admits two walks, so the published one starts at the
