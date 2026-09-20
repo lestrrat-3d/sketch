@@ -88,9 +88,11 @@ type BoundaryEdge struct {
 	// Entity is the source sketch entity this edge lies on (*Line/*Arc/*Circle/
 	// *Ellipse).
 	//
-	// Where two same-carrier curves partially overlap, the shared span names ONE of
-	// them — the earlier one in [Sketch.Entities], and an arc ahead of a full circle.
-	// See [Sketch.Profiles].
+	// Where two entities on the same carrier share one span, that span names ONE of
+	// them: the earlier of two arcs in [Sketch.Entities], or the arc of an arc and a
+	// circle. TStart/TEnd then read in the named entity's own parameters, so both
+	// bounds move when the two arcs are authored in the other order. See
+	// [Sketch.Profiles].
 	Entity Entity
 	// Partial is true when this edge covers only a sub-range of Entity; false when
 	// it spans the whole entity.
@@ -210,18 +212,26 @@ type BoundaryEdge struct {
 // ill-conditioned near-tangent crossing on one of its own boundary curves — is
 // reported invalid, while regions built from unrelated geometry stay valid.
 //
-// Two curves on the SAME carrier (same centre and radius) that partially overlap
-// report the shared span under ONE entity. The other entity's edges over that span
-// are dropped; it still contributes the part of itself outside the span. The named
-// entity is whichever of the two comes earlier in [Sketch.Entities] — authoring
-// order — so authoring the same two arcs in the other order names the other arc. An
-// arc is always named ahead of a full circle, in either order, because open entities
-// are arranged before closed ones. The region count, the areas and every
-// TStart/TEnd/TExact are identical in both orders; only the naming differs.
+// Two entities on the SAME carrier (same centre and radius — an arc lying on a
+// circle, or on another arc) that share exactly ONE span of it report that span
+// under ONE entity. The other emits no edge over the span, and the rest of it is
+// arranged as usual. The named entity is the earlier of two arcs in
+// [Sketch.Entities], or the arc of an arc and a circle, since circles are arranged
+// after every open entity. Every other same-carrier overlap is one of the
+// unresolvable conditions above, so the regions it reaches are reported invalid and
+// both entities keep their own edges: two entities sharing more than one span of
+// the carrier, two that each sweep the full turn, two lines overlapping along one
+// carrier, carriers equal only to within the near-tangency band, and a span the
+// arrangement cannot cut cleanly at both ends.
 //
-// That scoping needs a curve to blame. A condition no curve can be attributed to
-// — an unusable input dropped before it reached the arrangement, such as a
-// zero-radius circle — invalidates EVERY region detected, since what it would
+// Authoring the same two arcs in the other order names the other arc, and that
+// span's [BoundaryEdge.TStart]/[BoundaryEdge.TEnd] and [BoundaryEdge.Partial] then
+// read in the newly named arc's own parameters. The region count and each region's
+// area stay the same, up to floating-point rounding.
+//
+// That validity scoping needs a curve to blame. A condition no curve can be
+// attributed to — an unusable input dropped before it reached the arrangement, such
+// as a zero-radius circle — invalidates EVERY region detected, since what it would
 // have subdivided is unknown.
 func (s *Sketch) Profiles() []*Profile {
 	profiles, _, _ := s.buildProfiles()

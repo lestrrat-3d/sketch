@@ -19,11 +19,23 @@ import (
 // well-separated geometry; areas of line/arc/circle regions are computed in
 // closed form (sampling-independent).
 //
-// Two curves on the SAME carrier (same centre and radius) that partially overlap
-// report the shared span under ONE SourceIndex — the lower of the pair's two input
-// positions, so an open curve is always named ahead of a closed one. Reordering the
-// input flips which of two arcs is named; the region count, the areas and the
-// reported parameter ranges do not change.
+// Two curves on the SAME carrier (same centre and radius) that share exactly ONE
+// span of it, at least one of them stopping short of the full turn, report that
+// span under a single SourceIndex — the lower of the pair's two input positions.
+// The higher-indexed curve emits no edge there, and the rest of it is arranged as
+// usual. Closed curves index after every open one, so a circle never takes a span
+// from an arc. Every other same-carrier overlap is left Degenerate with nothing
+// suppressed, both curves emitting their own edges over the shared curve: two
+// curves sharing more than one disjoint span, two that each cover the full turn,
+// two lines overlapping along one carrier, carriers equal only to within the
+// near-tangency band rather than at round-off, and a span whose two ends do not
+// come out of the split as distinct bounds of both curves.
+//
+// Which of two arcs is named follows the input order, so passing the same arcs in
+// the other order names the other arc — and TStart/TEnd measure a fraction of the
+// NAMED curve's own sweep, so the reported range and the Whole flag move with the
+// naming. The region count and each region's area do not, up to floating-point
+// rounding.
 func Regions(curves []Curve, closed []ClosedCurve, opts ...Option) *Arrangement {
 	cfg := arrangeConfig{}
 	for _, o := range opts {

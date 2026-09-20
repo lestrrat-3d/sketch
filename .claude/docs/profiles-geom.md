@@ -851,9 +851,17 @@ is the only thing left to close a region when the overlap covers nearly the whol
 carrier. An outward slop of `arcParamEps` deleted exactly that fragment for every gap
 up to twice it, and the region vanished with `Degenerate=false`.
 
-The public godoc carries this caveat as well: `Sketch.Profiles` and
+The public godoc carries the consumer-facing half of this: `Sketch.Profiles` and
 `BoundaryEdge.Entity` (`profiles.go`), plus `geom.Regions` and
-`geom.BoundaryEdge.SourceIndex`, state that the shared span reads under one entity,
-that input order picks which of two arcs is named while an arc is always named ahead
-of a full circle, and that the region count, the areas and the parameter ranges are
-the same in either order.
+`geom.BoundaryEdge.SourceIndex`. They scope the naming rule to a pair sharing ONE
+span, say that input order picks which of two arcs is named while a circle never
+takes a span from an arc, and list the refused cases (more than one shared span, two
+complete carriers, overlapping lines, a carrier match holding only in the
+classification band, a withdrawn window) as staying `Degenerate` with nothing
+suppressed. They also split what reordering the input changes from what it does not:
+`TStart`/`TEnd` and `Whole` (`Partial`) move with the naming, because a bound is a
+fraction of the NAMED source's own sweep (`circleParam`), while region count and area
+do not. `TestAnalyticCoincidentCarrierNamingIsOrderDependent` pins that split on two
+arcs closed by a chord — one order reports the shared span as a whole arc at
+`t=0..1`, the other as `t=0..160/170` of the longer arc, with the same single region
+and area either way.
