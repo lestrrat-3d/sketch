@@ -1123,8 +1123,10 @@ func TestAnalyticSameCarrierArcsResolvedRegion(t *testing.T) {
 // "shared start" closes the chord at the short arc's own end, so the long arc's tail
 // dangles and is pruned. The assertions below pin the order-specific reported range
 // and Whole value; other published fields move too (the named edge's Polyline is
-// sampled off the named arc's own sweep, so its vertices and even its vertex count
-// differ between the orders), and this comment enumerates nothing.
+// sampled off the named arc's own sweep, so its vertex POSITIONS differ between the
+// orders at each of the three densities below, and at spt=32 and spt=64 the vertex
+// COUNT differs as well — 16 against 17 and 30 against 31, while spt=16 gives 9
+// either way), and this comment enumerates nothing.
 // "chord past the short arc" closes at the LONG arc's end instead, so that tail is a
 // real boundary edge — and naming the long arc merges the tail with the shared span
 // into one whole edge, which changes the region's edge count (3 against 2) and drops
