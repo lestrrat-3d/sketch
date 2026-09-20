@@ -308,6 +308,57 @@ Nothing else moves: topology, areas, `TStart`/`TEnd`, `Whole` and `Degenerate` a
 untouched, and a scene of line/circle/arc geometry with nothing distant in it keeps
 every exact bound it had.
 
+**The vertex those two audit against is placed in a canonical order.** `splitFragments`
+collects every boundary point of every tiny segment, sorts them by `canonPointCompare` —
+lexicographically by `(x, y)` value, with the coordinates' raw bit patterns as the final
+tie-break — and canonicalizes in that order, before it builds a fragment. **That order
+is TOTAL, and total is the property the pre-pass rests on**: the sort is unstable, so
+the relative order of any pair the comparator leaves tied is the sorter's to choose, and
+that choice can still depend on the collection order — the authoring order. A value
+compare alone leaves exactly one KIND of pair among the coordinates that can reach this
+sort tied — a negative zero against a positive zero, which `==` reports equal on both
+`x` and `y`; every other pair the sort can see is separated by `<` on one coordinate or the
+other. So a half
+disk whose arc starts at `(-0, -0)` and whose closing line ends at `(+0, +0)` published
+its shared vertex as `(-0, -0)` drawn one way and `(+0, +0)` drawn the other
+(`TestWeldRepresentativeBitsMatchEveryOrder`, which asserts BITWISE because
+`-0.0 == +0.0` hides it from an ordinary equality check). The scene uses an elliptical
+arc because an arc pins its ends to the authored Start/End, so the coordinate reaches
+the vertex table verbatim; a line's is recomputed as `ax + t·(bx-ax)` and at `t=0` keeps
+a negative zero only when the direction component is negative, so a line scene
+reproduces the defect on one direction and not the other. The cost is confined to the
+sign bit — region count,
+`Degenerate`, `Area`, `Whole`, `TStart`/`TEnd`/`TExact` and every other coordinate match
+— but it is not invisible to a caller: `%v` and `strconv` render `-0`, so a golden file
+or a hash flips with authoring order, and an `atan2` or a division on that coordinate
+changes sign.
+`NaN` is the other value `<` cannot order and it cannot reach the sort — `densify` drops
+any source with a non-finite evaluated sample as `srcDegenerate` before it emits a tiny
+segment — but `cmp.Compare` puts a `NaN` ahead of every number while reporting two
+`NaN`s equal, so the raw-bit tie-break — not `cmp.Compare` — is what would separate
+distinct payloads and the
+comparator is total without resting on the screen. The bits are consulted only after both value compares tie,
+so every pair the value compare already ordered keeps that order.
+`vertexTable.canon` is unchanged — it welds a point onto the first vertex within
+`a.merge` of it and keeps that vertex's coordinates — so the first member of a
+near-coincident cluster to arrive represents it, and the sort is what stops that member
+from being whichever curve the caller drew first. It matters for a cluster whose span
+EXCEEDS the merge tolerance, where adjacent members weld and the outer ones do not: a
+triangle with a spoke to each of three points `0.9e-6` apart on a scene 10 units across
+published 2 regions in one authoring order and 3 in another, with `Degenerate` false and
+`ProfilesValid` true in both (`TestWeldOfWideClusterMatchesEveryOrder`,
+`TestProfilesOfWideClusterMatchEveryOrder`). The weld's own invariant is what makes this
+the right shape of fix: every welded point still lies within `a.merge` of its vertex,
+which is the bound `boundVertexAt`'s reject and `eventExplains`' argument rest on, and
+which a union-find weld over a transitive cluster would drop. It orders the weld and
+nothing else — `intersect`'s pair enumeration, the keep-the-first cut dedup and the
+coincident-carrier rule naming the lower-indexed source stay authoring-order-keyed, so
+the cut set a permutation produces can still differ. That list of accepted residual
+dependences is all UPSTREAM of the weld, and it is a complete account of what a
+permutation can still change only while the comparator is total — the ±0 tie sat inside
+the weld order itself, so a change to the ordering key owes that question again rather
+than inheriting the answer.
+
 **The fallback is the sampled path, never a degeneracy.** An uncertified pair is
 left unhandled exactly as before the lift, so it keeps the sampled topology with
 `TExact = false`, and no arrangement blessed before the lift is refused after it.

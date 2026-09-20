@@ -14,6 +14,7 @@ Detail moved out of CLAUDE.md. Read before touching `Sketch.Profiles`, `Boundary
 | Why was a clean crossing refused? | Curve/curve transverse crossing authority |
 | Why is a region flagged degenerate? | Chord-deviation degeneracy bounds |
 | Two curves lying on the same carrier? | Coincident-carrier overlap resolution |
+| Why did one drawing publish different regions in a different authoring order? | The canonical weld order |
 | What do `geom`'s constructors validate? | `geom` constructors are value holders |
 | Which segment pairs does `intersect` even look at? | The broad-phase reach (`intersect`'s pair enumeration) |
 | Why does `sampledCrossingsExplained` skip some segment pairs? | The box reject in `sampledCrossingsExplained` |
@@ -147,7 +148,94 @@ that bound inexact when drawn with its chord alone, and ONE line parked at
 publishing a parameter that misses its own polyline endpoint by the whole
 `1e-9`. The gap is a displacement along the curve whose parameter is being
 certified, so the curve's own size is what it is judged against
-(`TestExactBoundIdentityBandIsSourceLocal`).
+(`TestExactBoundIdentityBandIsSourceLocal`). The vertex it compares against is the one
+the canonical weld order put there — see the next section.
+
+### The canonical weld order
+
+**`splitFragments` canonicalizes every boundary point of every tiny segment in ONE
+order — `canonPointCompare`, lexicographic by `(x, y)` VALUE with the coordinates' raw
+bit patterns as the final tie-break — before it builds a single fragment**, so for a
+given deduped boundary-point multiset the welded vertex table — each vertex's
+coordinates and its id — is a property of those points alone, not of the order the
+curves were passed in. It does NOT make that multiset order-independent; the cut set
+upstream still is not (see "It orders the WELD only." below). `vertexTable.canon` is unchanged and still decides identity by
+distance: it welds a point onto the first vertex within `a.merge` of it and keeps that
+vertex's coordinates, so the FIRST member of a near-coincident cluster to arrive
+represents it. Feeding canon in segment order made that member whichever curve the caller
+drew first.
+
+**What makes it work is that the order is TOTAL**, not merely that it is a sort: the
+sort is unstable, so the relative order of any pair the comparator leaves tied is the
+sorter's to choose, and that choice can still depend on the collection order — the
+authoring order the pre-pass exists to remove. The bit tie-break is what
+closes that, and it is needed for exactly one KIND of pair among the coordinates that
+can reach this sort — a negative zero against a positive zero, which `==` reports equal
+on both `x` and `y`; every other pair the sort can see is separated by `<` on one coordinate or
+the other. A half
+disk whose elliptical arc starts at `(-0, -0)` and whose closing line ends at `(+0, +0)`
+published its shared vertex with bits `0x8000000000000000` drawn one way and `0x0` drawn
+the other, at one region and the same area either way — which is what
+`TestWeldRepresentativeBitsMatchEveryOrder` asserts on, BITWISE, since `-0.0 == +0.0`
+hides the difference from an ordinary equality assertion. **Reaching the vertex table
+with the sign intact is what a reproduction has to arrange**, and that is why the scene
+uses an elliptical arc: an arc pins its ends to the authored Start/End, so the
+coordinate arrives verbatim, while a line's is recomputed as `ax + t·(bx-ax)` and at
+`t=0` keeps a negative zero only when the direction component is itself negative
+(`-0 + -0 = -0`), losing it when the line runs the other way (`-0 + +0 = +0`). A line
+scene reproduces the defect on that direction and not on the other, so a test built from
+lines can pass against the untied comparator and prove nothing.
+
+**The cost was confined to the sign bit, but it was not invisible to a caller.** Region
+count, `Degenerate`, `SelfIntersecting`, `Area`, the edge count, `Reversed`, `Whole`,
+`TStart`/`TEnd`/`TExact` and every other coordinate were identical between the two
+orders. A consumer reading the coordinate as a number saw no difference — but `%v` and
+`strconv` render `-0`, so a golden file, a hash or any byte-exact comparison flipped with
+authoring order, and an `atan2` or a division on that coordinate came out with the
+opposite sign.
+
+`NaN` is the other value `<` cannot order, and it cannot reach this sort: `densify`
+drops any source with a non-finite evaluated sample as `srcDegenerate` before it emits a
+tiny segment, and every boundary point is one of those segments' endpoints, a bounded
+affine combination of two of them (`segParams` confines its hit to the chords), or a
+closed-form intersection of sources that survived that screen. `cmp.Compare` puts a
+`NaN` ahead of every number but reports two `NaN`s equal, so the raw-bit tie-break —
+not `cmp.Compare` — is what would separate distinct payloads; the comparator is total without resting on the
+screen. The bits are consulted ONLY after both value compares tie, so every pair the
+value compare already ordered keeps that order — the tie-break decides the ±0 pair and
+nothing else, and among points whose coordinates compare equal the cluster publishes the
+one with the smallest raw bits, `x` first then `y`, so `+0` wins on `x`, and on `y` only
+when `x` already ties; a cluster of `(-0, +0)` and `(+0, -0)` publishes `(+0, -0)`.
+
+**A cluster whose span EXCEEDS `merge` is where the order shows.** Three curve endpoints
+`0.9e-6` apart on a scene 10 units across (where the default tolerance is `1e-6`) weld
+pairwise but not end to end, so the representative decides whether the third curve joins
+the map or dangles and is pruned: a triangle with a spoke to each of those three points
+published 2 regions in one authoring order and 3 in another, with `Degenerate` false and
+`ProfilesValid` true in both, so nothing flagged the disagreement. Pinned by
+`TestWeldOfWideClusterMatchesEveryOrder` (through `geom.Regions`) and
+`TestProfilesOfWideClusterMatchEveryOrder` (through `Sketch.Profiles()`), each over all
+six orderings of the three clustered curves.
+
+**The weld keeps its bound: every point welded into a vertex lies within `merge` of that
+vertex's coordinates.** Only the order canon sees changed, never its rule. Two pieces of
+the exactness machinery are written against that bound and keep their arguments verbatim
+— `boundVertexAt`'s `d > a.merge` reject, and `eventExplains`' soundness argument. A
+union-find weld pooling a whole transitive cluster onto one representative drops the
+bound, and is NOT what this does.
+
+**It orders the WELD only.** Order dependence upstream of it is by design and untouched:
+`intersect`'s pair enumeration, `splitFragments`' keep-the-first cut dedup, and the
+coincident-carrier rule that names the lower-indexed source. A permutation can still
+change the cut set those produce, and the pre-pass claims nothing about that. **But
+"everything left is upstream" holds only while the comparator is TOTAL.** The ±0 tie sat
+INSIDE the weld order this section settles, not upstream of it, so a list of accepted
+upstream dependences is not by itself an account of what a permutation can still change.
+Any change to the ordering key owes that question again: is any pair of DISTINCT points
+left for the unstable sort to decide? What the pre-pass
+also does not answer is whether a cluster spanning more than `merge` should weld at all
+— that case has no correct answer, and the canonical order makes the verdict repeatable
+rather than right. No flag reports it.
 
 ## The `geom` package (slated for extraction)
 
