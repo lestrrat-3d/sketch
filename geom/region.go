@@ -17,6 +17,19 @@ const (
 type BoundaryEdge struct {
 	// SourceIndex is the position of the originating curve in the Regions
 	// input — its index in curves, or len(curves)+k for the k-th closed curve.
+	//
+	// Where two same-carrier curves share one span and [Regions] resolves them, that
+	// span carries only the LOWER of the pair's two input positions; the higher one
+	// emits no edge over it. Input order decides which is named, and everything the
+	// report says about that span follows from the naming, so a boundary need not
+	// carry an index for every curve that bounds it — which is this field's own form of
+	// "read the span's source off the edge", stated from the boundary's side, since
+	// telling a reader of SourceIndex to read the source off SourceIndex says nothing.
+	// Treat the whole report for such a scene as order-dependent, not just this field.
+	// A same-carrier overlap Regions refuses instead sets Degenerate and suppresses
+	// nothing, but the returned report still need not carry an edge for either curve:
+	// coincident edges can be walked only once, a remainder can be pruned, and the
+	// coincidence can destroy the region outright; [Regions] lists the cases.
 	SourceIndex int
 	// Whole is true when this edge spans the entire source curve; false when it is
 	// a fragment covering a strict sub-range.

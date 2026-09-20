@@ -18,6 +18,29 @@ import (
 // adaptive polyline sampling of each curve, so a region's topology is exact for
 // well-separated geometry; areas of line/arc/circle regions are computed in
 // closed form (sampling-independent).
+//
+// Two curves on the SAME carrier (same centre and radius) that share exactly ONE
+// span of it, at least one of them stopping short of the full turn, report that
+// span under a single SourceIndex — the lower of the pair's two input positions.
+// The higher-indexed curve emits no edge there, and the rest of it is arranged as
+// usual. Closed curves index after every open one, so a circle never takes a span
+// from an arc. Every other same-carrier overlap is left Degenerate with nothing
+// suppressed — neither curve loses a span to the other, but neither is guaranteed an
+// edge in the returned regions either, since coincident edges can be walked only once
+// and the coincidence can destroy the region outright: two
+// curves sharing more than one disjoint span, two that each cover the full turn,
+// two lines overlapping along one carrier, carriers equal only to within the
+// near-tangency band rather than at round-off, and a span whose two ends do not
+// come out of the split as distinct bounds of both curves.
+//
+// Input order decides which of the two is named, and everything this report says
+// about that span follows from the naming. Among the outputs that move are the
+// SourceIndex, TStart/TEnd, the Whole flag, the Polyline, how the boundary is cut into
+// edges, which sources appear on the boundary at all, and the number and area of the
+// regions returned; that is a set of examples, not an inventory.
+// Treat the whole report for such a scene as
+// order-dependent, and read the span's source off the edge rather than looking for a
+// source you expect.
 func Regions(curves []Curve, closed []ClosedCurve, opts ...Option) *Arrangement {
 	cfg := arrangeConfig{}
 	for _, o := range opts {

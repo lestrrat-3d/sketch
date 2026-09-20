@@ -850,3 +850,27 @@ it, since the losing source's gap beyond the overlap is a real span of any width
 is the only thing left to close a region when the overlap covers nearly the whole
 carrier. An outward slop of `arcParamEps` deleted exactly that fragment for every gap
 up to twice it, and the region vanished with `Degenerate=false`.
+
+**Input ORDER is a public variable of the resolved case, and the godoc on
+`Sketch.Profiles` + `BoundaryEdge.Entity` (`profiles.go`) and on `geom.Regions` +
+`geom.BoundaryEdge.SourceIndex` owns the consumer-facing statement of it.** Reordering
+one pair decides which of the two is named, and EVERYTHING the report says about that
+span follows from the naming. Among the outputs that move are the source index or
+entity, `TStart`/`TEnd`, `Whole`/`Partial`, the `Polyline`, how the boundary is cut into
+edges, which sources appear on the boundary at all, and the number and area of the
+regions; that is a set of examples, not an inventory. The godoc states it as a blanket caveat — treat
+the whole report for such a scene as order-dependent, and read the span's source off the
+edge rather than looking for a source you expect.
+
+**Do not narrow that into a list of what does and does not move.** Four review rounds
+each enumerated the effects and each was falsified by a sharper scene: identical sweeps
+leave `TStart`/`TEnd` and `Whole` unmoved, because a bound is a fraction of the named
+source's own sweep and equal sweeps make the fraction equal; source presence turns on
+whether an unsuppressed remainder survives `prune()` rather than on whether a source
+extends outside the overlap; and region count and area both move as well (see the
+`fu80`/`fu81` follow-ups, which are pre-existing engine defects rather than anything the
+caveat documents). Nothing in the code establishes order-independence as an invariant
+anywhere.
+`TestAnalyticCoincidentCarrierNamingIsOrderDependent` is a regression pin on two
+concrete scenes — two arcs sharing a START, and two arcs `0..160°`/`0..170°` closed by a
+chord PAST the short one — and is evidence for those scenes only, never for a universal.

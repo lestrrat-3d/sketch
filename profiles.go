@@ -87,6 +87,16 @@ func (p *Profile) IsStale() bool {
 type BoundaryEdge struct {
 	// Entity is the source sketch entity this edge lies on (*Line/*Arc/*Circle/
 	// *Ellipse).
+	//
+	// Where two entities on the same carrier share one span and [Sketch.Profiles]
+	// resolves them, that span names ONE of them: the earlier of two arcs in
+	// [Sketch.Entities], or the arc of an arc and a circle. Input order decides which,
+	// and everything the report says about that span follows from the naming — so read
+	// the span's entity off this field rather than looking for an entity you expect.
+	// Treat the whole report for such a scene as order-dependent, not just this field.
+	// A same-carrier overlap [Sketch.Profiles] refuses instead leaves the regions it
+	// reaches reported invalid and neither entity loses a span to the other, though the
+	// returned boundary need not name either of them; [Sketch.Profiles] lists the cases.
 	Entity Entity
 	// Partial is true when this edge covers only a sub-range of Entity; false when
 	// it spans the whole entity.
@@ -206,9 +216,32 @@ type BoundaryEdge struct {
 // ill-conditioned near-tangent crossing on one of its own boundary curves — is
 // reported invalid, while regions built from unrelated geometry stay valid.
 //
-// That scoping needs a curve to blame. A condition no curve can be attributed to
-// — an unusable input dropped before it reached the arrangement, such as a
-// zero-radius circle — invalidates EVERY region detected, since what it would
+// Two entities on the SAME carrier (same centre and radius — an arc lying on a
+// circle, or on another arc) that share exactly ONE span of it report that span
+// under ONE entity. The other emits no edge over the span, and the rest of it is
+// arranged as usual. The named entity is the earlier of two arcs in
+// [Sketch.Entities], or the arc of an arc and a circle, since circles are arranged
+// after every open entity. Every other same-carrier overlap is one of the
+// unresolvable conditions above, so the regions it reaches are reported invalid and
+// neither entity loses a span to the other, though the returned boundary need not name
+// either of them: two entities sharing more than one span of
+// the carrier, two that each sweep the full turn, two lines overlapping along one
+// carrier, carriers equal only to within the near-tangency band, and a span the
+// arrangement cannot cut cleanly at both ends.
+//
+// Input order decides which of the two is named, and everything this report says
+// about that span follows from the naming. Among the outputs that move are the entity
+// itself, [BoundaryEdge.TStart]/[BoundaryEdge.TEnd], [BoundaryEdge.Partial],
+// [BoundaryEdge.Polyline], how the boundary is cut into edges, which entities appear
+// on the boundary at all, and the number and area of the regions detected; that is a
+// set of examples, not an inventory.
+// Treat the whole report for such a scene as order-dependent, and read the
+// span's entity off [BoundaryEdge.Entity] rather than looking for an entity you
+// expect.
+//
+// That validity scoping needs a curve to blame. A condition no curve can be
+// attributed to — an unusable input dropped before it reached the arrangement, such
+// as a zero-radius circle — invalidates EVERY region detected, since what it would
 // have subdivided is unknown.
 func (s *Sketch) Profiles() []*Profile {
 	profiles, _, _ := s.buildProfiles()
