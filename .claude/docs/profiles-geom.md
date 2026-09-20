@@ -164,8 +164,9 @@ represents it. Feeding canon in segment order made that member whichever curve t
 drew first.
 
 **What makes it work is that the order is TOTAL**, not merely that it is a sort: the
-sort is unstable, so any pair the comparator leaves tied keeps its collection order,
-which is the authoring order the pre-pass exists to remove. The bit tie-break is what
+sort is unstable, so the relative order of any pair the comparator leaves tied is the
+sorter's to choose, and that choice can still depend on the collection order — the
+authoring order the pre-pass exists to remove. The bit tie-break is what
 closes that, and it is needed for exactly one pair of distinct `float64` coordinates — a
 negative zero against a positive zero, which `==` reports equal on both `x` and `y`.
 Every other distinct pair is separated by `<` on one coordinate or the other. A half

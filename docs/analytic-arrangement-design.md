@@ -313,8 +313,9 @@ collects every boundary point of every tiny segment, sorts them by `canonPointCo
 lexicographically by `(x, y)` value, with the coordinates' raw bit patterns as the final
 tie-break — and canonicalizes in that order, before it builds a fragment. **That order
 is TOTAL, and total is the property the pre-pass rests on**: the sort is unstable, so
-any pair the comparator leaves tied keeps its collection order, which is the authoring
-order. A value compare alone leaves exactly one pair of distinct `float64` coordinates
+the relative order of any pair the comparator leaves tied is the sorter's to choose, and
+that choice can still depend on the collection order — the authoring order. A value
+compare alone leaves exactly one pair of distinct `float64` coordinates
 tied — a negative zero against a positive zero, which `==` reports equal — so a half
 disk whose arc starts at `(-0, -0)` and whose closing line ends at `(+0, +0)` published
 its shared vertex as `(-0, -0)` drawn one way and `(+0, +0)` drawn the other

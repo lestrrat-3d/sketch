@@ -2753,9 +2753,10 @@ func (a *arranger) split() {
 // then every point already has its vertex, so the per-fragment canon calls below only
 // look one up.
 //
-// That order is TOTAL, which is what the pre-pass rests on: the sort is unstable, so a
-// pair the comparator left tied would keep the collection order, which is the authoring
-// order. Only the bit tie-break closes that — see canonPointCompare.
+// That order is TOTAL, which is what the pre-pass rests on: the sort is unstable, so the
+// relative order of a pair the comparator left tied is the sorter's to choose, and that
+// choice can still depend on the collection order — the authoring order. Only the bit
+// tie-break closes that — see canonPointCompare.
 //
 // The order matters because canon welds a point onto the FIRST vertex within the merge
 // tolerance of it and keeps that vertex's coordinates. Fed in segment order — which is
@@ -2783,10 +2784,11 @@ func (a *arranger) splitFragments() []splitFrag {
 			pts = append(pts, [2]float64{b.px, b.py})
 		}
 	}
-	// The sort algorithm is unstable, so anything this comparator leaves tied keeps
-	// the order it was collected in — which is the authoring order the pre-pass
-	// exists to remove. The value compare alone does leave one pair tied, so the
-	// comparator falls through to the raw bit patterns (see canonPointCompare).
+	// The sort algorithm is unstable, so anything this comparator leaves tied is
+	// ordered at the sorter's discretion, and that order can still come out of the
+	// order it was collected in — the authoring order the pre-pass exists to remove.
+	// The value compare alone does leave one pair tied, so the comparator falls
+	// through to the raw bit patterns (see canonPointCompare).
 	slices.SortFunc(pts, canonPointCompare)
 	for _, p := range pts {
 		a.verts.canon(p[0], p[1])
@@ -2813,13 +2815,13 @@ func (a *arranger) splitFragments() []splitFrag {
 // by the coordinates' raw bit patterns.
 //
 // The bit tie-break is what makes the order total, and total is the whole property the
-// pre-pass rests on: the sort is unstable, so any pair it leaves tied is ordered by
-// whatever the collection order was, which is the authoring order. A value compare
-// leaves exactly one pair of DISTINCT float64 coordinates tied — a negative zero
-// against a positive zero, which `==` reports equal — so two boundary points at
-// opposite-signed zeros kept their authoring order, and since canon publishes its
-// representative's coordinates, the same half disk published its shared vertex as
-// (-0, -0) drawn one way and (+0, +0) drawn the other (see
+// pre-pass rests on: the sort is unstable, so any pair it leaves tied is ordered at the
+// sorter's discretion, and that order can still come out of the collection order — the
+// authoring order. A value compare leaves exactly one pair of DISTINCT float64
+// coordinates tied — a negative zero against a positive zero, which `==` reports equal
+// — so two boundary points at opposite-signed zeros kept their authoring order, and
+// since canon publishes its representative's coordinates, the same half disk published
+// its shared vertex as (-0, -0) drawn one way and (+0, +0) drawn the other (see
 // TestWeldRepresentativeBitsAreOrderIndependent). Reaching the vertex table with the
 // sign intact is what a reproduction has to arrange. An elliptical arc pins its ends to
 // the authored Start/End, so its coordinate arrives verbatim; a line's is recomputed as
@@ -2838,7 +2840,10 @@ func (a *arranger) splitFragments() []splitFrag {
 // either such a segment's endpoint, a bounded affine combination of two of them
 // (segParams confines its hit to the chords), or a closed-form intersection of sources
 // that survived that screen. cmp.Compare orders it anyway, ahead of every number, so the
-// comparator stays total rather than relying on that argument staying true.
+// comparator stays total rather than relying on that argument staying true. With the
+// bit tie-break and that screen, the comparator returns 0 only for a bit-identical
+// pair, so no tie between DISTINCT points ever reaches the sorter and its discretion is
+// never exercised.
 //
 // The bits are consulted ONLY after both value compares tie, never as the primary key,
 // so every pair the previous value-only comparator already ordered keeps that order:
@@ -3859,9 +3864,9 @@ func newVertexTable(merge float64) vertexTable {
 // its representative), and it is also why the CALLER owes canon an insertion order
 // that is a property of the geometry AND TOTAL: splitFragments sorts every boundary
 // point by canonPointCompare — lexicographically by value, then by raw bits — and
-// canonicalizes in that order, so no pair is left for the unstable sort to order by
-// authoring order and a drawing does not weld differently for having been authored in a
-// different order.
+// canonicalizes in that order, so no pair of distinct points is left for the unstable
+// sort to order at its own discretion and a drawing does not weld differently for having
+// been authored in a different order.
 func (t *vertexTable) canon(x, y float64) int {
 	cx, cy := int(math.Floor(x/t.cell)), int(math.Floor(y/t.cell))
 	for dx := -1; dx <= 1; dx++ {

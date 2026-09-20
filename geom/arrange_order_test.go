@@ -115,9 +115,9 @@ func sortedAreas(arr *geom.Arrangement) []float64 {
 // The lexicographic pre-pass orders boundary points by (x, y), and for float64 the ONE
 // pair of distinct values that compares equal on both coordinates is a negative zero
 // against a positive zero — every other distinct pair is separated by `<` on one
-// coordinate or the other. A tie leaves the relative order to sort.Slice, which is
-// unstable, so the representative of that cluster was still whichever point the caller
-// authored first, and canon keeps the representative's coordinates.
+// coordinate or the other. A tie leaves the relative order to slices.SortFunc, which is
+// unstable, so the representative of that cluster still depended on the order the caller
+// authored the curves in, and canon keeps the representative's coordinates.
 //
 // Reaching the vertex table with the sign intact is what each scene below has to
 // arrange, and the two sources do it differently. An elliptical arc PINS its ends to the
