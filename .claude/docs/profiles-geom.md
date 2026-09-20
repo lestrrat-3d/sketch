@@ -289,13 +289,15 @@ are ordered by start point, then end point, then the whole walk
 about the SET published and each chain's own walk, never about a chain's INDEX
 (a consumer compares a held chain against a fresh one by content or by handle),
 and a promise about what the chain layer ADDS, not about the arrangement it
-ranks. Where the arrangement breaks a tie by source position — `vertexTable.canon`
-keeping the first-inserted coordinate for vertices within `a.merge`, and
-`resolveCoincidentOverlap` naming the lower-indexed of two coincident-carrier
-sources for their shared span — a chain inherits that choice exactly as a region
-boundary does. Both predate chains and are shared with `Sketch.Profiles`; a
-source-position-free rule for either is a `geom` change and lands on both
-publications at once.
+ranks. Where the arrangement reads source position — `resolveCoincidentOverlap` naming the
+lower-indexed of two coincident-carrier sources for their shared span, and the cut set
+upstream of the weld (`intersect`'s pair enumeration and `segBoundaries`' keep-the-first
+dedup) — a chain inherits that choice exactly as a region boundary does. The weld itself is
+not one of them: `splitFragments` canonicalizes every boundary point by `canonPointCompare`
+before `vertexTable.canon` sees it, so for a fixed boundary-point multiset the vertex table
+is the same however the curves were authored, and only a moved cut set can still move the
+weld. These predate chains and are shared with `Sketch.Profiles`; a source-position-free
+rule for the carrier naming is a `geom` change and lands on both publications at once.
 
 `chainLess` is PARTIAL on purpose, and the tie it leaves is settled one layer
 up. Two chains walking the identical polyline — coincident duplicate geometry,

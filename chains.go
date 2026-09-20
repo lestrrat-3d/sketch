@@ -141,10 +141,10 @@ func (c *Chain) IsStale() bool {
 // a chain's INDEX in this slice: a consumer compares a held chain against a
 // freshly resolved one by content or by handle, never by list position. It is
 // also a promise about what THIS layer adds, not about the arrangement it ranks:
-// where the arrangement breaks a tie by source position — welding two vertices
-// closer than its merge distance in insertion order, or naming which of two
-// coincident-carrier sources represents their shared span — a chain inherits
-// that choice exactly as a [Profile] does.
+// where the arrangement reads source position — naming which of two coincident-carrier
+// sources represents their shared span, and the cut set its pair enumeration and its
+// keep-the-first cut dedup produce — a chain inherits that choice exactly as a [Profile]
+// does, and the whole report for such a scene is order-dependent.
 // The walk alone cannot rank two chains whose walks are point-for-point
 // identical (coincident duplicate geometry, which is a degenerate arrangement —
 // such chains report Valid false), so those are ranked by everything else the
