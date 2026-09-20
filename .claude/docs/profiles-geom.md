@@ -854,11 +854,14 @@ up to twice it, and the region vanished with `Degenerate=false`.
 **Input ORDER is a public variable of the resolved case, and the godoc on
 `Sketch.Profiles` + `BoundaryEdge.Entity` (`profiles.go`) and on `geom.Regions` +
 `geom.BoundaryEdge.SourceIndex` owns the consumer-facing statement of it.** Reordering
-one pair moves THREE things: the reported `TStart`/`TEnd` and `Whole` (`Partial`),
-since a bound is a fraction of the NAMED source's own sweep (`circleParam`); a region's
-EDGE COUNT, since the named source's span edge coalesces with an adjacent edge of its
-own; and WHICH sources reach the boundary at all, since a source whose whole sweep lies
-in the span emits no edge anywhere. Region count does not move. Each region's area
+one pair always moves the reported `TStart`/`TEnd` and `Whole` (`Partial`), since a
+bound is a fraction of the NAMED source's own sweep (`circleParam`). Two further
+effects are conditional. WHICH sources reach the boundary moves when one source's
+whole sweep lies inside the span, because that source then emits no edge anywhere. A
+region's EDGE COUNT moves when the named source's span edge coalesces with an adjacent
+edge of its own. Neither is guaranteed: a pair where both sources keep a span of their
+own outside the overlap reports the same sources and the same edge count either way.
+Region count does not move. Each region's area
 moves by ROUNDING only — one ulp apart on the pinned case, so any assertion comparing
 the two orders' areas carries a tolerance rather than testing bit equality.
 `TestAnalyticCoincidentCarrierNamingIsOrderDependent` pins both shapes: two arcs
