@@ -87,6 +87,10 @@ func (p *Profile) IsStale() bool {
 type BoundaryEdge struct {
 	// Entity is the source sketch entity this edge lies on (*Line/*Arc/*Circle/
 	// *Ellipse).
+	//
+	// Where two same-carrier curves partially overlap, the shared span names ONE of
+	// them — the earlier one in [Sketch.Entities], and an arc ahead of a full circle.
+	// See [Sketch.Profiles].
 	Entity Entity
 	// Partial is true when this edge covers only a sub-range of Entity; false when
 	// it spans the whole entity.
@@ -205,6 +209,15 @@ type BoundaryEdge struct {
 // touched by an unresolvable (degenerate) condition — coincident edges or an
 // ill-conditioned near-tangent crossing on one of its own boundary curves — is
 // reported invalid, while regions built from unrelated geometry stay valid.
+//
+// Two curves on the SAME carrier (same centre and radius) that partially overlap
+// report the shared span under ONE entity. The other entity's edges over that span
+// are dropped; it still contributes the part of itself outside the span. The named
+// entity is whichever of the two comes earlier in [Sketch.Entities] — authoring
+// order — so authoring the same two arcs in the other order names the other arc. An
+// arc is always named ahead of a full circle, in either order, because open entities
+// are arranged before closed ones. The region count, the areas and every
+// TStart/TEnd/TExact are identical in both orders; only the naming differs.
 //
 // That scoping needs a curve to blame. A condition no curve can be attributed to
 // — an unusable input dropped before it reached the arrangement, such as a

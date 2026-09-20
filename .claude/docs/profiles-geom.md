@@ -850,3 +850,10 @@ it, since the losing source's gap beyond the overlap is a real span of any width
 is the only thing left to close a region when the overlap covers nearly the whole
 carrier. An outward slop of `arcParamEps` deleted exactly that fragment for every gap
 up to twice it, and the region vanished with `Degenerate=false`.
+
+The public godoc carries this caveat as well: `Sketch.Profiles` and
+`BoundaryEdge.Entity` (`profiles.go`), plus `geom.Regions` and
+`geom.BoundaryEdge.SourceIndex`, state that the shared span reads under one entity,
+that input order picks which of two arcs is named while an arc is always named ahead
+of a full circle, and that the region count, the areas and the parameter ranges are
+the same in either order.

@@ -18,6 +18,12 @@ import (
 // adaptive polyline sampling of each curve, so a region's topology is exact for
 // well-separated geometry; areas of line/arc/circle regions are computed in
 // closed form (sampling-independent).
+//
+// Two curves on the SAME carrier (same centre and radius) that partially overlap
+// report the shared span under ONE SourceIndex — the lower of the pair's two input
+// positions, so an open curve is always named ahead of a closed one. Reordering the
+// input flips which of two arcs is named; the region count, the areas and the
+// reported parameter ranges do not change.
 func Regions(curves []Curve, closed []ClosedCurve, opts ...Option) *Arrangement {
 	cfg := arrangeConfig{}
 	for _, o := range opts {
