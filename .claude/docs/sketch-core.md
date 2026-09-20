@@ -193,16 +193,29 @@ per-entity defining points + per-entity **shape state**), not a counter —
 compare for **equality only, never order**. Derived from state rather than
 bumped per mutating method **on purpose**: there is no bump-site list to forget,
 so a new mutation path cannot silently leave the revision stale. It must cover
-everything `Profiles()` reads *and everything a `Profile` HOLDS* — coordinates
+everything `Profiles()` reads for CONTENT *and everything a `Profile` or `Chain`
+HOLDS* — coordinates
 *and* topology *and* the construction flag (toggling construction changes the
 region set while every coordinate stays put) *and* every shape value an entity
 resolves *and* which entity INSTANCES the profile's live handles point at.
 
 ### Load-bearing rule — hash what is consumed and handed out
 
-**Load-bearing rule: hash what `buildProfiles` CONSUMES and what a `Profile`
-HANDS OUT, never a proxy for it** — not an id, not a var index, and not "it is
-somewhere in `s.vars`". Three places that rule bites.
+**Load-bearing rule: hash what `buildProfiles` CONSUMES FOR CONTENT and what a
+`Profile` or a `Chain` HANDS OUT, never a proxy for it** — not an id, not a var
+index, and not "it is somewhere in `s.vars`". Three places that rule bites.
+
+The **published ORDER is deliberately outside that rule**. `orderChains`
+(`chains.go`) consumes names — entity names and the names of the points an
+entity is defined from — to rank chains the coordinates leave tied, and
+`Revision` hashes no name. So renaming re-ranks `Sketch.Chains()` while the
+revision holds still, and a held `Chain` or `Profile` correctly reads fresh:
+nothing it HOLDS has moved, only its position in a list, and position was never
+part of what a revision covers. Hashing names instead would fire
+`Profile.IsStale` on a rename that changes nothing a profile publishes, and
+would break `Revision`'s documented meaning, "equal revisions mean the sketch is
+geometrically unchanged". A consumer compares by content or by handle, never by
+index.
 
 ### (0) Entity instance identity
 

@@ -190,10 +190,79 @@ type Region struct {
 	Degenerate bool
 }
 
+// Chain is an ordered OPEN run of boundary edges extracted from the same
+// arrangement the regions come from: a connected walk, whose two ends are free,
+// over the edges no published region boundary uses. It is the open counterpart
+// of [Region], over the same [BoundaryEdge] vocabulary — a polyline, a lone
+// line, an arc joined to a line, or whatever a curve keeps after the regions
+// have taken their boundaries.
+//
+// No edge belongs to BOTH publications, and an OPEN run's edge belongs to one of
+// them: a region boundary, or a chain. The walk is maximal between vertices
+// where it cannot continue unambiguously — it is CUT at every vertex whose
+// degree is not 2, so three lines meeting at a point publish three chains rather
+// than one ambiguous walk or nothing at all.
+//
+// A chain is open by definition. A closed run — one whose walk returns to its
+// own start vertex, and a component every one of whose vertices has degree 2 —
+// is published as no chain at all; a closed loop that bounds anything is a
+// [Region] instead, and one that bounds nothing (its area below the
+// arrangement's floor) is already absent from the region set.
+//
+// Chains are published in an order read off their walks — start point, then end
+// point, then the whole walk — so the same CANDIDATE EDGE SET publishes the same
+// list however its curves were handed in. That is a promise about what this
+// ordering ADDS, not about the edge set it ranks: where the arrangement reads
+// source position — naming which of two coincident-carrier sources represents
+// their shared span, and the cut set its pair enumeration and its keep-the-first
+// cut dedup produce — a chain inherits that choice exactly as a [Region] does, so
+// the whole report for such a scene is order-dependent, not just this field.
+//
+// Two chains walking the IDENTICAL polyline are the one case coordinates cannot
+// rank; they keep the order their sources were handed in, and a caller needing a
+// total order there breaks the tie on an identity of its own (see chainLess).
+// Such a pair only arises from coincident duplicate geometry, which is already
+// reported Degenerate.
+//
+// CONSTRUCT IT WITH KEYED FIELDS, or better, do not construct it at all: every
+// field is an output of [Regions], for the same reason [Region] states.
+type Chain struct {
+	// Edges is the ordered walk, first edge first. Each edge is a whole source
+	// curve or a fragment of one, carrying the same TStart/TEnd/TExact trim
+	// contract a region boundary's edges carry.
+	Edges []BoundaryEdge
+	// Length is the chain's total arc length. It is exact for a line, arc or
+	// circle fragment (a closed form on the reported parameter range) and the
+	// chord sum of the SOURCE sampled over that range — convergent with sampling,
+	// always an underestimate — for any other source. Both measure the source
+	// rather than the emitted polyline, whose welded ends sit off the curve, so
+	// this and Polyline may disagree by up to the arrangement's merge distance.
+	// It is published whatever TExact reports, exactly as [Region.Area] is: an
+	// inexact range still describes the emitted geometry, and a consumer that
+	// needs an exact trim reads TExact.
+	Length float64
+	// SelfIntersecting marks a chain whose own walk crosses or touches itself
+	// away from its walk joints. A self-crossing the arrangement RESOLVED is not
+	// this: it is a vertex, so the walk is cut there and the pieces are separate
+	// chains. This reports the crossing the map does not have — two of the
+	// chain's own edges meeting where no vertex was placed, which is the same
+	// condition Degenerate reports from the other side.
+	SelfIntersecting bool
+	// Degenerate is true when an unresolvable condition reaches THIS chain: one
+	// involving a curve its own edges are built from, or one that could not be
+	// attributed to any curve. It is the attribution rule [Region.Degenerate]
+	// uses, applied to a chain's sources.
+	Degenerate bool
+}
+
 // Arrangement is the result of Regions: the bounded regions plus arrangement-
 // wide soundness signals.
 type Arrangement struct {
 	Regions []*Region
+	// Chains are the open connected runs of edges no region boundary uses,
+	// ordered by their walk coordinates (see [Chain] and chainLess). Nil when
+	// every edge bounds a region.
+	Chains []*Chain
 	// SelfIntersections lists the points where a single closed input boundary
 	// (a simple loop whose curves meet only at shared endpoints) crosses or
 	// touches itself — distinct from a legitimate crossing between two separate

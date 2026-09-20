@@ -9,6 +9,9 @@ Detail moved out of CLAUDE.md. Read before touching `Sketch.Profiles`, `Boundary
 | When is a `BoundaryEdge` range exact? | The whole-sketch gate comes first |
 | Why did exactness disappear scene-wide? | The whole-scene kind gate `exactAllowed` |
 | When is a profile invalid or stale? | `Valid` is per-region / A profile is a snapshot |
+| Where does OPEN geometry go? | `chains.go` — open boundary chains |
+| Why did my chain get cut in two? | Where a chain walk stops |
+| What decides the order chains come back in? | Direction, order, length and validity |
 | What does `geom.Regions` return? | The planar-arrangement / region engine |
 | Which crossings are analytic? | Analytic crossing detection |
 | Why was a clean crossing refused? | Curve/curve transverse crossing authority |
@@ -236,6 +239,109 @@ left for the unstable sort to decide? What the pre-pass
 also does not answer is whether a cluster spanning more than `merge` should weld at all
 — that case has no correct answer, and the canonical order makes the verdict repeatable
 rather than right. No flag reports it.
+
+## `chains.go` — open boundary chains
+
+### Overview
+
+`Sketch.Chains()` is the arrangement's OPEN publication, beside `Profiles()`:
+ordered open runs of `BoundaryEdge` (`sketch.Chain`, built from `geom.Chain` in
+`geom/chain.go`) over the edges no published region boundary uses. One
+`buildProfiles` call runs one arrangement and returns both, so nothing arranges
+twice and no edge is a region-boundary edge AND a chain edge. Every edge of an
+OPEN run is one or the other; the only edge set neither publishes is the closed
+run described below. The candidate set is DERIVED, not named by the caller:
+`prune()` keeps the edges it drops in `arranger.pruned`
+(spurs and open trees), `extract` marks the cycles it actually publishes through
+`arranger.cycleOf`, and the chain pass takes the complement. Construction
+geometry is excluded exactly as it is from `Profiles()`; reference geometry
+participates.
+
+### Where a chain walk stops
+
+The walk is cut at every vertex whose degree over the WHOLE arrangement is not 2
+— the pruned edges, the region-boundary edges and the candidates all counted.
+Counting only the candidates would let a chain turn a corner at a crossing whose
+other branches went to a region, publishing a walk through a point the
+arrangement had already resolved as a branch. So three lines meeting at a point
+are three chains, and two crossing lines are four. A run that closes back on its
+own start vertex is published as NO chain, and so is a component whose every
+vertex has degree 2: a `Chain` is open by definition, a closed loop that bounds
+anything is a `Profile`, and one that bounds nothing (its area under `extract`'s
+`epsArea`) is already absent from the region set, so publishing nothing loses
+nothing the region pass was reporting.
+
+### One edge vocabulary, one coalescing rule
+
+`boundaryFrag`/`appendBoundaryFrag`/`boundaryEdgeOf` (in `geom/arrange.go`) are
+shared by `makeCycle` and the chain walk, so `Whole`/`Reversed`/`TStart`/`TEnd`/
+`TExact` mean the same thing in both publications BY CONSTRUCTION rather than by
+two implementations agreeing. Every rule stated above for a region boundary's
+edge — the whole-sketch kind gate, the per-bound provenance behind `Whole`, the
+fused-map withdrawal — applies unchanged to a chain edge.
+
+### Direction, order, length and validity
+
+A chain with two free ends admits two walks, so the published one starts at the
+lexicographically smaller end point (`canonicalChainDirection`), and the chains
+are ordered by start point, then end point, then the whole walk
+(`chainLess`). Both are stated in COORDINATES, never in entity order — a promise
+about the SET published and each chain's own walk, never about a chain's INDEX
+(a consumer compares a held chain against a fresh one by content or by handle),
+and a promise about what the chain layer ADDS, not about the arrangement it
+ranks. Where the arrangement reads source position — `resolveCoincidentOverlap` naming the
+lower-indexed of two coincident-carrier sources for their shared span, and the cut set
+upstream of the weld (`intersect`'s pair enumeration and `segBoundaries`' keep-the-first
+dedup) — a chain inherits that choice exactly as a region boundary does. The weld itself is
+not one of them: `splitFragments` canonicalizes every boundary point by `canonPointCompare`
+before `vertexTable.canon` sees it, so for a fixed boundary-point multiset the vertex table
+is the same however the curves were authored, and only a moved cut set can still move the
+weld. These predate chains and are shared with `Sketch.Profiles`; a source-position-free
+rule for the carrier naming is a `geom` change and lands on both publications at once.
+
+`chainLess` is PARTIAL on purpose, and the tie it leaves is settled one layer
+up. Two chains walking the identical polyline — coincident duplicate geometry,
+already reported `Degenerate` — compare equal in every coordinate there is, and
+`geom` has no identity beyond coordinates to rank them by, so its stable sort
+leaves them in `SourceIndex` order. `Sketch.Chains` closes that: `orderChains`
+(`chains.go`) sorts the published list with **`compareChains`, the ONE ordered
+comparison over a published chain**. It asks the coordinates first, by
+`chainLess`'s own rule, so it REFINES the arrangement's order and never disturbs
+it, and then ranks on every other source-independent property the chain
+publishes, in the fixed precedence `compareChains` itself states — read it there
+rather than from a second copy here.
+
+Two of those rungs consume NAMES (an entity's, and those of the points it is
+defined from), and they are consumed for ORDER only, never for content: nothing
+a `Chain` publishes is derived from a name, and `Sketch.Revision` hashes none of
+them. Renaming therefore re-ranks the published list while every held `Chain`
+stays fresh — see "Load-bearing rule — hash what is consumed and handed out" in
+`.claude/docs/sketch-core.md`, which owns that scoping.
+
+Entity identity is deliberately not consulted: the `Entity` pointer, and the
+entity id behind it, ARE the authoring order. Two chains equal on every rung stay
+tied and are interchangeable — nothing published about them differs, which is
+what makes that claim true rather than merely stated.
+
+A property added to `Chain` or `BoundaryEdge` belongs on a rung of its own in
+`compareChains`; that is the single place this layer ranks a chain. A new
+COORDINATE rule is the other half and lives in `geom/chain.go`'s `chainLess`, so
+changing either means reading both — the two compose into the published order.
+
+`Length` is closed-form for a
+line/arc/circle fragment and otherwise the chord sum of the SOURCE sampled over
+the reported range, on `densify`'s own parameter grid with the fragment's bounds
+pinned (a convergent underestimate), published whatever `TExact` says, the same
+way `Region.Area` is. Neither branch measures the emitted polyline: a fragment
+end is a welded vertex up to the merge distance off its own curve, so a chord
+drawn to it would make `Length` OVERestimate by that much. `Length` and
+`Polyline` are allowed to disagree by the merge distance for exactly that
+reason. `Degenerate` reuses `degenReaches`, the attribution rule
+`Region.Degenerate` uses. `SelfIntersecting` is measured on the chain's own
+emitted polyline (a collinear reversal at a joint, or any non-adjacent pair of
+its chords meeting within the arrangement's merge distance); a self-crossing the
+arrangement RESOLVED never reaches it, since that is a degree-4 vertex the walk
+is cut at.
 
 ## The `geom` package (slated for extraction)
 

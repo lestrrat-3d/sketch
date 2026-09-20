@@ -244,16 +244,26 @@ type BoundaryEdge struct {
 // as a zero-radius circle — invalidates EVERY region detected, since what it would
 // have subdivided is unknown.
 func (s *Sketch) Profiles() []*Profile {
-	profiles, _, _ := s.buildProfiles()
-	return profiles
+	return s.buildProfiles().profiles
 }
 
-// buildProfiles runs the arrangement and returns the profiles together with the
-// arrangement-level degeneracy signal — collinear-overlap / near-tangent
-// conditions that make the region set unverifiable even when (or especially
-// when) no region is produced. Verify consumes the extra signals; Profiles
-// exposes only the regions.
-func (s *Sketch) buildProfiles() ([]*Profile, bool, [][2]float64) {
+// sketchArrangement is what one arrangement pass publishes: the two edge
+// publications — the closed regions and the open chains, read off the same edge
+// set and never both reporting one edge — plus the arrangement-level degeneracy
+// signal (collinear-overlap / near-tangent conditions that make the region set
+// unverifiable even when, or especially when, no region is produced) and the
+// representative points of those conditions.
+type sketchArrangement struct {
+	profiles     []*Profile
+	chains       []*Chain
+	degenerate   bool
+	degeneracies [][2]float64
+}
+
+// buildProfiles runs the arrangement once and publishes everything read off it.
+// Verify consumes the degeneracy signal; Profiles exposes only the regions and
+// Chains only the chains.
+func (s *Sketch) buildProfiles() sketchArrangement {
 	var curves []geom.Curve
 	var closed []geom.ClosedCurve
 	var openEnts, closedEnts []Entity
@@ -395,7 +405,42 @@ func (s *Sketch) buildProfiles() ([]*Profile, bool, [][2]float64) {
 		p.Valid = !r.SelfIntersecting && r.Area > areaEps && !r.Degenerate
 		profiles = append(profiles, p)
 	}
-	return profiles, arr.Degenerate, arr.Degeneracies
+
+	// The open chains are the same arrangement's other publication: every edge no
+	// region boundary used. They are stamped with the same sketch and revision, so
+	// Chain.IsStale answers exactly as Profile.IsStale does.
+	chains := make([]*Chain, 0, len(arr.Chains))
+	for _, gc := range arr.Chains {
+		c := &Chain{
+			Length:           gc.Length,
+			SelfIntersecting: gc.SelfIntersecting,
+			sketch:           s,
+			revision:         rev,
+		}
+		seen := map[Entity]struct{}{}
+		for _, ge := range gc.Edges {
+			be := mapBoundaryEdge(ge, entityFor)
+			c.Edges = append(c.Edges, be)
+			if _, ok := seen[be.Entity]; !ok {
+				seen[be.Entity] = struct{}{}
+				c.Entities = append(c.Entities, be.Entity)
+			}
+		}
+		// Scoped exactly as a profile's validity is: a condition on curves this
+		// chain does not use leaves it valid, an unattributable one does not.
+		c.Valid = !gc.SelfIntersecting && !gc.Degenerate && gc.Length > 0
+		chains = append(chains, c)
+	}
+	if len(chains) == 0 {
+		chains = nil
+	}
+	orderChains(chains)
+	return sketchArrangement{
+		profiles:     profiles,
+		chains:       chains,
+		degenerate:   arr.Degenerate,
+		degeneracies: arr.Degeneracies,
+	}
 }
 
 // areaEps is the smallest area a region must enclose to count as non-degenerate.

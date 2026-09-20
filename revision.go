@@ -29,7 +29,13 @@ import (
 // The intended use is detecting a STALE [Profile] — one built before a later
 // [Sketch.Solve], parameter edit or geometry change — via [Profile.IsStale].
 // Extruding or recording a stale profile silently builds the old shape, so a
-// consumer that turns a profile into a solid must check.
+// consumer that turns a profile into a solid must check. A [Chain] is covered
+// the same way, through [Chain.IsStale].
+//
+// It covers what those snapshots HOLD, not where they sit in the slice they came
+// back in. Names are not hashed: [Sketch.Chains] consumes them to rank chains
+// whose coordinates tie, so a rename can re-rank that list while the revision —
+// and every held snapshot — correctly holds still.
 //
 // It is derived from state rather than bumped by each mutating method on
 // purpose: there is no list of bump sites to forget, so a new mutation path
