@@ -323,6 +323,53 @@ func TestChainsAreDeterministic(t *testing.T) {
 	require.Equal(t, [2]float64{-10, 4}, chainStart(first[0]))
 }
 
+// TestChainsCoincidentWalksOrderByName pins the tie-break UNDER the coordinate
+// order. Three coincident lines walk the identical polyline, so no coordinate
+// ranks one above another, and with nothing further to say the published order
+// would be the order the lines were authored in. The names on the entities rank
+// them instead, so every authoring order publishes one and the same list.
+func TestChainsCoincidentWalksOrderByName(t *testing.T) {
+	published := func(authored []string) []string {
+		s := newSketch(t)
+		for _, name := range authored {
+			line := s.CreateLine(s.CreatePoint(0, 0), s.CreatePoint(10, 0))
+			line.SetName(name)
+		}
+		chains := s.Chains()
+		require.Len(t, chains, len(authored), "one chain per coincident line")
+		out := make([]string, 0, len(chains))
+		for _, ch := range chains {
+			require.Len(t, ch.Entities, 1, "each chain is one line")
+			require.Equal(t, [2]float64{0, 0}, chainStart(ch), "the same walk, every time")
+			require.Equal(t, [2]float64{10, 0}, chainEnd(ch))
+			require.False(t, ch.Valid, "a coincident overlap is a degenerate arrangement")
+			out = append(out, ch.Entities[0].Name())
+		}
+		return out
+	}
+	want := []string{"A", "B", "C"}
+	require.Equal(t, want, published([]string{"A", "B", "C"}))
+	require.Equal(t, want, published([]string{"C", "A", "B"}))
+	require.Equal(t, want, published([]string{"B", "C", "A"}))
+	require.Equal(t, want, published([]string{"C", "B", "A"}))
+}
+
+// TestChainsCoincidentWalksKeepTheCoordinateOrder pins the other half of that
+// rule: the name only ever settles a tie. Two chains the coordinates DO rank
+// keep that ranking whatever their names say.
+func TestChainsCoincidentWalksKeepTheCoordinateOrder(t *testing.T) {
+	s := newSketch(t)
+	right := s.CreateLine(s.CreatePoint(20, 0), s.CreatePoint(30, 0))
+	right.SetName("A")
+	left := s.CreateLine(s.CreatePoint(0, 0), s.CreatePoint(10, 0))
+	left.SetName("Z")
+
+	chains := s.Chains()
+	require.Len(t, chains, 2)
+	require.Equal(t, []sketch.Entity{left}, chains[0].Entities, "leftmost first, name notwithstanding")
+	require.Equal(t, []sketch.Entity{right}, chains[1].Entities)
+}
+
 // TestChainsExcludeConstruction pins that the two publications share one rule
 // about construction geometry: it is excluded from both.
 func TestChainsExcludeConstruction(t *testing.T) {

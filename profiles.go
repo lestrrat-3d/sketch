@@ -434,6 +434,7 @@ func (s *Sketch) buildProfiles() sketchArrangement {
 	if len(chains) == 0 {
 		chains = nil
 	}
+	orderChains(chains)
 	return sketchArrangement{
 		profiles:     profiles,
 		chains:       chains,

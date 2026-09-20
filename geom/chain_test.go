@@ -114,6 +114,31 @@ func TestChainsOrderIsIndependentOfInputOrder(t *testing.T) {
 	require.Equal(t, [2]float64{-9, 1}, chainPoints(forward.Chains[0])[0], "leftmost first")
 }
 
+// TestChainsWithIdenticalWalksKeepSourceOrder pins the tie chainLess leaves, and
+// the seam it leaves it at. Three coincident lines walk one and the same
+// polyline, so no coordinate ranks them; what this package publishes is the
+// SourceIndex order, unchanged by which curve was handed in first, and a caller
+// with an identity of its own settles the rest (sketch.Sketch.Chains does, by
+// entity name).
+func TestChainsWithIdenticalWalksKeepSourceOrder(t *testing.T) {
+	arr := geom.Regions([]geom.Curve{
+		geom.NewLine(geom.NewPoint(0, 0), geom.NewPoint(10, 0)),
+		geom.NewLine(geom.NewPoint(0, 0), geom.NewPoint(10, 0)),
+		geom.NewLine(geom.NewPoint(0, 0), geom.NewPoint(10, 0)),
+	}, nil)
+
+	require.Len(t, arr.Chains, 3)
+	require.True(t, arr.Degenerate, "coincident duplicates are an unresolvable overlap")
+	var srcs []int
+	for _, ch := range arr.Chains {
+		require.Equal(t, [][2]float64{{0, 0}, {10, 0}}, chainPoints(ch), "one walk, three times")
+		require.True(t, ch.Degenerate)
+		require.Len(t, ch.Edges, 1)
+		srcs = append(srcs, ch.Edges[0].SourceIndex)
+	}
+	require.Equal(t, []int{0, 1, 2}, srcs, "the tie keeps SourceIndex order, whatever it maps to")
+}
+
 func TestChainsWalkFromTheSmallerEnd(t *testing.T) {
 	// Authored right-to-left; published left-to-right, so two arrangements of the
 	// same drawing publish the same walk.

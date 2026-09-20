@@ -209,6 +209,14 @@ type Region struct {
 // [Region] instead, and one that bounds nothing (its area below the
 // arrangement's floor) is already absent from the region set.
 //
+// Chains are published in an order read off their walks — start point, then end
+// point, then the whole walk — so the same drawing publishes the same list
+// however its curves were handed in. Two chains walking the IDENTICAL polyline
+// are the one case coordinates cannot rank; they keep the order their sources
+// were handed in, and a caller needing a total order there breaks the tie on an
+// identity of its own (see chainLess). Such a pair only arises from coincident
+// duplicate geometry, which is already reported Degenerate.
+//
 // CONSTRUCT IT WITH KEYED FIELDS, or better, do not construct it at all: every
 // field is an output of [Regions], for the same reason [Region] states.
 type Chain struct {
@@ -241,9 +249,9 @@ type Chain struct {
 // wide soundness signals.
 type Arrangement struct {
 	Regions []*Region
-	// Chains are the open connected runs of edges no region boundary uses, in a
-	// deterministic order (see [Chain] and buildChains). Nil when every edge
-	// bounds a region.
+	// Chains are the open connected runs of edges no region boundary uses,
+	// ordered by their walk coordinates (see [Chain] and chainLess). Nil when
+	// every edge bounds a region.
 	Chains []*Chain
 	// SelfIntersections lists the points where a single closed input boundary
 	// (a simple loop whose curves meet only at shared endpoints) crosses or

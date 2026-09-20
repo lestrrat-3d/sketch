@@ -1,5 +1,7 @@
 package sketch
 
+import "sort"
+
 // Chain is an ordered OPEN run of boundary edges detected in a sketch: a
 // connected walk over the sketch's own geometry whose two ends are free. It is
 // the open counterpart of [Profile], over the same [BoundaryEdge] vocabulary —
@@ -110,9 +112,99 @@ func (c *Chain) IsStale() bool {
 // publications.
 //
 // The chains come back in a deterministic order, each walked in a deterministic
-// direction (both stated in coordinates, not in entity order), so the same
-// drawing publishes the same chains however it was authored — which is what lets
-// a consumer compare a held chain against a freshly resolved one.
+// direction, so the same drawing publishes the same chains however it was
+// authored — which is what lets a consumer compare a held chain against a
+// freshly resolved one. Both are decided by the walk's COORDINATES first, never
+// by entity order. Coordinates alone cannot rank two chains whose walks are
+// point-for-point identical (coincident duplicate geometry, which is a
+// degenerate arrangement — such chains report Valid false), so those are ranked
+// by the [Entity.Name] labels along the walk, an authored property that survives
+// reordering the authoring. Chains identical in BOTH coordinates and names stay
+// interchangeable: nothing published about them differs, and which of their
+// entities lands at which index is not defined.
 func (s *Sketch) Chains() []*Chain {
 	return s.buildProfiles().chains
+}
+
+// orderChains settles the published order the geometry alone leaves open.
+//
+// The [geom] arrangement ranks chains by their walk coordinates and nothing
+// else, so two chains whose walks are point-for-point identical tie, and its
+// stable sort then leaves them in the order the arranger saw their sources —
+// which is the order the entities were authored in. That is the one way the
+// published list could still inherit authoring order, so the tie is settled
+// here, by the names on the entities the tied chains walk.
+//
+// The coordinate order is never disturbed. Equal walks are adjacent after the
+// arrangement's own sort, so only such a run is reordered, and a chain the
+// coordinates already rank keeps that rank whatever its name says.
+func orderChains(chains []*Chain) {
+	if len(chains) < 2 {
+		return
+	}
+	walks := make([][][2]float64, len(chains))
+	for i, c := range chains {
+		walks[i] = chainWalk(c)
+	}
+	for i := 0; i < len(chains); {
+		j := i + 1
+		for j < len(chains) && samePolyline(walks[i], walks[j]) {
+			j++
+		}
+		if j-i > 1 {
+			tied := chains[i:j]
+			sort.SliceStable(tied, func(x, y int) bool { return chainNamesLess(tied[x], tied[y]) })
+		}
+		i = j
+	}
+}
+
+// chainWalk is the chain's own walk as one polyline — every edge's samples in
+// walk order, less the joint each shares with the edge before it. It is the key
+// the arrangement ranks chains by, so two chains with equal walks are exactly
+// the two it left tied.
+func chainWalk(c *Chain) [][2]float64 {
+	var walk [][2]float64
+	for i, e := range c.Edges {
+		if i > 0 && len(e.Polyline) > 0 {
+			walk = append(walk, e.Polyline[1:]...)
+			continue
+		}
+		walk = append(walk, e.Polyline...)
+	}
+	return walk
+}
+
+func samePolyline(a, b [][2]float64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// chainNamesLess ranks two chains with identical walks by the names of the
+// entities they walk, edge by edge: the first differing name decides, and the
+// shorter walk decides if one runs out first. An unnamed entity carries the
+// empty name, which sorts first — so naming none of a coincident group leaves
+// the group tied, and the order within it undefined, exactly as the group is.
+func chainNamesLess(x, y *Chain) bool {
+	for i := 0; i < len(x.Edges) && i < len(y.Edges); i++ {
+		xn, yn := edgeEntityName(x.Edges[i]), edgeEntityName(y.Edges[i])
+		if xn != yn {
+			return xn < yn
+		}
+	}
+	return len(x.Edges) < len(y.Edges)
+}
+
+func edgeEntityName(e BoundaryEdge) string {
+	if e.Entity == nil {
+		return ""
+	}
+	return e.Entity.Name()
 }

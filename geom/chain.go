@@ -56,8 +56,9 @@ func (a *arranger) buildChains(used []bool) []*Chain {
 	// Every maximal run starts at a vertex the walk cannot pass through, so those
 	// are the only starts worth trying. Which run an edge lands in does not depend
 	// on the order they are tried — the runs partition the candidate edges — so
-	// this order decides nothing but the order chains are discovered in, and
-	// chainLess settles the published order anyway. Edges reachable from no such
+	// this order decides nothing but the order chains are discovered in, which
+	// chainLess then overrides for every pair of chains their coordinates can tell
+	// apart (see chainLess for the pair it cannot). Edges reachable from no such
 	// vertex are a pure cycle, and are deliberately left unpublished.
 	starts := make([]int, 0, len(inc))
 	for v, list := range inc {
@@ -247,7 +248,17 @@ func polylineLess(a, b [][2]float64) bool {
 
 // chainLess is the published order: by start point, then end point, then the
 // whole walk. It is stated in coordinates rather than in input order so the same
-// drawing publishes the same chain list however its curves were ordered.
+// drawing publishes the same chain list however its curves were ordered — for
+// every pair of chains coordinates can tell apart.
+//
+// It is therefore a PARTIAL rule, and deliberately so. Two chains walking
+// the identical polyline — coincident duplicate geometry, which the arrangement
+// already reports as degenerate — compare equal in every coordinate there is,
+// and the stable sort below then leaves them in candidate order, which follows
+// SourceIndex. Nothing in this package can do better: a coordinate rule cannot
+// separate two walks that have the same coordinates. A caller that attaches its
+// own identity to a source (a name, a handle) and needs a total order settles
+// that tie itself, over the chains this returns; sketch.Sketch.Chains does.
 func chainLess(x, y *Chain) bool {
 	xd, yd := chainDense(x.Edges), chainDense(y.Edges)
 	if len(xd) == 0 || len(yd) == 0 {
