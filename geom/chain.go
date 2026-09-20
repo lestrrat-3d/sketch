@@ -149,10 +149,18 @@ func (a *arranger) walkChain(cands []arrEdge, inc map[int][]int, deg map[int]int
 
 // fragLength is the arc length of one coalesced fragment: the closed form on the
 // reported parameter range for a line, arc or circle, and the chord sum of the
-// emitted polyline otherwise. A sampled length is an underestimate that converges
-// with [WithSegmentsPerTurn], the same way a sampled parameter does — the exact
-// alternative would need an arc-length integral per curve family, which nothing
-// here has.
+// SOURCE sampled over that same range otherwise. A sampled length is an
+// underestimate that converges with [WithSegmentsPerTurn], the same way a sampled
+// parameter does — the exact alternative would need an arc-length integral per
+// curve family, which nothing here has.
+//
+// Both branches measure the SOURCE over the reported parameter range, and
+// neither measures the emitted polyline. That is deliberate: a fragment end is a
+// welded vertex, which sits up to the merge distance off its own curve, so a
+// chord drawn to it can be LONGER than the curve it stands for and the sum would
+// overestimate by the full weld tolerance — which scales with the scene. Length
+// and [BoundaryEdge.Polyline] may therefore disagree by that much, as they
+// already do wherever the closed form applies.
 func (a *arranger) fragLength(f boundaryFrag) float64 {
 	s := &a.sources[f.src]
 	span := math.Abs(f.pEnd - f.pStart)
@@ -164,15 +172,32 @@ func (a *arranger) fragLength(f boundaryFrag) float64 {
 	case srcCircle:
 		return s.r * 2 * math.Pi * span
 	}
-	return polylineLength(f.dense)
+	return a.sampledFragLength(s, f.pStart, f.pEnd)
 }
 
-func polylineLength(p [][2]float64) float64 {
+// sampledFragLength is the chord sum of source s evaluated between parameters
+// pStart and pEnd, in either order.
+//
+// It samples on densify's OWN parameter grid for this source, with the two ends
+// pinned at the fragment's bounds, so a fragment that spans the whole curve is
+// measured over exactly the points the polyline was built from and an unwelded
+// scene reports the length it always did. Only the interior grid points strictly
+// inside the span take part; a bound that falls between two of them contributes
+// one shorter chord rather than a grid point outside the fragment.
+func (a *arranger) sampledFragLength(s *source, pStart, pEnd float64) float64 {
+	lo, hi := math.Min(pStart, pEnd), math.Max(pStart, pEnd)
+	prev := s.at(lo)
 	var total float64
-	for i := 1; i < len(p); i++ {
-		total += math.Hypot(p[i][0]-p[i-1][0], p[i][1]-p[i-1][1])
+	for _, t := range a.sampleParams(s) {
+		if t <= lo || t >= hi {
+			continue
+		}
+		cur := s.at(t)
+		total += math.Hypot(cur[0]-prev[0], cur[1]-prev[1])
+		prev = cur
 	}
-	return total
+	end := s.at(hi)
+	return total + math.Hypot(end[0]-prev[0], end[1]-prev[1])
 }
 
 // canonicalChainDirection picks one of a chain's two possible walks, so two
@@ -252,8 +277,10 @@ func polylineLess(a, b [][2]float64) bool {
 
 // chainLess is the published order: by start point, then end point, then the
 // whole walk. It is stated in coordinates rather than in input order so the same
-// drawing publishes the same chain list however its curves were ordered — for
-// every pair of chains coordinates can tell apart.
+// CANDIDATE EDGE SET publishes the same chain list however its curves were
+// ordered — for every pair of chains coordinates can tell apart. What the edge
+// set ITSELF inherits from source position is [Chain]'s to state, and this rule
+// does not undo it.
 //
 // It is therefore a PARTIAL rule, and deliberately so. Two chains walking
 // the identical polyline — coincident duplicate geometry, which the arrangement

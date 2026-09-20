@@ -210,12 +210,19 @@ type Region struct {
 // arrangement's floor) is already absent from the region set.
 //
 // Chains are published in an order read off their walks — start point, then end
-// point, then the whole walk — so the same drawing publishes the same list
-// however its curves were handed in. Two chains walking the IDENTICAL polyline
-// are the one case coordinates cannot rank; they keep the order their sources
-// were handed in, and a caller needing a total order there breaks the tie on an
-// identity of its own (see chainLess). Such a pair only arises from coincident
-// duplicate geometry, which is already reported Degenerate.
+// point, then the whole walk — so the same CANDIDATE EDGE SET publishes the same
+// list however its curves were handed in. That is a promise about what this
+// ordering ADDS, not about the edge set it ranks: where the arrangement reads
+// source position — naming which of two coincident-carrier sources represents
+// their shared span, and the cut set its pair enumeration and its keep-the-first
+// cut dedup produce — a chain inherits that choice exactly as a [Region] does, so
+// the whole report for such a scene is order-dependent, not just this field.
+//
+// Two chains walking the IDENTICAL polyline are the one case coordinates cannot
+// rank; they keep the order their sources were handed in, and a caller needing a
+// total order there breaks the tie on an identity of its own (see chainLess).
+// Such a pair only arises from coincident duplicate geometry, which is already
+// reported Degenerate.
 //
 // CONSTRUCT IT WITH KEYED FIELDS, or better, do not construct it at all: every
 // field is an output of [Regions], for the same reason [Region] states.
@@ -226,10 +233,13 @@ type Chain struct {
 	Edges []BoundaryEdge
 	// Length is the chain's total arc length. It is exact for a line, arc or
 	// circle fragment (a closed form on the reported parameter range) and the
-	// chord sum of the emitted polyline — convergent with sampling, always an
-	// underestimate — for any other source. It is published whatever TExact
-	// reports, exactly as [Region.Area] is: an inexact range still describes the
-	// emitted geometry, and a consumer that needs an exact trim reads TExact.
+	// chord sum of the SOURCE sampled over that range — convergent with sampling,
+	// always an underestimate — for any other source. Both measure the source
+	// rather than the emitted polyline, whose welded ends sit off the curve, so
+	// this and Polyline may disagree by up to the arrangement's merge distance.
+	// It is published whatever TExact reports, exactly as [Region.Area] is: an
+	// inexact range still describes the emitted geometry, and a consumer that
+	// needs an exact trim reads TExact.
 	Length float64
 	// SelfIntersecting marks a chain whose own walk crosses or touches itself
 	// away from its walk joints. A self-crossing the arrangement RESOLVED is not

@@ -158,3 +158,57 @@ func TestChainsArcLengthIsClosedForm(t *testing.T) {
 	require.Len(t, arr.Chains, 1)
 	require.InDelta(t, 5*math.Pi/2, arr.Chains[0].Length, 1e-12, "exact, not the chord sum")
 }
+
+// TestChainsSampledLengthIgnoresTheWeld pins the sampled branch of the length
+// rule against the weld. A fragment end is a canonicalized vertex, so it sits up
+// to the merge distance off its own curve; measuring the emitted polyline would
+// therefore report MORE than the curve it stands for, by the full tolerance.
+//
+// Here a straight spline runs from (10,0) to the origin and a line touches it
+// 9e-7 to the left. The line's endpoint is lexicographically smaller, so it
+// becomes the welded representative and the spline is emitted starting there,
+// whole and untrimmed. The true geometry is 10 + 1 = 11.
+func TestChainsSampledLengthIgnoresTheWeld(t *testing.T) {
+	sp, err := geom.NewSpline(
+		geom.NewPoint(10, 0), geom.NewPoint(20.0/3, 0), geom.NewPoint(10.0/3, 0), geom.NewPoint(0, 0))
+	require.NoError(t, err)
+	arr := geom.Regions([]geom.Curve{
+		sp,
+		geom.NewLine(geom.NewPoint(-9e-7, 0), geom.NewPoint(-9e-7, -1)),
+	}, nil)
+
+	require.Empty(t, arr.Regions)
+	require.Len(t, arr.Chains, 1)
+	ch := arr.Chains[0]
+	require.Len(t, ch.Edges, 2)
+	require.InDelta(t, 11, ch.Length, 1e-9, "the weld does not lengthen the spline")
+	require.LessOrEqual(t, ch.Length, 11.0, "a sampled length never overestimates")
+	require.Equal(t, [2]float64{-9e-7, 0}, chainPoints(ch)[1],
+		"the emitted polyline keeps the welded coordinate")
+}
+
+// TestChainsSampledLengthPinsFragmentEnds is the same rule for a TRIMMED
+// fragment: a line touching the middle of a straight spline 9e-7 below it cuts
+// the spline in two, and each half is measured over its own parameter span from
+// the spline itself. Each half spans a true 5.
+func TestChainsSampledLengthPinsFragmentEnds(t *testing.T) {
+	sp, err := geom.NewSpline(
+		geom.NewPoint(0, 0), geom.NewPoint(10.0/3, 0), geom.NewPoint(20.0/3, 0), geom.NewPoint(10, 0))
+	require.NoError(t, err)
+	arr := geom.Regions([]geom.Curve{
+		sp,
+		geom.NewLine(geom.NewPoint(5, -9e-7), geom.NewPoint(5, -1)),
+	}, nil)
+
+	require.Empty(t, arr.Regions)
+	require.Len(t, arr.Chains, 3, "a T junction cuts the walk three ways")
+	for _, ch := range arr.Chains {
+		require.Len(t, ch.Edges, 1)
+		if ch.Edges[0].SourceIndex != 0 {
+			require.InDelta(t, 1-9e-7, ch.Length, 1e-12, "the line is closed-form")
+			continue
+		}
+		require.InDelta(t, 5, ch.Length, 1e-9, "half the spline, measured on the spline")
+		require.LessOrEqual(t, ch.Length, 5.0, "a sampled length never overestimates")
+	}
+}

@@ -39,10 +39,13 @@ type Chain struct {
 	Edges []BoundaryEdge
 	// Length is the chain's total arc length in base units (mm). It is exact for
 	// a *Line, *Arc or *Circle fragment and a sampling-convergent underestimate
-	// (the chord sum of the emitted polyline) for any other entity. It is
-	// published whatever TExact reports, exactly as [Profile.Area] is: the range
-	// still describes the emitted geometry, and a consumer that needs an exact
-	// trim reads TExact rather than inferring it from this.
+	// (the chord sum of the entity's own curve over the reported range) for any
+	// other entity. Neither measures the emitted polyline, whose end points are
+	// welded and so sit off the curve, so this and [BoundaryEdge.Polyline] may
+	// disagree slightly. It is published whatever TExact reports, exactly as
+	// [Profile.Area] is: the range still describes the emitted geometry, and a
+	// consumer that needs an exact trim reads TExact rather than inferring it
+	// from this.
 	Length float64
 	// Valid is false when the chain cannot be trusted as a sweepable curve: a
 	// walk that crosses or touches itself, or an unresolvable (degenerate)

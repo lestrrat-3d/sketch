@@ -329,9 +329,14 @@ COORDINATE rule is the other half and lives in `geom/chain.go`'s `chainLess`, so
 changing either means reading both — the two compose into the published order.
 
 `Length` is closed-form for a
-line/arc/circle fragment and the emitted polyline's chord sum otherwise (a
-convergent underestimate), published whatever `TExact` says, the same way
-`Region.Area` is. `Degenerate` reuses `degenReaches`, the attribution rule
+line/arc/circle fragment and otherwise the chord sum of the SOURCE sampled over
+the reported range, on `densify`'s own parameter grid with the fragment's bounds
+pinned (a convergent underestimate), published whatever `TExact` says, the same
+way `Region.Area` is. Neither branch measures the emitted polyline: a fragment
+end is a welded vertex up to the merge distance off its own curve, so a chord
+drawn to it would make `Length` OVERestimate by that much. `Length` and
+`Polyline` are allowed to disagree by the merge distance for exactly that
+reason. `Degenerate` reuses `degenReaches`, the attribution rule
 `Region.Degenerate` uses. `SelfIntersecting` is measured on the chain's own
 emitted polyline (a collinear reversal at a joint, or any non-adjacent pair of
 its chords meeting within the arrangement's merge distance); a self-crossing the
