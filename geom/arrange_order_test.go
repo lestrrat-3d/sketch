@@ -16,9 +16,10 @@ var orderPermutations = [6][3]int{
 	{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0},
 }
 
-// TestWeldIsAuthoringOrderIndependent pins the canonical weld order: a scene whose
-// near-coincident cluster SPANS MORE than the merge tolerance must publish the same
-// region count and the same areas however its curves were authored.
+// TestWeldOfWideClusterMatchesEveryOrder is a regression pin on the two scenes below,
+// each of which holds a near-coincident cluster SPANNING MORE than the merge tolerance
+// and must publish the same region count and the same areas however its curves were
+// authored. It is evidence for these scenes, not for a universal.
 //
 // The cluster is what makes it bite. The vertex table welds a point onto the first
 // vertex within the merge tolerance of it and keeps that vertex's coordinates, so for a
@@ -28,13 +29,13 @@ var orderPermutations = [6][3]int{
 // where the default tolerance is 1e-6: adjacent members weld, the outer two do not, so
 // the representative decides whether the third curve joins the map or dangles and is
 // pruned. splitFragments canonicalizes in lexicographic order instead, so the
-// representative is a property of the geometry.
+// representative is a property of the boundary points themselves.
 //
 // This pins the WELD only. Order dependence upstream of it is by design and untouched:
 // intersect's pair enumeration, the keep-the-first cut dedup, and the coincident-carrier
 // rule that names the lower-indexed source. Neither scene has a crossing or a coincident
 // carrier, so the weld is the only thing under test here.
-func TestWeldIsAuthoringOrderIndependent(t *testing.T) {
+func TestWeldOfWideClusterMatchesEveryOrder(t *testing.T) {
 	t.Run("three spokes into a triangle", func(t *testing.T) {
 		// A triangle 10 units across, with a spoke from each corner to the hub near
 		// (0, 1). The three hub endpoints are 0.9e-6 apart, so the outer two are
@@ -108,7 +109,7 @@ func sortedAreas(arr *geom.Arrangement) []float64 {
 	return areas
 }
 
-// TestWeldRepresentativeBitsAreOrderIndependent pins the half of the canonical weld
+// TestWeldRepresentativeBitsMatchEveryOrder pins the half of the canonical weld
 // order that an ordinary float compare cannot see: the COORDINATES the shared vertex is
 // published with, compared bit for bit.
 //
@@ -131,7 +132,7 @@ func sortedAreas(arr *geom.Arrangement) []float64 {
 //
 // Both scenes publish the same region count and the same area in either order, so the
 // published vertex is the only thing that separates them.
-func TestWeldRepresentativeBitsAreOrderIndependent(t *testing.T) {
+func TestWeldRepresentativeBitsMatchEveryOrder(t *testing.T) {
 	negZero := math.Copysign(0, -1)
 
 	t.Run("arc pinned to a negative-zero start", func(t *testing.T) {

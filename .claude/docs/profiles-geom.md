@@ -155,9 +155,11 @@ the canonical weld order put there — see the next section.
 
 **`splitFragments` canonicalizes every boundary point of every tiny segment in ONE
 order — `canonPointCompare`, lexicographic by `(x, y)` VALUE with the coordinates' raw
-bit patterns as the final tie-break — before it builds a single fragment**, so the
-vertex set a drawing produces is a property of the geometry rather than of the order the
-curves were passed in. `vertexTable.canon` is unchanged and still decides identity by
+bit patterns as the final tie-break — before it builds a single fragment**, so for a
+given deduped boundary-point multiset the welded vertex table — each vertex's
+coordinates and its id — is a property of those points alone, not of the order the
+curves were passed in. It does NOT make that multiset order-independent; the cut set
+upstream still is not (see "It orders the WELD only." below). `vertexTable.canon` is unchanged and still decides identity by
 distance: it welds a point onto the first vertex within `a.merge` of it and keeps that
 vertex's coordinates, so the FIRST member of a near-coincident cluster to arrive
 represents it. Feeding canon in segment order made that member whichever curve the caller
@@ -174,7 +176,7 @@ the other. A half
 disk whose elliptical arc starts at `(-0, -0)` and whose closing line ends at `(+0, +0)`
 published its shared vertex with bits `0x8000000000000000` drawn one way and `0x0` drawn
 the other, at one region and the same area either way — which is what
-`TestWeldRepresentativeBitsAreOrderIndependent` asserts on, BITWISE, since `-0.0 == +0.0`
+`TestWeldRepresentativeBitsMatchEveryOrder` asserts on, BITWISE, since `-0.0 == +0.0`
 hides the difference from an ordinary equality assertion. **Reaching the vertex table
 with the sign intact is what a reproduction has to arrange**, and that is why the scene
 uses an elliptical arc: an arc pins its ends to the authored Start/End, so the
@@ -209,8 +211,8 @@ pairwise but not end to end, so the representative decides whether the third cur
 the map or dangles and is pruned: a triangle with a spoke to each of those three points
 published 2 regions in one authoring order and 3 in another, with `Degenerate` false and
 `ProfilesValid` true in both, so nothing flagged the disagreement. Pinned by
-`TestWeldIsAuthoringOrderIndependent` (through `geom.Regions`) and
-`TestProfilesAreAuthoringOrderIndependent` (through `Sketch.Profiles()`), each over all
+`TestWeldOfWideClusterMatchesEveryOrder` (through `geom.Regions`) and
+`TestProfilesOfWideClusterMatchEveryOrder` (through `Sketch.Profiles()`), each over all
 six orderings of the three clustered curves.
 
 **The weld keeps its bound: every point welded into a vertex lies within `merge` of that

@@ -2764,7 +2764,7 @@ func (a *arranger) split() {
 // cluster is whichever member was drawn first, so a cluster whose span EXCEEDS the merge
 // tolerance welds differently depending on authoring order alone: the same drawing then
 // publishes a different region count and different areas with nothing flagged. Sorting
-// the points first makes the representative a property of the geometry.
+// the points first makes the representative a property of the points themselves.
 //
 // This orders the WELD only. Order dependence upstream of it remains by design —
 // intersect's pair enumeration, the keep-the-first cut dedup below, and the
@@ -2824,7 +2824,7 @@ func (a *arranger) splitFragments() []splitFrag {
 // authoring order, and
 // since canon publishes its representative's coordinates, the same half disk published
 // its shared vertex as (-0, -0) drawn one way and (+0, +0) drawn the other (see
-// TestWeldRepresentativeBitsAreOrderIndependent). Reaching the vertex table with the
+// TestWeldRepresentativeBitsMatchEveryOrder). Reaching the vertex table with the
 // sign intact is what a reproduction has to arrange. An elliptical arc pins its ends to
 // the authored Start/End, so its coordinate arrives verbatim; a line's is recomputed as
 // ax + t*(bx-ax), which at t=0 keeps a negative zero only when the direction component
@@ -2935,8 +2935,9 @@ func (a *arranger) segBoundaries(i int) []cut {
 // vertex within a.merge of it and keeps THAT vertex's coordinates, so two points
 // farther apart than merge can still land on one vertex through a third one inserted
 // first. Canonicalizing in splitFragments' lexicographic order does not remove those
-// chains — it only makes "first" a property of the geometry instead of a property of
-// the order the caller drew it in, so the SAME chain forms every time. No pairwise
+// chains — it only makes "first" a property of the points instead of a property of
+// the order the caller drew them in, so the same boundary-point multiset forms the same
+// chain every time. No pairwise
 // reasoning over the cuts — which endpoints are within merge of
 // which, which analytic event explains which weld (eventExplains) — can see that
 // chain; only the vertex table knows where the vertex ended up. So the last word on
@@ -3869,8 +3870,10 @@ func newVertexTable(merge float64) vertexTable {
 // that is a property of the geometry AND TOTAL: splitFragments sorts every boundary
 // point by canonPointCompare — lexicographically by value, then by raw bits — and
 // canonicalizes in that order, so no pair of distinct points is left for the unstable
-// sort to order at its own discretion and a drawing does not weld differently for having
-// been authored in a different order.
+// sort to order at its own discretion. For a given boundary-point multiset the table
+// that comes out is therefore the same however the curves were authored. The multiset
+// itself is not order-independent — the cut set upstream still moves — so this does not
+// make the arrangement as a whole order-independent.
 func (t *vertexTable) canon(x, y float64) int {
 	cx, cy := int(math.Floor(x/t.cell)), int(math.Floor(y/t.cell))
 	for dx := -1; dx <= 1; dx++ {

@@ -16,9 +16,11 @@ var profileOrderPermutations = [6][3]int{
 	{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0},
 }
 
-// TestProfilesAreAuthoringOrderIndependent is the weld's order-independence as
-// Sketch.Profiles() publishes it: the same drawing, authored in a different order,
-// must report the same number of profiles with the same areas.
+// TestProfilesOfWideClusterMatchEveryOrder is a regression pin on the scenes below,
+// as Sketch.Profiles() publishes them: each drawing, authored in a different order,
+// must report the same number of profiles with the same areas. It covers the weld and
+// says nothing about the arrangement as a whole, whose cut set still moves with
+// authoring order.
 //
 // Each scene holds three curve endpoints 0.9e-6 apart on a sketch 10 units across,
 // where the arrangement's default merge tolerance is 1e-6 — so the cluster spans more
@@ -27,7 +29,7 @@ var profileOrderPermutations = [6][3]int{
 // dangles and is pruned, and before the arrangement canonicalized its boundary points
 // in lexicographic order that choice was the order the entities were created in.
 // Nothing flags the disagreement, so the profile set is the only place it shows.
-func TestProfilesAreAuthoringOrderIndependent(t *testing.T) {
+func TestProfilesOfWideClusterMatchEveryOrder(t *testing.T) {
 	t.Run("three spokes into a triangle", func(t *testing.T) {
 		requireSameProfilesEveryOrder(t, func(s *sketch.Sketch, order [3]int) {
 			a := s.CreatePoint(-5, -5)

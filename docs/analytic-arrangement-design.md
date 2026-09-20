@@ -321,7 +321,7 @@ and `y`; every other pair the sort can see is separated by `<` on one coordinate
 other. So a half
 disk whose arc starts at `(-0, -0)` and whose closing line ends at `(+0, +0)` published
 its shared vertex as `(-0, -0)` drawn one way and `(+0, +0)` drawn the other
-(`TestWeldRepresentativeBitsAreOrderIndependent`, which asserts BITWISE because
+(`TestWeldRepresentativeBitsMatchEveryOrder`, which asserts BITWISE because
 `-0.0 == +0.0` hides it from an ordinary equality check). The scene uses an elliptical
 arc because an arc pins its ends to the authored Start/End, so the coordinate reaches
 the vertex table verbatim; a line's is recomputed as `ax + t·(bx-ax)` and at `t=0` keeps
@@ -346,8 +346,8 @@ from being whichever curve the caller drew first. It matters for a cluster whose
 EXCEEDS the merge tolerance, where adjacent members weld and the outer ones do not: a
 triangle with a spoke to each of three points `0.9e-6` apart on a scene 10 units across
 published 2 regions in one authoring order and 3 in another, with `Degenerate` false and
-`ProfilesValid` true in both (`TestWeldIsAuthoringOrderIndependent`,
-`TestProfilesAreAuthoringOrderIndependent`). The weld's own invariant is what makes this
+`ProfilesValid` true in both (`TestWeldOfWideClusterMatchesEveryOrder`,
+`TestProfilesOfWideClusterMatchEveryOrder`). The weld's own invariant is what makes this
 the right shape of fix: every welded point still lies within `a.merge` of its vertex,
 which is the bound `boundVertexAt`'s reject and `eventExplains`' argument rest on, and
 which a union-find weld over a transitive cluster would drop. It orders the weld and
