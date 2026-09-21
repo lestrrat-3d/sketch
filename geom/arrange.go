@@ -3354,9 +3354,143 @@ func (a *arranger) curvedPortDir(e arrEdge, vx, vy float64) (float64, float64, b
 	return dx, dy, true
 }
 
+// dedupCoincidentStraightEdges collapses a coincident-emitted-edge condition:
+// two or more STRAIGHT (srcLine) arrangement edges whose canonicalized
+// endpoints are the identical pair of graph vertices. Two points determine one
+// line, so any two such edges are not merely close — they trace the exact same
+// traversed chord, at BOTH shared vertices, with no departure-angle difference
+// for the rotation sort to find because there genuinely is none. A weld is what
+// makes this reachable: two near-parallel lines cut close to a shared corner
+// can weld their stub fragments onto the same two vertices while still
+// differing at their own far ends.
+//
+// Left as two edges, the fallback chord-angle sort a few lines down breaks that
+// tie with sort.Slice, which is unstable and gives no guarantee that the two
+// shared vertices resolve the tie the same way. When they don't, the next
+// pointers stop describing a planar embedding and the face walk can return one
+// near-zero-area cycle over every half-edge instead of the bounded faces,
+// losing them all with Degenerate false — see
+// TestCoincidentEmittedLinesKeepBothRegions and
+// TestProfilesCoincidentEmittedLinesKeepBothProfiles.
+//
+// Only a straight/straight tie is collapsed here — the class this repairs.
+// Every other pairing already has its own answer and is deliberately left
+// alone:
+//
+//   - A CURVED fragment's chord is a secant of a curve departing along a
+//     different ray than a straight one sharing its endpoints, so it carries
+//     information a merge would destroy. useExactPorts' own curvature-gated
+//     door already orders a straight/curved or curved/curved tie correctly
+//     (TestArcSpanningOneChordKeepsItsFaces,
+//     TestWeldedArcPortKeepsTheLargeFace, TestInnerTangentArcKeepsBothFaces).
+//   - A coincident-CARRIER pair (e.g. an arc on its hub circle) is already
+//     resolved earlier, in split() via resolveCoincidentOverlap, and never
+//     reaches here as two edges over the shared span.
+//   - A duplicate SAMPLED fragment (ellipse/spline/conic/NURBS) never
+//     qualifies for exact ordering at all — useExactPorts requires every
+//     incident half-edge to be exact — so it already falls back to chord
+//     order, the honest verdict for a source the map only holds as chords.
+//
+// The surviving edge is the lowest-indexed source among the tied group — the
+// same "named" convention resolveCoincidentOverlap uses for a coincident
+// carrier: naming is arbitrary between genuinely identical alternatives, but
+// it must be made ONE way, consistently, rather than left to an unstable sort.
+//
+// A group ISOLATED at both its vertices — nothing else in the arrangement
+// touches u or v besides the tied group's own members — is left alone
+// entirely: that is a fully duplicate open curve, the same line authored more
+// than once, which chains.go deliberately reports as one Chain PER source
+// (TestChainsCoincidentWalksOrderByName and its neighbors). Collapsing that
+// case would silently drop chains a consumer already relies on seeing one
+// per curve. The isolation check (degree-at-u/v equals the tied group's own
+// size) is what tells the two conditions apart: the coincident-emitted-edge
+// case this dedup targets is always EMBEDDED — some other curve also meets
+// the pair at one or both of its shared vertices.
+//
+// A ring that still loses its bridge use of a coincident pair — two straight
+// fragments kept deliberately parallel so a single face walk can thread
+// between them — is a known, narrower cost: see
+// TestWeldedParallelLinesKeepTheirRegion and TestWeldedArcAndLineKeepBothFaces,
+// which this change updates rather than regresses (their own doc comments
+// already disclaimed the pinned numbers as unverified).
+func (a *arranger) dedupCoincidentStraightEdges() {
+	type vpair struct{ u, v int }
+	groups := map[vpair][]int{}
+	for i, e := range a.edges {
+		if a.sources[e.src].kind != srcLine {
+			continue
+		}
+		u, v := e.u, e.v
+		if u > v {
+			u, v = v, u
+		}
+		groups[vpair{u, v}] = append(groups[vpair{u, v}], i)
+	}
+	if len(groups) == 0 {
+		return
+	}
+	// deg counts EVERY arrangement edge at a vertex (the same count prune() uses),
+	// which is what tells an EMBEDDED coincident-emitted-edge pair — a fragment of a
+	// longer, differently-routed curve, meeting other geometry at one or both of its
+	// shared vertices — from a fully ISOLATED cluster of duplicate open curves that
+	// touch nothing else. See the isolation check below for why that distinction is
+	// load-bearing.
+	deg := map[int]int{}
+	for _, e := range a.edges {
+		deg[e.u]++
+		deg[e.v]++
+	}
+	var drop map[int]struct{}
+	for k, idxs := range groups {
+		if len(idxs) < 2 {
+			continue
+		}
+		// A group ISOLATED at both vertices — nothing touches u or v besides the tied
+		// group itself — is a fully duplicate open curve: the same line authored more
+		// than once, coordinates and all, with nothing else in the scene to embed it
+		// in a real face. chains.go deliberately reports that case as one Chain PER
+		// source rather than one for the whole cluster (see "coincident duplicate
+		// geometry" there, and TestChainsCoincidentWalksOrderByName), so collapsing it
+		// here would silently drop chains a consumer already relies on seeing one per
+		// curve. The coincident-emitted-edge condition this dedup targets is instead
+		// always EMBEDDED — some other curve (an arc, a third line, the rest of a
+		// bigger drawing) also meets the pair at one or both of its shared vertices,
+		// which is exactly what degree-over-group-size, at either end, detects.
+		if deg[k.u] == len(idxs) && deg[k.v] == len(idxs) {
+			continue
+		}
+		keep := idxs[0]
+		for _, i := range idxs[1:] {
+			if a.edges[i].src < a.edges[keep].src {
+				keep = i
+			}
+		}
+		if drop == nil {
+			drop = make(map[int]struct{})
+		}
+		for _, i := range idxs {
+			if i != keep {
+				drop[i] = struct{}{}
+			}
+		}
+	}
+	if len(drop) == 0 {
+		return
+	}
+	kept := a.edges[:0:0]
+	for i, e := range a.edges {
+		if _, ok := drop[i]; ok {
+			continue
+		}
+		kept = append(kept, e)
+	}
+	a.edges = kept
+}
+
 // buildGraph wires the doubly-connected edge list: two half-edges per edge, the
 // rotation system at each vertex, and the next pointers (face on the left).
 func (a *arranger) buildGraph() {
+	a.dedupCoincidentStraightEdges()
 	a.halfs = make([]halfEdge, 0, len(a.edges)*2)
 	for ei, e := range a.edges {
 		ux, uy := a.verts.coord(e.u)

@@ -762,17 +762,63 @@ published 0 regions where main published one of area `100.00053587936401` — th
 collapse this section describes, caused by the repair for it. A curved fragment is the
 opposite case: its chord is a secant of a curve departing along another ray, so the
 tangent carries the geometry the chord lost.
-**A DOUBLED straight pair welded at both ends is still answered wrongly, and this
-change does not repair it.** Two lines between the same two vertices, separated by
-less than the merge distance, are one edge to the map and two to the sources. When an
-arc tie opens the exact door at one of those vertices, the pair is mis-sorted at both
-of its ends. Measured on the adjudicator's scene B (truth 4 faces) and scene C (truth
-6), over 9 input orders each: base publishes 1 and 1, and this change publishes 3 and
-5. Both are wrong; this change is closer and, unlike the intermediate version that
-gated on curvature alone, gives the same answer in every order rather than 4 in seven
-orders and 3 in two. Reaching the truth needs the map to stop holding two edges where
-the geometry has one, which is a separate repair — a coincident-emitted-edge check in
-`buildGraph`, tracked as its own follow-up.
+**A DOUBLED straight pair welded at both ends needs a separate repair, because
+ordering cannot fix it: `useExactPorts`/`sortExactPorts` decide a ROTATION ORDER, and
+two lines between the same two vertices, separated by less than the merge distance,
+are one edge to the map and two to the sources — no order of the tied pair is more
+correct than the other, since the map genuinely cannot tell them apart.** The repair
+is `dedupCoincidentStraightEdges` (`geom/arrange.go`, run at the top of `buildGraph`):
+before the rotation system is built, every arrangement edge is grouped by its
+canonical (post-weld) vertex pair, and a group of two or more STRAIGHT (`srcLine`)
+edges over the SAME pair is collapsed to one — the lowest-indexed source's copy,
+the same "named" convention `resolveCoincidentOverlap` uses for a coincident carrier.
+Two points determine a line, so any two straight edges sharing both endpoints are
+provably the identical traversed chord; dropping the redundant copy removes the tie
+rather than trying to order it. Reached through `Sketch.Profiles()`,
+`TestProfilesCoincidentEmittedLinesKeepBothProfiles` pins a seed-16 reduction where
+the pre-repair engine silently dropped a `12.26`-area profile down to just its
+`0.14`-area neighbor, with `Degenerate` false and every published profile still
+`Valid`. Measured on the adjudicator's scene B (truth 4 faces), over all nine input
+orders: the repair reaches 4 in every order (`TestDoubledPairAnswersEveryOrderAlike`),
+where the curvature-only exact-port fix above reached only 3 or 5.
+
+The repair is scoped to a straight/straight tie on purpose. A CURVED fragment's chord
+is a secant of a curve departing along a different ray than a straight one sharing its
+endpoints, so a curved member of a tied pair carries information a merge would
+destroy, and `useExactPorts`' curvature-gated door already orders that case correctly
+— `dedupCoincidentStraightEdges` only ever groups edges whose source is `srcLine`, so
+a straight/curved or curved/curved tie never enters a group at all. A coincident-
+CARRIER pair (an arc on its hub circle) is resolved earlier still, in `split()` via
+`resolveCoincidentOverlap`, and never reaches `buildGraph` as two edges over the
+shared span. A duplicate SAMPLED fragment (ellipse/spline/conic/NURBS) is untouched
+for the same reason `useExactPorts` already leaves it on chord order: it never
+qualifies for exact ordering, so the ambiguity this repair targets cannot arise for it
+in the first place. A tied group ISOLATED at both its vertices — nothing else in the
+arrangement touches either one — is also left alone: that is a fully duplicate open
+curve, the same line authored more than once, and `chains.go` deliberately reports it
+as one `Chain` PER source rather than one for the cluster (see "coincident duplicate
+geometry" there). Collapsing an isolated group would silently drop chains a consumer
+already relies on seeing one per curve; the coincident-emitted-edge condition this
+repair targets is always EMBEDDED, with some other curve also meeting the pair at one
+or both of its shared vertices, which a plain vertex-degree check (equal to the tied
+group's own size, or not) tells apart from the isolated case.
+
+**The known cost is a ring that relied on a coincident pair as a bridge between two
+otherwise-separate large faces.** Keeping BOTH edges of such a pair lets a single face
+walk thread out along one and back along the other — a zero-net-area "slit" that
+stitches a more complex (multiply-connected) boundary into one traversable cycle
+without an extra vertex. Collapsing the pair to one edge removes that bridge along
+with the tie, and a ring that depended on it can lose the large face it was bridging
+instead of just the ambiguity: `TestWeldedParallelLinesKeepTheirRegion`'s scene, whose
+own pinned number was never established as correct (over 12 input orders the
+pre-repair engine returned one region in 4 of them and none in the other 8), now
+returns none in the specific order it pins. `TestWeldedArcAndLineKeepBothFaces` is the
+opposite outcome on the same class: collapsing its own coincident pair reveals a
+third, smaller face the two-face answer had folded into a neighbor, with the total
+area unchanged. Both are hand-built scenes representing an ADVERSARIAL tie between
+the repair's target (a redundant duplicate with no real information) and this bridge
+use (a duplicate carrying real topology); an ordinary scene holds no such bridge, so
+nothing routine is expected to hit this cost.
 
 A SAMPLED source is not covered, since the ring is not all-exact —
 there the arc edge genuinely is the chord, so a reorder would be wrong and the
