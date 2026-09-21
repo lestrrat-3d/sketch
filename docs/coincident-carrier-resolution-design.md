@@ -301,18 +301,28 @@ both:
 No new formula. `makeCycle`'s bulge computation (`geom/arrange.go`)
 reads `s.r` and the fragment's swept angle `(f.pEnd-f.pStart)*s.sweep` from
 whichever source the surviving fragment names — after suppression, that is
-always the named source for the merged span. Because the condition that admits
-the pair for resolution requires equal center AND equal radius at round-off
-(`carriersIdentical`, see "The refusal band"), the circular-segment correction
-(`chordArcCorrection(r, Δangle)`) over the shared span is numerically
-identical whichever of the two sources it is evaluated against; naming one
-over the other changes nothing about the number `makeCycle` computes, only
-which `SourceIndex` labels it. The existing exact-area guarantee
+always the named source for the merged span. The circular-segment correction
+(`chordArcCorrection(r, Δangle)`) is therefore evaluated on the NAMED source's
+own radius and sweep, so the existing exact-area guarantee
 (`.claude/docs/profiles-geom.md`:
 "Region area is exact for every curve type... an arc/circle via shoelace +
-exact circular-segment correction") therefore carries over to a merged edge
-unchanged, with no new test needed for the arithmetic itself — only for the
-`SourceIndex`/attribution behavior around it (see "Tests" below).
+exact circular-segment correction") carries over to a merged edge for the
+curve that IS named, with no new test needed for the arithmetic itself — only
+for the `SourceIndex`/attribution behavior around it (see "Tests" below).
+
+It does not carry over to both sources at once. `carriersIdentical` (see "The
+refusal band") admits a pair whose centre offset plus radius difference is up to
+`weldIdentEps` times the larger radius, so the two carriers are the same curve
+only to within that band, and each input order publishes the exact area of a
+slightly different curve. Measured: two arcs on centre `(0,0)`, radii `10` and
+`10 + 1e-11`, sweeping `0..160°` and `0..170°`, closed by a chord from the long
+arc's end to the short arc's start, publish `139.67057753617158` with the short
+arc first and `139.67057753645085` with the long arc first — `2.0e-12` relative,
+of the order of the band that admitted the pair. The area is one of the outputs
+that follow from the naming; the godoc on `geom.Regions`,
+`geom.BoundaryEdge.SourceIndex`, `Sketch.Profiles` and `BoundaryEdge.Entity` owns
+the consumer-facing statement, as a blanket caveat over the whole report (see
+"Acceptance criteria" below).
 
 ## The refusal band
 
@@ -428,12 +438,18 @@ case with a genuine arc sweep, plus an in-certify-band case (see "Tests").
   `Entity` consistently across both adjoining `Profile`s, and neither
   `Profile.Entities` includes the discarded (non-named) entity for that span.
 - `WithSegmentsPerTurn` density does not change region count, area, or which
-  source is named. Input order does not change region count or
-  area either, and names the lower input position in every order — so the named
-  ENTITY does change when the inputs are reordered, which is the `min(i,j)` rule
-  working as specified and not a defect (see "Determinism"; no positional
-  `SourceIndex` scheme can be reorder-invariant). Curve reversal is not on this
-  list: an arc has no reversed representation, so there is nothing to hold
+  source is named. Input order names the lower input position in every order —
+  so the named ENTITY does change when the inputs are reordered, which is the
+  `min(i,j)` rule working as specified and not a defect (see "Determinism"; no
+  positional `SourceIndex` scheme can be reorder-invariant) — and everything the
+  report says about the shared span follows from the naming, region count and
+  area among them: `TestAnalyticCoincidentCarrierNamingIsOrderDependent`
+  (`geom/arrange_analytic_test.go`) pins one region walked over 3 edges in one
+  order and 2 in the other, with the two areas one ulp apart. The godoc on
+  `geom.Regions`, `geom.BoundaryEdge.SourceIndex`, `Sketch.Profiles` and
+  `BoundaryEdge.Entity` owns the consumer-facing statement, as a blanket caveat
+  over the whole report; this list does not narrow it. Curve reversal is not on
+  this list: an arc has no reversed representation, so there is nothing to hold
   invariant (see "Determinism").
 - A carrier pair equal within noise but not at round-off still reports
   `arrangementDegenerate=true`, both in the outer ambiguous band and INSIDE the
