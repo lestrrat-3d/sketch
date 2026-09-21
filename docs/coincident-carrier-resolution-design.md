@@ -319,8 +319,10 @@ slightly different curve. Measured: two arcs on centre `(0,0)`, radii `10` and
 arc's end to the short arc's start, publish `139.67057753617158` with the short
 arc first and `139.67057753645085` with the long arc first — `2.0e-12` relative,
 of the order of the band that admitted the pair. The area is one of the outputs
-that follow from the naming; the godoc on `geom.Regions` and `Sketch.Profiles`
-owns that statement (see "Acceptance criteria" below).
+that follow from the naming; the godoc on `geom.Regions`,
+`geom.BoundaryEdge.SourceIndex`, `Sketch.Profiles` and `BoundaryEdge.Entity` owns
+the consumer-facing statement, as a blanket caveat over the whole report (see
+"Acceptance criteria" below).
 
 ## The refusal band
 
