@@ -3204,29 +3204,62 @@ func (a *arranger) sortExactPorts(v int, ring []int) {
 }
 
 // useExactPorts reports whether vertex v should be ordered by exact tangent ports
-// rather than chord direction: only at a certified analytic tangency contact (where
-// chord directions tie and would branch-swap) AND only if every incident half-edge
-// is an exact line/circle/arc fragment. Everywhere else — sampled crossings, polygon
-// corners, ellipse/spline vertices — chord ordering matches the polyline geometry
-// the face walk actually traverses, so exact tangents must NOT be used there.
+// rather than chord direction. Every incident half-edge must be an exact
+// line/circle/arc fragment, and one of two things must hold:
+//
+//   - the vertex is a certified analytic tangency contact (exactPortVerts), where
+//     the chord directions tie because the contact is a double root; or
+//   - two of the ring's chord departure angles are EQUAL as float64 while their
+//     exact tangent rays genuinely differ.
+//
+// The second door is what an arc fragment spanning two graph vertices with no
+// interior sample vertex between them needs: its emitted edge IS the chord between
+// those vertices, so a straight edge between the same two vertices departs at a
+// bit-identical angle. The rotation sort's fallback is sort.Slice on that angle,
+// which is unstable and cannot separate them, and at one of the two vertices it
+// orders the arc ahead of the chord where counter-clockwise order needs the
+// reverse — the next pointers are then not a planar embedding and the face walk
+// loses every bounded face. The tangents answer it: 1.5708 for the arc against
+// 1.5795 for the chord, with signed curvature 1 against 0.
+//
+// It is deliberately narrow. A tie whose tangent rays AGREE is left on chord
+// order, so two collinear straight fragments — a coincident-carrier overlap, a
+// duplicated line — are untouched: for a straight fragment the tangent IS the
+// chord direction, so tying on the chord angle means tying on the tangent too, and
+// a ring of straight fragments alone can never open this door. Only a curved
+// fragment, whose chord lags its own tangent, can. Everywhere else — sampled
+// crossings, polygon corners, ellipse/spline vertices — chord ordering matches the
+// polyline geometry the face walk traverses, so exact tangents must NOT be used.
 func (a *arranger) useExactPorts(v int, ring []int) bool {
-	vx, vy := a.verts.coord(v)
-	certified := false
-	for _, p := range a.exactPortVerts {
-		if math.Hypot(p[0]-vx, p[1]-vy) <= a.merge {
-			certified = true
-			break
-		}
-	}
-	if !certified {
-		return false
-	}
 	for _, hi := range ring {
 		if !a.halfs[hi].exact {
 			return false
 		}
 	}
-	return true
+	vx, vy := a.verts.coord(v)
+	for _, p := range a.exactPortVerts {
+		if math.Hypot(p[0]-vx, p[1]-vy) <= a.merge {
+			return true
+		}
+	}
+	for i := 0; i < len(ring); i++ {
+		hi := &a.halfs[ring[i]]
+		for j := i + 1; j < len(ring); j++ {
+			hj := &a.halfs[ring[j]]
+			if hi.angle != hj.angle {
+				continue
+			}
+			// Same-ray test, the one sortExactPorts clusters with: a tie whose
+			// tangents are the same ray is a tie the tangents cannot break either.
+			dot := hi.tx*hj.tx + hi.ty*hj.ty
+			cr := hi.tx*hj.ty - hi.ty*hj.tx
+			if dot > 0 && math.Abs(cr) <= dirParallelEps*math.Hypot(hi.tx, hi.ty)*math.Hypot(hj.tx, hj.ty) {
+				continue
+			}
+			return true
+		}
+	}
+	return false
 }
 
 // internalCurvedTangency reports whether sources i and j are two circle/arc

@@ -689,8 +689,28 @@ the osculation flag, both of which compare directions by dot sign and scaled cro
 magnitude)
 instead of chord angle, so a **merged-vertex EXTERNAL circle/arc tangency** is now
 blessed as two clean disks (opposite curvature separates the loops) rather than
-flagged. Used ONLY at those certified contacts — at a sampled crossing vertex the
-edges are chords, so chord ordering is what matches the traversed geometry.
+flagged. A vertex reaches this ordering only when its WHOLE ring is exact, and then
+through one of two doors: a certified contact, or a ring where two chord departure
+angles are EQUAL as `float64` while their exact tangent rays genuinely differ. At a
+sampled crossing vertex the edges are chords, so chord ordering is what matches the
+traversed geometry, and neither door admits one.
+
+**The second door is what an arc fragment with no interior sample vertex needs.**
+Such a fragment emits ONE edge between its two graph vertices, so its chord IS a
+straight edge between the same two vertices and both depart at a bit-identical
+angle. The rotation sort's fallback is `sort.Slice` on that angle, which is unstable
+and cannot separate them; at one of the two vertices it orders the arc ahead of the
+chord where counter-clockwise order needs the reverse, the `next` pointers stop being
+a planar embedding, and the face walk returns one near-zero-area cycle over every
+half-edge instead of the faces. Every bounded region disappears with `Degenerate`
+false — `extract` has no postcondition on its own output, so nothing catches it.
+`TestArcSpanningOneChordKeepsItsFaces` and `TestSectorPairRegionsMatchEitherOrder`
+pin the two shapes it took. Requiring the tangents to DIFFER keeps the door narrow:
+a straight fragment's tangent is its chord direction, so a ring of straight fragments
+can never open it, and a coincident-carrier overlap or a duplicated line stays on
+chord order. A SAMPLED source is not covered, since the ring is not all-exact —
+there the arc edge genuinely is the chord, so a reorder would be wrong and the
+honest verdict is a degeneracy flag, which is tracked separately.
 
 ### Internal (containment) tangency
 
