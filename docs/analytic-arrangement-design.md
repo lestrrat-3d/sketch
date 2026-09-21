@@ -116,10 +116,31 @@ Same-component interior tangency is a **self-touch** → `SelfIntersections`, no
    angle, so a shared tangent vertex no longer branch-swaps. The increment-2 conservative `flagDegenerate` for a **merged-vertex
    EXTERNAL circle/arc tangency** is lifted: it is blessed as two clean disks at
    every sampling (opposite curvature sign separates the loops). **Load-bearing scope
-   rule:** exact ordering is used ONLY at the certified tangency contacts
-   (`exactPortVerts`), never at a sampled crossing vertex — there the edges are
-   *chords*, so chord ordering is what matches the polyline geometry the face walk
-   traverses; ordering those by exact tangents corrupts the map. Still `Degenerate`
+   rule:** exact ordering is used at a vertex whose whole ring is exact, and then
+   only through one of two doors — a certified tangency contact (`exactPortVerts`),
+   or a ring where two chord departure angles are EQUAL as `float64` while their
+   exact tangent rays genuinely differ. It is never used at a sampled crossing
+   vertex — there the edges are *chords*, so chord ordering is what matches the
+   polyline geometry the face walk traverses; ordering those by exact tangents
+   corrupts the map. The second door exists because an arc fragment reaching its two
+   graph vertices with no interior sample vertex between them emits an edge whose
+   chord IS a straight edge between the same two vertices: both depart at a
+   bit-identical angle, the unstable fallback sort cannot separate them, and the
+   face walk then loses every bounded face with nothing flagged. Requiring the
+   tangents to DIFFER is not on its own enough. The load-bearing part is that a
+   STRAIGHT port is keyed by the chord it EMITS rather than by `portKey`'s authored
+   source direction, since welding can move a fragment's ends so those differ, and
+   once a ring is sorted exactly every straight port in it is sorted that way — so
+   gating which ties may open the door never protected the straight ports inside an
+   open one. The door also requires at least one of the tied pair to be CURVED. Two straight fragments emitting one chord are
+   the same segment in the traversed map, and their source tangents describe where
+   each LINE would run rather than what the face walk walks, so ordering by them
+   corrupts the map — the very failure this scope rule exists to prevent. Welding is
+   what makes that reachable: it moves a fragment's endpoints onto other vertices, so
+   a straight fragment's emitted chord stops matching its own source direction and
+   two near-parallel lines can emit one identical chord with differing tangents. A
+   curved fragment is the opposite case, since its chord is a secant of a curve that
+   departs along another ray, so the tangent carries what the chord lost. Still `Degenerate`
    (deferred): line-involved merged tangency and a genuine **osculation** (equal
    tangent AND equal curvature). **Internal/containment** tangency is blessed by §7a's
    exact containment, and curve/curve transverse **crossing** authority by §7b's
@@ -480,10 +501,13 @@ depart in four genuinely different chord directions (a `evCross` is a simple
 root, not a double one), so at ANY sampling density the four chord angles at
 the crossing vertex already order correctly — this is exactly why the sampled
 path resolves curve/curve crossings correctly today, with no analytic help at
-all. `useExactPorts` (`geom/arrange.go`) already encodes this scope:
-it applies exact tangent ordering only at a vertex in `exactPortVerts`, which
-`analyticPrepass` populates *only* for a certified tangency contact (its lone
-`a.exactPortVerts = append(…)` site) — never for a crossing. So the "full port
+all. `useExactPorts` (`geom/arrange.go`) already encodes this scope: a crossing
+vertex is never admitted by the `exactPortVerts` door, which `analyticPrepass`
+populates *only* for a certified tangency contact (its lone
+`a.exactPortVerts = append(…)` site). The second door admits only a ring holding
+two bit-identical chord angles whose tangents differ, which a transverse crossing
+does not produce — its four chord angles already order correctly, as this section
+says. So the "full port
 order at every event vertex" clause of the increment-3 certificate was written before
 the tangency/crossing distinction was drawn this finely; a crossing vertex
 never needed it, and nothing here proposes adding it.

@@ -3204,29 +3204,76 @@ func (a *arranger) sortExactPorts(v int, ring []int) {
 }
 
 // useExactPorts reports whether vertex v should be ordered by exact tangent ports
-// rather than chord direction: only at a certified analytic tangency contact (where
-// chord directions tie and would branch-swap) AND only if every incident half-edge
-// is an exact line/circle/arc fragment. Everywhere else — sampled crossings, polygon
-// corners, ellipse/spline vertices — chord ordering matches the polyline geometry
-// the face walk actually traverses, so exact tangents must NOT be used there.
+// rather than chord direction. Every incident half-edge must be an exact
+// line/circle/arc fragment, and one of two things must hold:
+//
+//   - the vertex is a certified analytic tangency contact (exactPortVerts), where
+//     the chord directions tie because the contact is a double root; or
+//   - two of the ring's chord departure angles are EQUAL as float64 while their
+//     exact tangent rays genuinely differ.
+//
+// The second door is what an arc fragment spanning two graph vertices with no
+// interior sample vertex between them needs: its emitted edge IS the chord between
+// those vertices, so a straight edge between the same two vertices departs at a
+// bit-identical angle. The rotation sort's fallback is sort.Slice on that angle,
+// which is unstable and cannot separate them, and at one of the two vertices it
+// orders the arc ahead of the chord where counter-clockwise order needs the
+// reverse — the next pointers are then not a planar embedding and the face walk
+// loses every bounded face. The tangents answer it: 1.5708 for the arc against
+// 1.5795 for the chord, with signed curvature 1 against 0.
+//
+// It is deliberately narrow. A tie whose tangent rays AGREE is left on chord
+// order, so two collinear straight fragments — a coincident-carrier overlap, a
+// duplicated line — are untouched: for a straight fragment the tangent IS the
+// chord direction, so tying on the chord angle means tying on the tangent too, and
+// a ring of straight fragments alone can never open this door. Only a curved
+// fragment, whose chord lags its own tangent, can. Everywhere else — sampled
+// crossings, polygon corners, ellipse/spline vertices — chord ordering matches the
+// polyline geometry the face walk traverses, so exact tangents must NOT be used.
 func (a *arranger) useExactPorts(v int, ring []int) bool {
-	vx, vy := a.verts.coord(v)
-	certified := false
-	for _, p := range a.exactPortVerts {
-		if math.Hypot(p[0]-vx, p[1]-vy) <= a.merge {
-			certified = true
-			break
-		}
-	}
-	if !certified {
-		return false
-	}
 	for _, hi := range ring {
 		if !a.halfs[hi].exact {
 			return false
 		}
 	}
-	return true
+	vx, vy := a.verts.coord(v)
+	for _, p := range a.exactPortVerts {
+		if math.Hypot(p[0]-vx, p[1]-vy) <= a.merge {
+			return true
+		}
+	}
+	for i := 0; i < len(ring); i++ {
+		hi := &a.halfs[ring[i]]
+		for j := i + 1; j < len(ring); j++ {
+			hj := &a.halfs[ring[j]]
+			if hi.angle != hj.angle {
+				continue
+			}
+			// At least one of the pair must be CURVED. Two straight fragments that
+			// emit the same chord are the same segment in the traversed map, so
+			// their source tangents describe where each LINE would run, not what
+			// the face walk walks — ordering by them corrupts the map, which is
+			// exactly what the scope rule warns of. Welding is what makes this
+			// reachable: it moves a fragment's endpoints onto other vertices, so a
+			// straight fragment's emitted chord stops matching its own source
+			// direction and two near-parallel lines can emit one identical chord.
+			// A curved fragment is the opposite case: its chord is a secant of a
+			// curve that departs along a different ray, so the tangent carries the
+			// geometry the chord has lost.
+			if hi.kappa == 0 && hj.kappa == 0 {
+				continue
+			}
+			// Same-ray test, the one sortExactPorts clusters with: a tie whose
+			// tangents are the same ray is a tie the tangents cannot break either.
+			dot := hi.tx*hj.tx + hi.ty*hj.ty
+			cr := hi.tx*hj.ty - hi.ty*hj.tx
+			if dot > 0 && math.Abs(cr) <= dirParallelEps*math.Hypot(hi.tx, hi.ty)*math.Hypot(hj.tx, hj.ty) {
+				continue
+			}
+			return true
+		}
+	}
+	return false
 }
 
 // internalCurvedTangency reports whether sources i and j are two circle/arc
@@ -3257,6 +3304,56 @@ func (a *arranger) externalCurvedTangency(i, j int) bool {
 	return d > math.Max(si.r, sj.r)
 }
 
+// curvedPortDir gives a CURVED fragment's departure ray as the direction from the
+// graph vertex (vx, vy) to the fragment's own parametric midpoint. dir selects which
+// end departs: +1 leaves e.u, -1 leaves e.v.
+//
+// portKey's exact tangent is taken at the PARAMETRIC endpoint, and welding moves the
+// graph vertex off that point — so for a fragment short enough that the weld
+// displacement is comparable to its own chord, the tangent lands on the wrong side of
+// the chord it shares with a straight edge and the ring sorts backwards. The
+// threshold is arithmetic rather than incidental: a fragment of chord length L on
+// radius r, welded by d, crosses over once L < sqrt(2*r*d), so ordinary scenes reach
+// it. Aiming from the VERTEX at a point the walk genuinely reaches keeps the ray on
+// the correct side, and it is the same principle as keying a straight port by its
+// emitted chord: use a direction the walk traverses, never one the source asserts
+// about a point the walk no longer visits.
+//
+// The midpoint needs no bound. Both ends of an edge aim at the SAME point from
+// opposite sides, so their rays are mirrored by construction whatever the weld, and
+// splitFragments emits at most one edge per sampler step, so an edge can never span
+// a whole closed curve — the degenerate case of a circle cut once, whose midpoint is
+// the antipode and would hand both half-edges one ray, is not reachable.
+// certifiedPortVertex reports whether (vx, vy) is a certified analytic tangency
+// contact — the FIRST of useExactPorts' two doors. Ordering there rests on the
+// incident exact tangents being one ray, so a port at such a vertex keeps portKey's
+// tangent rather than a vertex-anchored ray.
+func (a *arranger) certifiedPortVertex(vx, vy float64) bool {
+	for _, p := range a.exactPortVerts {
+		if math.Hypot(p[0]-vx, p[1]-vy) <= a.merge {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *arranger) curvedPortDir(e arrEdge, vx, vy float64) (float64, float64, bool) {
+	s := &a.sources[e.src]
+	if !isCurvedKind(s.kind) {
+		return 0, 0, false
+	}
+	span := e.pv - e.pu
+	if span == 0 {
+		return 0, 0, false
+	}
+	p := s.at(e.pu + 0.5*span)
+	dx, dy := p[0]-vx, p[1]-vy
+	if dx == 0 && dy == 0 {
+		return 0, 0, false
+	}
+	return dx, dy, true
+}
+
 // buildGraph wires the doubly-connected edge list: two half-edges per edge, the
 // rotation system at each vertex, and the next pointers (face on the left).
 func (a *arranger) buildGraph() {
@@ -3269,6 +3366,41 @@ func (a *arranger) buildGraph() {
 		// the rotation system correctly even where chord directions tie (a tangency).
 		ftx, fty, fka, fok := a.portKey(e.src, e.pu, +1)
 		btx, bty, bka, bok := a.portKey(e.src, e.pv, -1)
+		// A STRAIGHT fragment is keyed by the chord it actually emits, never by its
+		// source direction. portKey answers a srcLine with the AUTHORED endpoint
+		// delta, and welding moves a fragment's ends onto other vertices, so that
+		// delta can name a ray the face walk never traverses. Ordering a welded line
+		// by it puts edges in an order the map does not hold, which merges or drops
+		// faces — and a curved member in the same ring does not protect it, since
+		// once the ring is sorted exactly EVERY straight port is sorted that way.
+		// For a line the emitted chord IS the traversed geometry, so it is the
+		// honest key, and where nothing welded it is the same ray as before.
+		//
+		// A CURVED fragment is re-keyed the same way by curvedPortDir, but ONLY at a
+		// vertex that is not a certified tangency contact. At a certified contact the
+		// ordering depends on all the incident tangents being ONE ray so
+		// sortExactPorts can cluster them and separate the loops by curvature;
+		// midpoint rays do not tie, the cluster breaks, and an inner tangent arc
+		// sorts to the wrong side — an outer circle with an inner tangent arc
+		// published no regions at all before this was scoped. So the first door keeps
+		// portKey's exact tangent and only the second door gets the vertex-anchored
+		// ray, which is exactly where welding can have moved the vertex off the
+		// parametric endpoint.
+		if a.sources[e.src].kind == srcLine {
+			ftx, fty = vx-ux, vy-uy
+			btx, bty = ux-vx, uy-vy
+		} else {
+			if !a.certifiedPortVertex(ux, uy) {
+				if dx, dy, ok := a.curvedPortDir(e, ux, uy); ok {
+					ftx, fty = dx, dy
+				}
+			}
+			if !a.certifiedPortVertex(vx, vy) {
+				if dx, dy, ok := a.curvedPortDir(e, vx, vy); ok {
+					btx, bty = dx, dy
+				}
+			}
+		}
 		a.halfs = append(a.halfs, halfEdge{from: e.u, to: e.v, edge: ei, forward: true, angle: math.Atan2(vy-uy, vx-ux), tx: ftx, ty: fty, kappa: fka, exact: fok, next: -1})
 		a.halfs = append(a.halfs, halfEdge{from: e.v, to: e.u, edge: ei, forward: false, angle: math.Atan2(uy-vy, ux-vx), tx: btx, ty: bty, kappa: bka, exact: bok, next: -1})
 	}

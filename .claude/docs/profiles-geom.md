@@ -689,8 +689,94 @@ the osculation flag, both of which compare directions by dot sign and scaled cro
 magnitude)
 instead of chord angle, so a **merged-vertex EXTERNAL circle/arc tangency** is now
 blessed as two clean disks (opposite curvature separates the loops) rather than
-flagged. Used ONLY at those certified contacts — at a sampled crossing vertex the
-edges are chords, so chord ordering is what matches the traversed geometry.
+flagged. A vertex reaches this ordering only when its WHOLE ring is exact, and then
+through one of two doors: a certified contact, or a ring where two chord departure
+angles are EQUAL as `float64` while their exact tangent rays genuinely differ. At a
+sampled crossing vertex the edges are chords, so chord ordering is what matches the
+traversed geometry, and neither door admits one.
+
+**The second door is what an arc fragment with no interior sample vertex needs.**
+Such a fragment emits ONE edge between its two graph vertices, so its chord IS a
+straight edge between the same two vertices and both depart at a bit-identical
+angle. The rotation sort's fallback is `sort.Slice` on that angle, which is unstable
+and cannot separate them; at one of the two vertices it orders the arc ahead of the
+chord where counter-clockwise order needs the reverse, the `next` pointers stop being
+a planar embedding, and the face walk returns one near-zero-area cycle over every
+half-edge instead of the faces. Every bounded region disappears with `Degenerate`
+false — `extract` has no postcondition on its own output, so nothing catches it.
+`TestArcSpanningOneChordKeepsItsFaces` and `TestSectorPairRegionsMatchEitherOrder`
+pin the two shapes it took.
+
+**A STRAIGHT port is keyed by the chord it EMITS, never by its source direction, and
+that — not the door's gate — is what makes exact ordering safe.** `portKey` answers a
+`srcLine` with the authored endpoint delta, and welding moves a fragment's ends onto
+other vertices, so that delta can name a ray the face walk never traverses. Once a
+ring is sorted exactly, EVERY straight port in it is sorted that way, so gating which
+ties may OPEN the door never protected the straight ports inside an already-open one.
+Two rounds of review found faces lost that way: first a rectangle collapsing to no
+region at all, then a mixed tie of one arc and one welded line losing a `1.33e-12`
+face while keeping its neighbour. Both are pinned in `geom/arrange_chordtie_test.go`.
+**A CURVED port is keyed the same way, by a direction anchored at its graph vertex.**
+`portKey`'s exact tangent is taken at the PARAMETRIC endpoint, and welding moves the
+vertex off that point, so the tangent describes a departure from somewhere the walk
+no longer visits. The failure has a threshold rather than being incidental: a fragment
+of chord length `L` on radius `r`, welded by `d`, crosses to the wrong side of the
+chord it shares once `L < sqrt(2*r*d)`. `curvedPortDir` therefore aims from the vertex
+at the fragment's own parametric midpoint. That needs no bound: both ends of an edge
+aim at the SAME point from opposite sides, so their rays are mirrored however the
+weld moved them, and `splitFragments` emits at most one edge per sampler step, so an
+edge can never span a whole closed curve — a circle cut once, whose midpoint would be
+the antipode, is not reachable.
+
+**The re-key applies at the SECOND door only.** At a certified tangency contact the
+ordering rests on every incident exact tangent being ONE ray, so `sortExactPorts` can
+cluster them and separate the loops by signed curvature. Midpoint rays do not tie, the
+cluster breaks, and an inner tangent arc sorts to the wrong side — an outer circle
+with an inner tangent arc published NO regions at all, unflagged, until this was
+scoped. Certified contacts keep `portKey`'s tangent, and only the second door, which
+is exactly where welding can have moved a vertex off the parametric endpoint, gets the
+vertex-anchored ray. `TestInnerTangentArcKeepsBothFaces` pins it.
+`TestWeldedArcPortKeepsTheLargeFace` pins a unit-scale scene from a review sweep where
+keying only the straight ports dropped a `1.689` face and kept a `1.09e-05` sliver,
+unflagged.
+
+One consequence is deliberate and worth expecting. Two straight ports that emit ONE
+chord now carry the same tangent ray and equal (zero) curvature, so
+`sortExactPorts`' osculation check sees them as adjacent same-ray ports with
+indistinguishable curvature and flags the pair — attributed to both sources, since it
+passes both. That is the coincident-emitted-edge condition being reported rather than
+a new false positive: on a 3000-scene sweep of a box plus welded near-parallel lines,
+154 scenes became `Degenerate` that were not before, all of them scenes where two
+sources genuinely emit one chord. An ordinary scene is unaffected — a 4000-scene
+line/arc/circle sweep with no forced welding is bit-identical to before.
+
+**The door additionally requires at least one of the tied pair to be CURVED.** Two STRAIGHT fragments that emit one chord are the same segment in the
+traversed map, so their source tangents say where each line would run rather than
+what the face walk walks, and ordering by them corrupts the map — the failure the
+scope rule exists to prevent. WELDING is what makes that reachable: it moves a
+fragment's endpoints onto other vertices, so a straight fragment's emitted chord stops
+matching its own source direction, and two near-parallel lines welded to the same
+corners emit one identical chord while keeping different source tangents. Without the
+curvature requirement, a 10x10 rectangle plus two such lines at `WithVertexMerge(0.002)`
+published 0 regions where main published one of area `100.00053587936401` — the same
+collapse this section describes, caused by the repair for it. A curved fragment is the
+opposite case: its chord is a secant of a curve departing along another ray, so the
+tangent carries the geometry the chord lost.
+**A DOUBLED straight pair welded at both ends is still answered wrongly, and this
+change does not repair it.** Two lines between the same two vertices, separated by
+less than the merge distance, are one edge to the map and two to the sources. When an
+arc tie opens the exact door at one of those vertices, the pair is mis-sorted at both
+of its ends. Measured on the adjudicator's scene B (truth 4 faces) and scene C (truth
+6), over 9 input orders each: base publishes 1 and 1, and this change publishes 3 and
+5. Both are wrong; this change is closer and, unlike the intermediate version that
+gated on curvature alone, gives the same answer in every order rather than 4 in seven
+orders and 3 in two. Reaching the truth needs the map to stop holding two edges where
+the geometry has one, which is a separate repair — a coincident-emitted-edge check in
+`buildGraph`, tracked as its own follow-up.
+
+A SAMPLED source is not covered, since the ring is not all-exact —
+there the arc edge genuinely is the chord, so a reorder would be wrong and the
+honest verdict is a degeneracy flag, which is tracked separately.
 
 ### Internal (containment) tangency
 
