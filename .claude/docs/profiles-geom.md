@@ -16,6 +16,7 @@ Detail moved out of CLAUDE.md. Read before touching `Sketch.Profiles`, `Boundary
 | Which crossings are analytic? | Analytic crossing detection |
 | Why was a clean crossing refused? | Curve/curve transverse crossing authority |
 | Why is a region flagged degenerate? | Chord-deviation degeneracy bounds |
+| Why did a huge but finite scene read degenerate, or publish `Area=+Inf`? | The magnitude screen |
 | Two curves lying on the same carrier? | Coincident-carrier overlap resolution |
 | Why did one drawing publish different regions in a different authoring order? | The canonical weld order |
 | What do `geom`'s constructors validate? | `geom` constructors are value holders |
@@ -389,8 +390,11 @@ each screened by `splineExtent`, the bounding-box DIAGONAL over that source's
 whole defining point set, against the same absolute `1e-9`, since the scene
 scale is not known until `densify` has run, and each recording an UNATTRIBUTABLE
 degeneracy, because the curve is dropped before it can form an edge; an arc or
-elliptical arc with `Start == End` is NOT this case, it sweeps a full turn), and
-`densify`'s `finitePt` as the last net over every evaluated sample (see below).
+elliptical arc with `Start == End` is NOT this case, it sweeps a full turn),
+`densify`'s `finitePt` as the last net over every evaluated sample (see below),
+and past it the MAGNITUDE screen over what is computed FROM finite samples — the
+scene extent, the area floor, every cycle area and every chain `Length` (see
+"The magnitude screen" below).
 
 That extent is measured over the SET, never as each point's distance from the
 first. A conic whose apex and end straddle its start by `0.9e-9` each has both
@@ -463,6 +467,52 @@ points, so by the time `densify` samples it there is no non-finite value left
 to catch. `fitSplineCoords` therefore screens every raw fit point for
 finiteness itself, the same place it already screens for a nil point, closing
 the gap before `newFitEvaluator` ever runs.
+
+### The magnitude screen
+
+**Finite samples can still overflow what is computed from them, and `finitePt`
+never sees that**: every input coordinate finite, and an accumulated area,
+length or scene extent past float64. Three sites past `finitePt` flag it, each
+as an UNATTRIBUTABLE degeneracy (`flagDegenerate(0, 0)`, so by `degenReaches` it
+reaches every region and every chain — the magnitude is a property of the scene,
+not of one curve). `densify` flags a scene extent that is `+Inf`; since a dropped
+source never reaches the bounding box, that can only be a finite scene whose
+extent overflowed, and the merge tolerance, the identity bands and the area
+floor are all multiples of it, so it also withholds exact bounds scene-wide and
+KEEPS the substitute scale of 1 so the later passes have a finite number to work
+with. `extract` flags an area floor `epsArea = scale²·1e-12` that is `+Inf` — past
+a scene extent of about `1.34e154` every cycle failed both classification
+comparisons and was DROPPED with no flag, so a `2e154 × 1e150` rectangle whose
+`2e304` area is finite and real published ZERO regions with `Degenerate=false` —
+and flags any cycle whose area is NaN or infinite, which a finite floor admits as
+a face with `Area=+Inf`. `walkChain` flags a chain whose accumulated `Length` is
+non-finite (a `(0,0)→(1.7e308,1.7e308)` line overflows inside `fragLength`'s
+hypot with the scene extent still FINITE, so a screen keyed on the scale alone
+misses it), and `extract` re-stamps `Arrangement.Degenerate`, every
+`Region.Degenerate` and every `Chain.Degenerate` after `buildChains` when the
+walk raised one, since it stamps the regions before the chain pass runs. That
+chain site is defence in depth: a length past float64 needs an extent past the
+floor band, so one of the first two sites has already flagged the scene, and it
+is stated where `Length` is computed so the invariant does not rest on those two.
+Classification is untouched — the screen sets flags and nothing else, so an
+infinite-area cycle is still published as a face, flagged, rather than dropped.
+
+**The accepted cost is the floor band itself**: a scene whose extent exceeds
+about `1.34e154` reads degenerate even where its own published magnitudes are
+finite — two lines at `8e307` publish `Length=1.6e308` with `Degenerate=true`.
+Computing the floor as `(scale·1e-6)²` would push that band out six decades, to
+about `1.34e160`, and was NOT taken: `segParams` decides every sampled contact on
+`d1x·d2y − d1y·d2x`, a product of two chord lengths that overflows at the same
+`scale²` band, so the arrangement is not trustworthy past it either way and the
+narrower band would bless scenes whose crossing arithmetic had already gone
+non-finite. Pinned by `TestRegionsOverflowedExtentIsDegenerate`,
+`TestRegionsOverflowedAreaFloorIsDegenerate` and
+`TestChainsOverflowedLengthIsDegenerate` (`geom`, the last also pinning the
+accepted cost), and at the sketch layer by `TestProfilesNonFiniteMagnitudeIsInvalid`
+and `TestChainsOverflowedLengthIsInvalid` (`ProfilesValid=false`,
+`ErrInvalidProfile`, never `ErrNonFiniteGeometry` — the geometry IS finite); the
+control `TestRegionsLargeFiniteSceneIsUnchanged` holds a `1e154` triangle and a
+`1e154 × 1e150` rectangle at their finite areas with no flag.
 
 ### The broad-phase reach (`intersect`'s pair enumeration)
 

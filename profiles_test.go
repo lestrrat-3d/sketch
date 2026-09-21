@@ -467,3 +467,72 @@ func TestProfilesHiddenCrossingIsInvalid(t *testing.T) {
 	require.False(t, rep.Trustworthy())
 	require.ErrorIs(t, rep.Check(), sketch.ErrInvalidProfile)
 }
+
+// TestProfilesNonFiniteMagnitudeIsInvalid is the sketch-level face of the
+// arrangement's magnitude screens (geom/arrange.go): every authored coordinate is
+// finite, so the non-finite geometry scan has nothing to report and Verify runs
+// its analysis — and before the screens it then blessed a profile whose Area is
+// +Inf, and a scene whose real region had been dropped, with ProfilesValid true
+// and no reason in Check. The finding is reported as an invalid profile set, the
+// existing shape for an arrangement condition, never as ErrNonFiniteGeometry.
+func TestProfilesNonFiniteMagnitudeIsInvalid(t *testing.T) {
+	polygon := func(s *sketch.Sketch, corners ...[2]float64) {
+		pts := make([]*sketch.Point, len(corners))
+		for i, c := range corners {
+			pts[i] = s.CreatePoint(c[0], c[1])
+		}
+		for i := range pts {
+			s.CreateLine(pts[i], pts[(i+1)%len(pts)])
+		}
+	}
+
+	t.Run("overflowed area", func(t *testing.T) {
+		s := newSketch(t)
+		polygon(s, [2]float64{1e308, 0}, [2]float64{0, 1}, [2]float64{-1e308, 0}, [2]float64{0, -1})
+
+		profiles := s.Profiles()
+		require.Len(t, profiles, 1, "the diamond is still published")
+		require.True(t, math.IsInf(profiles[0].Area, 1), "area %v", profiles[0].Area)
+		require.False(t, profiles[0].Valid, "an infinite area is not a profile")
+		require.False(t, profiles[0].SelfIntersecting)
+
+		rep := s.Verify(t.Context())
+		require.True(t, rep.Analysed(), "every coordinate is finite, so the analysis runs")
+		require.Empty(t, rep.NonFinitePoints)
+		require.False(t, rep.ProfilesValid)
+		require.Len(t, rep.InvalidProfiles, 1)
+		require.False(t, rep.Trustworthy())
+		require.ErrorIs(t, rep.Check(), sketch.ErrInvalidProfile)
+		require.NotErrorIs(t, rep.Check(), sketch.ErrNonFiniteGeometry, "the geometry itself is finite")
+	})
+
+	t.Run("uncomputable area floor", func(t *testing.T) {
+		s := newSketch(t)
+		polygon(s, [2]float64{0, 0}, [2]float64{1e155, 0}, [2]float64{0, 1e155})
+
+		require.Empty(t, s.Profiles(), "no region clears an infinite floor")
+
+		rep := s.Verify(t.Context())
+		require.True(t, rep.Analysed())
+		require.False(t, rep.ProfilesValid, "the arrangement-wide flag reports what produced no region")
+		require.Empty(t, rep.InvalidProfiles)
+		require.False(t, rep.Trustworthy())
+		require.ErrorIs(t, rep.Check(), sketch.ErrInvalidProfile)
+		require.NotErrorIs(t, rep.Check(), sketch.ErrNonFiniteGeometry)
+	})
+
+	t.Run("large finite control", func(t *testing.T) {
+		s := newSketch(t)
+		polygon(s, [2]float64{0, 0}, [2]float64{1e154, 0}, [2]float64{0, 1e154})
+
+		profiles := s.Profiles()
+		require.Len(t, profiles, 1)
+		require.InEpsilon(t, 5e307, profiles[0].Area, 1e-12)
+		require.True(t, profiles[0].Valid, "a finite scene one decade below the band is unchanged")
+
+		rep := s.Verify(t.Context())
+		require.True(t, rep.ProfilesValid)
+		require.Empty(t, rep.InvalidProfiles)
+		require.NotErrorIs(t, rep.Check(), sketch.ErrInvalidProfile)
+	})
+}

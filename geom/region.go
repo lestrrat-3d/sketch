@@ -273,9 +273,13 @@ type Arrangement struct {
 	// too close to a vertex or another crossing to place reliably given the
 	// sampling, or a free-form near miss — two curves approaching within the
 	// proven chord-deviation bounds of their own samples, so a crossing hidden
-	// between two samples, never placed at all, cannot be ruled out. The region
-	// set is then not trustworthy and a caller (the oracle) must treat the
-	// profiles as unverifiable rather than valid.
+	// between two samples, never placed at all, cannot be ruled out. It is also
+	// set when a magnitude the arrangement publishes or depends on is not finite
+	// although every input coordinate is: a scene extent, a region's Area or a
+	// chain's Length that overflowed float64, or a scene so large that the area
+	// floor a region must clear could not be computed (an extent past about
+	// 1.34e154). The region set is then not trustworthy and a caller (the
+	// oracle) must treat the profiles as unverifiable rather than valid.
 	Degenerate bool
 	// Degeneracies lists representative points of the degenerate conditions.
 	Degeneracies [][2]float64

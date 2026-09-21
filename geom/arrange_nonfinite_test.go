@@ -166,3 +166,94 @@ func TestFiniteFitSplineCrossingSquareGivesTwoRegions(t *testing.T) {
 	require.InDelta(t, 85.78, areas[1], 0.01, "the larger region, spanning the rest of the square")
 	require.InDelta(t, 100, total, 1e-6, "areas still sum exactly to the whole square")
 }
+
+// polygonLines closes the given corners into a loop of lines sharing their
+// corner points.
+func polygonLines(corners ...[2]float64) []geom.Curve {
+	pts := make([]*geom.Point, len(corners))
+	for i, c := range corners {
+		pts[i] = geom.NewPoint(c[0], c[1])
+	}
+	out := make([]geom.Curve, 0, len(pts))
+	for i := range pts {
+		out = append(out, geom.NewLine(pts[i], pts[(i+1)%len(pts)]))
+	}
+	return out
+}
+
+// TestRegionsOverflowedExtentIsDegenerate pins the first magnitude screen: every
+// coordinate of this diamond is finite, but its bounding-box extent (2e308)
+// overflows float64, so the scene scale — which the merge tolerance, the
+// identity bands and the area floor are all multiples of — is not a
+// measurement. Before the screen the reset to 1 silently stood in for it, the
+// floor collapsed to 1e-12, and the region was published with Area=+Inf,
+// Degenerate=false and exact bounds on every edge.
+func TestRegionsOverflowedExtentIsDegenerate(t *testing.T) {
+	arr := geom.Regions(polygonLines(
+		[2]float64{1e308, 0}, [2]float64{0, 1}, [2]float64{-1e308, 0}, [2]float64{0, -1}), nil)
+	require.True(t, arr.Degenerate, "an overflowed scene extent must flag the arrangement")
+	require.Len(t, arr.Regions, 1, "the region is still published, flagged rather than dropped")
+	r := arr.Regions[0]
+	require.True(t, math.IsInf(r.Area, 1), "area %v", r.Area)
+	require.True(t, r.Degenerate, "the condition is unattributable, so it reaches the region")
+	require.False(t, r.SelfIntersecting, "it is the magnitude, not the boundary")
+	for i, e := range r.Outer {
+		require.False(t, e.TExact, "edge %d: exact bounds are withheld with the scale", i)
+	}
+}
+
+// TestRegionsOverflowedAreaFloorIsDegenerate pins the second magnitude screen:
+// a scene whose extent is finite but past about 1.34e154, where the sliver
+// floor scale²·1e-12 overflows to +Inf and every cycle fails both classification
+// comparisons. Before the screen both scenes published ZERO regions with
+// Degenerate=false — the triangle's area is itself infinite, but the thin
+// rectangle's (2e304) is finite and far above any floor, so it was a real region
+// dropped with no flag at all.
+func TestRegionsOverflowedAreaFloorIsDegenerate(t *testing.T) {
+	tests := []struct {
+		name   string
+		curves []geom.Curve
+	}{
+		{"triangle at 1e155", polygonLines([2]float64{0, 0}, [2]float64{1e155, 0}, [2]float64{0, 1e155})},
+		{"rectangle 2e154 by 1e150", polygonLines(
+			[2]float64{0, 0}, [2]float64{2e154, 0}, [2]float64{2e154, 1e150}, [2]float64{0, 1e150})},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			arr := geom.Regions(tt.curves, nil)
+			require.True(t, arr.Degenerate, "an uncomputable area floor must flag the arrangement")
+			require.Empty(t, arr.Regions, "no cycle can clear an infinite floor; the flag is what reports it")
+		})
+	}
+}
+
+// TestRegionsLargeFiniteSceneIsUnchanged is the control for both screens above:
+// one decade below the floor band, a 1e154 triangle and a 1e154-by-1e150
+// rectangle publish their finite areas exactly as before, with no flag. The
+// screens report a magnitude that is NOT finite; they do not narrow what a
+// finite scene may measure.
+func TestRegionsLargeFiniteSceneIsUnchanged(t *testing.T) {
+	tests := []struct {
+		name   string
+		curves []geom.Curve
+		area   float64
+	}{
+		{"triangle at 1e154", polygonLines([2]float64{0, 0}, [2]float64{1e154, 0}, [2]float64{0, 1e154}), 5e307},
+		{"rectangle 1e154 by 1e150", polygonLines(
+			[2]float64{0, 0}, [2]float64{1e154, 0}, [2]float64{1e154, 1e150}, [2]float64{0, 1e150}), 1e304},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			arr := geom.Regions(tt.curves, nil)
+			require.False(t, arr.Degenerate)
+			require.Empty(t, arr.Degeneracies)
+			require.Len(t, arr.Regions, 1)
+			r := arr.Regions[0]
+			require.InEpsilon(t, tt.area, r.Area, 1e-12)
+			require.False(t, r.Degenerate)
+			for i, e := range r.Outer {
+				require.True(t, e.TExact, "edge %d: an all-line scene keeps its exact bounds", i)
+			}
+		})
+	}
+}
