@@ -719,6 +719,16 @@ face while keeping its neighbour. Both are pinned in `geom/arrange_chordtie_test
 A curved port keeps its exact tangent, since its chord is a secant of a curve
 departing along another ray.
 
+One consequence is deliberate and worth expecting. Two straight ports that emit ONE
+chord now carry the same tangent ray and equal (zero) curvature, so
+`sortExactPorts`' osculation check sees them as adjacent same-ray ports with
+indistinguishable curvature and flags the pair — attributed to both sources, since it
+passes both. That is the coincident-emitted-edge condition being reported rather than
+a new false positive: on a 3000-scene sweep of a box plus welded near-parallel lines,
+154 scenes became `Degenerate` that were not before, all of them scenes where two
+sources genuinely emit one chord. An ordinary scene is unaffected — a 4000-scene
+line/arc/circle sweep with no forced welding is bit-identical to before.
+
 **The door additionally requires at least one of the tied pair to be CURVED.** Two STRAIGHT fragments that emit one chord are the same segment in the
 traversed map, so their source tangents say where each line would run rather than
 what the face walk walks, and ordering by them corrupts the map — the failure the
@@ -731,6 +741,18 @@ published 0 regions where main published one of area `100.00053587936401` — th
 collapse this section describes, caused by the repair for it. A curved fragment is the
 opposite case: its chord is a secant of a curve departing along another ray, so the
 tangent carries the geometry the chord lost.
+**A DOUBLED straight pair welded at both ends is still answered wrongly, and this
+change does not repair it.** Two lines between the same two vertices, separated by
+less than the merge distance, are one edge to the map and two to the sources. When an
+arc tie opens the exact door at one of those vertices, the pair is mis-sorted at both
+of its ends. Measured on the adjudicator's scene B (truth 4 faces) and scene C (truth
+6), over 9 input orders each: base publishes 1 and 1, and this change publishes 3 and
+5. Both are wrong; this change is closer and, unlike the intermediate version that
+gated on curvature alone, gives the same answer in every order rather than 4 in seven
+orders and 3 in two. Reaching the truth needs the map to stop holding two edges where
+the geometry has one, which is a separate repair — a coincident-emitted-edge check in
+`buildGraph`, tracked as its own follow-up.
+
 A SAMPLED source is not covered, since the ring is not all-exact —
 there the arc edge genuinely is the chord, so a reorder would be wrong and the
 honest verdict is a degeneracy flag, which is tracked separately.
