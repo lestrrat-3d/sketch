@@ -91,6 +91,14 @@ func TestSectorPairRegionsMatchEitherOrder(t *testing.T) {
 //
 // Requiring at least one of a tied pair to be CURVED is what closes it, so this test
 // fails if the curvature requirement is ever dropped.
+//
+// What it pins is the LOSS, not a correct answer for this scene. The base itself is
+// order-dependent here — over 12 input orders it returns one region in 4 and none in
+// 8 — and the scene holds two pairs of edges that are emitted coincident with nothing
+// flagging them, so one region is not established as right either. The assertion
+// therefore fixes one order of a scene the engine cannot yet answer consistently;
+// that underlying gap is tracked separately, and a coincident-emitted-edge check in
+// buildGraph is its root fix.
 func TestWeldedParallelLinesKeepTheirRegion(t *testing.T) {
 	p := geom.NewPoint
 	curves := []geom.Curve{
