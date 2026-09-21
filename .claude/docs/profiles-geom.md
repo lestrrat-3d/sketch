@@ -18,6 +18,7 @@ Detail moved out of CLAUDE.md. Read before touching `Sketch.Profiles`, `Boundary
 | Why is a region flagged degenerate? | Chord-deviation degeneracy bounds |
 | Why did a huge but finite scene read degenerate, or publish `Area=+Inf`? | The magnitude screen |
 | Two curves lying on the same carrier? | Coincident-carrier overlap resolution |
+| Two sources emitting ONE edge between the same two vertices? | The coincident-emitted-edge check (`coincidentEdges`) |
 | Why did one drawing publish different regions in a different authoring order? | The canonical weld order |
 | What do `geom`'s constructors validate? | `geom` constructors are value holders |
 | Which segment pairs does `intersect` even look at? | The broad-phase reach (`intersect`'s pair enumeration) |
@@ -771,12 +772,90 @@ of its ends. Measured on the adjudicator's scene B (truth 4 faces) and scene C (
 5. Both are wrong; this change is closer and, unlike the intermediate version that
 gated on curvature alone, gives the same answer in every order rather than 4 in seven
 orders and 3 in two. Reaching the truth needs the map to stop holding two edges where
-the geometry has one, which is a separate repair — a coincident-emitted-edge check in
-`buildGraph`, tracked as its own follow-up.
+the geometry has one, which is a separate repair. What reports the condition
+meanwhile is `coincidentEdges`, the next section.
 
 A SAMPLED source is not covered, since the ring is not all-exact —
 there the arc edge genuinely is the chord, so a reorder would be wrong and the
 honest verdict is a degeneracy flag, which is tracked separately.
+
+### The coincident-emitted-edge check (`coincidentEdges`)
+
+**`coincidentEdges` (`geom/arrange.go`, the last thing `buildGraph` does) reports the
+condition the arrangement cannot answer: two edges from DIFFERENT sources running
+between the same unordered pair of graph vertices, which the rotation system cannot
+tell apart.** Inside a near-coincident corner cluster two sources are each cut at the
+cluster's two welded vertices and each emits a fragment over that pair, so the map
+holds two edges where the traversed geometry holds one. Their emitted chords are then
+bit-identical, so the fallback ordering key `math.Atan2(vy-uy, vx-ux)` is
+bit-identical, and the rotation sort is `sort.Slice`, which is unstable: the pair's
+ring order comes from `a.halfs` order, which is edge order, which is SOURCE order,
+which is the caller's INPUT order, and the `next` pointers that follow it walk
+different faces. Nothing detected it — `sortExactPorts`' osculation test is the only
+check for two ports emitting one chord, and a ring reaches it only through
+`useExactPorts`, whose second door requires a CURVED member, so a straight pair never
+arrived.
+
+**It is a FLAG, not a repair, and the distinction is the whole point.** Region counts
+and areas are byte-identical to what the same geometry published before it and still
+move with input order exactly as before (measured: 0 of 1200 swept scenes changed a
+region count or an area); what changes is that the oracle refuses instead of
+answering. A rotation-sort TIE-BREAK was rejected for the opposite reason: it removes
+the order dependence and picks the answer arbitrarily — on one measured scene an
+ascending key published `18.938` in every order and a descending key `5.52e-9` in
+every order, both order-independently — and an order-independent wrong answer nobody
+flagged is worse than a flagged one. Making the map hold ONE edge where the geometry
+has one is the real repair and is design-doc-first work of its own.
+
+**THE KEY IS ORDER-INDEPENDENT, which is the property the check exists to provide.**
+It is the unordered vertex-id pair plus the two ports' own departure keys — never an
+edge index, which is itself in source order. Keyed on the index, a detector that
+blames each later arrival on the first reports a different pair of sources per order
+once three edges share one vertex pair, and its own verdict then moves with the input
+it was added to judge. The departure question is asked of the SAME keys the ring was
+sorted by (`portsSeparate`): a chord-ordered ring never separates such a pair, since
+both edges emit the same chord and both angles are bit-identical, and an
+exactly-ordered ring separates them exactly when `sortExactPorts`' own keys differ —
+a different tangent ray, or a distinguishable signed curvature on a shared one. That
+is what lets an arc fragment and the chord between its two vertices coexist
+unreported, which is the second door's own case and must not be flagged.
+
+Two scope limits are deliberate. A pair of fragments from the SAME source over one
+vertex pair is not reported: those are the two ways round it — a closed source
+sampled into two tiny segments, whose halves bulge to opposite sides. And the scan
+runs on the edges that reach the face walk, so a doubled pair inside a spur `prune()`
+already dropped is not reported: it bounds no face, and the chain pass orders no
+rings. One record per SOURCE pair, because two carriers lying on each other double
+every edge of a whole shared run — 256 of them at the default sampling — and that is
+one condition, not 256; the group keys are sorted before any record is appended, so
+the representative point is a property of the map rather than of a map walk.
+
+**False flags, measured on two generated populations of 600 scenes each.** On
+WELL-SEPARATED scenes (a 3–6 corner polygon plus circles and arcs on a coarse grid,
+kept only when every pair of graph vertices is at least `1e-2` apart against a merge
+tolerance near `1e-6`): 0 scenes gained a flag, and none held a doubled edge at all.
+On CORNER-CLUSTER scenes (a 10x10 box crossed by two or three ties whose endpoints
+fall into two clusters, with the cluster offset spanning `0.05x` to `5x` a merge
+distance itself swept over `1e-4`..`1e-2`): 440 of 600 gained a flag, every one of
+them holding two edges from different sources over one vertex pair whose fragments
+are geometrically coincident (parametric midpoints within twice the merge distance) —
+0 flagged without one. Over the same 600 cluster scenes in every rotation of the
+input, 0 changed either the verdict or the number of records. **What those sweeps do
+not cover**: both populations are line/circle/arc only, so no ellipse, spline, conic
+or NURBS source is represented; the cluster generator forces its clusters with
+straight ties across a box, so it says nothing about clusters formed by curve/curve
+crossings; and neither generator varies `WithSegmentsPerTurn`.
+
+Pinned by `TestWeldedTiesReportDegenerateInEveryOrder` (the mechanism scene at two
+ties and at three, flagged in every input order, with the published count logged
+rather than asserted since it is still the wrong one),
+`TestSeparatedTiesAreNotFlagged` (the control: the same scene with the ties 20x the
+merge distance apart welds nothing, publishes three regions and is not flagged) and
+`TestCoincidentEdgeVerdictMatchesEveryOrder` (the verdict, the record count and the
+recorded points agree across every input order, at three ties over one vertex pair —
+the case an index-keyed detector gets wrong). The `collinearOverlaps` golden fixture
+gains one record for its two identical circles, which are a doubled edge by
+construction.
 
 ### Internal (containment) tangency
 

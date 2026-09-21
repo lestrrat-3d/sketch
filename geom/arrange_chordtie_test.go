@@ -96,11 +96,11 @@ func TestSectorPairRegionsMatchEitherOrder(t *testing.T) {
 //
 // What it pins is the LOSS, not a correct answer for this scene. The base itself is
 // order-dependent here — over 12 input orders it returns one region in 4 and none in
-// 8 — and the scene holds two pairs of edges that are emitted coincident with nothing
-// flagging them, so one region is not established as right either. The assertion
-// therefore fixes one order of a scene the engine cannot yet answer consistently;
-// that underlying gap is tracked separately, and a coincident-emitted-edge check in
-// buildGraph is its root fix.
+// 8 — and the scene holds two pairs of edges that are emitted coincident, so one
+// region is not established as right either. The assertion therefore fixes one order
+// of a scene the engine cannot answer consistently. coincidentEdges reports those
+// pairs, so the scene now reads Degenerate rather than publishing a silent count;
+// what it does not do is make the count agree across orders.
 func TestWeldedParallelLinesKeepTheirRegion(t *testing.T) {
 	p := geom.NewPoint
 	curves := []geom.Curve{
@@ -185,7 +185,8 @@ func doubledPairScene(r, eps float64) []geom.Curve {
 // is what is asserted, and the count is logged for whoever fixes it.
 //
 // Reaching the true 4 needs the map to stop holding two edges where the geometry has
-// one, which is a coincident-emitted-edge check in buildGraph and its own follow-up.
+// one, which coincidentEdges reports rather than repairs: the scene reads Degenerate,
+// and the count it publishes is still not 4.
 func TestDoubledPairAnswersEveryOrderAlike(t *testing.T) {
 	curves := doubledPairScene(1, 2e-8)
 	n := len(curves)

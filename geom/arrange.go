@@ -3413,9 +3413,13 @@ func (a *arranger) buildGraph() {
 	for hi := range a.halfs {
 		out[a.halfs[hi].from] = append(out[a.halfs[hi].from], hi)
 	}
+	// exactRing records, per vertex, WHICH ordering key decided its ring — the
+	// question coincidentEdges asks of a doubled edge pair afterwards.
+	exactRing := make(map[int]bool, len(out))
 	for v := range out {
 		list := out[v]
-		if a.useExactPorts(v, list) {
+		exactRing[v] = a.useExactPorts(v, list)
+		if exactRing[v] {
 			a.sortExactPorts(v, list)
 		} else {
 			sort.Slice(list, func(i, j int) bool { return a.halfs[list[i]].angle < a.halfs[list[j]].angle })
@@ -3443,6 +3447,136 @@ func (a *arranger) buildGraph() {
 		k := pos[t]
 		a.halfs[hi].next = ring[(k-1+len(ring))%len(ring)]
 	}
+	a.coincidentEdges(exactRing)
+}
+
+// vertexPair is an UNORDERED pair of graph vertices, the key coincidentEdges groups
+// edges by. Ordering the two ids is what keeps the key independent of which end of
+// an edge the emitting source happened to reach first.
+type vertexPair struct {
+	u, v int
+}
+
+// coincidentEdges flags the condition this arrangement cannot answer: two edges from
+// DIFFERENT sources running between the same pair of graph vertices, which the
+// rotation system cannot tell apart. Both are one edge to the traversed map and two
+// to the sources — inside a near-coincident corner cluster, two sources cut at the
+// cluster's two welded vertices each emit a fragment over the same pair — so their
+// emitted chords, and with them the fallback ordering key
+// math.Atan2(vy-uy, vx-ux), are bit-identical. The rotation sort is sort.Slice,
+// which is unstable, so the ring order of such a pair comes from a.halfs order,
+// which is edge order, which is the CALLER's input order, and the next pointers that
+// follow it walk different faces in different orders.
+//
+// This is a FLAG, not a repair. The counts and areas it publishes still move with
+// input order exactly as before; what changes is that the oracle now refuses instead
+// of answering. Making the map hold ONE edge where the geometry has one is the real
+// repair and is tracked separately.
+//
+// A rotation-sort TIE-BREAK was considered and rejected. It removes the order
+// dependence and picks the answer arbitrarily — on a measured scene an ascending key
+// published 18.938 in every order and a descending key 5.52e-9 in every order, both
+// order-independently — and an order-independent wrong answer nobody flagged is worse
+// than a flagged one.
+//
+// The scan runs on the edges that reach the face walk, so a doubled pair inside a
+// spur prune() already dropped is not reported: it bounds no face and the chain pass
+// does not order rings.
+func (a *arranger) coincidentEdges(exactRing map[int]bool) {
+	groups := map[vertexPair][]int{}
+	for ei, e := range a.edges {
+		if e.u == e.v {
+			continue // a self-loop departs its one vertex twice; it has no partner to tie with
+		}
+		k := vertexPair{u: e.u, v: e.v}
+		if k.u > k.v {
+			k.u, k.v = k.v, k.u
+		}
+		groups[k] = append(groups[k], ei)
+	}
+	keys := make([]vertexPair, 0, len(groups))
+	for k, g := range groups {
+		if len(g) > 1 {
+			keys = append(keys, k)
+		}
+	}
+	// Map iteration is randomized, so the keys are ordered before any record is
+	// appended: Arrangement.Degeneracies is a published list, and its order must not
+	// come from a map walk.
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].u != keys[j].u {
+			return keys[i].u < keys[j].u
+		}
+		return keys[i].v < keys[j].v
+	})
+	// One record per SOURCE pair. Two carriers lying on each other double every edge
+	// of a whole shared run — 256 of them at the default sampling — and that is one
+	// condition, not 256: the flag and the blame are the same for every edge of the
+	// run, and only the representative point would differ. The first is kept, which
+	// the key sort above makes a property of the map rather than of the input order.
+	seen := map[[2]int]struct{}{}
+	for _, k := range keys {
+		ux, uy := a.verts.coord(k.u)
+		vx, vy := a.verts.coord(k.v)
+		g := groups[k]
+		for i := 0; i < len(g); i++ {
+			for j := i + 1; j < len(g); j++ {
+				si, sj := a.edges[g[i]].src, a.edges[g[j]].src
+				if si == sj {
+					// One source's own two fragments over the same pair are the two
+					// ways round it — a closed curve sampled into two tiny segments,
+					// whose halves bulge to opposite sides. They are not coincident.
+					continue
+				}
+				if a.portsSeparate(k.u, g[i], g[j], exactRing) && a.portsSeparate(k.v, g[i], g[j], exactRing) {
+					continue
+				}
+				pair := [2]int{si, sj}
+				if pair[0] > pair[1] {
+					pair[0], pair[1] = pair[1], pair[0]
+				}
+				if _, dup := seen[pair]; dup {
+					continue
+				}
+				seen[pair] = struct{}{}
+				a.flagDegenerate((ux+vx)/2, (uy+vy)/2, si, sj)
+			}
+		}
+	}
+}
+
+// portsSeparate reports whether the ring at vertex v orders the two edges' departures
+// by something that actually distinguishes them. It asks the SAME keys the ring was
+// sorted by, so the answer is a property of the map rather than of the input order.
+//
+// A chord-ordered ring never separates such a pair: both edges run between the same
+// two vertices, so both emit the same chord and both departure angles are
+// bit-identical. An exactly-ordered ring separates them whenever sortExactPorts' own
+// keys differ — a different tangent ray, or a distinguishable signed curvature on a
+// shared one — which is what lets an arc fragment and the chord between its two
+// vertices coexist without being reported.
+func (a *arranger) portsSeparate(v, ei, ej int, exactRing map[int]bool) bool {
+	if !exactRing[v] {
+		return false
+	}
+	hi := &a.halfs[a.halfLeaving(v, ei)]
+	hj := &a.halfs[a.halfLeaving(v, ej)]
+	dot := hi.tx*hj.tx + hi.ty*hj.ty
+	cr := hi.tx*hj.ty - hi.ty*hj.tx
+	if dot <= 0 || math.Abs(cr) > dirParallelEps*math.Hypot(hi.tx, hi.ty)*math.Hypot(hj.tx, hj.ty) {
+		return true // not the same departure ray
+	}
+	return math.Abs(hi.kappa-hj.kappa)*a.scale > kappaCertifyEps
+}
+
+// halfLeaving returns the index of edge ei's half-edge that departs vertex v.
+// buildGraph appends the forward half (leaving e.u) at 2*ei and the backward half
+// (leaving e.v) at 2*ei+1.
+func (a *arranger) halfLeaving(v, ei int) int {
+	if a.edges[ei].u == v {
+		return 2 * ei
+	}
+	return 2*ei + 1
 }
 
 // extract walks the next cycles, classifies them into faces and holes, builds
