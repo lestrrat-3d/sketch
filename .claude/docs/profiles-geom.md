@@ -770,8 +770,11 @@ correct than the other, since the map genuinely cannot tell them apart.** The re
 is `dedupCoincidentStraightEdges` (`geom/arrange.go`, run at the top of `buildGraph`):
 before the rotation system is built, every arrangement edge is grouped by its
 canonical (post-weld) vertex pair, and a group of two or more STRAIGHT (`srcLine`)
-edges over the SAME pair is collapsed to one — the lowest-indexed source's copy,
-the same "named" convention `resolveCoincidentOverlap` uses for a coincident carrier.
+edges over the SAME pair is provisionally collapsed to one. The survivor is selected
+by a canonical key over the authored line and emitted fragment, both normalized to
+ignore source direction; `SourceIndex` breaks the tie only when those geometries are
+identical. Reordering distinct source lines therefore retains the same geometric
+source and the same complete boundary fields.
 Two points determine a line, so any two straight edges sharing both endpoints are
 provably the identical traversed chord; dropping the redundant copy removes the tie
 rather than trying to order it. Reached through `Sketch.Profiles()`,
@@ -803,22 +806,17 @@ repair targets is always EMBEDDED, with some other curve also meeting the pair a
 or both of its shared vertices, which a plain vertex-degree check (equal to the tied
 group's own size, or not) tells apart from the isolated case.
 
-**The known cost is a ring that relied on a coincident pair as a bridge between two
-otherwise-separate large faces.** Keeping BOTH edges of such a pair lets a single face
-walk thread out along one and back along the other — a zero-net-area "slit" that
-stitches a more complex (multiply-connected) boundary into one traversable cycle
-without an extra vertex. Collapsing the pair to one edge removes that bridge along
-with the tie, and a ring that depended on it can lose the large face it was bridging
-instead of just the ambiguity: `TestWeldedParallelLinesKeepTheirRegion`'s scene, whose
-own pinned number was never established as correct (over 12 input orders the
-pre-repair engine returned one region in 4 of them and none in the other 8), now
-returns none in the specific order it pins. `TestWeldedArcAndLineKeepBothFaces` is the
-opposite outcome on the same class: collapsing its own coincident pair reveals a
-third, smaller face the two-face answer had folded into a neighbor, with the total
-area unchanged. Both are hand-built scenes representing an ADVERSARIAL tie between
-the repair's target (a redundant duplicate with no real information) and this bridge
-use (a duplicate carrying real topology); an ordinary scene holds no such bridge, so
-nothing routine is expected to hit this cost.
+**The collapse is withdrawn when its survivor becomes a bridge in the provisional
+rotation graph.** `buildGraph` first wires the graph with every eligible group reduced
+to its canonical survivor. If both directed half-edges of a survivor belong to the
+same face walk, the edge is carrying a boundary passage that the removed parallel
+edge completed. The group is restored, its sources are reported `Degenerate`, and the
+graph is rewired; this repeats because restoring one group can expose the bridge use
+of another. `TestWeldedParallelLinesKeepTheirRegion` pins that the large region is not
+silently removed. The flag is required because the retained coincident edges still
+have no unique rotation order. `TestWeldedArcAndLineKeepBothFaces` is the non-bridge
+control: its canonical survivor keeps both original faces, plus the separate sliver
+between them, without a degeneracy.
 
 A SAMPLED source is not covered, since the ring is not all-exact —
 there the arc edge genuinely is the chord, so a reorder would be wrong and the

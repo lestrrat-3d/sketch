@@ -1,7 +1,9 @@
 package geom_test
 
 import (
+	"cmp"
 	"math"
+	"slices"
 	"testing"
 
 	"github.com/lestrrat-3d/sketch/geom"
@@ -94,17 +96,11 @@ func TestSectorPairRegionsMatchEitherOrder(t *testing.T) {
 // did not close this class — see TestWeldedArcAndLineKeepBothFaces for the case it
 // missed.
 //
-// This scene ALSO carries a coincident-emitted-edge condition — two straight
-// fragments welded onto the same two graph vertices at BOTH corners — which
-// dedupCoincidentStraightEdges now resolves by keeping the lower-indexed source's
-// copy over the redundant one. In this particular authoring order that collapses the
-// scene's own big square face along with the pair, publishing no region rather than
-// the previously pinned 100.00053587936401: this order was never established as
-// correct (over 12 input orders the pre-fix engine returned one region in 4 and none
-// in 8), and the fix's own known cost is exactly this — a ring that relied on a
-// coincident pair as a bridge between two large faces loses that bridge. See
-// TestCoincidentEmittedLinesKeepBothRegions for the scene the fix targets, where no
-// such bridge is needed and both faces survive intact.
+// This scene ALSO carries a coincident-emitted-edge condition: two straight
+// fragments weld onto the same two graph vertices at both corners. Replacing that
+// pair with one edge makes the survivor a bridge, so the tie cannot be removed
+// without dropping the large region. The arrangement must keep the pair and report
+// the unresolved ambiguity as degenerate.
 func TestWeldedParallelLinesKeepTheirRegion(t *testing.T) {
 	p := geom.NewPoint
 	curves := []geom.Curve{
@@ -116,8 +112,11 @@ func TestWeldedParallelLinesKeepTheirRegion(t *testing.T) {
 		geom.NewLine(p(0, 0.00067299698496589252), p(10, 0.00049740054268733382)),
 	}
 	arr := geom.Regions(curves, nil, geom.WithVertexMerge(0.002))
-	require.Empty(t, arr.Regions)
-	require.False(t, arr.Degenerate)
+	require.True(t, arr.Degenerate)
+	require.NotEmpty(t, arr.Regions)
+	areas := sortedAreas(arr)
+	require.InDelta(t, 100.00053587936401, areas[len(areas)-1], 0.01,
+		"the unresolved bridge must not remove the large region; areas=%v", areas)
 }
 
 // TestWeldedArcAndLineKeepBothFaces is the second counter-example review found, and
@@ -130,10 +129,9 @@ func TestWeldedParallelLinesKeepTheirRegion(t *testing.T) {
 //
 // The scene came out of a generated sweep, so its coordinates are kept bit-exact.
 // dedupCoincidentStraightEdges also applies here: "inner" and part of "outer" weld
-// onto the same two graph vertices over a short span, and collapsing that pair to
-// one edge reveals a THIRD, smaller face the two-face answer had folded into its
-// neighbor — the three areas below sum to the same total the two-face answer did
-// (2.0903...e-12), so no area is gained or lost, only redistributed to its own face.
+// onto the same two graph vertices over a short span. The canonical geometry key
+// keeps the inner fragment, revealing a third sliver without dropping either of the
+// two faces this regression originally protected.
 func TestWeldedArcAndLineKeepBothFaces(t *testing.T) {
 	p := geom.NewPoint
 	inner := geom.NewLine(
@@ -151,10 +149,12 @@ func TestWeldedArcAndLineKeepBothFaces(t *testing.T) {
 	)
 	arr := geom.Regions([]geom.Curve{inner, outer, arc}, nil,
 		geom.WithVertexMerge(6.0050600326758044e-07))
+	require.False(t, arr.Degenerate)
 	require.Len(t, arr.Regions, 3)
-	require.InDelta(t, 4.706821854724171e-15, arr.Regions[0].Area, 1e-24)
-	require.InDelta(t, 1.3293034469770452e-12, arr.Regions[1].Area, 1e-24)
-	require.InDelta(t, 7.563052133570684e-13, arr.Regions[2].Area, 1e-24)
+	areas := sortedAreas(arr)
+	require.InDeltaf(t, 4.706821854724171e-15, areas[0], 1e-24, "areas=%v", areas)
+	require.InDeltaf(t, 7.563052133570684e-13, areas[1], 1e-24, "areas=%v", areas)
+	require.InDeltaf(t, 1.3293034469770452e-12, areas[2], 1e-24, "areas=%v", areas)
 }
 
 // doubledPairScene is the adjudicator's scene B: an arc whose chord tie opens the
@@ -329,29 +329,94 @@ func TestCoincidentEmittedLinesKeepBothRegions(t *testing.T) {
 	require.InDelta(t, wantBig, areas[1], 1e-9)
 }
 
+type semanticBoundaryEdge struct {
+	Source   int
+	Whole    bool
+	Reversed bool
+	Polyline [][2]float64
+	TStart   float64
+	TEnd     float64
+	TExact   bool
+}
+
+type semanticRegion struct {
+	Outer            []semanticBoundaryEdge
+	Holes            [][]semanticBoundaryEdge
+	Area             float64
+	SelfIntersecting bool
+	Degenerate       bool
+}
+
+func semanticBoundary(edges []geom.BoundaryEdge, sourceAt [3]int) []semanticBoundaryEdge {
+	out := make([]semanticBoundaryEdge, len(edges))
+	for i, e := range edges {
+		out[i] = semanticBoundaryEdge{
+			Source:   sourceAt[e.SourceIndex],
+			Whole:    e.Whole,
+			Reversed: e.Reversed,
+			Polyline: e.Polyline,
+			TStart:   e.TStart,
+			TEnd:     e.TEnd,
+			TExact:   e.TExact,
+		}
+	}
+	min := 0
+	for i := 1; i < len(out); i++ {
+		pi, pm := out[i].Polyline[0], out[min].Polyline[0]
+		if c := cmp.Compare(pi[0], pm[0]); c < 0 ||
+			(c == 0 && cmp.Compare(pi[1], pm[1]) < 0) ||
+			(pi == pm && out[i].Source < out[min].Source) {
+			min = i
+		}
+	}
+	out = append(out[min:], out[:min]...)
+	return out
+}
+
+func semanticRegionSnapshot(arr *geom.Arrangement, sourceAt [3]int) []semanticRegion {
+	out := make([]semanticRegion, len(arr.Regions))
+	for i, r := range arr.Regions {
+		out[i] = semanticRegion{
+			Outer:            semanticBoundary(r.Outer, sourceAt),
+			Area:             r.Area,
+			SelfIntersecting: r.SelfIntersecting,
+			Degenerate:       r.Degenerate,
+		}
+		for _, h := range r.Holes {
+			out[i].Holes = append(out[i].Holes, semanticBoundary(h, sourceAt))
+		}
+		slices.SortFunc(out[i].Holes, func(a, b []semanticBoundaryEdge) int {
+			pa, pb := a[0].Polyline[0], b[0].Polyline[0]
+			if c := cmp.Compare(pa[0], pb[0]); c != 0 {
+				return c
+			}
+			return cmp.Compare(pa[1], pb[1])
+		})
+	}
+	slices.SortFunc(out, func(a, b semanticRegion) int { return cmp.Compare(a.Area, b.Area) })
+	return out
+}
+
 // TestCoincidentEmittedLinesMatchEveryOrder is the order-independence half of the
-// fu89 regression: the same three curves, authored in every permutation, must
-// publish the same two regions with the same areas. It is cheap to check
-// exhaustively at only three curves (six orders).
+// fu89 regression. The same three curves, authored in every permutation, must
+// publish bit-identical region and boundary fields after each SourceIndex is mapped
+// back to the curve's semantic identity. It is cheap to check exhaustively at only
+// three curves (six orders).
 func TestCoincidentEmittedLinesMatchEveryOrder(t *testing.T) {
 	curves := coincidentEmittedLinesScene(2e-8)
 	perms := [][3]int{{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}}
 
 	base := geom.Regions(curves, nil)
 	require.Len(t, base.Regions, 2)
-	baseAreas := sortedAreas(base)
+	baseRegions := semanticRegionSnapshot(base, [3]int{0, 1, 2})
 
 	for _, perm := range perms {
 		ordered := []geom.Curve{curves[perm[0]], curves[perm[1]], curves[perm[2]]}
 		arr := geom.Regions(ordered, nil)
-		require.Lenf(t, arr.Regions, len(base.Regions), "order %v", perm)
-		got := sortedAreas(arr)
-		for i := range baseAreas {
-			// A permutation can still move the cut set upstream of the weld (see the
-			// canonical-weld-order notes above), so this is a relative, not bit-exact,
-			// tolerance — matching TestSectorPairRegionsMatchEitherOrder's own bound.
-			require.InDeltaf(t, baseAreas[i], got[i], math.Abs(baseAreas[i])*1e-7+1e-15, "order %v region %d", perm, i)
-		}
+		require.Equalf(t, base.Degenerate, arr.Degenerate, "order %v", perm)
+		require.Equalf(t, base.Degeneracies, arr.Degeneracies, "order %v", perm)
+		require.Equalf(t, base.SelfIntersections, arr.SelfIntersections, "order %v", perm)
+		require.Equalf(t, baseRegions, semanticRegionSnapshot(arr, perm), "order %v", perm)
 	}
 }
 

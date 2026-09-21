@@ -3391,10 +3391,11 @@ func (a *arranger) curvedPortDir(e arrEdge, vx, vy float64) (float64, float64, b
 //     incident half-edge to be exact — so it already falls back to chord
 //     order, the honest verdict for a source the map only holds as chords.
 //
-// The surviving edge is the lowest-indexed source among the tied group — the
-// same "named" convention resolveCoincidentOverlap uses for a coincident
-// carrier: naming is arbitrary between genuinely identical alternatives, but
-// it must be made ONE way, consistently, rather than left to an unstable sort.
+// The surviving edge is selected by a canonical key over the authored line and
+// its fragment, both normalized to ignore source direction. Source index breaks
+// the tie only when those geometries are identical. A permutation therefore
+// keeps the same geometric source rather than whichever source moved to the
+// lowest input position.
 //
 // A group ISOLATED at both its vertices — nothing else in the arrangement
 // touches u or v besides the tied group's own members — is left alone
@@ -3407,15 +3408,61 @@ func (a *arranger) curvedPortDir(e arrEdge, vx, vy float64) (float64, float64, b
 // case this dedup targets is always EMBEDDED — some other curve also meets
 // the pair at one or both of its shared vertices.
 //
-// A ring that still loses its bridge use of a coincident pair — two straight
-// fragments kept deliberately parallel so a single face walk can thread
-// between them — is a known, narrower cost: see
-// TestWeldedParallelLinesKeepTheirRegion and TestWeldedArcAndLineKeepBothFaces,
-// which this change updates rather than regresses (their own doc comments
-// already disclaimed the pinned numbers as unverified).
-func (a *arranger) dedupCoincidentStraightEdges() {
+// Each collapse is provisional. After wiring, a survivor whose two directed
+// half-edges belong to the same face walk is a bridge in that rotation graph:
+// the duplicate edges carried a boundary passage the collapsed graph cannot
+// represent. The group is restored, the graph is rewired to expose any next
+// bridge, and the unresolved tie is reported as degenerate rather than silently
+// deleting the face that uses it.
+func (a *arranger) compareCoincidentStraightEdges(i, j int) int {
+	geometry := func(edge int) [4][2]float64 {
+		e := a.edges[edge]
+		s := &a.sources[e.src]
+		start := [2]float64{s.ax, s.ay}
+		end := [2]float64{s.bx, s.by}
+		fragStart := s.at(e.pu)
+		fragEnd := s.at(e.pv)
+		if canonPointCompare(end, start) < 0 {
+			start, end = end, start
+			fragStart, fragEnd = fragEnd, fragStart
+		}
+		return [4][2]float64{start, end, fragStart, fragEnd}
+	}
+
+	gi, gj := geometry(i), geometry(j)
+	for k := range gi {
+		if c := canonPointCompare(gi[k], gj[k]); c != 0 {
+			return -c
+		}
+	}
+	return cmp.Compare(a.edges[i].src, a.edges[j].src)
+}
+
+type coincidentStraightGroup struct {
+	u, v int
+	idxs []int
+	keep int
+}
+
+type coincidentDedupPlan struct {
+	original []arrEdge
+	drop     map[int]struct{}
+	groups   []coincidentStraightGroup
+}
+
+// midpointCoordinate returns the midpoint of two finite coordinates without
+// overflowing when the endpoints have opposite signs.
+func midpointCoordinate(a, b float64) float64 {
+	if math.Signbit(a) != math.Signbit(b) {
+		return a/2 + b/2
+	}
+	return a + (b-a)/2
+}
+
+func (a *arranger) dedupCoincidentStraightEdges() *coincidentDedupPlan {
 	type vpair struct{ u, v int }
 	groups := map[vpair][]int{}
+	var keys []vpair
 	for i, e := range a.edges {
 		if a.sources[e.src].kind != srcLine {
 			continue
@@ -3424,10 +3471,14 @@ func (a *arranger) dedupCoincidentStraightEdges() {
 		if u > v {
 			u, v = v, u
 		}
-		groups[vpair{u, v}] = append(groups[vpair{u, v}], i)
+		key := vpair{u, v}
+		if _, ok := groups[key]; !ok {
+			keys = append(keys, key)
+		}
+		groups[key] = append(groups[key], i)
 	}
 	if len(groups) == 0 {
-		return
+		return nil
 	}
 	// deg counts EVERY arrangement edge at a vertex (the same count prune() uses),
 	// which is what tells an EMBEDDED coincident-emitted-edge pair — a fragment of a
@@ -3440,8 +3491,16 @@ func (a *arranger) dedupCoincidentStraightEdges() {
 		deg[e.u]++
 		deg[e.v]++
 	}
+	slices.SortFunc(keys, func(a, b vpair) int {
+		if c := cmp.Compare(a.u, b.u); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.v, b.v)
+	})
 	var drop map[int]struct{}
-	for k, idxs := range groups {
+	var collapsed []coincidentStraightGroup
+	for _, k := range keys {
+		idxs := groups[k]
 		if len(idxs) < 2 {
 			continue
 		}
@@ -3461,7 +3520,7 @@ func (a *arranger) dedupCoincidentStraightEdges() {
 		}
 		keep := idxs[0]
 		for _, i := range idxs[1:] {
-			if a.edges[i].src < a.edges[keep].src {
+			if a.compareCoincidentStraightEdges(i, keep) < 0 {
 				keep = i
 			}
 		}
@@ -3473,11 +3532,19 @@ func (a *arranger) dedupCoincidentStraightEdges() {
 				drop[i] = struct{}{}
 			}
 		}
+		collapsed = append(collapsed, coincidentStraightGroup{
+			u: k.u, v: k.v, idxs: slices.Clone(idxs), keep: keep,
+		})
 	}
 	if len(drop) == 0 {
-		return
+		return nil
 	}
-	kept := a.edges[:0:0]
+	plan := &coincidentDedupPlan{
+		original: slices.Clone(a.edges),
+		drop:     drop,
+		groups:   collapsed,
+	}
+	kept := make([]arrEdge, 0, len(a.edges)-len(drop))
 	for i, e := range a.edges {
 		if _, ok := drop[i]; ok {
 			continue
@@ -3485,12 +3552,88 @@ func (a *arranger) dedupCoincidentStraightEdges() {
 		kept = append(kept, e)
 	}
 	a.edges = kept
+	return plan
+}
+
+// restoreCoincidentBridgeGroups restores the first collapsed group whose survivor
+// has both directions in the same provisional face walk. Such an edge is a bridge
+// in the rotation graph: collapsing its parallel partner removed a boundary
+// passage. Restoring one group per call ensures every later decision uses the graph
+// rewired after that restoration. The unresolved group stays in the final graph and
+// is reported as degenerate.
+func (a *arranger) restoreCoincidentBridgeGroups(plan *coincidentDedupPlan) bool {
+	cycleOf := make([]int, len(a.halfs))
+	seen := make([]bool, len(a.halfs))
+	cycle := 0
+	for hi := range a.halfs {
+		if seen[hi] {
+			continue
+		}
+		for cur := hi; !seen[cur]; cur = a.halfs[cur].next {
+			seen[cur] = true
+			cycleOf[cur] = cycle
+		}
+		cycle++
+	}
+
+	oldToNew := make([]int, len(plan.original))
+	next := 0
+	for i := range plan.original {
+		if _, dropped := plan.drop[i]; dropped {
+			oldToNew[i] = -1
+			continue
+		}
+		oldToNew[i] = next
+		next++
+	}
+
+	for _, group := range plan.groups {
+		collapsed := false
+		for _, i := range group.idxs {
+			if _, dropped := plan.drop[i]; dropped {
+				collapsed = true
+				break
+			}
+		}
+		if !collapsed {
+			continue
+		}
+		survivor := oldToNew[group.keep]
+		if cycleOf[2*survivor] != cycleOf[2*survivor+1] {
+			continue
+		}
+		srcs := make([]int, 0, len(group.idxs))
+		for _, i := range group.idxs {
+			delete(plan.drop, i)
+			srcs = append(srcs, plan.original[i].src)
+		}
+		ux, uy := a.verts.coord(group.u)
+		vx, vy := a.verts.coord(group.v)
+		a.flagDegenerate(midpointCoordinate(ux, vx), midpointCoordinate(uy, vy), srcs...)
+
+		a.edges = make([]arrEdge, 0, len(plan.original)-len(plan.drop))
+		for i, e := range plan.original {
+			if _, ok := plan.drop[i]; ok {
+				continue
+			}
+			a.edges = append(a.edges, e)
+		}
+		return true
+	}
+	return false
 }
 
 // buildGraph wires the doubly-connected edge list: two half-edges per edge, the
 // rotation system at each vertex, and the next pointers (face on the left).
 func (a *arranger) buildGraph() {
-	a.dedupCoincidentStraightEdges()
+	plan := a.dedupCoincidentStraightEdges()
+	a.wireGraph()
+	for plan != nil && a.restoreCoincidentBridgeGroups(plan) {
+		a.wireGraph()
+	}
+}
+
+func (a *arranger) wireGraph() {
 	a.halfs = make([]halfEdge, 0, len(a.edges)*2)
 	for ei, e := range a.edges {
 		ux, uy := a.verts.coord(e.u)
