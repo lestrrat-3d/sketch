@@ -61,10 +61,13 @@ func TestSectorPairRegionsMatchEitherOrder(t *testing.T) {
 		shortFirst := geom.Regions([]geom.Curve{short, long, chShort, chLong}, nil)
 		longFirst := geom.Regions([]geom.Curve{long, short, chShort, chLong}, nil)
 
-		// Degenerate is logged rather than asserted, for the reason the other test
-		// in this file gives; what must agree is the published geometry.
+		// The VALUE of Degenerate is not pinned, for the reason the other test in
+		// this file gives, but the two orders must agree on it: a flag that flips
+		// with input order is the same class of defect as a region count that does.
 		t.Logf("r=%v shortFirst.degenerate=%v longFirst.degenerate=%v",
 			r, shortFirst.Degenerate, longFirst.Degenerate)
+		require.Equalf(t, shortFirst.Degenerate, longFirst.Degenerate,
+			"the degeneracy verdict must not depend on which arc was passed first: r=%v", r)
 		require.Lenf(t, shortFirst.Regions, 2, "short arc passed first: r=%v", r)
 		require.Lenf(t, longFirst.Regions, len(shortFirst.Regions),
 			"the region count must not depend on which arc was passed first: r=%v", r)
