@@ -147,3 +147,71 @@ func TestWeldedArcAndLineKeepBothFaces(t *testing.T) {
 	require.InDelta(t, 1.3340102688318081e-12, arr.Regions[0].Area, 1e-24)
 	require.InDelta(t, 7.5630521335706837e-13, arr.Regions[1].Area, 1e-24)
 }
+
+// doubledPairScene is the adjudicator's scene B: an arc whose chord tie opens the
+// exact-port door at u, plus a doubled straight pair from u to a far vertex v with a
+// triangle on each side. The two u-v lines share u exactly and differ by eps at v, so
+// they are one edge to the map and two to the sources. The tie and the doubling are
+// at DIFFERENT vertices, which is what makes the pair reachable: the arc opens the
+// door at u, and the pair is then ordered exactly at both of its ends.
+func doubledPairScene(r, eps float64) []geom.Curve {
+	at := func(deg float64) *geom.Point {
+		rad := deg * math.Pi / 180
+		return geom.NewPoint(r*math.Cos(rad), r*math.Sin(rad))
+	}
+	u, w, e := at(0), at(1), at(15)
+	v := geom.NewPoint(u.X+2, u.Y-2)
+	p := geom.NewPoint(u.X+0.5, u.Y-3)
+	q := geom.NewPoint(u.X+3, u.Y+0.2)
+	return []geom.Curve{
+		geom.NewArc(geom.NewPoint(0, 0), u, e),
+		geom.NewLine(w, u),
+		geom.NewLine(e, u),
+		geom.NewLine(u, v),
+		geom.NewLine(geom.NewPoint(u.X, u.Y), geom.NewPoint(v.X, v.Y-eps)),
+		geom.NewLine(v, p),
+		geom.NewLine(p, u),
+		geom.NewLine(v, q),
+		geom.NewLine(q, u),
+	}
+}
+
+// TestDoubledPairAnswersEveryOrderAlike pins ORDER STABILITY on that scene, and
+// deliberately does not pin the count. The engine gets this class wrong: the true
+// face count is 4 and every build published something else, so asserting a count here
+// would make a wrong answer load-bearing and the eventual repair would have to delete
+// it. What this change did achieve is that the answer no longer moves with input
+// order — the intermediate version published 4 in seven orders and 3 in two — so that
+// is what is asserted, and the count is logged for whoever fixes it.
+//
+// Reaching the true 4 needs the map to stop holding two edges where the geometry has
+// one, which is a coincident-emitted-edge check in buildGraph and its own follow-up.
+func TestDoubledPairAnswersEveryOrderAlike(t *testing.T) {
+	curves := doubledPairScene(1, 2e-8)
+	n := len(curves)
+
+	orders := [][]geom.Curve{curves}
+	rev := make([]geom.Curve, n)
+	for i := range curves {
+		rev[i] = curves[n-1-i]
+	}
+	orders = append(orders, rev)
+	for k := 1; k < n; k++ {
+		orders = append(orders, append(append([]geom.Curve(nil), curves[k:]...), curves[:k]...))
+	}
+
+	base := geom.Regions(orders[0], nil)
+	baseAreas := sortedAreas(base)
+	t.Logf("count=%d areas=%v (logged, not asserted: the true count is 4)", len(base.Regions), baseAreas)
+
+	for i, o := range orders[1:] {
+		arr := geom.Regions(o, nil)
+		require.Lenf(t, arr.Regions, len(base.Regions),
+			"order %d publishes a different region count than the first order", i+1)
+		got := sortedAreas(arr)
+		for j := range baseAreas {
+			require.InDeltaf(t, baseAreas[j], got[j], math.Abs(baseAreas[j])*1e-9+1e-15,
+				"order %d, region %d area differs from the first order", i+1, j)
+		}
+	}
+}
