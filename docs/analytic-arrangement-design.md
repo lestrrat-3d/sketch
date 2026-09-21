@@ -781,11 +781,22 @@ hole, collinear-overlap degeneracy, spline self-intersection/fallback.
   (correct) topology across sampling; the verdict never blesses a wrong/empty
   topology.
 - Scaling geometry tiny/huge does not change classification (scale-relative bands).
-- Input order does not change region areas/counts, and neither does reversing a
-  curve that HAS a reversed representation (a line, a spline). An arc does not:
-  `geom.Arc` is `{Center, Start, End}` with no direction flag and `Sweep() ∈
-  (0, 2π]`, so swapping its endpoints builds the complementary arc rather than
-  the same one authored backwards.
+- Input order is NOT an invariant of the published output, and no increment may
+  claim it as one. Where the arrangement reads source position — `analyticPrepass`
+  hands the lower-indexed source to the kernels as operand `a`, `segBoundaries`'
+  keep-the-first cut dedup runs under an unstable sort, and the coincident-carrier
+  rule names the lower-indexed source — a permutation can move what `Regions`
+  publishes, region count and area among them, even in a scene with no shared
+  carrier at all. The weld alone is order-independent, and only for a fixed
+  boundary-point multiset (the canonical order in §7b's "What shipped"); that does
+  not make the arrangement order-independent. The godoc on `geom.Regions`,
+  `geom.BoundaryEdge.SourceIndex`, `Sketch.Profiles` and `BoundaryEdge.Entity` owns
+  the consumer-facing statement as a blanket caveat; do not narrow it here into a
+  list of what moves and what does not. Reversing a curve that HAS a reversed
+  representation (a line, a spline) does not change region areas/counts. An arc has
+  no such representation: `geom.Arc` is `{Center, Start, End}` with no direction
+  flag and `Sweep() ∈ (0, 2π]`, so swapping its endpoints builds the complementary
+  arc rather than the same one authored backwards.
 - `Degenerate` always forces `ProfilesValid=false` and therefore `Trustworthy=false`.
 - A clean supported tangency does not set `Degenerate`, except at a merged
   cycle-bearing vertex where a LINE is one of the two sources — mechanism in the
