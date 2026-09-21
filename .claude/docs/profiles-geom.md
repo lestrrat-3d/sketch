@@ -705,10 +705,23 @@ a planar embedding, and the face walk returns one near-zero-area cycle over ever
 half-edge instead of the faces. Every bounded region disappears with `Degenerate`
 false — `extract` has no postcondition on its own output, so nothing catches it.
 `TestArcSpanningOneChordKeepsItsFaces` and `TestSectorPairRegionsMatchEitherOrder`
-pin the two shapes it took. Requiring the tangents to DIFFER keeps the door narrow:
-a straight fragment's tangent is its chord direction, so a ring of straight fragments
-can never open it, and a coincident-carrier overlap or a duplicated line stays on
-chord order. A SAMPLED source is not covered, since the ring is not all-exact —
+pin the two shapes it took.
+
+**Differing tangents alone do NOT keep the door narrow, and assuming they did was a
+defect caught in review.** The door also requires at least one of the tied pair to be
+CURVED. Two STRAIGHT fragments that emit one chord are the same segment in the
+traversed map, so their source tangents say where each line would run rather than
+what the face walk walks, and ordering by them corrupts the map — the failure the
+scope rule exists to prevent. WELDING is what makes that reachable: it moves a
+fragment's endpoints onto other vertices, so a straight fragment's emitted chord stops
+matching its own source direction, and two near-parallel lines welded to the same
+corners emit one identical chord while keeping different source tangents. Without the
+curvature requirement, a 10x10 rectangle plus two such lines at `WithVertexMerge(0.002)`
+published 0 regions where main published one of area `100.00053587936401` — the same
+collapse this section describes, caused by the repair for it. A curved fragment is the
+opposite case: its chord is a secant of a curve departing along another ray, so the
+tangent carries the geometry the chord lost.
+A SAMPLED source is not covered, since the ring is not all-exact —
 there the arc edge genuinely is the chord, so a reorder would be wrong and the
 honest verdict is a degeneracy flag, which is tracked separately.
 

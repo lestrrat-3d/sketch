@@ -127,9 +127,16 @@ Same-component interior tangency is a **self-touch** → `SelfIntersections`, no
    chord IS a straight edge between the same two vertices: both depart at a
    bit-identical angle, the unstable fallback sort cannot separate them, and the
    face walk then loses every bounded face with nothing flagged. Requiring the
-   tangents to DIFFER is what keeps it narrow — a straight fragment's tangent is its
-   chord direction, so a ring of straight fragments can never open it, and a
-   coincident-carrier overlap or a duplicated line is left on chord order. Still `Degenerate`
+   tangents to DIFFER is not on its own enough, so the door also requires at least
+   one of the tied pair to be CURVED. Two straight fragments emitting one chord are
+   the same segment in the traversed map, and their source tangents describe where
+   each LINE would run rather than what the face walk walks, so ordering by them
+   corrupts the map — the very failure this scope rule exists to prevent. Welding is
+   what makes that reachable: it moves a fragment's endpoints onto other vertices, so
+   a straight fragment's emitted chord stops matching its own source direction and
+   two near-parallel lines can emit one identical chord with differing tangents. A
+   curved fragment is the opposite case, since its chord is a secant of a curve that
+   departs along another ray, so the tangent carries what the chord lost. Still `Degenerate`
    (deferred): line-involved merged tangency and a genuine **osculation** (equal
    tangent AND equal curvature). **Internal/containment** tangency is blessed by §7a's
    exact containment, and curve/curve transverse **crossing** authority by §7b's

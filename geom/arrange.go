@@ -3249,6 +3249,20 @@ func (a *arranger) useExactPorts(v int, ring []int) bool {
 			if hi.angle != hj.angle {
 				continue
 			}
+			// At least one of the pair must be CURVED. Two straight fragments that
+			// emit the same chord are the same segment in the traversed map, so
+			// their source tangents describe where each LINE would run, not what
+			// the face walk walks — ordering by them corrupts the map, which is
+			// exactly what the scope rule warns of. Welding is what makes this
+			// reachable: it moves a fragment's endpoints onto other vertices, so a
+			// straight fragment's emitted chord stops matching its own source
+			// direction and two near-parallel lines can emit one identical chord.
+			// A curved fragment is the opposite case: its chord is a secant of a
+			// curve that departs along a different ray, so the tangent carries the
+			// geometry the chord has lost.
+			if hi.kappa == 0 && hj.kappa == 0 {
+				continue
+			}
 			// Same-ray test, the one sortExactPorts clusters with: a tie whose
 			// tangents are the same ray is a tie the tangents cannot break either.
 			dot := hi.tx*hj.tx + hi.ty*hj.ty

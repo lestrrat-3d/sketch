@@ -79,3 +79,29 @@ func TestSectorPairRegionsMatchEitherOrder(t *testing.T) {
 		}
 	}
 }
+
+// TestWeldedParallelLinesKeepTheirRegion is the counter-example that the first
+// version of the exact-tangent tie-break broke, found in review. Welding moves a
+// fragment's endpoints onto other vertices, so a STRAIGHT fragment's emitted chord
+// stops matching its own source direction: these two near-parallel lines weld to the
+// rectangle's corners and emit one bit-identical chord while keeping different
+// source tangents. Ordering that pair by their tangents reorders edges the face walk
+// traverses as one segment, and the rectangle's own region collapsed — 0 regions
+// where main publishes one of area 100.00053587936401.
+//
+// Requiring at least one of a tied pair to be CURVED is what closes it, so this test
+// fails if the curvature requirement is ever dropped.
+func TestWeldedParallelLinesKeepTheirRegion(t *testing.T) {
+	p := geom.NewPoint
+	curves := []geom.Curve{
+		geom.NewLine(p(0, 0), p(10, 0)),
+		geom.NewLine(p(10, 0), p(10, 10)),
+		geom.NewLine(p(10, 10), p(0, 10)),
+		geom.NewLine(p(0, 10), p(0, 0)),
+		geom.NewLine(p(0, 0.00071958824190816381), p(10, -0.00033642033343779087)),
+		geom.NewLine(p(0, 0.00067299698496589252), p(10, 0.00049740054268733382)),
+	}
+	arr := geom.Regions(curves, nil, geom.WithVertexMerge(0.002))
+	require.Len(t, arr.Regions, 1)
+	require.InDelta(t, 100.00053587936401, arr.Regions[0].Area, 1e-9)
+}
