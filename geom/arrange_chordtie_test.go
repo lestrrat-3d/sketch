@@ -215,3 +215,29 @@ func TestDoubledPairAnswersEveryOrderAlike(t *testing.T) {
 		}
 	}
 }
+
+// TestWeldedArcPortKeepsTheLargeFace is the third counter-example review found, and
+// the reason a CURVED port is keyed by a direction anchored at its graph VERTEX
+// rather than by its exact tangent. portKey takes that tangent at the PARAMETRIC
+// endpoint, and welding moves the vertex off that point, so a fragment of chord
+// length L on radius r welded by d lands on the wrong side of the chord it shares
+// once L < sqrt(2*r*d). That is a threshold ordinary scenes cross, not a coincidence.
+//
+// This scene came from a review sweep at unit scale, not from a constructed corner:
+// an arc of radius about 46.8 cut by a steep radial line, merge about 0.227. The
+// version of this fix that re-keyed only STRAIGHT ports published just the
+// 1.09e-05 sliver here and dropped the 1.689 face, unflagged.
+func TestWeldedArcPortKeepsTheLargeFace(t *testing.T) {
+	p0 := geom.NewPoint(46.755241754038238, 0)
+	pN := geom.NewPoint(45.687112449242768, 9.9368197894903751)
+	jp1 := geom.NewPoint(46.625632442338613, 0.80495336809061324)
+	jp0 := geom.NewPoint(46.760958534174868, 0.15383907202403657)
+	arr := geom.Regions([]geom.Curve{
+		geom.NewLine(pN, p0),
+		geom.NewLine(jp1, jp0),
+		geom.NewArc(geom.NewPoint(0, 0), p0, pN),
+	}, nil, geom.WithVertexMerge(0.22679552779758838))
+	require.Len(t, arr.Regions, 2)
+	require.InDelta(t, 1.6892916937051943, arr.Regions[0].Area, 1e-12)
+	require.InDelta(t, 1.0935519663546845e-05, arr.Regions[1].Area, 1e-17)
+}

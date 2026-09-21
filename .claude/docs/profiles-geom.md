@@ -716,8 +716,19 @@ ties may OPEN the door never protected the straight ports inside an already-open
 Two rounds of review found faces lost that way: first a rectangle collapsing to no
 region at all, then a mixed tie of one arc and one welded line losing a `1.33e-12`
 face while keeping its neighbour. Both are pinned in `geom/arrange_chordtie_test.go`.
-A curved port keeps its exact tangent, since its chord is a secant of a curve
-departing along another ray.
+**A CURVED port is keyed the same way, by a direction anchored at its graph vertex.**
+`portKey`'s exact tangent is taken at the PARAMETRIC endpoint, and welding moves the
+vertex off that point, so the tangent describes a departure from somewhere the walk
+no longer visits. The failure has a threshold rather than being incidental: a fragment
+of chord length `L` on radius `r`, welded by `d`, crosses to the wrong side of the
+chord it shares once `L < sqrt(2*r*d)`. `curvedPortDir` therefore aims from the vertex
+at the fragment's own parametric midpoint, CLAMPED so the arc turns at most
+`maxPortTurn` — a tiny fragment gets its true midpoint, while a long one (a circle cut
+once, whose midpoint is the antipode and would hand both half-edges one ray) stays
+near the vertex where the direction approaches the tangent and the old ordering holds.
+`TestWeldedArcPortKeepsTheLargeFace` pins a unit-scale scene from a review sweep where
+keying only the straight ports dropped a `1.689` face and kept a `1.09e-05` sliver,
+unflagged.
 
 One consequence is deliberate and worth expecting. Two straight ports that emit ONE
 chord now carry the same tangent ray and equal (zero) curvature, so

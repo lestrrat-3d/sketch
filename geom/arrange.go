@@ -3304,6 +3304,59 @@ func (a *arranger) externalCurvedTangency(i, j int) bool {
 	return d > math.Max(si.r, sj.r)
 }
 
+// curvedPortDir gives a CURVED fragment's departure ray as the direction from the
+// graph vertex (vx, vy) to a point the walk genuinely reaches on the edge, with dir
+// +1 leaving e.u and -1 leaving e.v.
+//
+// portKey's exact tangent is taken at the PARAMETRIC endpoint, and welding moves the
+// graph vertex off that point — so for a fragment short enough that the weld
+// displacement is comparable to its own chord, the tangent lands on the wrong side of
+// the chord it shares with a straight edge and the ring sorts backwards. The
+// threshold is arithmetic rather than incidental: a fragment of chord length L on
+// radius r, welded by d, crosses over once L < sqrt(2*r*d), so ordinary scenes reach
+// it. Anchoring the ray at the VERTEX and aiming it at the fragment's own parametric
+// midpoint keeps it on the correct side, and it is the same principle as keying a
+// straight port by its emitted chord: use a direction the walk traverses, never one
+// the source asserts about a point the walk no longer visits.
+//
+// The sampled parameter is CLAMPED so the arc turns at most maxPortTurn from the
+// vertex. A tiny fragment is unaffected and gets its true midpoint; a long one — a
+// circle cut once, whose midpoint is the antipode and would hand both half-edges the
+// same ray — stays near the vertex, where the direction approaches the tangent and
+// the existing ordering is preserved.
+func (a *arranger) curvedPortDir(e arrEdge, vx, vy float64, dir float64) (float64, float64, bool) {
+	s := &a.sources[e.src]
+	if !isCurvedKind(s.kind) {
+		return 0, 0, false
+	}
+	span := e.pv - e.pu
+	if span == 0 {
+		return 0, 0, false
+	}
+	frac := 0.5
+	if turn := math.Abs(span * s.sweep); turn > 2*maxPortTurn {
+		frac = maxPortTurn / turn
+	}
+	if dir < 0 {
+		frac = -frac
+	}
+	from := e.pu
+	if dir < 0 {
+		from = e.pv
+	}
+	p := s.at(from + frac*span)
+	dx, dy := p[0]-vx, p[1]-vy
+	if dx == 0 && dy == 0 {
+		return 0, 0, false
+	}
+	return dx, dy, true
+}
+
+// maxPortTurn caps how far along a curved fragment curvedPortDir may look, in
+// radians of turn. Small enough that the ray stays a faithful departure direction,
+// large enough that a short welded fragment still reaches its own midpoint.
+const maxPortTurn = math.Pi / 6
+
 // buildGraph wires the doubly-connected edge list: two half-edges per edge, the
 // rotation system at each vertex, and the next pointers (face on the left).
 func (a *arranger) buildGraph() {
@@ -3331,6 +3384,11 @@ func (a *arranger) buildGraph() {
 		if a.sources[e.src].kind == srcLine {
 			ftx, fty = vx-ux, vy-uy
 			btx, bty = ux-vx, uy-vy
+		} else if dx, dy, dok := a.curvedPortDir(e, ux, uy, +1); dok {
+			ftx, fty = dx, dy
+			if bx, by, bok := a.curvedPortDir(e, vx, vy, -1); bok {
+				btx, bty = bx, by
+			}
 		}
 		a.halfs = append(a.halfs, halfEdge{from: e.u, to: e.v, edge: ei, forward: true, angle: math.Atan2(vy-uy, vx-ux), tx: ftx, ty: fty, kappa: fka, exact: fok, next: -1})
 		a.halfs = append(a.halfs, halfEdge{from: e.v, to: e.u, edge: ei, forward: false, angle: math.Atan2(uy-vy, ux-vx), tx: btx, ty: bty, kappa: bka, exact: bok, next: -1})
