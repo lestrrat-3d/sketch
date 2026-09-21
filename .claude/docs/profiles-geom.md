@@ -707,9 +707,19 @@ false — `extract` has no postcondition on its own output, so nothing catches i
 `TestArcSpanningOneChordKeepsItsFaces` and `TestSectorPairRegionsMatchEitherOrder`
 pin the two shapes it took.
 
-**Differing tangents alone do NOT keep the door narrow, and assuming they did was a
-defect caught in review.** The door also requires at least one of the tied pair to be
-CURVED. Two STRAIGHT fragments that emit one chord are the same segment in the
+**A STRAIGHT port is keyed by the chord it EMITS, never by its source direction, and
+that — not the door's gate — is what makes exact ordering safe.** `portKey` answers a
+`srcLine` with the authored endpoint delta, and welding moves a fragment's ends onto
+other vertices, so that delta can name a ray the face walk never traverses. Once a
+ring is sorted exactly, EVERY straight port in it is sorted that way, so gating which
+ties may OPEN the door never protected the straight ports inside an already-open one.
+Two rounds of review found faces lost that way: first a rectangle collapsing to no
+region at all, then a mixed tie of one arc and one welded line losing a `1.33e-12`
+face while keeping its neighbour. Both are pinned in `geom/arrange_chordtie_test.go`.
+A curved port keeps its exact tangent, since its chord is a secant of a curve
+departing along another ray.
+
+**The door additionally requires at least one of the tied pair to be CURVED.** Two STRAIGHT fragments that emit one chord are the same segment in the
 traversed map, so their source tangents say where each line would run rather than
 what the face walk walks, and ordering by them corrupts the map — the failure the
 scope rule exists to prevent. WELDING is what makes that reachable: it moves a

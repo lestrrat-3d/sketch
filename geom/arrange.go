@@ -3316,6 +3316,22 @@ func (a *arranger) buildGraph() {
 		// the rotation system correctly even where chord directions tie (a tangency).
 		ftx, fty, fka, fok := a.portKey(e.src, e.pu, +1)
 		btx, bty, bka, bok := a.portKey(e.src, e.pv, -1)
+		// A STRAIGHT fragment is keyed by the chord it actually emits, never by its
+		// source direction. portKey answers a srcLine with the AUTHORED endpoint
+		// delta, and welding moves a fragment's ends onto other vertices, so that
+		// delta can name a ray the face walk never traverses. Ordering a welded line
+		// by it puts edges in an order the map does not hold, which merges or drops
+		// faces — and a curved member in the same ring does not protect it, since
+		// once the ring is sorted exactly EVERY straight port is sorted that way.
+		// For a line the emitted chord IS the traversed geometry, so it is the
+		// honest key, and where nothing welded it is the same ray as before. A
+		// curved fragment is the opposite case and keeps its exact tangent: its
+		// chord is a secant of a curve departing along another ray, so the tangent
+		// carries what the chord lost.
+		if a.sources[e.src].kind == srcLine {
+			ftx, fty = vx-ux, vy-uy
+			btx, bty = ux-vx, uy-vy
+		}
 		a.halfs = append(a.halfs, halfEdge{from: e.u, to: e.v, edge: ei, forward: true, angle: math.Atan2(vy-uy, vx-ux), tx: ftx, ty: fty, kappa: fka, exact: fok, next: -1})
 		a.halfs = append(a.halfs, halfEdge{from: e.v, to: e.u, edge: ei, forward: false, angle: math.Atan2(uy-vy, ux-vx), tx: btx, ty: bty, kappa: bka, exact: bok, next: -1})
 	}

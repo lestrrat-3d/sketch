@@ -127,8 +127,12 @@ Same-component interior tangency is a **self-touch** → `SelfIntersections`, no
    chord IS a straight edge between the same two vertices: both depart at a
    bit-identical angle, the unstable fallback sort cannot separate them, and the
    face walk then loses every bounded face with nothing flagged. Requiring the
-   tangents to DIFFER is not on its own enough, so the door also requires at least
-   one of the tied pair to be CURVED. Two straight fragments emitting one chord are
+   tangents to DIFFER is not on its own enough. The load-bearing part is that a
+   STRAIGHT port is keyed by the chord it EMITS rather than by `portKey`'s authored
+   source direction, since welding can move a fragment's ends so those differ, and
+   once a ring is sorted exactly every straight port in it is sorted that way — so
+   gating which ties may open the door never protected the straight ports inside an
+   open one. The door also requires at least one of the tied pair to be CURVED. Two straight fragments emitting one chord are
    the same segment in the traversed map, and their source tangents describe where
    each LINE would run rather than what the face walk walks, so ordering by them
    corrupts the map — the very failure this scope rule exists to prevent. Welding is

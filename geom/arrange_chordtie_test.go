@@ -89,8 +89,10 @@ func TestSectorPairRegionsMatchEitherOrder(t *testing.T) {
 // traverses as one segment, and the rectangle's own region collapsed — 0 regions
 // where main publishes one of area 100.00053587936401.
 //
-// Requiring at least one of a tied pair to be CURVED is what closes it, so this test
-// fails if the curvature requirement is ever dropped.
+// Keying a straight port by its EMITTED CHORD is what closes it, so this test fails
+// if a line is ever ordered by its source direction again. The door is additionally
+// gated on at least one tied member being curved, but that gate alone did not close
+// this class — see TestWeldedArcAndLineKeepBothFaces for the case it missed.
 //
 // What it pins is the LOSS, not a correct answer for this scene. The base itself is
 // order-dependent here — over 12 input orders it returns one region in 4 and none in
@@ -112,4 +114,36 @@ func TestWeldedParallelLinesKeepTheirRegion(t *testing.T) {
 	arr := geom.Regions(curves, nil, geom.WithVertexMerge(0.002))
 	require.Len(t, arr.Regions, 1)
 	require.InDelta(t, 100.00053587936401, arr.Regions[0].Area, 1e-9)
+}
+
+// TestWeldedArcAndLineKeepBothFaces is the second counter-example review found, and
+// the reason a straight port is keyed by its emitted chord rather than its source
+// direction. A MIXED tie — one curved member, one welded straight member — still
+// opens the exact-port door, and once a ring is sorted exactly EVERY straight port in
+// it is sorted that way, so the welded line was ordered by an authored ray the face
+// walk never traverses. The 1.33e-12 face below was lost by the version of this fix
+// that gated the door on curvature alone.
+//
+// The scene came out of a generated sweep, so its coordinates are kept bit-exact.
+// Both areas match what main publishes; what this pins is that neither face is lost.
+func TestWeldedArcAndLineKeepBothFaces(t *testing.T) {
+	p := geom.NewPoint
+	inner := geom.NewLine(
+		p(0.00013660030496290238, 2.4792462455065378e-06),
+		p(0.0001360209071564295, 6.1409954694647045e-08),
+	)
+	outer := geom.NewLine(
+		p(0.00013590193384173055, 1.2698037907665938e-05),
+		p(0.00013649386721983748, 0),
+	)
+	arc := geom.NewArc(
+		p(0, 0),
+		p(0.00013649386721983748, 0),
+		p(0.00013590193384173055, 1.2698037907665938e-05),
+	)
+	arr := geom.Regions([]geom.Curve{inner, outer, arc}, nil,
+		geom.WithVertexMerge(6.0050600326758044e-07))
+	require.Len(t, arr.Regions, 2)
+	require.InDelta(t, 1.3340102688318081e-12, arr.Regions[0].Area, 1e-24)
+	require.InDelta(t, 7.5630521335706837e-13, arr.Regions[1].Area, 1e-24)
 }
