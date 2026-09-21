@@ -241,3 +241,29 @@ func TestWeldedArcPortKeepsTheLargeFace(t *testing.T) {
 	require.InDelta(t, 1.6892916937051943, arr.Regions[0].Area, 1e-12)
 	require.InDelta(t, 1.0935519663546845e-05, arr.Regions[1].Area, 1e-17)
 }
+
+// TestInnerTangentArcKeepsBothFaces is the regression that scoped the curved-port
+// re-key to the SECOND door. At a certified analytic tangency contact the rotation
+// system depends on every incident exact tangent being ONE ray, so sortExactPorts can
+// cluster them and separate the loops by signed curvature. A vertex-anchored midpoint
+// ray does not tie, the cluster breaks, and the inner arc sorts to the wrong side:
+// keying every curved port that way published NO regions here, unflagged, in both
+// input orders. Certified contacts therefore keep portKey's exact tangent.
+func TestInnerTangentArcKeepsBothFaces(t *testing.T) {
+	v := geom.NewPoint(1, 0)
+	c2 := geom.NewPoint(0.5, 0)
+	e := geom.NewPoint(0.5+0.5*math.Cos(15*math.Pi/180), 0.5*math.Sin(15*math.Pi/180))
+	curves := []geom.Curve{geom.NewArc(c2, v, e), geom.NewLine(e, v)}
+	closed := []geom.ClosedCurve{geom.NewCircle(geom.NewPoint(0, 0), 1)}
+
+	for _, reversed := range []bool{false, true} {
+		in := curves
+		if reversed {
+			in = []geom.Curve{curves[1], curves[0]}
+		}
+		arr := geom.Regions(in, closed)
+		require.Lenf(t, arr.Regions, 2, "reversed=%v", reversed)
+		require.InDeltaf(t, 0.000372542837, arr.Regions[0].Area, 1e-9, "reversed=%v", reversed)
+		require.InDeltaf(t, 3.14122011, arr.Regions[1].Area, 1e-7, "reversed=%v", reversed)
+	}
+}

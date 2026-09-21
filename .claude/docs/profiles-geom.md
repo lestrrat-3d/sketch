@@ -722,10 +722,20 @@ vertex off that point, so the tangent describes a departure from somewhere the w
 no longer visits. The failure has a threshold rather than being incidental: a fragment
 of chord length `L` on radius `r`, welded by `d`, crosses to the wrong side of the
 chord it shares once `L < sqrt(2*r*d)`. `curvedPortDir` therefore aims from the vertex
-at the fragment's own parametric midpoint, CLAMPED so the arc turns at most
-`maxPortTurn` — a tiny fragment gets its true midpoint, while a long one (a circle cut
-once, whose midpoint is the antipode and would hand both half-edges one ray) stays
-near the vertex where the direction approaches the tangent and the old ordering holds.
+at the fragment's own parametric midpoint. That needs no bound: both ends of an edge
+aim at the SAME point from opposite sides, so their rays are mirrored however the
+weld moved them, and `splitFragments` emits at most one edge per sampler step, so an
+edge can never span a whole closed curve — a circle cut once, whose midpoint would be
+the antipode, is not reachable.
+
+**The re-key applies at the SECOND door only.** At a certified tangency contact the
+ordering rests on every incident exact tangent being ONE ray, so `sortExactPorts` can
+cluster them and separate the loops by signed curvature. Midpoint rays do not tie, the
+cluster breaks, and an inner tangent arc sorts to the wrong side — an outer circle
+with an inner tangent arc published NO regions at all, unflagged, until this was
+scoped. Certified contacts keep `portKey`'s tangent, and only the second door, which
+is exactly where welding can have moved a vertex off the parametric endpoint, gets the
+vertex-anchored ray. `TestInnerTangentArcKeepsBothFaces` pins it.
 `TestWeldedArcPortKeepsTheLargeFace` pins a unit-scale scene from a review sweep where
 keying only the straight ports dropped a `1.689` face and kept a `1.09e-05` sliver,
 unflagged.

@@ -3305,8 +3305,8 @@ func (a *arranger) externalCurvedTangency(i, j int) bool {
 }
 
 // curvedPortDir gives a CURVED fragment's departure ray as the direction from the
-// graph vertex (vx, vy) to a point the walk genuinely reaches on the edge, with dir
-// +1 leaving e.u and -1 leaving e.v.
+// graph vertex (vx, vy) to the fragment's own parametric midpoint. dir selects which
+// end departs: +1 leaves e.u, -1 leaves e.v.
 //
 // portKey's exact tangent is taken at the PARAMETRIC endpoint, and welding moves the
 // graph vertex off that point — so for a fragment short enough that the weld
@@ -3314,17 +3314,30 @@ func (a *arranger) externalCurvedTangency(i, j int) bool {
 // the chord it shares with a straight edge and the ring sorts backwards. The
 // threshold is arithmetic rather than incidental: a fragment of chord length L on
 // radius r, welded by d, crosses over once L < sqrt(2*r*d), so ordinary scenes reach
-// it. Anchoring the ray at the VERTEX and aiming it at the fragment's own parametric
-// midpoint keeps it on the correct side, and it is the same principle as keying a
-// straight port by its emitted chord: use a direction the walk traverses, never one
-// the source asserts about a point the walk no longer visits.
+// it. Aiming from the VERTEX at a point the walk genuinely reaches keeps the ray on
+// the correct side, and it is the same principle as keying a straight port by its
+// emitted chord: use a direction the walk traverses, never one the source asserts
+// about a point the walk no longer visits.
 //
-// The sampled parameter is CLAMPED so the arc turns at most maxPortTurn from the
-// vertex. A tiny fragment is unaffected and gets its true midpoint; a long one — a
-// circle cut once, whose midpoint is the antipode and would hand both half-edges the
-// same ray — stays near the vertex, where the direction approaches the tangent and
-// the existing ordering is preserved.
-func (a *arranger) curvedPortDir(e arrEdge, vx, vy float64, dir float64) (float64, float64, bool) {
+// The midpoint needs no bound. Both ends of an edge aim at the SAME point from
+// opposite sides, so their rays are mirrored by construction whatever the weld, and
+// splitFragments emits at most one edge per sampler step, so an edge can never span
+// a whole closed curve — the degenerate case of a circle cut once, whose midpoint is
+// the antipode and would hand both half-edges one ray, is not reachable.
+// certifiedPortVertex reports whether (vx, vy) is a certified analytic tangency
+// contact — the FIRST of useExactPorts' two doors. Ordering there rests on the
+// incident exact tangents being one ray, so a port at such a vertex keeps portKey's
+// tangent rather than a vertex-anchored ray.
+func (a *arranger) certifiedPortVertex(vx, vy float64) bool {
+	for _, p := range a.exactPortVerts {
+		if math.Hypot(p[0]-vx, p[1]-vy) <= a.merge {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *arranger) curvedPortDir(e arrEdge, vx, vy float64) (float64, float64, bool) {
 	s := &a.sources[e.src]
 	if !isCurvedKind(s.kind) {
 		return 0, 0, false
@@ -3333,29 +3346,13 @@ func (a *arranger) curvedPortDir(e arrEdge, vx, vy float64, dir float64) (float6
 	if span == 0 {
 		return 0, 0, false
 	}
-	frac := 0.5
-	if turn := math.Abs(span * s.sweep); turn > 2*maxPortTurn {
-		frac = maxPortTurn / turn
-	}
-	if dir < 0 {
-		frac = -frac
-	}
-	from := e.pu
-	if dir < 0 {
-		from = e.pv
-	}
-	p := s.at(from + frac*span)
+	p := s.at(e.pu + 0.5*span)
 	dx, dy := p[0]-vx, p[1]-vy
 	if dx == 0 && dy == 0 {
 		return 0, 0, false
 	}
 	return dx, dy, true
 }
-
-// maxPortTurn caps how far along a curved fragment curvedPortDir may look, in
-// radians of turn. Small enough that the ray stays a faithful departure direction,
-// large enough that a short welded fragment still reaches its own midpoint.
-const maxPortTurn = math.Pi / 6
 
 // buildGraph wires the doubly-connected edge list: two half-edges per edge, the
 // rotation system at each vertex, and the next pointers (face on the left).
@@ -3377,17 +3374,31 @@ func (a *arranger) buildGraph() {
 		// faces — and a curved member in the same ring does not protect it, since
 		// once the ring is sorted exactly EVERY straight port is sorted that way.
 		// For a line the emitted chord IS the traversed geometry, so it is the
-		// honest key, and where nothing welded it is the same ray as before. A
-		// curved fragment is the opposite case and keeps its exact tangent: its
-		// chord is a secant of a curve departing along another ray, so the tangent
-		// carries what the chord lost.
+		// honest key, and where nothing welded it is the same ray as before.
+		//
+		// A CURVED fragment is re-keyed the same way by curvedPortDir, but ONLY at a
+		// vertex that is not a certified tangency contact. At a certified contact the
+		// ordering depends on all the incident tangents being ONE ray so
+		// sortExactPorts can cluster them and separate the loops by curvature;
+		// midpoint rays do not tie, the cluster breaks, and an inner tangent arc
+		// sorts to the wrong side — an outer circle with an inner tangent arc
+		// published no regions at all before this was scoped. So the first door keeps
+		// portKey's exact tangent and only the second door gets the vertex-anchored
+		// ray, which is exactly where welding can have moved the vertex off the
+		// parametric endpoint.
 		if a.sources[e.src].kind == srcLine {
 			ftx, fty = vx-ux, vy-uy
 			btx, bty = ux-vx, uy-vy
-		} else if dx, dy, dok := a.curvedPortDir(e, ux, uy, +1); dok {
-			ftx, fty = dx, dy
-			if bx, by, bok := a.curvedPortDir(e, vx, vy, -1); bok {
-				btx, bty = bx, by
+		} else {
+			if !a.certifiedPortVertex(ux, uy) {
+				if dx, dy, ok := a.curvedPortDir(e, ux, uy); ok {
+					ftx, fty = dx, dy
+				}
+			}
+			if !a.certifiedPortVertex(vx, vy) {
+				if dx, dy, ok := a.curvedPortDir(e, vx, vy); ok {
+					btx, bty = dx, dy
+				}
 			}
 		}
 		a.halfs = append(a.halfs, halfEdge{from: e.u, to: e.v, edge: ei, forward: true, angle: math.Atan2(vy-uy, vx-ux), tx: ftx, ty: fty, kappa: fka, exact: fok, next: -1})
