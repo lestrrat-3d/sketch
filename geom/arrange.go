@@ -934,6 +934,15 @@ func finitePt(p [2]float64) bool {
 		!math.IsInf(p[0], 0) && !math.IsInf(p[1], 0)
 }
 
+// finiteMidpoint returns the midpoint of finite a and b without overflowing
+// their sum.
+func finiteMidpoint(a, b float64) float64 {
+	if math.Signbit(a) == math.Signbit(b) {
+		return a + (b-a)/2
+	}
+	return (a + b) / 2
+}
+
 // degenRecord is one degenerate condition: a representative point and the sources
 // it involves. An EMPTY srcs means the condition could not be attributed to any
 // geometry that reaches the arrangement — an unusable input curve, dropped before
@@ -3539,7 +3548,7 @@ func (a *arranger) coincidentEdges(exactRing map[int]bool) {
 					continue
 				}
 				seen[pair] = struct{}{}
-				a.flagDegenerate((ux+vx)/2, (uy+vy)/2, si, sj)
+				a.flagDegenerate(finiteMidpoint(ux, vx), finiteMidpoint(uy, vy), si, sj)
 			}
 		}
 	}

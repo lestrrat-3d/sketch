@@ -1,6 +1,8 @@
 package geom_test
 
 import (
+	"encoding/json"
+	"math"
 	"sort"
 	"testing"
 
@@ -127,4 +129,25 @@ func TestCoincidentEdgeVerdictMatchesEveryOrder(t *testing.T) {
 			require.InDeltaf(t, wantPoints[k][1], got[k][1], 1e-9, "input order %d, degeneracy %d y", i, k)
 		}
 	}
+}
+
+// TestCoincidentEdgeDegeneraciesStayFinite uses finite endpoints whose direct
+// sum overflows. The representative midpoint and its JSON form must stay finite.
+func TestCoincidentEdgeDegeneraciesStayFinite(t *testing.T) {
+	p := geom.NewPoint
+	lines := []geom.Curve{
+		geom.NewLine(p(1e308, 0), p(1.1e308, 0)),
+		geom.NewLine(p(1e308, 0), p(1.1e308, 0)),
+	}
+
+	arr := geom.Regions(lines, nil)
+	require.NotEmpty(t, arr.Degeneracies)
+	for _, point := range arr.Degeneracies {
+		for _, coordinate := range point {
+			require.False(t, math.IsNaN(coordinate) || math.IsInf(coordinate, 0),
+				"degeneracy coordinate must be finite: %v", point)
+		}
+	}
+	_, err := json.Marshal(arr.Degeneracies)
+	require.NoError(t, err)
 }
