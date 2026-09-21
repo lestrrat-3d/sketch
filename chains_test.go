@@ -244,6 +244,34 @@ func TestChainsAttributableDegeneracyIsScoped(t *testing.T) {
 	require.True(t, mine.Valid, "the overlap is on curves this chain does not use")
 }
 
+// TestChainsOverflowedLengthIsInvalid is the sketch-level face of the
+// arrangement's chain-length screen: a line whose two finite endpoints are too
+// far apart for its length to be finite. Before the screen it published
+// Length=+Inf with Valid true, and Verify — which runs its analysis, since every
+// coordinate is finite — listed no invalid chain and blessed the profile set.
+// The report keeps its existing shape: the arrangement-wide flag fails
+// ProfilesValid (with no region to list), and the chain is listed invalid.
+func TestChainsOverflowedLengthIsInvalid(t *testing.T) {
+	s := newSketch(t)
+	s.CreateLine(s.CreatePoint(0, 0), s.CreatePoint(1.7e308, 1.7e308))
+
+	chains := s.Chains()
+	require.Len(t, chains, 1)
+	require.True(t, math.IsInf(chains[0].Length, 1), "length %v", chains[0].Length)
+	require.False(t, chains[0].Valid, "an infinite length is not a sweepable chain")
+	require.False(t, chains[0].SelfIntersecting, "it is the magnitude, not the walk")
+
+	rep := s.Verify(t.Context())
+	require.True(t, rep.Analysed(), "every coordinate is finite, so the analysis runs")
+	require.Empty(t, rep.NonFinitePoints)
+	require.Empty(t, rep.Profiles)
+	require.Len(t, rep.Chains, 1)
+	require.Len(t, rep.InvalidChains, 1)
+	require.False(t, rep.ProfilesValid, "the arrangement-wide flag is reported even with no region")
+	require.ErrorIs(t, rep.Check(), sketch.ErrInvalidProfile)
+	require.NotErrorIs(t, rep.Check(), sketch.ErrNonFiniteGeometry)
+}
+
 // TestChainsGoStale is C8: a chain is a snapshot, and a solve that moves the
 // geometry makes the held one detectably stale while a fresh call reports the
 // moved geometry.

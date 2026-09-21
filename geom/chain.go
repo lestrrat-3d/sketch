@@ -141,6 +141,21 @@ func (a *arranger) walkChain(cands []arrEdge, inc map[int][]int, deg map[int]int
 		c.Edges = append(c.Edges, boundaryEdgeOf(f))
 		c.Length += a.fragLength(f)
 	}
+	// Every sample behind these fragments is finite (densify screens them), so a
+	// non-finite Length is an overflow of the measurement itself — a closed-form
+	// hypot or a chord sum past float64 — and there is no number to publish.
+	// Left unflagged it reads Valid with Length=+Inf. It is unattributable, the
+	// same way extract treats a non-finite area, and extract re-stamps the
+	// regions and the chains walked before this one once the walk is done.
+	//
+	// This is defence in depth: a length past float64 needs a scene extent past
+	// the area-floor band, so densify's extent screen or extract's floor screen
+	// has already flagged such a scene. It is stated here regardless, where
+	// Length is computed, so the invariant does not rest on those two staying
+	// as they are.
+	if math.IsNaN(c.Length) || math.IsInf(c.Length, 0) {
+		a.flagDegenerate(0, 0)
+	}
 	c.Edges = canonicalChainDirection(c.Edges)
 	c.Degenerate = a.degenReaches(srcs)
 	c.SelfIntersecting = a.chainSelfIntersects(c.Edges)

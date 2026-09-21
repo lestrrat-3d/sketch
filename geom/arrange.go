@@ -995,13 +995,13 @@ func (a *arranger) densify() {
 		}
 		// A source whose EVALUATED samples are not finite contributes nothing the
 		// arrangement can compare: every ordered test against a NaN is false, so it
-		// forms no vertex, no cut and no edge, and the scene scale it poisons is
-		// reset to 1 below — the curve vanishes with no signal anywhere. Sample the
-		// whole source first and drop it as degenerate if any point is non-finite,
-		// the same handling an unusable input curve already gets in newArranger.
-		// This is the ONLY place that sees evaluated samples, so it is the only
-		// place a stored-value check (a NaN interior knot, a NaN control point)
-		// cannot reach.
+		// forms no vertex, no cut and no edge — the curve vanishes with no signal
+		// anywhere. Sample the whole source first and drop it as degenerate if any
+		// point is non-finite, the same handling an unusable input curve already
+		// gets in newArranger. This is the ONLY place that sees evaluated samples,
+		// so it is the only place a stored-value check (a NaN interior knot, a NaN
+		// control point) cannot reach. A dropped source never reaches note(), so the
+		// scene bounding box below is accumulated from finite samples only.
 		pts := make([][2]float64, last+1)
 		bad := false
 		for i := 0; i <= last; i++ {
@@ -1041,6 +1041,18 @@ func (a *arranger) densify() {
 		}
 	}
 	a.scale = math.Max(maxX-minX, maxY-minY)
+	// Every sample that reached note() passed finitePt, so an infinite extent here
+	// is a FINITE scene whose bounding box overflowed float64 — not a poisoned
+	// sample. Nothing downstream can be stated against that scene: the merge
+	// tolerance, the identity bands and extract's area floor are all multiples of
+	// the scale, and the substitute below is a stand-in that keeps them finite,
+	// not a measurement. Record it as an unattributable degeneracy (it reaches
+	// every region and every chain) and withhold exact bounds scene-wide, then
+	// keep the substitute so the later passes still have a number to work with.
+	if math.IsInf(a.scale, 1) {
+		a.flagDegenerate(0, 0)
+		a.exactAllowed = false
+	}
 	if !(a.scale > 0) || math.IsInf(a.scale, 1) {
 		a.scale = 1
 	}
@@ -3325,11 +3337,28 @@ func (a *arranger) extract() *Arrangement {
 		cycles = append(cycles, c)
 	}
 
+	// epsArea is the sliver floor a cycle must clear to count as a face or a hole.
+	// It is scale², so it overflows to +Inf once the scene extent passes about
+	// 1.34e154 — where every cycle would then fail both comparisons below and be
+	// dropped with no flag, however real its region. That overflow point is also
+	// where segParams' own crossing determinant (a product of two chord lengths)
+	// stops being finite, so the arrangement is not trustworthy past it either
+	// way; flag it rather than publish a silently empty region set. The cycle
+	// screen right after it is the other half: a cycle whose accumulated area is
+	// itself non-finite compares true against a finite floor and would be
+	// published as a face with Area=+Inf and no flag. Both are unattributable —
+	// the magnitude is a property of the whole scene, not of one curve.
 	epsArea := a.scale * a.scale * 1e-12
+	if math.IsInf(epsArea, 1) {
+		a.flagDegenerate(0, 0)
+	}
 	var faces []*cycle
 	var holes []*cycle
 	for i := range cycles {
 		c := &cycles[i]
+		if math.IsNaN(c.area) || math.IsInf(c.area, 0) {
+			a.flagDegenerate(0, 0)
+		}
 		switch {
 		case c.area > epsArea:
 			faces = append(faces, c)
@@ -3342,6 +3371,10 @@ func (a *arranger) extract() *Arrangement {
 	for _, d := range a.degen {
 		arr.Degeneracies = append(arr.Degeneracies, [2]float64{d.x, d.y})
 	}
+	// stamped is how many conditions the arrangement and its regions are stamped
+	// with here; the chain walk below can still raise one (a non-finite Length),
+	// and everything stamped before it is re-stamped if it does.
+	stamped := len(a.degen)
 	// Assign each hole to the smallest-area face that strictly contains it. The
 	// containment probe is a point guaranteed interior to the hole (not a
 	// boundary vertex), so a hole touching a face boundary still resolves.
@@ -3393,7 +3426,38 @@ func (a *arranger) extract() *Arrangement {
 		}
 	}
 	arr.Chains = a.buildChains(used)
+	if len(a.degen) > stamped {
+		// The chain walk raised a condition after the arrangement and every region
+		// were stamped, and the chains walked before it were stamped without it
+		// too. Re-stamp all three from the full record so the flag a consumer
+		// gates on, and the per-boundary attribution, agree with what was found.
+		arr.Degenerate = a.degenSet
+		arr.Degeneracies = arr.Degeneracies[:0]
+		for _, d := range a.degen {
+			arr.Degeneracies = append(arr.Degeneracies, [2]float64{d.x, d.y})
+		}
+		for _, reg := range arr.Regions {
+			reg.Degenerate = a.regionDegenerate(reg)
+		}
+		for _, c := range arr.Chains {
+			c.Degenerate = a.chainDegenerate(c)
+		}
+	}
 	return arr
+}
+
+// chainDegenerate is regionDegenerate's twin for a published chain: whether any
+// recorded degenerate condition reaches a boundary built from the chain's own
+// sources, by the same degenReaches rule walkChain stamps with.
+func (a *arranger) chainDegenerate(c *Chain) bool {
+	if len(a.degen) == 0 {
+		return false
+	}
+	srcs := map[int]struct{}{}
+	for _, e := range c.Edges {
+		srcs[e.SourceIndex] = struct{}{}
+	}
+	return a.degenReaches(srcs)
 }
 
 // regionDegenerate reports whether any recorded degenerate condition reaches this

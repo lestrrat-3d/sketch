@@ -212,3 +212,48 @@ func TestChainsSampledLengthPinsFragmentEnds(t *testing.T) {
 		require.LessOrEqual(t, ch.Length, 5.0, "a sampled length never overestimates")
 	}
 }
+
+// TestChainsOverflowedLengthIsDegenerate pins the third magnitude screen from
+// the outside: a chain whose accumulated Length is not finite is never
+// published valid. Every coordinate here is finite. The one diagonal keeps a
+// FINITE scene extent (1.7e308) and overflows inside fragLength's hypot alone,
+// so a screen keyed on the scene scale would not see it; the two collinear
+// halves overflow the extent as well. Before the screens both published
+// Length=+Inf with Degenerate=false.
+//
+// The third case is the ACCEPTED COST, pinned so it is deliberate: past the
+// floor band (an extent above about 1.34e154) the arrangement reads degenerate
+// even where its own published length is finite, since the sliver floor — and
+// the crossing determinant segParams decides every contact with — cannot be
+// computed there.
+func TestChainsOverflowedLengthIsDegenerate(t *testing.T) {
+	tests := []struct {
+		name   string
+		curves []geom.Curve
+		finite bool
+	}{
+		{"one diagonal", []geom.Curve{
+			geom.NewLine(geom.NewPoint(0, 0), geom.NewPoint(1.7e308, 1.7e308)),
+		}, false},
+		{"two collinear halves", []geom.Curve{
+			geom.NewLine(geom.NewPoint(-1.7e308, 0), geom.NewPoint(0, 0)),
+			geom.NewLine(geom.NewPoint(0, 0), geom.NewPoint(1.7e308, 0)),
+		}, false},
+		{"finite length past the floor band", []geom.Curve{
+			geom.NewLine(geom.NewPoint(-8e307, 0), geom.NewPoint(0, 0)),
+			geom.NewLine(geom.NewPoint(0, 0), geom.NewPoint(8e307, 0)),
+		}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			arr := geom.Regions(tt.curves, nil)
+			require.Empty(t, arr.Regions)
+			require.Len(t, arr.Chains, 1)
+			ch := arr.Chains[0]
+			require.Equal(t, tt.finite, !math.IsInf(ch.Length, 0), "length %v", ch.Length)
+			require.True(t, arr.Degenerate, "the arrangement must flag it")
+			require.True(t, ch.Degenerate, "and the flag reaches the chain")
+			require.False(t, ch.SelfIntersecting, "it is the magnitude, not the walk")
+		})
+	}
+}
