@@ -454,3 +454,69 @@ func TestRegionsDegenerateSpline(t *testing.T) {
 	arr := geom.Regions([]geom.Curve{sp}, nil)
 	require.True(t, arr.Degenerate, "an all-coincident spline has no extent")
 }
+
+// regionPolylineArea is the shoelace area of the closed polygon obtained by
+// concatenating each boundary edge's own published Polyline, dropping the
+// duplicated joint at each edge's end. It measures the boundary a region
+// PUBLISHES, independent of Region.Area itself, so a test can check the two
+// agree.
+func regionPolylineArea(edges []geom.BoundaryEdge) float64 {
+	var pts [][2]float64
+	for _, e := range edges {
+		pts = append(pts, e.Polyline[:len(e.Polyline)-1]...)
+	}
+	var s float64
+	for i := range pts {
+		p, q := pts[i], pts[(i+1)%len(pts)]
+		s += p[0]*q[1] - q[0]*p[1]
+	}
+	return s / 2
+}
+
+// TestRegionsWeldedSectorOuterCycleNotHole reproduces fu90: a radius-10,
+// 15deg arc closed by two chords that both land within 2e-7 of the arc's own
+// start point — under the default vertex-merge tolerance of scale*1e-6 —
+// welds all three curves' meeting point onto the arc's start and splits the
+// sector into a 0.1deg sliver and the remaining wedge.
+//
+// extract's only guard against assigning a cycle its own unbounded/adjacent
+// boundary as someone else's hole was an area-magnitude compare
+// (f.area <= -h.area+epsArea at geom/arrange.go), and the weld shrank the
+// wedge's own unbounded exterior cycle's computed magnitude below the wedge
+// itself: the wedge published Area=2.1276907741230033e-07 while its own Outer
+// polyline enclosed 0.147804554 (off by six orders of magnitude), carrying
+// one hole that was its own boundary walked backwards.
+func TestRegionsWeldedSectorOuterCycleNotHole(t *testing.T) {
+	const radius, gap, inner = 10.0, 2e-7, 0.1
+	polar := func(r, deg float64) *geom.Point {
+		rad := deg * math.Pi / 180
+		return geom.NewPoint(r*math.Cos(rad), r*math.Sin(rad))
+	}
+	q0 := geom.NewPoint(radius-gap, 0)
+	curves := []geom.Curve{
+		geom.NewArc(geom.NewPoint(0, 0), polar(radius, 0), polar(radius, 15)),
+		geom.NewLine(polar(radius, inner), q0),
+		geom.NewLine(polar(radius, 15), q0),
+	}
+	arr := geom.Regions(curves, nil)
+	require.False(t, arr.Degenerate)
+	require.Len(t, arr.Regions, 2, "the 0.1deg sliver and the remaining wedge")
+	for _, r := range arr.Regions {
+		require.Empty(t, r.Holes, "neither wedge has an interior void")
+	}
+
+	// The sliver's own dense chord polygon is itself near-degenerate (its
+	// straight-chord shoelace rounds to zero at this thinness), so the
+	// meaningful check — Area against the region's own published Outer
+	// polyline, within the discretized boundary's own sampling error — is
+	// made against the big wedge, the region the defect actually corrupted.
+	big, small := arr.Regions[0], arr.Regions[1]
+	if small.Area > big.Area {
+		big, small = small, big
+	}
+	require.Greater(t, small.Area, 0.0, "the sliver still carries a tiny positive area")
+	want := regionPolylineArea(big.Outer)
+	require.InDelta(t, want, big.Area, math.Abs(want)*0.05,
+		"Area must agree with the wedge's own published Outer polyline, "+
+			"up to its densified boundary's own sampling error")
+}
