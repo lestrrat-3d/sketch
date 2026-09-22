@@ -847,6 +847,20 @@ both cycles' sources. It is skipped (nothing to check) once an ellipse/spline is
 part of either boundary — the same coverage boundary `exactPointInRegion`
 already has.
 
+**Its slack is source-local, and that is what makes it a check at all.** The box
+comparison forgives `boundsTol` times `cycleMagnitude` — the largest defining
+number (a line's endpoint coordinates, a circle/arc's centre and radius) across
+the two cycles' OWN fragments, which bounds the magnitude their extrema are
+evaluated at and so the round-off in them. Stated against `a.scale` instead, the
+slack was set by the whole scene and grew without bound: a face triangle and a
+second triangle `1.0` apart in `minY`, plus ONE unrelated open line at `x=1e9`,
+pushed it past that whole gap, so the guard accepted a hole lying entirely
+outside its face and recorded no degeneracy — the probe failure the
+postcondition exists to catch, waved through by geometry that touches neither
+cycle (`TestRegionsHoleContainmentSlackIsLocalToTheTwoCycles`). This is the same
+scene-band-versus-local-band rule `vertexCertifies` and `carriersIdentical`
+follow, with its own constant because it bounds a different quantity.
+
 ### Curve/curve transverse crossing authority (§7b)
 
 **Curve/curve TRANSVERSE crossing authority (§7b) rests on its own incidence

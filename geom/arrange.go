@@ -4303,14 +4303,49 @@ func (a *arranger) cycleBounds(c *cycle) (lo, hi [2]float64, ok bool) {
 	return lo, hi, len(c.frags) > 0
 }
 
+// cycleMagnitude returns the length that bounds the float64 round-off in cycle
+// c's exact bounding box. Every coordinate exactFragBounds computes is a sum or
+// product of at most two of a source's OWN defining numbers — a line's two
+// endpoint coordinates, or a circle/arc's centre plus radius·{cos,sin} — so the
+// largest of those numbers over c's fragments bounds the magnitude every one of
+// its extrema is evaluated at, and the round-off there is a handful of ulps of
+// it. It is a property of c's own sources alone: geometry drawn somewhere else
+// never enters it. Callers must have a true box from cycleBounds first, which is
+// what restricts the fragments here to line/circle/arc.
+func (a *arranger) cycleMagnitude(c *cycle) float64 {
+	mag := 0.0
+	for _, f := range c.frags {
+		s := &a.sources[f.src]
+		m := math.Max(math.Abs(s.cx), math.Max(math.Abs(s.cy), math.Abs(s.r)))
+		if s.kind == srcLine {
+			m = math.Max(math.Abs(s.ax), math.Max(math.Abs(s.ay),
+				math.Max(math.Abs(s.bx), math.Abs(s.by))))
+		}
+		mag = math.Max(mag, m)
+	}
+	return mag
+}
+
 // boundsTol is the slack allowed when checking a hole's exact bounding box
-// against its candidate face's, scaled by the scene extent: two independently
-// computed floating-point expressions for the same geometric point (e.g. an
-// internal-tangency contact reached via the hole's own circle formula and via
-// the face's) can differ at round-off even though the underlying point is
-// identical, and a genuinely nested hole must never be rejected over that. It is
-// far below any real gap — the reported defect's hole and face boxes were
-// disjoint by whole units, orders of magnitude above this band.
+// against its candidate face's, as a fraction of the LOCAL magnitude those two
+// boxes are computed at (cycleMagnitude), never of the scene extent: two
+// independently computed floating-point expressions for the same geometric point
+// (e.g. an internal-tangency contact reached via the hole's own circle formula
+// and via the face's) can differ at round-off even though the underlying point
+// is identical, and a genuinely nested hole must never be rejected over that.
+// At 1e-9 the band is ~4.5e6 ulps of that magnitude — comfortably above the few
+// ulps of real evaluation round-off, and far below any real gap.
+//
+// Stating it against the scene instead let an object drawn somewhere else decide
+// how big a gap counts as round-off HERE, and the widening is unbounded: a face
+// triangle and a second triangle 1.0 apart in minY, plus ONE open line parked at
+// x=1e9 that touches neither, put the scene scale past 1e9 and so the slack past
+// the whole 1.0 gap — the guard then accepted a hole lying entirely outside its
+// face and recorded nothing (TestRegionsHoleContainmentSlackIsLocalToTheTwoCycles).
+// The quantity being judged is the distance between two boxes derived from those
+// two cycles' own curves, so those curves' own magnitude is what it is measured
+// against. This is the same source-local rule weldIdentEps's users follow, with
+// its own constant because it bounds a different quantity.
 const boundsTol = 1e-9
 
 // holeLiesInFace is the postcondition on a hole assignment: it re-derives the
@@ -4322,14 +4357,16 @@ const boundsTol = 1e-9
 // (containment implies bounding-box containment), so this can only ever reject
 // a wrong assignment, never a real one. ok is false ("nothing to check") when
 // either cycle has a fragment with no closed-form bound — the same
-// ellipse/spline coverage boundary exactPointInRegion already has.
+// ellipse/spline coverage boundary exactPointInRegion already has. The only
+// slack the comparison allows is evaluation round-off, measured against the two
+// cycles' own magnitude and nothing else (see boundsTol).
 func (a *arranger) holeLiesInFace(h, f *cycle) (contained, ok bool) {
 	hlo, hhi, hok := a.cycleBounds(h)
 	flo, fhi, fok := a.cycleBounds(f)
 	if !hok || !fok {
 		return false, false
 	}
-	tol := a.scale * boundsTol
+	tol := boundsTol * math.Max(a.cycleMagnitude(h), a.cycleMagnitude(f))
 	contained = hlo[0] >= flo[0]-tol && hlo[1] >= flo[1]-tol &&
 		hhi[0] <= fhi[0]+tol && hhi[1] <= fhi[1]+tol
 	return contained, true

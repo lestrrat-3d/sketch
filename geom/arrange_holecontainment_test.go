@@ -3,6 +3,7 @@ package geom_test
 import (
 	"math"
 	"math/rand"
+	"sort"
 	"testing"
 
 	"github.com/lestrrat-3d/sketch/geom"
@@ -135,4 +136,63 @@ func TestRegionsHoleNeverDisjointFromItsFace(t *testing.T) {
 		}
 	}
 	require.Zero(t, violations)
+}
+
+// TestRegionsHoleContainmentSlackIsLocalToTheTwoCycles pins that the
+// postcondition's bounding-box slack is bounded by the hole's and face's own
+// geometry, never by the whole scene's extent. The scene is three sources: a
+// face triangle, a second triangle disjoint from it (their boxes are apart by
+// exactly 1.0 in minY), and one open line parked far away that touches neither.
+// The probe inside exactPointInRegion is displaced by a SCENE-scaled offset, so
+// the distant line makes it land inside the disjoint face and the second
+// triangle is offered as the face's hole. When the postcondition's slack was
+// a.scale*boundsTol it grew past that 1.0 gap once the line sat at x=1e9, so the
+// guard accepted the assignment and published a hole outside its face with
+// nothing recorded. The slack now comes from the two cycles' own magnitudes, so
+// geometry drawn somewhere else cannot turn a real gap into round-off.
+func TestRegionsHoleContainmentSlackIsLocalToTheTwoCycles(t *testing.T) {
+	face := []geom.Curve{
+		geom.NewLine(geom.NewPoint(-1100000, 0), geom.NewPoint(1100000, 8)),
+		geom.NewLine(geom.NewPoint(1100000, 8), geom.NewPoint(-1100000, 12)),
+		geom.NewLine(geom.NewPoint(-1100000, 12), geom.NewPoint(-1100000, 0)),
+	}
+	hole := []geom.Curve{
+		geom.NewLine(geom.NewPoint(-1000000, -1), geom.NewPoint(1000000, -1)),
+		geom.NewLine(geom.NewPoint(1000000, -1), geom.NewPoint(0, 2)),
+		geom.NewLine(geom.NewPoint(0, 2), geom.NewPoint(-1000000, -1)),
+	}
+	distant := geom.NewLine(geom.NewPoint(1e9, 0), geom.NewPoint(1e9, 1))
+
+	curves := append(append([]geom.Curve{}, face...), hole...)
+	curves = append(curves, distant)
+
+	arr := geom.Regions(curves, nil, geom.WithVertexMerge(1e-9))
+	require.Len(t, arr.Regions, 2, "the two triangles, each its own region")
+	var areas []float64
+	for i, reg := range arr.Regions {
+		require.Empty(t, reg.Holes,
+			"region %d: the two triangles are disjoint, so neither can hold the other as a hole", i)
+		areas = append(areas, reg.Area)
+	}
+	sort.Float64s(areas)
+	// Each triangle keeps its whole area: the face would read 1.02e7 with the
+	// other triangle wrongly subtracted from it as a hole.
+	require.InDelta(t, 3e6, areas[0], 1e-3)
+	require.InDelta(t, 1.32e7, areas[1], 1e-3)
+	require.True(t, arr.Degenerate, "the rejected hole assignment must be recorded")
+	require.NotEmpty(t, arr.Degeneracies, "the rejection records the probe point it refused")
+
+	// The same two triangles with the distant line removed: identical regions and
+	// areas, and no assignment to reject. What the distant line may never do is
+	// change the verdict about two cycles it has nothing to do with.
+	near := geom.Regions(append(append([]geom.Curve{}, face...), hole...), nil, geom.WithVertexMerge(1e-9))
+	require.False(t, near.Degenerate, "without the distant line no hole is ever offered")
+	require.Len(t, near.Regions, 2)
+	var nearAreas []float64
+	for _, reg := range near.Regions {
+		require.Empty(t, reg.Holes)
+		nearAreas = append(nearAreas, reg.Area)
+	}
+	sort.Float64s(nearAreas)
+	require.Equal(t, nearAreas, areas, "the distant line must not change either triangle's area")
 }
