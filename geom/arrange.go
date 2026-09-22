@@ -3861,6 +3861,27 @@ func (a *arranger) extract() *Arrangement {
 			}
 		}
 		if best >= 0 {
+			// Postcondition: exactPointInRegion decided containment above, but
+			// nothing re-checked its answer before it was trusted — re-derive
+			// the hole's and the chosen face's true bounding boxes straight from
+			// their own fragments' closed-form geometry and require the hole's
+			// to lie inside the face's, so a probe failure of ANY origin is
+			// caught rather than published. ok is false when either cycle has a
+			// fragment outside line/circle/arc (no exact bound to check), which
+			// leaves that case exactly as trusted as it always was.
+			if contained, ok := a.holeLiesInFace(h, faces[best]); ok && !contained {
+				var srcs []int
+				for _, fr := range h.frags {
+					srcs = append(srcs, fr.src)
+				}
+				for _, fr := range faces[best].frags {
+					srcs = append(srcs, fr.src)
+				}
+				a.flagDegenerate(probe[0], probe[1], srcs...)
+				best = -1
+			}
+		}
+		if best >= 0 {
 			holeOf[best] = append(holeOf[best], h)
 		}
 	}
@@ -4232,6 +4253,152 @@ func (a *arranger) exactPointInRegion(q [2]float64, c *cycle) bool {
 	return crossings%2 == 1
 }
 
+// exactFragBounds returns fragment f's true axis-aligned bounding box: exact for
+// a line (its own two endpoints) and for a circle/arc (the endpoints plus
+// whichever of the four cardinal angles angInFragment says the fragment's own
+// sweep covers — the same closed-form test rayFragCrossings rests on, so this
+// bound is trustworthy exactly where that test is). ok is false for every other
+// source kind (no closed form here); the caller then has no exact bound to use.
+func (a *arranger) exactFragBounds(f cycFrag) (lo, hi [2]float64, ok bool) {
+	s := &a.sources[f.src]
+	switch s.kind {
+	case srcLine, srcCircle, srcArc:
+	default:
+		return lo, hi, false
+	}
+	A, B := s.at(f.pStart), s.at(f.pEnd)
+	lo = [2]float64{math.Min(A[0], B[0]), math.Min(A[1], B[1])}
+	hi = [2]float64{math.Max(A[0], B[0]), math.Max(A[1], B[1])}
+	if s.kind == srcLine {
+		return lo, hi, true
+	}
+	for _, ang := range [4]float64{0, math.Pi / 2, math.Pi, -math.Pi / 2} {
+		if !a.angInFragment(s, f, ang) {
+			continue
+		}
+		x, y := s.cx+s.r*math.Cos(ang), s.cy+s.r*math.Sin(ang)
+		lo[0], lo[1] = math.Min(lo[0], x), math.Min(lo[1], y)
+		hi[0], hi[1] = math.Max(hi[0], x), math.Max(hi[1], y)
+	}
+	return lo, hi, true
+}
+
+// cycleBounds returns the exact axis-aligned bounding box of the whole cycle c —
+// the union of exactFragBounds over its fragments — or ok=false the moment any
+// fragment has no closed-form bound (an ellipse/spline/conic/NURBS is part of the
+// boundary), in which case the caller has no exact bound to check against.
+func (a *arranger) cycleBounds(c *cycle) (lo, hi [2]float64, ok bool) {
+	for i, f := range c.frags {
+		flo, fhi, fok := a.exactFragBounds(f)
+		if !fok {
+			return lo, hi, false
+		}
+		if i == 0 {
+			lo, hi = flo, fhi
+			continue
+		}
+		lo[0], lo[1] = math.Min(lo[0], flo[0]), math.Min(lo[1], flo[1])
+		hi[0], hi[1] = math.Max(hi[0], fhi[0]), math.Max(hi[1], fhi[1])
+	}
+	return lo, hi, len(c.frags) > 0
+}
+
+// unitRoundoff is float64's unit round-off, 2⁻⁵³: the largest RELATIVE error one
+// correctly-rounded arithmetic operation can introduce.
+const unitRoundoff = 1.0 / (1 << 53)
+
+// boundsRoundoffUlpsLine and boundsRoundoffUlpsArc are how many unitRoundoffs of
+// a fragment's own defining magnitude bound the round-off in the box coordinates
+// exactFragBounds computes for it. They are DERIVED from the operations that
+// code performs — not picked as round numbers, and not a band wide enough to
+// swallow a real gap. Write u for unitRoundoff below.
+//
+// A line evaluates at(t) = ax + t*(bx-ax) with M = max(|ax|,|ay|,|bx|,|by|).
+// |bx-ax| ≤ 2M, so fl(bx-ax) is off by ≤ 2uM; multiplying by t ∈ [0,1] carries
+// that through and adds u|t(bx-ax)| ≤ 2uM; the final sum adds u|result| ≤ uM
+// (the point lies on the segment, so |result| ≤ M). That is 5uM, and the box is
+// a min/max of such coordinates, which introduces nothing further. 8 is that
+// bound with margin.
+//
+// A circle/arc evaluates at(t) = cx + r*cos(phi0+t*sweep), and the cardinal-angle
+// extrema the same way, with M = max(|cx|,|cy|,r). The angle is off by
+// ≤ u(|ang|+2|sweep|) ≤ 7πu < 22u; cos carries an angle error through undamped
+// (|cos′| ≤ 1) and adds its own error, ≤ 2 ulps of a result of magnitude ≤ 1,
+// i.e. ≤ 4u; multiplying by r gives ≤ 26uM plus u|r·cos| ≤ uM; the final sum adds
+// u|result| ≤ 2uM (|result| ≤ |cx|+r ≤ 2M). That is 29uM. 64 is that bound with
+// margin for a platform trig function less accurate than 2 ulps.
+const (
+	boundsRoundoffUlpsLine = 8
+	boundsRoundoffUlpsArc  = 64
+)
+
+// cycleBoundsRoundoff returns an upper bound on the absolute float64 round-off in
+// any coordinate of cycle c's exact bounding box (cycleBounds). Every coordinate
+// exactFragBounds computes is a short expression in one source's OWN defining
+// numbers — a line's two endpoint coordinates, or a circle/arc's centre plus
+// radius·{cos,sin} — so the largest of those numbers bounds the magnitude that
+// fragment's extrema are evaluated at, and the per-kind ulp counts above bound
+// the round-off accumulated there. It is a property of c's own sources alone:
+// geometry drawn somewhere else never enters it. Callers must have a true box
+// from cycleBounds first, which is what restricts the fragments here to
+// line/circle/arc.
+//
+// Stating the slack against the SCENE instead let an object drawn somewhere else
+// decide how big a gap counts as round-off HERE, and the widening was unbounded:
+// a face triangle and a second triangle 1.0 apart in minY, plus ONE open line
+// parked at x=1e9 that touches neither, put the scene scale past 1e9 and so the
+// slack past the whole 1.0 gap — the guard then accepted a hole lying entirely
+// outside its face and recorded nothing
+// (TestRegionsHoleContainmentSlackIsLocalToTheTwoCycles). This is the same
+// source-local rule weldIdentEps's users follow, derived rather than tuned
+// because it bounds a different quantity.
+func (a *arranger) cycleBoundsRoundoff(c *cycle) float64 {
+	worst := 0.0
+	for _, f := range c.frags {
+		s := &a.sources[f.src]
+		m := math.Max(math.Abs(s.cx), math.Max(math.Abs(s.cy), math.Abs(s.r)))
+		ulps := float64(boundsRoundoffUlpsArc)
+		if s.kind == srcLine {
+			m = math.Max(math.Abs(s.ax), math.Max(math.Abs(s.ay),
+				math.Max(math.Abs(s.bx), math.Abs(s.by))))
+			ulps = boundsRoundoffUlpsLine
+		}
+		worst = math.Max(worst, ulps*unitRoundoff*m)
+	}
+	return worst
+}
+
+// holeLiesInFace is the postcondition on a hole assignment: it re-derives the
+// exact bounding boxes of the hole and its candidate face directly from their
+// own fragments' closed-form geometry — never from exactPointInRegion's
+// crossing count a second time — so a probe failure of ANY origin, not only the
+// arc-parameter aliasing this fix closes, is caught rather than trusted
+// uninspected. A genuinely nested hole's box is always inside its face's
+// (containment implies bounding-box containment), so this can only ever reject
+// a wrong assignment, never a real one. ok is false ("nothing to check") when
+// either cycle has a fragment with no closed-form bound — the same
+// ellipse/spline coverage boundary exactPointInRegion already has.
+//
+// The only slack the comparison allows is the two boxes' OWN evaluation
+// round-off, derived from the operations that computed them
+// (cycleBoundsRoundoff) and summed because each box carries its own error. Any
+// box separation larger than that is a real gap and is rejected: two
+// independently computed expressions for the same geometric point (an
+// internal-tangency contact reached via the hole's circle formula and via the
+// face's, say) may differ by that much and no more, so a genuinely nested hole
+// still cannot be rejected over round-off.
+func (a *arranger) holeLiesInFace(h, f *cycle) (contained, ok bool) {
+	hlo, hhi, hok := a.cycleBounds(h)
+	flo, fhi, fok := a.cycleBounds(f)
+	if !hok || !fok {
+		return false, false
+	}
+	tol := a.cycleBoundsRoundoff(h) + a.cycleBoundsRoundoff(f)
+	contained = hlo[0] >= flo[0]-tol && hlo[1] >= flo[1]-tol &&
+		hhi[0] <= fhi[0]+tol && hhi[1] <= fhi[1]+tol
+	return contained, true
+}
+
 // rayFragCrossings counts how many times the horizontal +x ray from q crosses the
 // line/circle/arc fragment f. Endpoints use a half-open convention (the lower-y
 // endpoint counts, the upper-y one does not) so a ray through a shared vertex is
@@ -4281,15 +4448,25 @@ func raySegCrossings(q, A, B [2]float64) int {
 // convention at the param endpoints so a ray through a fragment boundary vertex is
 // counted by exactly one of the two adjoining fragments.
 func (a *arranger) angInFragment(s *source, f cycFrag, ang float64) bool {
-	// natural param of this angle on the source
-	var t float64
+	// natural param of this angle on the source, and the natural-param PERIOD of
+	// one full physical turn (ang repeating by 2π). For a circle t is already a
+	// fraction of a full turn, so that period is 1 — one unit of t IS one turn.
+	// For an arc t is a fraction of the arc's OWN sweep instead (sweep ∈ (0,2π]),
+	// so one physical turn is 2π/sweep units of t, not 1: wrapping by units of 1
+	// wrapped by whole ARCS, not whole turns, and could fold in an angle that sits
+	// off the fragment's own sweep — ang comes back from atan2 reduced to its
+	// principal (-π,π] range, so the true angle can differ from it by exactly one
+	// physical turn, and only a turn-sized correction is ever the right one.
+	var t, period float64
 	if s.kind == srcCircle {
 		t = ang / (2 * math.Pi)
+		period = 1
 	} else { // srcArc
 		if s.sweep == 0 {
 			return false
 		}
 		t = (ang - s.phi0) / s.sweep
+		period = 2 * math.Pi / math.Abs(s.sweep)
 	}
 	lo, hi := f.pStart, f.pEnd
 	if hi < lo {
@@ -4300,10 +4477,10 @@ func (a *arranger) angInFragment(s *source, f cycFrag, ang float64) bool {
 	if s.kind == srcCircle && hi-lo >= 1-1e-9 {
 		return true
 	}
-	// bring t into [lo, lo+1) by whole turns (param period is 1), then test [lo,hi).
-	// The caller perturbs the probe generically so a ray never crosses exactly at a
+	// bring t into [lo, lo+period) by whole physical turns, then test [lo,hi). The
+	// caller perturbs the probe generically so a ray never crosses exactly at a
 	// fragment endpoint (the seam), keeping this half-open test off the float boundary.
-	t -= math.Floor((t - lo))
+	t -= period * math.Floor((t-lo)/period)
 	return t >= lo && t < hi
 }
 
