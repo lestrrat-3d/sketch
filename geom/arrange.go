@@ -3364,12 +3364,11 @@ func (a *arranger) curvedPortDir(e arrEdge, vx, vy float64) (float64, float64, b
 // can weld their stub fragments onto the same two vertices while still
 // differing at their own far ends.
 //
-// Left as two edges, the fallback chord-angle sort a few lines down breaks that
-// tie with sort.Slice, which is unstable and gives no guarantee that the two
-// shared vertices resolve the tie the same way. When they don't, the next
+// Left without an equality rule, a chord-angle sort gives no guarantee that the
+// two shared vertices resolve the tie the same way. When they don't, the next
 // pointers stop describing a planar embedding and the face walk can return one
-// near-zero-area cycle over every half-edge instead of the bounded faces,
-// losing them all with Degenerate false — see
+// near-zero-area cycle over every half-edge instead of the bounded faces, losing
+// them all with Degenerate false — see
 // TestCoincidentEmittedLinesKeepBothRegions and
 // TestProfilesCoincidentEmittedLinesKeepBothProfiles.
 //
@@ -3391,11 +3390,11 @@ func (a *arranger) curvedPortDir(e arrEdge, vx, vy float64) (float64, float64, b
 //     incident half-edge to be exact — so it already falls back to chord
 //     order, the honest verdict for a source the map only holds as chords.
 //
-// The surviving edge is selected by a canonical key over the authored line and
-// its fragment, both normalized to ignore source direction. Source index breaks
-// the tie only when those geometries are identical. A permutation therefore
-// keeps the same geometric source rather than whichever source moved to the
-// lowest input position.
+// A canonical key over the authored line and its fragment, both normalized to
+// ignore source direction, selects the survivor and orders tied straight ports in
+// wireGraph. Source index breaks the tie only when those geometries are identical.
+// A permutation therefore keeps the same geometric source rather than whichever
+// source moved to the lowest input position.
 //
 // A group ISOLATED at both its vertices — nothing else in the arrangement
 // touches u or v besides the tied group's own members — is left alone
@@ -3414,9 +3413,8 @@ func (a *arranger) curvedPortDir(e arrEdge, vx, vy float64) (float64, float64, b
 // represent. The group is restored, the graph is rewired to expose any next
 // bridge, and the unresolved tie is reported as degenerate rather than silently
 // deleting the face that uses it.
-func (a *arranger) compareCoincidentStraightEdges(i, j int) int {
-	geometry := func(edge int) [4][2]float64 {
-		e := a.edges[edge]
+func (a *arranger) compareCoincidentStraightEdges(ei, ej arrEdge) int {
+	geometry := func(e arrEdge) [4][2]float64 {
 		s := &a.sources[e.src]
 		start := [2]float64{s.ax, s.ay}
 		end := [2]float64{s.bx, s.by}
@@ -3429,13 +3427,13 @@ func (a *arranger) compareCoincidentStraightEdges(i, j int) int {
 		return [4][2]float64{start, end, fragStart, fragEnd}
 	}
 
-	gi, gj := geometry(i), geometry(j)
+	gi, gj := geometry(ei), geometry(ej)
 	for k := range gi {
 		if c := canonPointCompare(gi[k], gj[k]); c != 0 {
 			return -c
 		}
 	}
-	return cmp.Compare(a.edges[i].src, a.edges[j].src)
+	return cmp.Compare(ei.src, ej.src)
 }
 
 type coincidentStraightGroup struct {
@@ -3520,7 +3518,7 @@ func (a *arranger) dedupCoincidentStraightEdges() *coincidentDedupPlan {
 		}
 		keep := idxs[0]
 		for _, i := range idxs[1:] {
-			if a.compareCoincidentStraightEdges(i, keep) < 0 {
+			if a.compareCoincidentStraightEdges(a.edges[i], a.edges[keep]) < 0 {
 				keep = i
 			}
 		}
@@ -3633,6 +3631,45 @@ func (a *arranger) buildGraph() {
 	}
 }
 
+// sortChordPorts orders a fallback ring by chord angle, then orders every set of
+// straight ports within an equal-angle block by the reverse canonical key. Dedup
+// keeps the lowest key, so restored copies precede that survivor and its provisional
+// boundary passage keeps the same neighbors. The whole tied set is ordered because
+// another collinear port can share the restored pair's angle at one endpoint.
+//
+// Both endpoint rings use the same key order. Their half-edges traverse the members
+// in opposite directions, which pairs the restored multiplicity consistently. A
+// non-straight port keeps the position assigned by the angle sort, so this tie rule
+// does not change the existing mixed and sampled cases.
+func (a *arranger) sortChordPorts(ring []int) {
+	sort.Slice(ring, func(i, j int) bool {
+		return a.halfs[ring[i]].angle < a.halfs[ring[j]].angle
+	})
+	for lo := 0; lo < len(ring); {
+		hi := lo + 1
+		for hi < len(ring) && a.halfs[ring[hi]].angle == a.halfs[ring[lo]].angle {
+			hi++
+		}
+		var positions []int
+		var straight []int
+		for pos := lo; pos < hi; pos++ {
+			half := &a.halfs[ring[pos]]
+			if a.sources[a.edges[half.edge].src].kind != srcLine {
+				continue
+			}
+			positions = append(positions, pos)
+			straight = append(straight, ring[pos])
+		}
+		slices.SortFunc(straight, func(i, j int) int {
+			return -a.compareCoincidentStraightEdges(a.edges[a.halfs[i].edge], a.edges[a.halfs[j].edge])
+		})
+		for i, pos := range positions {
+			ring[pos] = straight[i]
+		}
+		lo = hi
+	}
+}
+
 func (a *arranger) wireGraph() {
 	a.halfs = make([]halfEdge, 0, len(a.edges)*2)
 	for ei, e := range a.edges {
@@ -3695,7 +3732,7 @@ func (a *arranger) wireGraph() {
 		if a.useExactPorts(v, list) {
 			a.sortExactPorts(v, list)
 		} else {
-			sort.Slice(list, func(i, j int) bool { return a.halfs[list[i]].angle < a.halfs[list[j]].angle })
+			a.sortChordPorts(list)
 		}
 		out[v] = list
 	}

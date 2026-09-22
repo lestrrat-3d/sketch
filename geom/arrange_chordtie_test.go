@@ -101,9 +101,9 @@ func TestSectorPairRegionsMatchEitherOrder(t *testing.T) {
 // pair with one edge makes the survivor a bridge, so the tie cannot be removed
 // without dropping the large region. The arrangement must keep the pair and report
 // the unresolved ambiguity as degenerate.
-func TestWeldedParallelLinesKeepTheirRegion(t *testing.T) {
+func weldedParallelLinesScene() []geom.Curve {
 	p := geom.NewPoint
-	curves := []geom.Curve{
+	return []geom.Curve{
 		geom.NewLine(p(0, 0), p(10, 0)),
 		geom.NewLine(p(10, 0), p(10, 10)),
 		geom.NewLine(p(10, 10), p(0, 10)),
@@ -111,12 +111,76 @@ func TestWeldedParallelLinesKeepTheirRegion(t *testing.T) {
 		geom.NewLine(p(0, 0.00071958824190816381), p(10, -0.00033642033343779087)),
 		geom.NewLine(p(0, 0.00067299698496589252), p(10, 0.00049740054268733382)),
 	}
+}
+
+func TestWeldedParallelLinesKeepTheirRegion(t *testing.T) {
+	curves := weldedParallelLinesScene()
 	arr := geom.Regions(curves, nil, geom.WithVertexMerge(0.002))
 	require.True(t, arr.Degenerate)
 	require.NotEmpty(t, arr.Regions)
 	areas := sortedAreas(arr)
 	require.InDelta(t, 100.00053587936401, areas[len(areas)-1], 0.01,
 		"the unresolved bridge must not remove the large region; areas=%v", areas)
+}
+
+type regionTopologyArea struct {
+	OuterEdges       int
+	HoleEdges        []int
+	Area             float64
+	SelfIntersecting bool
+	Degenerate       bool
+}
+
+func sortedRegionTopologyAreas(arr *geom.Arrangement) []regionTopologyArea {
+	out := make([]regionTopologyArea, len(arr.Regions))
+	for i, region := range arr.Regions {
+		out[i].OuterEdges = len(region.Outer)
+		out[i].Area = region.Area
+		out[i].SelfIntersecting = region.SelfIntersecting
+		out[i].Degenerate = region.Degenerate
+		for _, hole := range region.Holes {
+			out[i].HoleEdges = append(out[i].HoleEdges, len(hole))
+		}
+		slices.Sort(out[i].HoleEdges)
+	}
+	slices.SortFunc(out, func(a, b regionTopologyArea) int { return cmp.Compare(a.Area, b.Area) })
+	return out
+}
+
+// TestWeldedParallelLinesMatchEveryOrder exhaustively checks the bridge scene.
+// Restoring a tied straight pair must leave one bounded region with the same
+// boundary topology and area in every caller order, including orders where a
+// third collinear port shares the pair's angle at one endpoint.
+func TestWeldedParallelLinesMatchEveryOrder(t *testing.T) {
+	curves := weldedParallelLinesScene()
+	base := geom.Regions(curves, nil, geom.WithVertexMerge(0.002))
+	require.True(t, base.Degenerate)
+	require.Len(t, base.Regions, 1)
+	want := sortedRegionTopologyAreas(base)
+
+	order := []int{0, 1, 2, 3, 4, 5}
+	checked := 0
+	var visit func(int)
+	visit = func(pos int) {
+		if pos == len(order) {
+			ordered := make([]geom.Curve, len(order))
+			for i, source := range order {
+				ordered[i] = curves[source]
+			}
+			arr := geom.Regions(ordered, nil, geom.WithVertexMerge(0.002))
+			require.Truef(t, arr.Degenerate, "order %v", order)
+			require.Equalf(t, want, sortedRegionTopologyAreas(arr), "order %v", order)
+			checked++
+			return
+		}
+		for i := pos; i < len(order); i++ {
+			order[pos], order[i] = order[i], order[pos]
+			visit(pos + 1)
+			order[pos], order[i] = order[i], order[pos]
+		}
+	}
+	visit(0)
+	require.Equal(t, 720, checked)
 }
 
 // TestWeldedArcAndLineKeepBothFaces is the second counter-example review found, and
