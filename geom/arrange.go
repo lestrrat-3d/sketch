@@ -3354,9 +3354,323 @@ func (a *arranger) curvedPortDir(e arrEdge, vx, vy float64) (float64, float64, b
 	return dx, dy, true
 }
 
+// dedupCoincidentStraightEdges collapses a coincident-emitted-edge condition:
+// two or more STRAIGHT (srcLine) arrangement edges whose canonicalized
+// endpoints are the identical pair of graph vertices. Two points determine one
+// line, so any two such edges are not merely close — they trace the exact same
+// traversed chord, at BOTH shared vertices, with no departure-angle difference
+// for the rotation sort to find because there genuinely is none. A weld is what
+// makes this reachable: two near-parallel lines cut close to a shared corner
+// can weld their stub fragments onto the same two vertices while still
+// differing at their own far ends.
+//
+// Left without an equality rule, a chord-angle sort gives no guarantee that the
+// two shared vertices resolve the tie the same way. When they don't, the next
+// pointers stop describing a planar embedding and the face walk can return one
+// near-zero-area cycle over every half-edge instead of the bounded faces, losing
+// them all with Degenerate false — see
+// TestCoincidentEmittedLinesKeepBothRegions and
+// TestProfilesCoincidentEmittedLinesKeepBothProfiles.
+//
+// Only a straight/straight tie is collapsed here — the class this repairs.
+// Every other pairing already has its own answer and is deliberately left
+// alone:
+//
+//   - A CURVED fragment's chord is a secant of a curve departing along a
+//     different ray than a straight one sharing its endpoints, so it carries
+//     information a merge would destroy. useExactPorts' own curvature-gated
+//     door already orders a straight/curved or curved/curved tie correctly
+//     (TestArcSpanningOneChordKeepsItsFaces,
+//     TestWeldedArcPortKeepsTheLargeFace, TestInnerTangentArcKeepsBothFaces).
+//   - A coincident-CARRIER pair (e.g. an arc on its hub circle) is already
+//     resolved earlier, in split() via resolveCoincidentOverlap, and never
+//     reaches here as two edges over the shared span.
+//   - A duplicate SAMPLED fragment (ellipse/spline/conic/NURBS) never
+//     qualifies for exact ordering at all — useExactPorts requires every
+//     incident half-edge to be exact — so it already falls back to chord
+//     order, the honest verdict for a source the map only holds as chords.
+//
+// A canonical key over the authored line and its fragment, both normalized to
+// ignore source direction, selects the survivor and orders tied straight ports in
+// wireGraph. Source index breaks the tie only when those geometries are identical.
+// A permutation therefore keeps the same geometric source rather than whichever
+// source moved to the lowest input position.
+//
+// A group ISOLATED at both its vertices — nothing else in the arrangement
+// touches u or v besides the tied group's own members — is left alone
+// entirely: that is a fully duplicate open curve, the same line authored more
+// than once, which chains.go deliberately reports as one Chain PER source
+// (TestChainsCoincidentWalksOrderByName and its neighbors). Collapsing that
+// case would silently drop chains a consumer already relies on seeing one
+// per curve. The isolation check (degree-at-u/v equals the tied group's own
+// size) is what tells the two conditions apart: the coincident-emitted-edge
+// case this dedup targets is always EMBEDDED — some other curve also meets
+// the pair at one or both of its shared vertices.
+//
+// Each collapse is provisional. After wiring, a survivor whose two directed
+// half-edges belong to the same face walk is a bridge in that rotation graph:
+// the duplicate edges carried a boundary passage the collapsed graph cannot
+// represent. The group is restored, the graph is rewired to expose any next
+// bridge, and the unresolved tie is reported as degenerate rather than silently
+// deleting the face that uses it.
+func (a *arranger) compareCoincidentStraightEdges(ei, ej arrEdge) int {
+	geometry := func(e arrEdge) [4][2]float64 {
+		s := &a.sources[e.src]
+		start := [2]float64{s.ax, s.ay}
+		end := [2]float64{s.bx, s.by}
+		fragStart := s.at(e.pu)
+		fragEnd := s.at(e.pv)
+		if canonPointCompare(end, start) < 0 {
+			start, end = end, start
+			fragStart, fragEnd = fragEnd, fragStart
+		}
+		return [4][2]float64{start, end, fragStart, fragEnd}
+	}
+
+	gi, gj := geometry(ei), geometry(ej)
+	for k := range gi {
+		if c := canonPointCompare(gi[k], gj[k]); c != 0 {
+			return -c
+		}
+	}
+	return cmp.Compare(ei.src, ej.src)
+}
+
+type coincidentStraightGroup struct {
+	u, v int
+	idxs []int
+	keep int
+}
+
+type coincidentDedupPlan struct {
+	original []arrEdge
+	drop     map[int]struct{}
+	groups   []coincidentStraightGroup
+}
+
+// midpointCoordinate returns the midpoint of two finite coordinates without
+// overflowing when the endpoints have opposite signs.
+func midpointCoordinate(a, b float64) float64 {
+	if math.Signbit(a) != math.Signbit(b) {
+		return a/2 + b/2
+	}
+	return a + (b-a)/2
+}
+
+func (a *arranger) dedupCoincidentStraightEdges() *coincidentDedupPlan {
+	type vpair struct{ u, v int }
+	groups := map[vpair][]int{}
+	var keys []vpair
+	for i, e := range a.edges {
+		if a.sources[e.src].kind != srcLine {
+			continue
+		}
+		u, v := e.u, e.v
+		if u > v {
+			u, v = v, u
+		}
+		key := vpair{u, v}
+		if _, ok := groups[key]; !ok {
+			keys = append(keys, key)
+		}
+		groups[key] = append(groups[key], i)
+	}
+	if len(groups) == 0 {
+		return nil
+	}
+	// deg counts EVERY arrangement edge at a vertex (the same count prune() uses),
+	// which is what tells an EMBEDDED coincident-emitted-edge pair — a fragment of a
+	// longer, differently-routed curve, meeting other geometry at one or both of its
+	// shared vertices — from a fully ISOLATED cluster of duplicate open curves that
+	// touch nothing else. See the isolation check below for why that distinction is
+	// load-bearing.
+	deg := map[int]int{}
+	for _, e := range a.edges {
+		deg[e.u]++
+		deg[e.v]++
+	}
+	slices.SortFunc(keys, func(a, b vpair) int {
+		if c := cmp.Compare(a.u, b.u); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.v, b.v)
+	})
+	var drop map[int]struct{}
+	var collapsed []coincidentStraightGroup
+	for _, k := range keys {
+		idxs := groups[k]
+		if len(idxs) < 2 {
+			continue
+		}
+		// A group ISOLATED at both vertices — nothing touches u or v besides the tied
+		// group itself — is a fully duplicate open curve: the same line authored more
+		// than once, coordinates and all, with nothing else in the scene to embed it
+		// in a real face. chains.go deliberately reports that case as one Chain PER
+		// source rather than one for the whole cluster (see "coincident duplicate
+		// geometry" there, and TestChainsCoincidentWalksOrderByName), so collapsing it
+		// here would silently drop chains a consumer already relies on seeing one per
+		// curve. The coincident-emitted-edge condition this dedup targets is instead
+		// always EMBEDDED — some other curve (an arc, a third line, the rest of a
+		// bigger drawing) also meets the pair at one or both of its shared vertices,
+		// which is exactly what degree-over-group-size, at either end, detects.
+		if deg[k.u] == len(idxs) && deg[k.v] == len(idxs) {
+			continue
+		}
+		keep := idxs[0]
+		for _, i := range idxs[1:] {
+			if a.compareCoincidentStraightEdges(a.edges[i], a.edges[keep]) < 0 {
+				keep = i
+			}
+		}
+		if drop == nil {
+			drop = make(map[int]struct{})
+		}
+		for _, i := range idxs {
+			if i != keep {
+				drop[i] = struct{}{}
+			}
+		}
+		collapsed = append(collapsed, coincidentStraightGroup{
+			u: k.u, v: k.v, idxs: slices.Clone(idxs), keep: keep,
+		})
+	}
+	if len(drop) == 0 {
+		return nil
+	}
+	plan := &coincidentDedupPlan{
+		original: slices.Clone(a.edges),
+		drop:     drop,
+		groups:   collapsed,
+	}
+	kept := make([]arrEdge, 0, len(a.edges)-len(drop))
+	for i, e := range a.edges {
+		if _, ok := drop[i]; ok {
+			continue
+		}
+		kept = append(kept, e)
+	}
+	a.edges = kept
+	return plan
+}
+
+// restoreCoincidentBridgeGroups restores the first collapsed group whose survivor
+// has both directions in the same provisional face walk. Such an edge is a bridge
+// in the rotation graph: collapsing its parallel partner removed a boundary
+// passage. Restoring one group per call ensures every later decision uses the graph
+// rewired after that restoration. The unresolved group stays in the final graph and
+// is reported as degenerate.
+func (a *arranger) restoreCoincidentBridgeGroups(plan *coincidentDedupPlan) bool {
+	cycleOf := make([]int, len(a.halfs))
+	seen := make([]bool, len(a.halfs))
+	cycle := 0
+	for hi := range a.halfs {
+		if seen[hi] {
+			continue
+		}
+		for cur := hi; !seen[cur]; cur = a.halfs[cur].next {
+			seen[cur] = true
+			cycleOf[cur] = cycle
+		}
+		cycle++
+	}
+
+	oldToNew := make([]int, len(plan.original))
+	next := 0
+	for i := range plan.original {
+		if _, dropped := plan.drop[i]; dropped {
+			oldToNew[i] = -1
+			continue
+		}
+		oldToNew[i] = next
+		next++
+	}
+
+	for _, group := range plan.groups {
+		collapsed := false
+		for _, i := range group.idxs {
+			if _, dropped := plan.drop[i]; dropped {
+				collapsed = true
+				break
+			}
+		}
+		if !collapsed {
+			continue
+		}
+		survivor := oldToNew[group.keep]
+		if cycleOf[2*survivor] != cycleOf[2*survivor+1] {
+			continue
+		}
+		srcs := make([]int, 0, len(group.idxs))
+		for _, i := range group.idxs {
+			delete(plan.drop, i)
+			srcs = append(srcs, plan.original[i].src)
+		}
+		ux, uy := a.verts.coord(group.u)
+		vx, vy := a.verts.coord(group.v)
+		a.flagDegenerate(midpointCoordinate(ux, vx), midpointCoordinate(uy, vy), srcs...)
+
+		a.edges = make([]arrEdge, 0, len(plan.original)-len(plan.drop))
+		for i, e := range plan.original {
+			if _, ok := plan.drop[i]; ok {
+				continue
+			}
+			a.edges = append(a.edges, e)
+		}
+		return true
+	}
+	return false
+}
+
 // buildGraph wires the doubly-connected edge list: two half-edges per edge, the
 // rotation system at each vertex, and the next pointers (face on the left).
 func (a *arranger) buildGraph() {
+	plan := a.dedupCoincidentStraightEdges()
+	a.wireGraph()
+	for plan != nil && a.restoreCoincidentBridgeGroups(plan) {
+		a.wireGraph()
+	}
+}
+
+// sortChordPorts orders a fallback ring by chord angle, then orders every set of
+// straight ports within an equal-angle block by the reverse canonical key. Dedup
+// keeps the lowest key, so restored copies precede that survivor and its provisional
+// boundary passage keeps the same neighbors. The whole tied set is ordered because
+// another collinear port can share the restored pair's angle at one endpoint.
+//
+// Both endpoint rings use the same key order. Their half-edges traverse the members
+// in opposite directions, which pairs the restored multiplicity consistently. A
+// non-straight port keeps the position assigned by the angle sort, so this tie rule
+// does not change the existing mixed and sampled cases.
+func (a *arranger) sortChordPorts(ring []int) {
+	sort.Slice(ring, func(i, j int) bool {
+		return a.halfs[ring[i]].angle < a.halfs[ring[j]].angle
+	})
+	for lo := 0; lo < len(ring); {
+		hi := lo + 1
+		for hi < len(ring) && a.halfs[ring[hi]].angle == a.halfs[ring[lo]].angle {
+			hi++
+		}
+		var positions []int
+		var straight []int
+		for pos := lo; pos < hi; pos++ {
+			half := &a.halfs[ring[pos]]
+			if a.sources[a.edges[half.edge].src].kind != srcLine {
+				continue
+			}
+			positions = append(positions, pos)
+			straight = append(straight, ring[pos])
+		}
+		slices.SortFunc(straight, func(i, j int) int {
+			return -a.compareCoincidentStraightEdges(a.edges[a.halfs[i].edge], a.edges[a.halfs[j].edge])
+		})
+		for i, pos := range positions {
+			ring[pos] = straight[i]
+		}
+		lo = hi
+	}
+}
+
+func (a *arranger) wireGraph() {
 	a.halfs = make([]halfEdge, 0, len(a.edges)*2)
 	for ei, e := range a.edges {
 		ux, uy := a.verts.coord(e.u)
@@ -3418,7 +3732,7 @@ func (a *arranger) buildGraph() {
 		if a.useExactPorts(v, list) {
 			a.sortExactPorts(v, list)
 		} else {
-			sort.Slice(list, func(i, j int) bool { return a.halfs[list[i]].angle < a.halfs[list[j]].angle })
+			a.sortChordPorts(list)
 		}
 		out[v] = list
 	}

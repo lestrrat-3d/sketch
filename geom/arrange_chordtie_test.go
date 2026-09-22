@@ -1,7 +1,9 @@
 package geom_test
 
 import (
+	"cmp"
 	"math"
+	"slices"
 	"testing"
 
 	"github.com/lestrrat-3d/sketch/geom"
@@ -86,24 +88,22 @@ func TestSectorPairRegionsMatchEitherOrder(t *testing.T) {
 // stops matching its own source direction: these two near-parallel lines weld to the
 // rectangle's corners and emit one bit-identical chord while keeping different
 // source tangents. Ordering that pair by their tangents reorders edges the face walk
-// traverses as one segment, and the rectangle's own region collapsed — 0 regions
-// where main publishes one of area 100.00053587936401.
+// traverses as one segment, and the rectangle's own region collapsed.
 //
-// Keying a straight port by its EMITTED CHORD is what closes it, so this test fails
-// if a line is ever ordered by its source direction again. The door is additionally
-// gated on at least one tied member being curved, but that gate alone did not close
-// this class — see TestWeldedArcAndLineKeepBothFaces for the case it missed.
+// Keying a straight port by its EMITTED CHORD is what closes that class, so this test
+// fails if a line is ever ordered by its source direction again. The door is
+// additionally gated on at least one tied member being curved, but that gate alone
+// did not close this class — see TestWeldedArcAndLineKeepBothFaces for the case it
+// missed.
 //
-// What it pins is the LOSS, not a correct answer for this scene. The base itself is
-// order-dependent here — over 12 input orders it returns one region in 4 and none in
-// 8 — and the scene holds two pairs of edges that are emitted coincident with nothing
-// flagging them, so one region is not established as right either. The assertion
-// therefore fixes one order of a scene the engine cannot yet answer consistently;
-// that underlying gap is tracked separately, and a coincident-emitted-edge check in
-// buildGraph is its root fix.
-func TestWeldedParallelLinesKeepTheirRegion(t *testing.T) {
+// This scene ALSO carries a coincident-emitted-edge condition: two straight
+// fragments weld onto the same two graph vertices at both corners. Replacing that
+// pair with one edge makes the survivor a bridge, so the tie cannot be removed
+// without dropping the large region. The arrangement must keep the pair and report
+// the unresolved ambiguity as degenerate.
+func weldedParallelLinesScene() []geom.Curve {
 	p := geom.NewPoint
-	curves := []geom.Curve{
+	return []geom.Curve{
 		geom.NewLine(p(0, 0), p(10, 0)),
 		geom.NewLine(p(10, 0), p(10, 10)),
 		geom.NewLine(p(10, 10), p(0, 10)),
@@ -111,9 +111,76 @@ func TestWeldedParallelLinesKeepTheirRegion(t *testing.T) {
 		geom.NewLine(p(0, 0.00071958824190816381), p(10, -0.00033642033343779087)),
 		geom.NewLine(p(0, 0.00067299698496589252), p(10, 0.00049740054268733382)),
 	}
+}
+
+func TestWeldedParallelLinesKeepTheirRegion(t *testing.T) {
+	curves := weldedParallelLinesScene()
 	arr := geom.Regions(curves, nil, geom.WithVertexMerge(0.002))
-	require.Len(t, arr.Regions, 1)
-	require.InDelta(t, 100.00053587936401, arr.Regions[0].Area, 1e-9)
+	require.True(t, arr.Degenerate)
+	require.NotEmpty(t, arr.Regions)
+	areas := sortedAreas(arr)
+	require.InDelta(t, 100.00053587936401, areas[len(areas)-1], 0.01,
+		"the unresolved bridge must not remove the large region; areas=%v", areas)
+}
+
+type regionTopologyArea struct {
+	OuterEdges       int
+	HoleEdges        []int
+	Area             float64
+	SelfIntersecting bool
+	Degenerate       bool
+}
+
+func sortedRegionTopologyAreas(arr *geom.Arrangement) []regionTopologyArea {
+	out := make([]regionTopologyArea, len(arr.Regions))
+	for i, region := range arr.Regions {
+		out[i].OuterEdges = len(region.Outer)
+		out[i].Area = region.Area
+		out[i].SelfIntersecting = region.SelfIntersecting
+		out[i].Degenerate = region.Degenerate
+		for _, hole := range region.Holes {
+			out[i].HoleEdges = append(out[i].HoleEdges, len(hole))
+		}
+		slices.Sort(out[i].HoleEdges)
+	}
+	slices.SortFunc(out, func(a, b regionTopologyArea) int { return cmp.Compare(a.Area, b.Area) })
+	return out
+}
+
+// TestWeldedParallelLinesMatchEveryOrder exhaustively checks the bridge scene.
+// Restoring a tied straight pair must leave one bounded region with the same
+// boundary topology and area in every caller order, including orders where a
+// third collinear port shares the pair's angle at one endpoint.
+func TestWeldedParallelLinesMatchEveryOrder(t *testing.T) {
+	curves := weldedParallelLinesScene()
+	base := geom.Regions(curves, nil, geom.WithVertexMerge(0.002))
+	require.True(t, base.Degenerate)
+	require.Len(t, base.Regions, 1)
+	want := sortedRegionTopologyAreas(base)
+
+	order := []int{0, 1, 2, 3, 4, 5}
+	checked := 0
+	var visit func(int)
+	visit = func(pos int) {
+		if pos == len(order) {
+			ordered := make([]geom.Curve, len(order))
+			for i, source := range order {
+				ordered[i] = curves[source]
+			}
+			arr := geom.Regions(ordered, nil, geom.WithVertexMerge(0.002))
+			require.Truef(t, arr.Degenerate, "order %v", order)
+			require.Equalf(t, want, sortedRegionTopologyAreas(arr), "order %v", order)
+			checked++
+			return
+		}
+		for i := pos; i < len(order); i++ {
+			order[pos], order[i] = order[i], order[pos]
+			visit(pos + 1)
+			order[pos], order[i] = order[i], order[pos]
+		}
+	}
+	visit(0)
+	require.Equal(t, 720, checked)
 }
 
 // TestWeldedArcAndLineKeepBothFaces is the second counter-example review found, and
@@ -125,7 +192,10 @@ func TestWeldedParallelLinesKeepTheirRegion(t *testing.T) {
 // that gated the door on curvature alone.
 //
 // The scene came out of a generated sweep, so its coordinates are kept bit-exact.
-// Both areas match what main publishes; what this pins is that neither face is lost.
+// dedupCoincidentStraightEdges also applies here: "inner" and part of "outer" weld
+// onto the same two graph vertices over a short span. The canonical geometry key
+// keeps the inner fragment, revealing a third sliver without dropping either of the
+// two faces this regression originally protected.
 func TestWeldedArcAndLineKeepBothFaces(t *testing.T) {
 	p := geom.NewPoint
 	inner := geom.NewLine(
@@ -143,9 +213,12 @@ func TestWeldedArcAndLineKeepBothFaces(t *testing.T) {
 	)
 	arr := geom.Regions([]geom.Curve{inner, outer, arc}, nil,
 		geom.WithVertexMerge(6.0050600326758044e-07))
-	require.Len(t, arr.Regions, 2)
-	require.InDelta(t, 1.3340102688318081e-12, arr.Regions[0].Area, 1e-24)
-	require.InDelta(t, 7.5630521335706837e-13, arr.Regions[1].Area, 1e-24)
+	require.False(t, arr.Degenerate)
+	require.Len(t, arr.Regions, 3)
+	areas := sortedAreas(arr)
+	require.InDeltaf(t, 4.706821854724171e-15, areas[0], 1e-24, "areas=%v", areas)
+	require.InDeltaf(t, 7.563052133570684e-13, areas[1], 1e-24, "areas=%v", areas)
+	require.InDeltaf(t, 1.3293034469770452e-12, areas[2], 1e-24, "areas=%v", areas)
 }
 
 // doubledPairScene is the adjudicator's scene B: an arc whose chord tie opens the
@@ -176,16 +249,12 @@ func doubledPairScene(r, eps float64) []geom.Curve {
 	}
 }
 
-// TestDoubledPairAnswersEveryOrderAlike pins ORDER STABILITY on that scene, and
-// deliberately does not pin the count. The engine gets this class wrong: the true
-// face count is 4 and every build published something else, so asserting a count here
-// would make a wrong answer load-bearing and the eventual repair would have to delete
-// it. What this change did achieve is that the answer no longer moves with input
-// order — the intermediate version published 4 in seven orders and 3 in two — so that
-// is what is asserted, and the count is logged for whoever fixes it.
-//
-// Reaching the true 4 needs the map to stop holding two edges where the geometry has
-// one, which is a coincident-emitted-edge check in buildGraph and its own follow-up.
+// TestDoubledPairAnswersEveryOrderAlike pins both ORDER STABILITY and the CORRECT
+// count on that scene. Before dedupCoincidentStraightEdges the engine got this class
+// wrong in every order (an intermediate version of the exact-tangent tie-break
+// published 4 in seven of nine orders and 3 in two); collapsing the doubled u-v pair
+// to the lower-indexed source's edge removes the ambiguity at its root; the true
+// face count of 4 is now reached, and reached alike in every order.
 func TestDoubledPairAnswersEveryOrderAlike(t *testing.T) {
 	curves := doubledPairScene(1, 2e-8)
 	n := len(curves)
@@ -201,8 +270,9 @@ func TestDoubledPairAnswersEveryOrderAlike(t *testing.T) {
 	}
 
 	base := geom.Regions(orders[0], nil)
+	require.Len(t, base.Regions, 4)
 	baseAreas := sortedAreas(base)
-	t.Logf("count=%d areas=%v (logged, not asserted: the true count is 4)", len(base.Regions), baseAreas)
+	t.Logf("count=%d areas=%v", len(base.Regions), baseAreas)
 
 	for i, o := range orders[1:] {
 		arr := geom.Regions(o, nil)
@@ -266,4 +336,219 @@ func TestInnerTangentArcKeepsBothFaces(t *testing.T) {
 		require.InDeltaf(t, 0.000372542837, arr.Regions[0].Area, 1e-9, "reversed=%v", reversed)
 		require.InDeltaf(t, 3.14122011, arr.Regions[1].Area, 1e-7, "reversed=%v", reversed)
 	}
+}
+
+// coincidentEmittedLinesScene is fu89's minimal reproduction: a 290-degree arc plus
+// two near-parallel lines that share (within a jitter j) the arc's own start corner
+// and run out to two DIFFERENT far points on the arc's own circle, 1 degree apart.
+// The two lines genuinely intersect a few millionths of a unit from the shared
+// corner, so each is cut there, and the map holds two edges — one from each line —
+// between the corner vertex and that crossing vertex. Below the merge distance
+// (jitter j well under it), those two stub edges weld onto the identical two graph
+// vertices: the coincident-emitted-edge condition dedupCoincidentStraightEdges
+// exists to collapse.
+func coincidentEmittedLinesScene(j float64) []geom.Curve {
+	deg := func(d float64) (float64, float64) {
+		r := d * math.Pi / 180
+		return 2 * math.Cos(r), 2 * math.Sin(r)
+	}
+	c150x, c150y := deg(150)
+	c80x, c80y := deg(80)
+	c340x, c340y := deg(340)
+	c341x, c341y := deg(341)
+	arc := geom.NewArc(geom.NewPoint(0, 0), geom.NewPoint(c150x, c150y), geom.NewPoint(c80x, c80y))
+	line1 := geom.NewLine(geom.NewPoint(c150x+j, c150y+j), geom.NewPoint(c340x, c340y))
+	line2 := geom.NewLine(geom.NewPoint(c150x-j, c150y+j), geom.NewPoint(c341x, c341y))
+	return []geom.Curve{arc, line1, line2}
+}
+
+// circularSegmentArea is the closed-form area of a circular segment of radius r
+// swept through angle theta (radians): r²/2 · (theta − sin theta). Used so the big
+// region's expected area is derived, not a second copy of the same literal the
+// engine happens to print.
+func circularSegmentArea(r, theta float64) float64 {
+	return r * r / 2 * (theta - math.Sin(theta))
+}
+
+// TestCoincidentEmittedLinesKeepBothRegions pins fu89's minimal reproduction at a
+// jitter inside the measured losing band ([5e-9, 1.8e-7]): below dedup, the two
+// near-parallel lines' stub edges welded onto the identical pair of graph vertices,
+// the fallback chord-angle sort broke that tie inconsistently between the two ends,
+// and the face walk lost essentially every region (a scene worth 7.05 published
+// 4.46e-10 with Degenerate false). The big region is checked against the CLOSED-FORM
+// area of the 190-degree circular segment the arc-plus-chord actually bounds, not a
+// second copy of the printed literal.
+func TestCoincidentEmittedLinesKeepBothRegions(t *testing.T) {
+	const j = 2e-8 // 14x below the scene's ~4e-7 merge distance; inside the losing band
+	arr := geom.Regions(coincidentEmittedLinesScene(j), nil)
+	require.False(t, arr.Degenerate)
+	require.Len(t, arr.Regions, 2)
+
+	wantBig := circularSegmentArea(2, 190*math.Pi/180)
+	areas := sortedAreas(arr)
+	// The small region is the thin sliver right at the jittered corner, so its area is
+	// far more sensitive to the jitter than the big region's — hence the looser delta
+	// on it alone. Both stay close to the literals measured at j=0.
+	require.InDelta(t, 0.0692282204591138, areas[0], 1e-6)
+	require.InDelta(t, wantBig, areas[1], 1e-9)
+}
+
+type semanticBoundaryEdge struct {
+	Source   int
+	Whole    bool
+	Reversed bool
+	Polyline [][2]float64
+	TStart   float64
+	TEnd     float64
+	TExact   bool
+}
+
+type semanticRegion struct {
+	Outer            []semanticBoundaryEdge
+	Holes            [][]semanticBoundaryEdge
+	Area             float64
+	SelfIntersecting bool
+	Degenerate       bool
+}
+
+func semanticBoundary(edges []geom.BoundaryEdge, sourceAt [3]int) []semanticBoundaryEdge {
+	out := make([]semanticBoundaryEdge, len(edges))
+	for i, e := range edges {
+		out[i] = semanticBoundaryEdge{
+			Source:   sourceAt[e.SourceIndex],
+			Whole:    e.Whole,
+			Reversed: e.Reversed,
+			Polyline: e.Polyline,
+			TStart:   e.TStart,
+			TEnd:     e.TEnd,
+			TExact:   e.TExact,
+		}
+	}
+	min := 0
+	for i := 1; i < len(out); i++ {
+		pi, pm := out[i].Polyline[0], out[min].Polyline[0]
+		if c := cmp.Compare(pi[0], pm[0]); c < 0 ||
+			(c == 0 && cmp.Compare(pi[1], pm[1]) < 0) ||
+			(pi == pm && out[i].Source < out[min].Source) {
+			min = i
+		}
+	}
+	out = append(out[min:], out[:min]...)
+	return out
+}
+
+func semanticRegionSnapshot(arr *geom.Arrangement, sourceAt [3]int) []semanticRegion {
+	out := make([]semanticRegion, len(arr.Regions))
+	for i, r := range arr.Regions {
+		out[i] = semanticRegion{
+			Outer:            semanticBoundary(r.Outer, sourceAt),
+			Area:             r.Area,
+			SelfIntersecting: r.SelfIntersecting,
+			Degenerate:       r.Degenerate,
+		}
+		for _, h := range r.Holes {
+			out[i].Holes = append(out[i].Holes, semanticBoundary(h, sourceAt))
+		}
+		slices.SortFunc(out[i].Holes, func(a, b []semanticBoundaryEdge) int {
+			pa, pb := a[0].Polyline[0], b[0].Polyline[0]
+			if c := cmp.Compare(pa[0], pb[0]); c != 0 {
+				return c
+			}
+			return cmp.Compare(pa[1], pb[1])
+		})
+	}
+	slices.SortFunc(out, func(a, b semanticRegion) int { return cmp.Compare(a.Area, b.Area) })
+	return out
+}
+
+// TestCoincidentEmittedLinesMatchEveryOrder is the order-independence half of the
+// fu89 regression. The same three curves, authored in every permutation, must
+// publish bit-identical region and boundary fields after each SourceIndex is mapped
+// back to the curve's semantic identity. It is cheap to check exhaustively at only
+// three curves (six orders).
+func TestCoincidentEmittedLinesMatchEveryOrder(t *testing.T) {
+	curves := coincidentEmittedLinesScene(2e-8)
+	perms := [][3]int{{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}}
+
+	base := geom.Regions(curves, nil)
+	require.Len(t, base.Regions, 2)
+	baseRegions := semanticRegionSnapshot(base, [3]int{0, 1, 2})
+
+	for _, perm := range perms {
+		ordered := []geom.Curve{curves[perm[0]], curves[perm[1]], curves[perm[2]]}
+		arr := geom.Regions(ordered, nil)
+		require.Equalf(t, base.Degenerate, arr.Degenerate, "order %v", perm)
+		require.Equalf(t, base.Degeneracies, arr.Degeneracies, "order %v", perm)
+		require.Equalf(t, base.SelfIntersections, arr.SelfIntersections, "order %v", perm)
+		require.Equalf(t, baseRegions, semanticRegionSnapshot(arr, perm), "order %v", perm)
+	}
+}
+
+// TestCoincidentEmittedLinesSweep is the semantic sweep for the coincident-emitted-
+// edge class beyond the minimal two-line reproduction: THREE straight fragments
+// welded onto the identical pair of graph vertices (not just two), and a
+// straight/curved pair sharing the same two vertices, which dedupCoincidentStraightEdges
+// must leave alone since a curved fragment's chord is not interchangeable with a
+// straight one's.
+func TestCoincidentEmittedLinesSweep(t *testing.T) {
+	t.Run("triple coincident straight edges", func(t *testing.T) {
+		// Three near-parallel lines sharing an exact corner and fanning out to three
+		// distinct far points on the same circle, so the map holds THREE edges (not
+		// two) between the shared corner and each line's own nearby crossing with its
+		// neighbors — the class dedupCoincidentStraightEdges collapses, not just the
+		// pairwise case.
+		deg := func(d float64) (float64, float64) {
+			r := d * math.Pi / 180
+			return 2 * math.Cos(r), 2 * math.Sin(r)
+		}
+		c150x, c150y := deg(150)
+		c80x, c80y := deg(80)
+		arc := geom.NewArc(geom.NewPoint(0, 0), geom.NewPoint(c150x, c150y), geom.NewPoint(c80x, c80y))
+		j := 2e-8
+		far339x, far339y := deg(339)
+		far340x, far340y := deg(340)
+		far341x, far341y := deg(341)
+		line1 := geom.NewLine(geom.NewPoint(c150x+j, c150y+j), geom.NewPoint(far339x, far339y))
+		line2 := geom.NewLine(geom.NewPoint(c150x, c150y+j), geom.NewPoint(far340x, far340y))
+		line3 := geom.NewLine(geom.NewPoint(c150x-j, c150y+j), geom.NewPoint(far341x, far341y))
+		arr := geom.Regions([]geom.Curve{arc, line1, line2, line3}, nil)
+		require.False(t, arr.Degenerate)
+		require.NotEmpty(t, arr.Regions)
+		total := 0.0
+		for _, r := range arr.Regions {
+			total += r.Area
+		}
+		// The three lines sweep 339-341 degrees, a 2-degree spread negligible against
+		// the arc's own 290-degree sweep, so the published total must stay close to
+		// what the two-line scene (chords to 340/341) already publishes as its total —
+		// conserved area, not a face lost to the extra tie.
+		two := geom.Regions(coincidentEmittedLinesScene(j), nil)
+		wantTotal := 0.0
+		for _, r := range two.Regions {
+			wantTotal += r.Area
+		}
+		require.InDelta(t, wantTotal, total, 0.01)
+	})
+
+	t.Run("straight and curved sharing the same two vertices is left alone", func(t *testing.T) {
+		// outer (a line) and arc share the EXACT same two endpoints — the
+		// straight/curved analog of the coincident-emitted-edge condition — and must
+		// NOT be collapsed: their curvature difference is real information the
+		// existing exact-tangent-port door (not dedupCoincidentStraightEdges) uses to
+		// separate the two faces it bounds. This is TestWeldedArcAndLineKeepBothFaces'
+		// own "outer"/"arc" pair, isolated to just the two of them.
+		p := geom.NewPoint
+		outer := geom.NewLine(
+			p(0.00013590193384173055, 1.2698037907665938e-05),
+			p(0.00013649386721983748, 0),
+		)
+		arc := geom.NewArc(
+			p(0, 0),
+			p(0.00013649386721983748, 0),
+			p(0.00013590193384173055, 1.2698037907665938e-05),
+		)
+		arr := geom.Regions([]geom.Curve{outer, arc}, nil)
+		require.Len(t, arr.Regions, 1)
+		require.Greater(t, arr.Regions[0].Area, 0.0)
+	})
 }

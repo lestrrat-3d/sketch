@@ -6,10 +6,10 @@
   "RankMarginInf": false,
   "RankMargin": 999999999.7707784,
   "ConditioningInf": false,
-  "Conditioning": 0.006030295967654402,
+  "Conditioning": 0.006030295967654408,
   "FreePointIDs": null,
   "RedundantCount": 0,
   "Conflicts": null,
   "ProfilesValid": false,
-  "ProfileCount": 1
+  "ProfileCount": 40
 }
