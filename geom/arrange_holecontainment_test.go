@@ -4,6 +4,7 @@ import (
 	"math"
 	"math/rand"
 	"sort"
+	"strconv"
 	"testing"
 
 	"github.com/lestrrat-3d/sketch/geom"
@@ -138,31 +139,37 @@ func TestRegionsHoleNeverDisjointFromItsFace(t *testing.T) {
 	require.Zero(t, violations)
 }
 
-// TestRegionsHoleContainmentSlackIsLocalToTheTwoCycles pins that the
-// postcondition's bounding-box slack is bounded by the hole's and face's own
-// geometry, never by the whole scene's extent. The scene is three sources: a
-// face triangle, a second triangle disjoint from it (their boxes are apart by
-// exactly 1.0 in minY), and one open line parked far away that touches neither.
-// The probe inside exactPointInRegion is displaced by a SCENE-scaled offset, so
-// the distant line makes it land inside the disjoint face and the second
-// triangle is offered as the face's hole. When the postcondition's slack was
-// a.scale*boundsTol it grew past that 1.0 gap once the line sat at x=1e9, so the
-// guard accepted the assignment and published a hole outside its face with
-// nothing recorded. The slack now comes from the two cycles' own magnitudes, so
-// geometry drawn somewhere else cannot turn a real gap into round-off.
-func TestRegionsHoleContainmentSlackIsLocalToTheTwoCycles(t *testing.T) {
+// disjointTrianglesScene builds the postcondition scene: a face triangle, a
+// second triangle whose whole bounding box sits gap below the face's minY, and
+// one open line parked at x=1e9 touching neither. The probe inside
+// exactPointInRegion is displaced by a SCENE-scaled offset, so the distant line
+// makes it land inside the disjoint face and the second triangle is offered as
+// the face's hole — which the bounding-box postcondition must then reject.
+func disjointTrianglesScene(gap float64) ([]geom.Curve, []geom.Curve, geom.Curve) {
 	face := []geom.Curve{
 		geom.NewLine(geom.NewPoint(-1100000, 0), geom.NewPoint(1100000, 8)),
 		geom.NewLine(geom.NewPoint(1100000, 8), geom.NewPoint(-1100000, 12)),
 		geom.NewLine(geom.NewPoint(-1100000, 12), geom.NewPoint(-1100000, 0)),
 	}
 	hole := []geom.Curve{
-		geom.NewLine(geom.NewPoint(-1000000, -1), geom.NewPoint(1000000, -1)),
-		geom.NewLine(geom.NewPoint(1000000, -1), geom.NewPoint(0, 2)),
-		geom.NewLine(geom.NewPoint(0, 2), geom.NewPoint(-1000000, -1)),
+		geom.NewLine(geom.NewPoint(-1000000, -gap), geom.NewPoint(1000000, -gap)),
+		geom.NewLine(geom.NewPoint(1000000, -gap), geom.NewPoint(0, 2)),
+		geom.NewLine(geom.NewPoint(0, 2), geom.NewPoint(-1000000, -gap)),
 	}
-	distant := geom.NewLine(geom.NewPoint(1e9, 0), geom.NewPoint(1e9, 1))
+	return face, hole, geom.NewLine(geom.NewPoint(1e9, 0), geom.NewPoint(1e9, 1))
+}
 
+// TestRegionsHoleContainmentSlackIsLocalToTheTwoCycles pins that the
+// postcondition's bounding-box slack is bounded by the hole's and face's own
+// geometry, never by the whole scene's extent. The two triangles' boxes are
+// apart by exactly 1.0 in minY. When the postcondition's slack was a fraction of
+// the SCENE extent it grew past that 1.0 gap once the distant line sat at x=1e9,
+// so the guard accepted the assignment and published a hole outside its face
+// with nothing recorded. The slack now comes from the two cycles' own
+// evaluation round-off, so geometry drawn somewhere else cannot turn a real gap
+// into round-off.
+func TestRegionsHoleContainmentSlackIsLocalToTheTwoCycles(t *testing.T) {
+	face, hole, distant := disjointTrianglesScene(1)
 	curves := append(append([]geom.Curve{}, face...), hole...)
 	curves = append(curves, distant)
 
@@ -195,4 +202,40 @@ func TestRegionsHoleContainmentSlackIsLocalToTheTwoCycles(t *testing.T) {
 	}
 	sort.Float64s(nearAreas)
 	require.Equal(t, nearAreas, areas, "the distant line must not change either triangle's area")
+}
+
+// TestRegionsHoleContainmentRejectsANearGapSeparation pins the SIZE of the
+// postcondition's slack, which the local-vs-scene test above does not: a gap of
+// 1.0 clears any plausible band, so that test passes even with a band wide
+// enough to swallow every separation a 1.1e6-magnitude scene can represent.
+// The slack is now the two boxes' own evaluation round-off — a few dozen ulps of
+// each cycle's own defining magnitude, so under 2e-9 here — and every gap above
+// it must be rejected. Each case below separates the two triangles by far less
+// than 1.0 and far more than that round-off, and the guard must reject the
+// assignment and record the probe point every time.
+func TestRegionsHoleContainmentRejectsANearGapSeparation(t *testing.T) {
+	for _, gap := range []float64{5e-4, 1e-6} {
+		t.Run(strconv.FormatFloat(gap, 'g', -1, 64), func(t *testing.T) {
+			face, hole, distant := disjointTrianglesScene(gap)
+			curves := append(append([]geom.Curve{}, face...), hole...)
+			curves = append(curves, distant)
+
+			arr := geom.Regions(curves, nil, geom.WithVertexMerge(1e-9))
+			require.Len(t, arr.Regions, 2, "the two triangles, each its own region")
+			var areas []float64
+			for i, reg := range arr.Regions {
+				require.Empty(t, reg.Holes,
+					"region %d: the triangle's box minY=%v is below the face's minY=0, so it is no hole of it",
+					i, -gap)
+				areas = append(areas, reg.Area)
+			}
+			sort.Float64s(areas)
+			// The face keeps its whole 1.32e7: with the other triangle wrongly
+			// subtracted it read 1.11995e7 at gap=5e-4.
+			require.InDelta(t, 2e6+1e6*gap, areas[0], 1e-3)
+			require.InDelta(t, 1.32e7, areas[1], 1e-3)
+			require.True(t, arr.Degenerate, "the rejected hole assignment must be recorded")
+			require.NotEmpty(t, arr.Degeneracies, "the rejection records the probe point it refused")
+		})
+	}
 }

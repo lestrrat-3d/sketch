@@ -4303,50 +4303,70 @@ func (a *arranger) cycleBounds(c *cycle) (lo, hi [2]float64, ok bool) {
 	return lo, hi, len(c.frags) > 0
 }
 
-// cycleMagnitude returns the length that bounds the float64 round-off in cycle
-// c's exact bounding box. Every coordinate exactFragBounds computes is a sum or
-// product of at most two of a source's OWN defining numbers — a line's two
-// endpoint coordinates, or a circle/arc's centre plus radius·{cos,sin} — so the
-// largest of those numbers over c's fragments bounds the magnitude every one of
-// its extrema is evaluated at, and the round-off there is a handful of ulps of
-// it. It is a property of c's own sources alone: geometry drawn somewhere else
-// never enters it. Callers must have a true box from cycleBounds first, which is
-// what restricts the fragments here to line/circle/arc.
-func (a *arranger) cycleMagnitude(c *cycle) float64 {
-	mag := 0.0
+// unitRoundoff is float64's unit round-off, 2⁻⁵³: the largest RELATIVE error one
+// correctly-rounded arithmetic operation can introduce.
+const unitRoundoff = 1.0 / (1 << 53)
+
+// boundsRoundoffUlpsLine and boundsRoundoffUlpsArc are how many unitRoundoffs of
+// a fragment's own defining magnitude bound the round-off in the box coordinates
+// exactFragBounds computes for it. They are DERIVED from the operations that
+// code performs — not picked as round numbers, and not a band wide enough to
+// swallow a real gap. Write u for unitRoundoff below.
+//
+// A line evaluates at(t) = ax + t*(bx-ax) with M = max(|ax|,|ay|,|bx|,|by|).
+// |bx-ax| ≤ 2M, so fl(bx-ax) is off by ≤ 2uM; multiplying by t ∈ [0,1] carries
+// that through and adds u|t(bx-ax)| ≤ 2uM; the final sum adds u|result| ≤ uM
+// (the point lies on the segment, so |result| ≤ M). That is 5uM, and the box is
+// a min/max of such coordinates, which introduces nothing further. 8 is that
+// bound with margin.
+//
+// A circle/arc evaluates at(t) = cx + r*cos(phi0+t*sweep), and the cardinal-angle
+// extrema the same way, with M = max(|cx|,|cy|,r). The angle is off by
+// ≤ u(|ang|+2|sweep|) ≤ 7πu < 22u; cos carries an angle error through undamped
+// (|cos′| ≤ 1) and adds its own error, ≤ 2 ulps of a result of magnitude ≤ 1,
+// i.e. ≤ 4u; multiplying by r gives ≤ 26uM plus u|r·cos| ≤ uM; the final sum adds
+// u|result| ≤ 2uM (|result| ≤ |cx|+r ≤ 2M). That is 29uM. 64 is that bound with
+// margin for a platform trig function less accurate than 2 ulps.
+const (
+	boundsRoundoffUlpsLine = 8
+	boundsRoundoffUlpsArc  = 64
+)
+
+// cycleBoundsRoundoff returns an upper bound on the absolute float64 round-off in
+// any coordinate of cycle c's exact bounding box (cycleBounds). Every coordinate
+// exactFragBounds computes is a short expression in one source's OWN defining
+// numbers — a line's two endpoint coordinates, or a circle/arc's centre plus
+// radius·{cos,sin} — so the largest of those numbers bounds the magnitude that
+// fragment's extrema are evaluated at, and the per-kind ulp counts above bound
+// the round-off accumulated there. It is a property of c's own sources alone:
+// geometry drawn somewhere else never enters it. Callers must have a true box
+// from cycleBounds first, which is what restricts the fragments here to
+// line/circle/arc.
+//
+// Stating the slack against the SCENE instead let an object drawn somewhere else
+// decide how big a gap counts as round-off HERE, and the widening was unbounded:
+// a face triangle and a second triangle 1.0 apart in minY, plus ONE open line
+// parked at x=1e9 that touches neither, put the scene scale past 1e9 and so the
+// slack past the whole 1.0 gap — the guard then accepted a hole lying entirely
+// outside its face and recorded nothing
+// (TestRegionsHoleContainmentSlackIsLocalToTheTwoCycles). This is the same
+// source-local rule weldIdentEps's users follow, derived rather than tuned
+// because it bounds a different quantity.
+func (a *arranger) cycleBoundsRoundoff(c *cycle) float64 {
+	worst := 0.0
 	for _, f := range c.frags {
 		s := &a.sources[f.src]
 		m := math.Max(math.Abs(s.cx), math.Max(math.Abs(s.cy), math.Abs(s.r)))
+		ulps := float64(boundsRoundoffUlpsArc)
 		if s.kind == srcLine {
 			m = math.Max(math.Abs(s.ax), math.Max(math.Abs(s.ay),
 				math.Max(math.Abs(s.bx), math.Abs(s.by))))
+			ulps = boundsRoundoffUlpsLine
 		}
-		mag = math.Max(mag, m)
+		worst = math.Max(worst, ulps*unitRoundoff*m)
 	}
-	return mag
+	return worst
 }
-
-// boundsTol is the slack allowed when checking a hole's exact bounding box
-// against its candidate face's, as a fraction of the LOCAL magnitude those two
-// boxes are computed at (cycleMagnitude), never of the scene extent: two
-// independently computed floating-point expressions for the same geometric point
-// (e.g. an internal-tangency contact reached via the hole's own circle formula
-// and via the face's) can differ at round-off even though the underlying point
-// is identical, and a genuinely nested hole must never be rejected over that.
-// At 1e-9 the band is ~4.5e6 ulps of that magnitude — comfortably above the few
-// ulps of real evaluation round-off, and far below any real gap.
-//
-// Stating it against the scene instead let an object drawn somewhere else decide
-// how big a gap counts as round-off HERE, and the widening is unbounded: a face
-// triangle and a second triangle 1.0 apart in minY, plus ONE open line parked at
-// x=1e9 that touches neither, put the scene scale past 1e9 and so the slack past
-// the whole 1.0 gap — the guard then accepted a hole lying entirely outside its
-// face and recorded nothing (TestRegionsHoleContainmentSlackIsLocalToTheTwoCycles).
-// The quantity being judged is the distance between two boxes derived from those
-// two cycles' own curves, so those curves' own magnitude is what it is measured
-// against. This is the same source-local rule weldIdentEps's users follow, with
-// its own constant because it bounds a different quantity.
-const boundsTol = 1e-9
 
 // holeLiesInFace is the postcondition on a hole assignment: it re-derives the
 // exact bounding boxes of the hole and its candidate face directly from their
@@ -4357,16 +4377,23 @@ const boundsTol = 1e-9
 // (containment implies bounding-box containment), so this can only ever reject
 // a wrong assignment, never a real one. ok is false ("nothing to check") when
 // either cycle has a fragment with no closed-form bound — the same
-// ellipse/spline coverage boundary exactPointInRegion already has. The only
-// slack the comparison allows is evaluation round-off, measured against the two
-// cycles' own magnitude and nothing else (see boundsTol).
+// ellipse/spline coverage boundary exactPointInRegion already has.
+//
+// The only slack the comparison allows is the two boxes' OWN evaluation
+// round-off, derived from the operations that computed them
+// (cycleBoundsRoundoff) and summed because each box carries its own error. Any
+// box separation larger than that is a real gap and is rejected: two
+// independently computed expressions for the same geometric point (an
+// internal-tangency contact reached via the hole's circle formula and via the
+// face's, say) may differ by that much and no more, so a genuinely nested hole
+// still cannot be rejected over round-off.
 func (a *arranger) holeLiesInFace(h, f *cycle) (contained, ok bool) {
 	hlo, hhi, hok := a.cycleBounds(h)
 	flo, fhi, fok := a.cycleBounds(f)
 	if !hok || !fok {
 		return false, false
 	}
-	tol := boundsTol * math.Max(a.cycleMagnitude(h), a.cycleMagnitude(f))
+	tol := a.cycleBoundsRoundoff(h) + a.cycleBoundsRoundoff(f)
 	contained = hlo[0] >= flo[0]-tol && hlo[1] >= flo[1]-tol &&
 		hhi[0] <= fhi[0]+tol && hhi[1] <= fhi[1]+tol
 	return contained, true

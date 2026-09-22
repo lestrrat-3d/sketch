@@ -847,19 +847,31 @@ both cycles' sources. It is skipped (nothing to check) once an ellipse/spline is
 part of either boundary — the same coverage boundary `exactPointInRegion`
 already has.
 
-**Its slack is source-local, and that is what makes it a check at all.** The box
-comparison forgives `boundsTol` times `cycleMagnitude` — the largest defining
-number (a line's endpoint coordinates, a circle/arc's centre and radius) across
-the two cycles' OWN fragments, which bounds the magnitude their extrema are
-evaluated at and so the round-off in them. Stated against `a.scale` instead, the
-slack was set by the whole scene and grew without bound: a face triangle and a
-second triangle `1.0` apart in `minY`, plus ONE unrelated open line at `x=1e9`,
-pushed it past that whole gap, so the guard accepted a hole lying entirely
-outside its face and recorded no degeneracy — the probe failure the
-postcondition exists to catch, waved through by geometry that touches neither
-cycle (`TestRegionsHoleContainmentSlackIsLocalToTheTwoCycles`). This is the same
-scene-band-versus-local-band rule `vertexCertifies` and `carriersIdentical`
-follow, with its own constant because it bounds a different quantity.
+**Its slack is source-local AND derived, and that is what makes it a check at
+all.** The box comparison forgives the sum of the two boxes' own evaluation
+round-off, `cycleBoundsRoundoff` of each cycle. That is an ABSOLUTE bound read
+off the arithmetic `exactFragBounds` performs — a per-kind ulp count (see
+`boundsRoundoffUlpsLine`/`boundsRoundoffUlpsArc`, which carry the derivation)
+times the largest defining number across that cycle's OWN fragments (a line's
+endpoint coordinates, a circle/arc's centre and radius), which bounds the
+magnitude its extrema are evaluated at. Everything above that is a real gap and
+is rejected.
+
+Both halves of that are load-bearing, and each had its own failure. A slack
+stated against `a.scale` was set by the whole scene and grew without bound: a
+face triangle and a second triangle `1.0` apart in `minY`, plus ONE unrelated
+open line at `x=1e9`, pushed it past that whole gap, so the guard accepted a hole
+lying entirely outside its face and recorded no degeneracy — the probe failure
+the postcondition exists to catch, waved through by geometry that touches neither
+cycle (`TestRegionsHoleContainmentSlackIsLocalToTheTwoCycles`). Made local but
+left a round *fraction* of that local magnitude, it still swallowed every real
+separation below that fraction: a tuned `1e-9` is millions of ulps, so the same
+two triangles `5e-4` apart at magnitude `1.1e6` were published as face and hole
+with nothing recorded (`TestRegionsHoleContainmentRejectsANearGapSeparation`).
+A tuned band is not a bound; only the derived one can be checked against the
+operations it covers. This is the same scene-band-versus-local-band rule
+`vertexCertifies` and `carriersIdentical` follow, with its own constants because
+it bounds a different quantity.
 
 ### Curve/curve transverse crossing authority (§7b)
 
