@@ -3829,8 +3829,29 @@ func (a *arranger) extract() *Arrangement {
 		probe := interiorPoint(h.dense)
 		best := -1
 		for fi, f := range faces {
+			// A genuine hole is strictly smaller than the face that nests it
+			// (the face's area is the hole's area plus whatever remains once
+			// the hole is cut out, which must be positive), so a face no
+			// bigger than the hole can never legitimately contain it. That
+			// magnitude compare stays — it does real, general work (the
+			// nested-square/nested-disk cases below rest on it) — but it is
+			// NOT enough on its own: a vertex weld can shrink a cycle's
+			// computed magnitude below a genuinely smaller face's without
+			// changing which edges the two cycles share, and that is exactly
+			// what lets a face's own unbounded/adjacent boundary — every one
+			// of whose edges the face itself already walks, the sharpest
+			// case being the face's own outer-boundary twin — through this
+			// compare as if it were an unrelated, smaller, nested hole.
+			// cyclesShareEdge closes that gap structurally, off the
+			// arrangement's own topology rather than a magnitude a weld can
+			// distort: two cycles that walk opposite sides of the same raw
+			// edge are directly adjacent, never one genuinely nested inside
+			// the other with boundary to spare between them.
 			if f.area <= -h.area+epsArea {
-				continue // not strictly larger than the hole (excludes the twin)
+				continue // not strictly larger than the hole
+			}
+			if cyclesShareEdge(f, h) {
+				continue // f and h are directly adjacent, not nested
 			}
 			if !a.exactPointInRegion(probe, f) {
 				continue
@@ -3968,6 +3989,36 @@ type cycle struct {
 	id    int
 	area  float64
 	selfX bool
+	// rawEdges is the set of arranger.edges indices this cycle's half-edges walk
+	// (the RAW arrangement edges, before makeCycle coalesces consecutive same-
+	// source ones into boundary/frags). A raw edge's two half-edges belong to
+	// at most two cycles total — the one that walks it forward and the one that
+	// walks it backward — so two cycles sharing a rawEdges member are the SAME
+	// physical edge seen from its two sides: directly adjacent, never a face
+	// nested inside the other. See cyclesShareEdge, which this field exists for.
+	rawEdges map[int]struct{}
+}
+
+// cyclesShareEdge reports whether a and b walk opposite sides of the same raw
+// arrangement edge. Every raw edge's two half-edges belong to at most two
+// cycles — the walk that uses it forward and the walk that uses it backward
+// — so a shared member of rawEdges means a and b are directly adjacent along
+// that edge, never one nested inside the other with boundary to spare between
+// them. Extract uses this to keep a face's own unbounded/exterior twin (and
+// any cycle that otherwise borders a face directly) out of that face's hole
+// candidacy, structurally rather than by comparing magnitudes a vertex weld
+// can distort.
+func cyclesShareEdge(a, b *cycle) bool {
+	small, big := a.rawEdges, b.rawEdges
+	if len(big) < len(small) {
+		small, big = big, small
+	}
+	for e := range small {
+		if _, ok := big[e]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // boundaryFrag is a run of consecutive arrangement edges from one source,
@@ -4062,10 +4113,12 @@ type cycFrag struct {
 // polygon, and computes the exact signed area.
 func (a *arranger) makeCycle(hs []int) cycle {
 	var c cycle
+	c.rawEdges = make(map[int]struct{}, len(hs))
 	// Coalesce consecutive half-edges that share a source into one BoundaryEdge.
 	var frags []boundaryFrag
 	for _, hi := range hs {
 		h := a.halfs[hi]
+		c.rawEdges[h.edge] = struct{}{}
 		e := a.edges[h.edge]
 		var pStart, pEnd float64
 		var exStart, exEnd bool
