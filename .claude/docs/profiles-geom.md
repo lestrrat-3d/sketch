@@ -834,6 +834,19 @@ merged tangency and genuine osculation stay conservatively `Degenerate`. Ellipse
 spline pairs keep the sampled fallback (exact containment falls back to the chord
 polygon for them). `Sketch.Profiles()` is its consumer.
 
+**The assignment carries a postcondition, not just the probe.** For a hole and
+face whose boundaries are line/circle/arc only, `holeLiesInFace` re-derives both
+cycles' exact bounding boxes straight from their fragments' closed-form geometry
+(`exactFragBounds`/`cycleBounds` — a circle/arc fragment's box also checks
+whichever of the four cardinal angles its sweep covers) and requires the hole's
+box inside the face's before the assignment is published. A genuinely nested
+hole's box is always inside its face's, so this can only ever reject a wrong
+assignment, never a real one; a rejection leaves the hole unassigned (as if no
+face had contained it) and flags the arrangement `Degenerate`, attributed to
+both cycles' sources. It is skipped (nothing to check) once an ellipse/spline is
+part of either boundary — the same coverage boundary `exactPointInRegion`
+already has.
+
 ### Curve/curve transverse crossing authority (§7b)
 
 **Curve/curve TRANSVERSE crossing authority (§7b) rests on its own incidence
