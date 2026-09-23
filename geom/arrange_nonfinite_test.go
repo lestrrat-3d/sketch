@@ -184,10 +184,9 @@ func polygonLines(corners ...[2]float64) []geom.Curve {
 // TestRegionsOverflowedExtentIsDegenerate pins the first magnitude screen: every
 // coordinate of this diamond is finite, but its bounding-box extent (2e308)
 // overflows float64, so the scene scale — which the merge tolerance, the
-// identity bands and the area floor are all multiples of — is not a
-// measurement. Before the screen the reset to 1 silently stood in for it, the
-// floor collapsed to 1e-12, and the region was published with Area=+Inf,
-// Degenerate=false and exact bounds on every edge.
+// identity bands and the magnitude screen depend on — is not a
+// measurement. Before the extent screen, the substitute scale of 1 silently
+// allowed Area=+Inf, Degenerate=false and exact bounds on every edge.
 func TestRegionsOverflowedExtentIsDegenerate(t *testing.T) {
 	arr := geom.Regions(polygonLines(
 		[2]float64{1e308, 0}, [2]float64{0, 1}, [2]float64{-1e308, 0}, [2]float64{0, -1}), nil)
@@ -203,9 +202,10 @@ func TestRegionsOverflowedExtentIsDegenerate(t *testing.T) {
 }
 
 // TestRegionsOverflowedAreaFloorIsDegenerate pins the second magnitude screen:
-// a scene whose extent is finite but past about 1.34e154, where the sliver
-// floor scale²·1e-12 overflows to +Inf and every cycle fails both classification
-// comparisons. Before the screen both scenes published ZERO regions with
+// a scene whose extent is finite but past about 1.34e154, where both the
+// scene-wide magnitude screen and the local cycle floor overflow to +Inf.
+// The cycle then fails both classification comparisons. Before the screen both
+// scenes published ZERO regions with
 // Degenerate=false — the triangle's area is itself infinite, but the thin
 // rectangle's (2e304) is finite and far above any floor, so it was a real region
 // dropped with no flag at all.
