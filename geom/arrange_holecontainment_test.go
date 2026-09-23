@@ -224,3 +224,118 @@ func TestRegionsHoleContainmentRejectsANearGapSeparation(t *testing.T) {
 		})
 	}
 }
+
+// TestRegionsKeepsHoleInsideFaceBoundaryRoundoff pins a genuinely nested hole
+// that clears its face by less than the diameter of the hole itself: at the
+// values the arrangement holds, centre distance 4.9999999949941412 plus radius
+// 5e-9 stays 5.86e-12 inside the outer radius 5. It is the case a too-tight
+// containment band would drop, and the hole must still publish. The two cycles'
+// summed box allowance here is 8.88e-10 — narrower than the hole, so the
+// analytic check classifies witnesses on the far side of it and accepts the
+// nesting on positive evidence.
+//
+// The guard also has to survive the opposite reading. A band wide enough to
+// swallow EVERY witness leaves it no counter-example, and reading that silence
+// as a refusal dropped this hole and flagged the whole arrangement Degenerate.
+// The scale-separated band is what keeps this scene and the exiting hole of
+// TestRegionsRejectsHoleThatExitsItsFace on opposite sides of the line.
+func TestRegionsKeepsHoleInsideFaceBoundaryRoundoff(t *testing.T) {
+	outer := geom.NewCircle(geom.NewPoint(1e6, 0), 5)
+	inner := geom.NewCircle(geom.NewPoint(1e6+5-5e-9, 0), 5e-9)
+
+	arr := geom.Regions(nil, []geom.ClosedCurve{outer, inner},
+		geom.WithVertexMerge(1e-12), geom.WithSegmentsPerTurn(64))
+
+	require.False(t, arr.Degenerate, "a genuinely nested hole is not a degeneracy")
+	require.Empty(t, arr.Degeneracies)
+	require.Len(t, arr.Regions, 2, "the annulus and the tiny disk")
+
+	var annulus *geom.Region
+	for _, reg := range arr.Regions {
+		if reg.Area > 1 {
+			annulus = reg
+		}
+	}
+	require.NotNil(t, annulus, "the outer circle must publish a region")
+	require.Len(t, annulus.Holes, 1, "the tiny circle stays the outer region's hole")
+	require.InDelta(t, 78.539816339744831, annulus.Area, 1e-9)
+}
+
+// TestRegionsRejectsHoleThatExitsItsFace pins the other side of the same band:
+// a hole whose boundary genuinely LEAVES its face must never be published as
+// that face's hole. The inner circle's centre distance 4.9999999980209395 plus
+// its radius 5e-9 overshoots the outer radius 5 by 3.02e-9 — about seven orders
+// of magnitude above the evaluation error of that comparison, so the exit is
+// real. It is separated from the genuinely nested hole of
+// TestRegionsKeepsHoleInsideFaceBoundaryRoundoff, which clears its face by
+// 5.86e-12, by a factor of about 500; charging the tiny circle one magnitude of
+// its 1e6 offset used to make the box allowance 1.4e-8 and swallow both.
+func TestRegionsRejectsHoleThatExitsItsFace(t *testing.T) {
+	outer := geom.NewCircle(geom.NewPoint(1e6, 0), 5)
+	inner := geom.NewCircle(geom.NewPoint(1e6+5-2e-9, 0), 5e-9)
+
+	arr := geom.Regions(nil, []geom.ClosedCurve{outer, inner},
+		geom.WithVertexMerge(1e-12), geom.WithSegmentsPerTurn(64))
+
+	require.True(t, arr.Degenerate, "a hole that exits its face is rejected on positive evidence")
+	require.NotEmpty(t, arr.Degeneracies)
+	for i, reg := range arr.Regions {
+		require.Empty(t, reg.Holes,
+			"region %d: the inner circle leaves the outer one, so it is no hole of it", i)
+	}
+}
+
+// TestRegionsRejectsHoleExitAbsorbedByAdditiveBoxTolerance pins the exit that
+// the containment guard's box comparison can only see when it is written as a
+// positive difference. The hole's box overshoots the face's right edge
+// 1000005 by exactly 8 ulps of that coordinate, and the two cycles' summed
+// allowance is 7.63 of the same ulps, so the gap is genuinely outside the band
+// and the hole must be rejected. Adding the allowance to the coordinate
+// instead (fhi+tol) rounds the sum up to the full 8 ulps, which compares equal
+// to the hole's bound: the old additive form could not tell this exit from a
+// tangency and published the circle as a hole of a face it leaves.
+//
+// The centre is written in ulps rather than as a decimal literal because that
+// is the whole point of the case — a decimal would hide which side of the
+// half-ulp rounding step it falls on.
+func TestRegionsRejectsHoleExitAbsorbedByAdditiveBoxTolerance(t *testing.T) {
+	// 1e6 and the face's right edge 1000005 share a binade, hence an ulp.
+	ulp := math.Nextafter(1e6, math.Inf(1)) - 1e6
+	outer := geom.NewCircle(geom.NewPoint(1e6, 0), 5)
+	inner := geom.NewCircle(geom.NewPoint(1e6+5-2e-9+8*ulp, 0), 2e-9)
+
+	arr := geom.Regions(nil, []geom.ClosedCurve{outer, inner},
+		geom.WithVertexMerge(1e-12), geom.WithSegmentsPerTurn(64))
+
+	require.True(t, arr.Degenerate, "an 8-ulp exit against a 7.63-ulp allowance is positive evidence")
+	require.NotEmpty(t, arr.Degeneracies)
+	for i, reg := range arr.Regions {
+		require.Empty(t, reg.Holes,
+			"region %d: the inner circle leaves the outer one, so it is no hole of it", i)
+	}
+}
+
+func TestRegionsHoleContainmentRejectsNestedBoxDisjointTriangle(t *testing.T) {
+	face := []geom.Curve{
+		geom.NewLine(geom.NewPoint(-1100000, 0), geom.NewPoint(1100000, 8)),
+		geom.NewLine(geom.NewPoint(1100000, 8), geom.NewPoint(-1100000, 12)),
+		geom.NewLine(geom.NewPoint(-1100000, 12), geom.NewPoint(-1100000, 0)),
+	}
+	hole := []geom.Curve{
+		geom.NewLine(geom.NewPoint(-800000, 0.2), geom.NewPoint(800000, 0.2)),
+		geom.NewLine(geom.NewPoint(800000, 0.2), geom.NewPoint(0, 1.8)),
+		geom.NewLine(geom.NewPoint(0, 1.8), geom.NewPoint(-800000, 0.2)),
+	}
+	curves := append(append([]geom.Curve{}, face...), hole...)
+	curves = append(curves, geom.NewLine(geom.NewPoint(1e9, 0), geom.NewPoint(1e9, 1)))
+	arr := geom.Regions(curves, nil, geom.WithVertexMerge(1e-9))
+	require.Len(t, arr.Regions, 2)
+	var areas []float64
+	for _, reg := range arr.Regions {
+		require.Empty(t, reg.Holes)
+		areas = append(areas, reg.Area)
+	}
+	sort.Float64s(areas)
+	require.InDelta(t, 1.28e6, areas[0], 1e-3)
+	require.InDelta(t, 1.32e7, areas[1], 1e-3)
+}

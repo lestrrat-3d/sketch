@@ -841,26 +841,62 @@ cannot move it into a disjoint face.
 
 **The assignment carries a postcondition, not just the probe.** For a hole and
 face whose boundaries are line/circle/arc only, `holeLiesInFace` re-derives both
-cycles' exact bounding boxes straight from their fragments' closed-form geometry
-(`exactFragBounds`/`cycleBounds` — a circle/arc fragment's box also checks
-whichever of the four cardinal angles its sweep covers) and requires the hole's
-box inside the face's before the assignment is published. A genuinely nested
-hole's box is always inside its face's, so this can only ever reject a wrong
-assignment, never a real one; a rejection leaves the hole unassigned (as if no
-face had contained it) and flags the arrangement `Degenerate`, attributed to
-both cycles' sources. It is skipped (nothing to check) once an ellipse/spline is
-part of either boundary — the same coverage boundary `exactPointInRegion`
-already has.
+cycles' exact bounding boxes from their fragments (`exactFragBounds`/
+`cycleBounds`) and requires the hole's box inside the face's. It then gets
+analytic contacts between each hole and face fragment. An interior transverse
+crossing or coincident overlap rejects the assignment. Contacts divide each
+hole fragment into intervals; the guard ray-tests points inside every interval
+against the analytic face boundary. This catches an excursion through a narrow
+notch even when fixed sample points are inside. A contact point within the two
+cycles' evaluation roundoff is skipped, so clean tangencies can pass. Every
+rejection leaves the hole unassigned and flags the arrangement `Degenerate`,
+attributed to both cycles' sources.
+
+**The guard rejects only on POSITIVE evidence, and answers "nothing to check"
+otherwise.** Its rejections are a box separation past the summed round-off, an
+interior transverse crossing or overlap, and an even crossing parity at a
+witness the round-off band did not swallow. A witness the band DID swallow is
+ignorance about the hole, never a counter-example, so an interval that yields no
+classifiable witness contributes nothing rather than refusing. When NOTHING on
+the hole was classifiable — which is what a hole smaller than the face
+boundary's own round-off band produces — the guard returns `ok == false` and
+`extract` keeps the interior probe's verdict untouched. Reading that as a
+refusal drops a genuinely nested hole and flags the whole arrangement
+`Degenerate`. `TestRegionsKeepsHoleInsideFaceBoundaryRoundoff` pins such a hole
+through the public `Regions` API — a 5e-9-radius circle nested `5.86e-12` inside
+a radius-5 circle at `x=1e6`, which that pair's `8.9e-10` allowance classifies
+on positive witnesses and which must publish.
+An ambiguous analytic contact is the same case and answers the same way. `ok ==
+false` therefore covers three situations: an ellipse/spline in either boundary
+(matching `exactPointInRegion`'s analytic coverage), an ambiguous contact, and
+no classifiable witness anywhere.
 
 **Its slack is source-local AND derived, and that is what makes it a check at
 all.** The box comparison forgives the sum of the two boxes' own evaluation
 round-off, `cycleBoundsRoundoff` of each cycle. That is an ABSOLUTE bound read
-off the arithmetic `exactFragBounds` performs — a per-kind ulp count (see
-`boundsRoundoffUlpsLine`/`boundsRoundoffUlpsArc`, which carry the derivation)
-times the largest defining number across that cycle's OWN fragments (a line's
-endpoint coordinates, a circle/arc's centre and radius), which bounds the
-magnitude its extrema are evaluated at. Everything above that is a real gap and
-is rejected.
+off the arithmetic `exactFragBounds` performs, over that cycle's OWN fragments
+and no others. A line is charged one ulp count against the largest of its four
+endpoint coordinates (`boundsRoundoffUlpsLine`). A circle or arc is charged its
+two error sources SEPARATELY, each against the magnitude that source actually
+scales with — the final sum against `max(|cx|,|cy|)` and the angle/cos/multiply
+chain against `|r|` (`boundsRoundoffCentreUlpsArc`/
+`boundsRoundoffRadiusUlpsArc`). The derivations live on those declarations and
+on `cycleBoundsRoundoff`. Charging ONE shared magnitude for both arc terms bills
+a tiny circle for how far from the origin it was drawn: a 5e-9 radius at `x=1e6`
+got a `1.4e-8` band, 2400x its own accuracy, so a hole overshooting its face by
+`3e-9` passed the box check, left no classifiable witness and was published
+(`TestRegionsRejectsHoleThatExitsItsFace`). Everything above the bound is a real
+gap and is rejected.
+
+**Every box comparison in `holeLiesInFace` is a POSITIVE DIFFERENCE against that
+bound** — the cycle boxes and the fragment-box prefilter alike — never a
+coordinate with the bound added to it. The derivation is on `holeLiesInFace`;
+the short version is that a bound narrower than half an ulp of the coordinate
+vanishes into the addition, so the effective band widens or narrows by up to
+half an ulp instead of being the derived bound. Against the difference the
+rounding error scales with the gap. An 8-ulp exit at `x=1e6` against a
+7.63-ulp allowance is the case the additive form could not distinguish
+(`TestRegionsRejectsHoleExitAbsorbedByAdditiveBoxTolerance`).
 
 The postcondition's local slack stays independent of probe placement. A slack
 stated against `a.scale` grew past a real `1.0` gap between two local triangles
