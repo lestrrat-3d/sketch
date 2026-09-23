@@ -861,10 +861,11 @@ classifiable witness contributes nothing rather than refusing. When NOTHING on
 the hole was classifiable — which is what a hole smaller than the face
 boundary's own round-off band produces — the guard returns `ok == false` and
 `extract` keeps the interior probe's verdict untouched. Reading that as a
-refusal dropped a genuinely nested hole and flagged the whole arrangement
-`Degenerate`, which `TestRegionsKeepsHoleInsideFaceBoundaryRoundoff` pins
-through the public `Regions` API (a 5e-9-radius circle nested in a radius-5
-circle at `x=1e6`, where the allowance is about 1.4e-8 — wider than the hole).
+refusal drops a genuinely nested hole and flags the whole arrangement
+`Degenerate`. `TestRegionsKeepsHoleInsideFaceBoundaryRoundoff` pins such a hole
+through the public `Regions` API — a 5e-9-radius circle nested `5.86e-12` inside
+a radius-5 circle at `x=1e6`, which that pair's `8.9e-10` allowance classifies
+on positive witnesses and which must publish.
 An ambiguous analytic contact is the same case and answers the same way. `ok ==
 false` therefore covers three situations: an ellipse/spline in either boundary
 (matching `exactPointInRegion`'s analytic coverage), an ambiguous contact, and
@@ -873,12 +874,19 @@ no classifiable witness anywhere.
 **Its slack is source-local AND derived, and that is what makes it a check at
 all.** The box comparison forgives the sum of the two boxes' own evaluation
 round-off, `cycleBoundsRoundoff` of each cycle. That is an ABSOLUTE bound read
-off the arithmetic `exactFragBounds` performs — a per-kind ulp count (see
-`boundsRoundoffUlpsLine`/`boundsRoundoffUlpsArc`, which carry the derivation)
-times the largest defining number across that cycle's OWN fragments (a line's
-endpoint coordinates, a circle/arc's centre and radius), which bounds the
-magnitude its extrema are evaluated at. Everything above that is a real gap and
-is rejected.
+off the arithmetic `exactFragBounds` performs, over that cycle's OWN fragments
+and no others. A line is charged one ulp count against the largest of its four
+endpoint coordinates (`boundsRoundoffUlpsLine`). A circle or arc is charged its
+two error sources SEPARATELY, each against the magnitude that source actually
+scales with — the final sum against `max(|cx|,|cy|)` and the angle/cos/multiply
+chain against `|r|` (`boundsRoundoffCentreUlpsArc`/
+`boundsRoundoffRadiusUlpsArc`). The derivations live on those declarations and
+on `cycleBoundsRoundoff`. Charging ONE shared magnitude for both arc terms bills
+a tiny circle for how far from the origin it was drawn: a 5e-9 radius at `x=1e6`
+got a `1.4e-8` band, 2400x its own accuracy, so a hole overshooting its face by
+`3e-9` passed the box check, left no classifiable witness and was published
+(`TestRegionsRejectsHoleThatExitsItsFace`). Everything above the bound is a real
+gap and is rejected.
 
 The postcondition's local slack stays independent of probe placement. A slack
 stated against `a.scale` grew past a real `1.0` gap between two local triangles

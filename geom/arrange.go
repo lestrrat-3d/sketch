@@ -4407,11 +4407,12 @@ func (a *arranger) cycleBounds(c *cycle) (lo, hi [2]float64, ok bool) {
 // correctly-rounded arithmetic operation can introduce.
 const unitRoundoff = 1.0 / (1 << 53)
 
-// boundsRoundoffUlpsLine and boundsRoundoffUlpsArc are how many unitRoundoffs of
-// a fragment's own defining magnitude bound the round-off in the box coordinates
-// exactFragBounds computes for it. They are DERIVED from the operations that
-// code performs — not picked as round numbers, and not a band wide enough to
-// swallow a real gap. Write u for unitRoundoff below.
+// boundsRoundoffUlpsLine is how many unitRoundoffs of a LINE fragment's own
+// defining magnitude bound the round-off in the box coordinates exactFragBounds
+// computes for it. It is DERIVED from the operations that code performs — not
+// picked as a round number, and not a band wide enough to swallow a real gap.
+// Write u for unitRoundoff below. The circle/arc bound is not a single ulp count
+// and is derived on cycleBoundsRoundoff.
 //
 // A line evaluates at(t) = ax + t*(bx-ax) with M = max(|ax|,|ay|,|bx|,|by|).
 // |bx-ax| ≤ 2M, so fl(bx-ax) is off by ≤ 2uM; multiplying by t ∈ [0,1] carries
@@ -4419,29 +4420,54 @@ const unitRoundoff = 1.0 / (1 << 53)
 // (the point lies on the segment, so |result| ≤ M). That is 5uM, and the box is
 // a min/max of such coordinates, which introduces nothing further. 8 is that
 // bound with margin.
-//
-// A circle/arc evaluates at(t) = cx + r*cos(phi0+t*sweep), and the cardinal-angle
-// extrema the same way, with M = max(|cx|,|cy|,r). The angle is off by
-// ≤ u(|ang|+2|sweep|) ≤ 7πu < 22u; cos carries an angle error through undamped
-// (|cos′| ≤ 1) and adds its own error, ≤ 2 ulps of a result of magnitude ≤ 1,
-// i.e. ≤ 4u; multiplying by r gives ≤ 26uM plus u|r·cos| ≤ uM; the final sum adds
-// u|result| ≤ 2uM (|result| ≤ |cx|+r ≤ 2M). That is 29uM. 64 is that bound with
-// margin for a platform trig function less accurate than 2 ulps.
+const boundsRoundoffUlpsLine = 8
+
+// boundsRoundoffCentreUlpsArc and boundsRoundoffRadiusUlpsArc are the two ulp
+// counts the circle/arc bound charges, each against its OWN magnitude:
+// boundsRoundoffCentreUlpsArc against max(|cx|,|cy|) and
+// boundsRoundoffRadiusUlpsArc against |r|. Their derivation is on
+// cycleBoundsRoundoff, which is their only user.
 const (
-	boundsRoundoffUlpsLine = 8
-	boundsRoundoffUlpsArc  = 64
+	boundsRoundoffCentreUlpsArc = 4
+	boundsRoundoffRadiusUlpsArc = 58
 )
 
 // cycleBoundsRoundoff returns an upper bound on the absolute float64 round-off in
 // any coordinate of cycle c's exact bounding box (cycleBounds). Every coordinate
 // exactFragBounds computes is a short expression in one source's OWN defining
 // numbers — a line's two endpoint coordinates, or a circle/arc's centre plus
-// radius·{cos,sin} — so the largest of those numbers bounds the magnitude that
-// fragment's extrema are evaluated at, and the per-kind ulp counts above bound
-// the round-off accumulated there. It is a property of c's own sources alone:
+// radius·{cos,sin} — so those numbers bound the magnitudes that fragment's
+// extrema are evaluated at, and the derivations here and above bound the
+// round-off accumulated there. It is a property of c's own sources alone:
 // geometry drawn somewhere else never enters it. Callers must have a true box
 // from cycleBounds first, which is what restricts the fragments here to
 // line/circle/arc.
+//
+// A circle/arc evaluates at(t) = cx + r*cos(phi0+t*sweep), and the cardinal-angle
+// extrema the same way. Its two error sources scale with DIFFERENT magnitudes,
+// so they are bounded SEPARATELY rather than through one shared magnitude. Write
+// u for unitRoundoff and ctr for max(|cx|,|cy|). The angle is off by
+// ≤ u(|ang|+2|sweep|) ≤ 7πu < 22u; cos carries an angle error through undamped
+// (|cos′| ≤ 1) and adds its own error, ≤ 2 ulps of a result of magnitude ≤ 1,
+// i.e. ≤ 4u; multiplying by r gives ≤ 26ur plus u|r·cos| ≤ ur, so 27ur in all,
+// and that term sees the RADIUS only. Only the final sum sees the centre, and it
+// adds u|result| ≤ u(ctr+r). Charging the first term 2x and the second 4x, the
+// bound is u·(4(ctr+r) + 54r) = boundsRoundoffCentreUlpsArc·u·ctr +
+// boundsRoundoffRadiusUlpsArc·u·r — the extra margin on the radius term covering
+// a platform trig function less accurate than 2 ulps. The code scales by u
+// FIRST, which is the same value in exact arithmetic and is what keeps a centre
+// past 4.5e307 from overflowing the product to +Inf and handing back an infinite
+// "bound". That form is never looser than the single-magnitude 64u·max(ctr,r) it
+// replaces: 4ctr+58r ≤ 62·max(ctr,r) either way round.
+//
+// Charging ONE magnitude m = max(ctr,r) for both terms billed a small circle for
+// how far from the origin it was drawn: a radius-5e-9 circle at ctr=1e6 was
+// charged 64 ulps of 1e6, a band 2400x its own evaluation error, and a hole
+// overshooting its face by 3e-9 passed the box check, left no classifiable
+// witness, and was published (TestRegionsRejectsHoleThatExitsItsFace). Merely
+// lowering the ulp count cannot fix that: the band has to be scale-correct, or
+// it swallows the real exit at one setting and starts trusting an interior
+// witness whose far partner is still swallowed at the next.
 //
 // Stating the slack against the SCENE instead let an object drawn somewhere else
 // decide how big a gap counts as round-off HERE, and the widening was unbounded:
@@ -4456,14 +4482,16 @@ func (a *arranger) cycleBoundsRoundoff(c *cycle) float64 {
 	worst := 0.0
 	for _, f := range c.frags {
 		s := &a.sources[f.src]
-		m := math.Max(math.Abs(s.cx), math.Max(math.Abs(s.cy), math.Abs(s.r)))
-		ulps := float64(boundsRoundoffUlpsArc)
 		if s.kind == srcLine {
-			m = math.Max(math.Abs(s.ax), math.Max(math.Abs(s.ay),
+			m := math.Max(math.Abs(s.ax), math.Max(math.Abs(s.ay),
 				math.Max(math.Abs(s.bx), math.Abs(s.by))))
-			ulps = boundsRoundoffUlpsLine
+			worst = math.Max(worst, boundsRoundoffUlpsLine*unitRoundoff*m)
+			continue
 		}
-		worst = math.Max(worst, ulps*unitRoundoff*m)
+		ctr := math.Max(math.Abs(s.cx), math.Abs(s.cy))
+		r := math.Abs(s.r)
+		worst = math.Max(worst, boundsRoundoffCentreUlpsArc*unitRoundoff*ctr+
+			boundsRoundoffRadiusUlpsArc*unitRoundoff*r)
 	}
 	return worst
 }
@@ -4487,10 +4515,9 @@ func (a *arranger) cycleBoundsRoundoff(c *cycle) float64 {
 // face boundary's own round-off band, which is what a hole smaller than that
 // band does — the answer is "nothing to check" (false, false) rather than a
 // refusal, and the caller keeps the interior probe's verdict. Rejecting there
-// dropped a genuinely nested hole and marked the whole arrangement Degenerate
-// whenever the hole fit inside the face boundary's round-off band
-// (TestRegionsKeepsHoleInsideFaceBoundaryRoundoff). An ambiguous analytic
-// contact is the same case and answers the same way.
+// drops a genuinely nested hole and marks the whole arrangement Degenerate
+// whenever the hole fits inside the face boundary's round-off band. An ambiguous
+// analytic contact is the same case and answers the same way.
 //
 // ok is therefore false when either cycle contains a fragment without
 // line/circle/arc closed-form geometry, when a contact is ambiguous, or when no
