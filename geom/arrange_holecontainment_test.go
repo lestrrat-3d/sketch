@@ -65,14 +65,14 @@ func polyOf(edges []geom.BoundaryEdge) [][2]float64 {
 }
 
 // boundsOf returns the axis-aligned bounding box of a polyline.
-func boundsOf(pts [][2]float64) (minX, minY, maxX, maxY float64) {
-	minX, minY = math.Inf(1), math.Inf(1)
-	maxX, maxY = math.Inf(-1), math.Inf(-1)
+func boundsOf(pts [][2]float64) (float64, float64, float64, float64) {
+	minX, minY := math.Inf(1), math.Inf(1)
+	maxX, maxY := math.Inf(-1), math.Inf(-1)
 	for _, p := range pts {
 		minX, minY = math.Min(minX, p[0]), math.Min(minY, p[1])
 		maxX, maxY = math.Max(maxX, p[0]), math.Max(maxY, p[1])
 	}
-	return
+	return minX, minY, maxX, maxY
 }
 
 // boxesDisjoint reports whether two axis-aligned boxes share no point at all.
