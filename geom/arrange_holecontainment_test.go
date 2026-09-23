@@ -224,3 +224,28 @@ func TestRegionsHoleContainmentRejectsANearGapSeparation(t *testing.T) {
 		})
 	}
 }
+
+func TestRegionsHoleContainmentRejectsNestedBoxDisjointTriangle(t *testing.T) {
+	face := []geom.Curve{
+		geom.NewLine(geom.NewPoint(-1100000, 0), geom.NewPoint(1100000, 8)),
+		geom.NewLine(geom.NewPoint(1100000, 8), geom.NewPoint(-1100000, 12)),
+		geom.NewLine(geom.NewPoint(-1100000, 12), geom.NewPoint(-1100000, 0)),
+	}
+	hole := []geom.Curve{
+		geom.NewLine(geom.NewPoint(-800000, 0.2), geom.NewPoint(800000, 0.2)),
+		geom.NewLine(geom.NewPoint(800000, 0.2), geom.NewPoint(0, 1.8)),
+		geom.NewLine(geom.NewPoint(0, 1.8), geom.NewPoint(-800000, 0.2)),
+	}
+	curves := append(append([]geom.Curve{}, face...), hole...)
+	curves = append(curves, geom.NewLine(geom.NewPoint(1e9, 0), geom.NewPoint(1e9, 1)))
+	arr := geom.Regions(curves, nil, geom.WithVertexMerge(1e-9))
+	require.Len(t, arr.Regions, 2)
+	var areas []float64
+	for _, reg := range arr.Regions {
+		require.Empty(t, reg.Holes)
+		areas = append(areas, reg.Area)
+	}
+	sort.Float64s(areas)
+	require.InDelta(t, 1.28e6, areas[0], 1e-3)
+	require.InDelta(t, 1.32e7, areas[1], 1e-3)
+}

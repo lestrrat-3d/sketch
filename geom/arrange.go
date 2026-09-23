@@ -3876,14 +3876,8 @@ func (a *arranger) extract() *Arrangement {
 			}
 		}
 		if best >= 0 {
-			// Postcondition: exactPointInRegion decided containment above, but
-			// nothing re-checked its answer before it was trusted — re-derive
-			// the hole's and the chosen face's true bounding boxes straight from
-			// their own fragments' closed-form geometry and require the hole's
-			// to lie inside the face's, so a probe failure of ANY origin is
-			// caught rather than published. ok is false when either cycle has a
-			// fragment outside line/circle/arc (no exact bound to check), which
-			// leaves that case exactly as trusted as it always was.
+			// Verify analytic containment independently of the interior probe.
+			// The check is unavailable for boundaries outside line/circle/arc.
 			if contained, ok := a.holeLiesInFace(h, faces[best]); ok && !contained {
 				var srcs []int
 				for _, fr := range h.frags {
@@ -4473,16 +4467,18 @@ func (a *arranger) cycleBoundsRoundoff(c *cycle) float64 {
 	return worst
 }
 
-// holeLiesInFace is the postcondition on a hole assignment: it re-derives the
-// exact bounding boxes of the hole and its candidate face directly from their
-// own fragments' closed-form geometry — never from exactPointInRegion's
-// crossing count a second time — so a probe failure of ANY origin, not only the
-// arc-parameter aliasing this fix closes, is caught rather than trusted
-// uninspected. A genuinely nested hole's box is always inside its face's
-// (containment implies bounding-box containment), so this can only ever reject
-// a wrong assignment, never a real one. ok is false ("nothing to check") when
-// either cycle has a fragment with no closed-form bound — the same
-// ellipse/spline coverage boundary exactPointInRegion already has.
+// holeLiesInFace checks analytic hole/face containment independently of the
+// interiorPoint probe used to propose an assignment. The box check first rejects
+// separated extents. Interior transverse intersections then reject a boundary
+// that leaves and re-enters a nonconvex face between tested points. Finally,
+// every interval between contacts on each hole fragment contributes boundary
+// points to the face's analytic ray test. Inside/outside status cannot change
+// within such an interval, so this also covers a curved excursion or a narrow
+// notch between fixed sample points. Contact points themselves are skipped at
+// the two cycles' evaluation roundoff, allowing clean tangencies. Uncertain
+// analytic contacts or intervals with no classifiable point are rejected.
+// ok is false only when either cycle contains a fragment without line/circle/arc
+// closed-form geometry.
 //
 // The only slack the comparison allows is the two boxes' OWN evaluation
 // round-off, derived from the operations that computed them
@@ -4499,9 +4495,103 @@ func (a *arranger) holeLiesInFace(h, f *cycle) (contained, ok bool) {
 		return false, false
 	}
 	tol := a.cycleBoundsRoundoff(h) + a.cycleBoundsRoundoff(f)
-	contained = hlo[0] >= flo[0]-tol && hlo[1] >= flo[1]-tol &&
-		hhi[0] <= fhi[0]+tol && hhi[1] <= fhi[1]+tol
-	return contained, true
+	if hlo[0] < flo[0]-tol || hlo[1] < flo[1]-tol ||
+		hhi[0] > fhi[0]+tol || hhi[1] > fhi[1]+tol {
+		return false, true
+	}
+	localScale := math.Max(fhi[0]-flo[0], fhi[1]-flo[1])
+	localScale = math.Max(localScale, math.Max(hhi[0]-hlo[0], hhi[1]-hlo[1]))
+	witnesses := 0
+	for _, hf := range h.frags {
+		hs := &a.sources[hf.src]
+		hfLo, hfHi, _ := a.exactFragBounds(hf)
+		cuts := []float64{hf.pStart, hf.pEnd}
+		for _, ff := range f.frags {
+			ffLo, ffHi, _ := a.exactFragBounds(ff)
+			if hfHi[0] < ffLo[0]-tol || ffHi[0] < hfLo[0]-tol ||
+				hfHi[1] < ffLo[1]-tol || ffHi[1] < hfLo[1]-tol {
+				continue
+			}
+			events, ambiguous, _ := analyticEvents(hs, &a.sources[ff.src], localScale)
+			if ambiguous {
+				return false, true
+			}
+			for _, e := range events {
+				if !eventWithinFrag(e.ti, hf) || !eventWithinFrag(e.tj, ff) {
+					continue
+				}
+				if e.kind == evOverlap || (e.kind == evCross &&
+					eventInsideFrag(e.ti, hf) && eventInsideFrag(e.tj, ff)) {
+					return false, true
+				}
+				cuts = append(cuts, math.Max(math.Min(e.ti, math.Max(hf.pStart, hf.pEnd)),
+					math.Min(hf.pStart, hf.pEnd)))
+			}
+		}
+		sort.Float64s(cuts)
+		for i := 1; i < len(cuts); i++ {
+			if cuts[i] <= cuts[i-1] {
+				continue
+			}
+			intervalWitnesses := 0
+			for _, fraction := range [...]float64{0.25, 0.5, 0.75} {
+				q := hs.at(cuts[i-1] + fraction*(cuts[i]-cuts[i-1]))
+				if a.pointOnCycle(q, f, tol) {
+					continue
+				}
+				intervalWitnesses++
+				witnesses++
+				crossings := 0
+				for _, ff := range f.frags {
+					crossings += a.rayFragCrossings(q, ff)
+				}
+				if crossings%2 == 0 {
+					return false, true
+				}
+			}
+			if intervalWitnesses == 0 {
+				return false, true
+			}
+		}
+	}
+	return witnesses > 0, true
+}
+
+func eventWithinFrag(t float64, f cycFrag) bool {
+	lo, hi := math.Min(f.pStart, f.pEnd), math.Max(f.pStart, f.pEnd)
+	const slack = 64 * unitRoundoff
+	return t >= lo-slack && t <= hi+slack
+}
+
+func eventInsideFrag(t float64, f cycFrag) bool {
+	lo, hi := math.Min(f.pStart, f.pEnd), math.Max(f.pStart, f.pEnd)
+	const slack = 64 * unitRoundoff
+	return t > lo+slack && t < hi-slack
+}
+
+// pointOnCycle makes a boundary contact inconclusive for the ray test. The
+// distance band comes only from the two candidate cycles' evaluation roundoff.
+func (a *arranger) pointOnCycle(q [2]float64, c *cycle, tol float64) bool {
+	for _, f := range c.frags {
+		s := &a.sources[f.src]
+		if s.kind == srcLine {
+			p, end := s.at(f.pStart), s.at(f.pEnd)
+			if distPointSeg(q[0], q[1], p[0], p[1], end[0], end[1]) <= tol {
+				return true
+			}
+			continue
+		}
+		if math.Abs(math.Hypot(q[0]-s.cx, q[1]-s.cy)-s.r) > tol {
+			continue
+		}
+		ang := math.Atan2(q[1]-s.cy, q[0]-s.cx)
+		if a.angInFragment(s, f, ang) ||
+			math.Hypot(q[0]-s.at(f.pStart)[0], q[1]-s.at(f.pStart)[1]) <= tol ||
+			math.Hypot(q[0]-s.at(f.pEnd)[0], q[1]-s.at(f.pEnd)[1]) <= tol {
+			return true
+		}
+	}
+	return false
 }
 
 // rayFragCrossings counts how many times the horizontal +x ray from q crosses the

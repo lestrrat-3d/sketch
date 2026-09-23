@@ -841,16 +841,19 @@ cannot move it into a disjoint face.
 
 **The assignment carries a postcondition, not just the probe.** For a hole and
 face whose boundaries are line/circle/arc only, `holeLiesInFace` re-derives both
-cycles' exact bounding boxes straight from their fragments' closed-form geometry
-(`exactFragBounds`/`cycleBounds` — a circle/arc fragment's box also checks
-whichever of the four cardinal angles its sweep covers) and requires the hole's
-box inside the face's before the assignment is published. A genuinely nested
-hole's box is always inside its face's, so this can only ever reject a wrong
-assignment, never a real one; a rejection leaves the hole unassigned (as if no
-face had contained it) and flags the arrangement `Degenerate`, attributed to
-both cycles' sources. It is skipped (nothing to check) once an ellipse/spline is
-part of either boundary — the same coverage boundary `exactPointInRegion`
-already has.
+cycles' exact bounding boxes from their fragments (`exactFragBounds`/
+`cycleBounds`) and requires the hole's box inside the face's. It then gets
+analytic contacts between each hole and face fragment. An interior transverse
+crossing or coincident overlap rejects the assignment. Contacts divide each
+hole fragment into intervals; the guard ray-tests points inside every interval
+against the analytic face boundary. This catches an excursion through a narrow
+notch even when fixed sample points are inside. A contact point within the two
+cycles' evaluation roundoff is skipped, so clean tangencies can pass. An
+ambiguous contact or an interval without a classifiable point rejects the
+assignment conservatively. Every rejection leaves the hole unassigned and flags
+the arrangement `Degenerate`, attributed to both cycles' sources. The guard is
+skipped once an ellipse/spline is part of either boundary, matching
+`exactPointInRegion`'s analytic coverage.
 
 **Its slack is source-local AND derived, and that is what makes it a check at
 all.** The box comparison forgives the sum of the two boxes' own evaluation
