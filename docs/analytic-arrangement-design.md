@@ -34,8 +34,9 @@ The fix is to detect crossings **analytically** (exact closed-form intersections
 for the curve kinds that have a closed form (line / circle / arc — already present
 as standalone helpers in `geom/intersect.go` but unused by the arrangement), so the
 arrangement can classify a contact precisely: a transverse crossing splits the
-topology; a clean tangency is a non-splitting contact (not a degeneracy); a
-coincident overlap or a genuinely unresolvable case is reported `Degenerate`.
+topology; a clean tangency normally leaves both sources uncut, but an arc endpoint
+tangent to a line cuts that line at the endpoint; a coincident overlap or a
+genuinely unresolvable case is reported `Degenerate`.
 Curves with no closed form (ellipse, spline) keep the sampled fallback.
 
 ## Architecture (the target and the path)
@@ -63,7 +64,8 @@ half-edges by chord angle, and at a tangency those angles tie, so the face walk
 can branch-swap the loops. Both curved cases are certified instead — mechanism
 in the `geom` section of `.claude/docs/profiles-geom.md`. So:
 
-- clean analytic tangent ⇒ no cut, no near-angle degeneracy;
+- clean analytic tangent ⇒ normally no cut; an arc endpoint tangent to a line
+  cuts the line at that endpoint; no near-angle degeneracy;
 - if the tangent contact would merge into a shared cycle-bearing vertex AND a LINE
   is one of the two sources ⇒ conservatively `flagDegenerate`; both curved cases
   (external, certified by increment 3, and internal/containment, certified by
@@ -689,7 +691,8 @@ at the **shared exact event point** so both sources land on one canonical vertex
 5. `ambiguous` or any `evOverlap` → `flagDegenerate`.
 6. each `evCross` → map `ti/tj` to the containing tiny segment and add an exact cut
    record (with the shared event point); replicate self-intersection (below).
-7. each `evTangent` → no cut, bypass the `p.sin<1e-3` heuristic, subject to the
+7. each `evTangent` → normally no cut; an arc endpoint tangent to a line cuts
+   the line at that endpoint. Bypass the `p.sin<1e-3` heuristic, subject to the
    conservative merged-vertex rule (tangency contract above).
 8. In the existing segment loop, skip pairs where `si.src != sj.src && handled[pair]`;
    keep same-source spline logic unchanged.
