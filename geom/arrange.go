@@ -3877,7 +3877,8 @@ func (a *arranger) extract() *Arrangement {
 		}
 		if best >= 0 {
 			// Verify analytic containment independently of the interior probe.
-			// The check is unavailable for boundaries outside line/circle/arc.
+			// ok is false wherever the check has no analytic bound to offer —
+			// see holeLiesInFace for that set — and the probe's verdict stands.
 			if contained, ok := a.holeLiesInFace(h, faces[best]); ok && !contained {
 				var srcs []int
 				for _, fr := range h.frags {
@@ -4475,10 +4476,26 @@ func (a *arranger) cycleBoundsRoundoff(c *cycle) float64 {
 // points to the face's analytic ray test. Inside/outside status cannot change
 // within such an interval, so this also covers a curved excursion or a narrow
 // notch between fixed sample points. Contact points themselves are skipped at
-// the two cycles' evaluation roundoff, allowing clean tangencies. Uncertain
-// analytic contacts or intervals with no classifiable point are rejected.
-// ok is false only when either cycle contains a fragment without line/circle/arc
-// closed-form geometry.
+// the two cycles' evaluation roundoff, allowing clean tangencies.
+//
+// The guard rejects only on POSITIVE evidence: a box separation past the two
+// boxes' own round-off, an interior transverse crossing or overlap, or an even
+// crossing parity at a witness the roundoff band did not swallow. A witness the
+// band DID swallow is ignorance, not a counter-example, so it never rejects on
+// its own: an interval that yields no classifiable witness simply contributes
+// nothing. When NOTHING on the hole was classifiable — every witness sat in the
+// face boundary's own round-off band, which is what a hole smaller than that
+// band does — the answer is "nothing to check" (false, false) rather than a
+// refusal, and the caller keeps the interior probe's verdict. Rejecting there
+// dropped a genuinely nested hole and marked the whole arrangement Degenerate
+// whenever the hole fit inside the face boundary's round-off band
+// (TestRegionsKeepsHoleInsideFaceBoundaryRoundoff). An ambiguous analytic
+// contact is the same case and answers the same way.
+//
+// ok is therefore false when either cycle contains a fragment without
+// line/circle/arc closed-form geometry, when a contact is ambiguous, or when no
+// witness anywhere was classifiable — the three "no analytic bound to check"
+// answers.
 //
 // The only slack the comparison allows is the two boxes' OWN evaluation
 // round-off, derived from the operations that computed them
@@ -4488,7 +4505,7 @@ func (a *arranger) cycleBoundsRoundoff(c *cycle) float64 {
 // internal-tangency contact reached via the hole's circle formula and via the
 // face's, say) may differ by that much and no more, so a genuinely nested hole
 // still cannot be rejected over round-off.
-func (a *arranger) holeLiesInFace(h, f *cycle) (contained, ok bool) {
+func (a *arranger) holeLiesInFace(h, f *cycle) (bool, bool) {
 	hlo, hhi, hok := a.cycleBounds(h)
 	flo, fhi, fok := a.cycleBounds(f)
 	if !hok || !fok {
@@ -4514,7 +4531,7 @@ func (a *arranger) holeLiesInFace(h, f *cycle) (contained, ok bool) {
 			}
 			events, ambiguous, _ := analyticEvents(hs, &a.sources[ff.src], localScale)
 			if ambiguous {
-				return false, true
+				return false, false
 			}
 			for _, e := range events {
 				if !eventWithinFrag(e.ti, hf) || !eventWithinFrag(e.tj, ff) {
@@ -4533,13 +4550,11 @@ func (a *arranger) holeLiesInFace(h, f *cycle) (contained, ok bool) {
 			if cuts[i] <= cuts[i-1] {
 				continue
 			}
-			intervalWitnesses := 0
 			for _, fraction := range [...]float64{0.25, 0.5, 0.75} {
 				q := hs.at(cuts[i-1] + fraction*(cuts[i]-cuts[i-1]))
 				if a.pointOnCycle(q, f, tol) {
 					continue
 				}
-				intervalWitnesses++
 				witnesses++
 				crossings := 0
 				for _, ff := range f.frags {
@@ -4549,12 +4564,12 @@ func (a *arranger) holeLiesInFace(h, f *cycle) (contained, ok bool) {
 					return false, true
 				}
 			}
-			if intervalWitnesses == 0 {
-				return false, true
-			}
 		}
 	}
-	return witnesses > 0, true
+	if witnesses == 0 {
+		return false, false
+	}
+	return true, true
 }
 
 func eventWithinFrag(t float64, f cycFrag) bool {

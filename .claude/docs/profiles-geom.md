@@ -848,12 +848,27 @@ crossing or coincident overlap rejects the assignment. Contacts divide each
 hole fragment into intervals; the guard ray-tests points inside every interval
 against the analytic face boundary. This catches an excursion through a narrow
 notch even when fixed sample points are inside. A contact point within the two
-cycles' evaluation roundoff is skipped, so clean tangencies can pass. An
-ambiguous contact or an interval without a classifiable point rejects the
-assignment conservatively. Every rejection leaves the hole unassigned and flags
-the arrangement `Degenerate`, attributed to both cycles' sources. The guard is
-skipped once an ellipse/spline is part of either boundary, matching
-`exactPointInRegion`'s analytic coverage.
+cycles' evaluation roundoff is skipped, so clean tangencies can pass. Every
+rejection leaves the hole unassigned and flags the arrangement `Degenerate`,
+attributed to both cycles' sources.
+
+**The guard rejects only on POSITIVE evidence, and answers "nothing to check"
+otherwise.** Its rejections are a box separation past the summed round-off, an
+interior transverse crossing or overlap, and an even crossing parity at a
+witness the round-off band did not swallow. A witness the band DID swallow is
+ignorance about the hole, never a counter-example, so an interval that yields no
+classifiable witness contributes nothing rather than refusing. When NOTHING on
+the hole was classifiable — which is what a hole smaller than the face
+boundary's own round-off band produces — the guard returns `ok == false` and
+`extract` keeps the interior probe's verdict untouched. Reading that as a
+refusal dropped a genuinely nested hole and flagged the whole arrangement
+`Degenerate`, which `TestRegionsKeepsHoleInsideFaceBoundaryRoundoff` pins
+through the public `Regions` API (a 5e-9-radius circle nested in a radius-5
+circle at `x=1e6`, where the allowance is about 1.4e-8 — wider than the hole).
+An ambiguous analytic contact is the same case and answers the same way. `ok ==
+false` therefore covers three situations: an ellipse/spline in either boundary
+(matching `exactPointInRegion`'s analytic coverage), an ambiguous contact, and
+no classifiable witness anywhere.
 
 **Its slack is source-local AND derived, and that is what makes it a check at
 all.** The box comparison forgives the sum of the two boxes' own evaluation

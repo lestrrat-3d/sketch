@@ -225,6 +225,39 @@ func TestRegionsHoleContainmentRejectsANearGapSeparation(t *testing.T) {
 	}
 }
 
+// TestRegionsKeepsHoleInsideFaceBoundaryRoundoff pins a genuinely nested hole
+// that lies entirely within the face boundary's own evaluation round-off band.
+// The outer circle sits at x=1e6, so the postcondition's round-off allowance is
+// about 1.4e-8 — wider than the 1e-8 diameter of the hole. Every witness the
+// analytic check samples on the hole therefore lands within that band of the
+// face boundary and classifies as a contact, which is IGNORANCE about the hole,
+// not evidence against it: the nesting is real at the values the arrangement
+// holds (centre distance 4.9999999949941412 plus radius 5e-9 stays 5.86e-12
+// inside the outer radius 5). The guard used to read "no classifiable witness"
+// as a refusal, so the hole was dropped and the whole arrangement was flagged
+// Degenerate.
+func TestRegionsKeepsHoleInsideFaceBoundaryRoundoff(t *testing.T) {
+	outer := geom.NewCircle(geom.NewPoint(1e6, 0), 5)
+	inner := geom.NewCircle(geom.NewPoint(1e6+5-5e-9, 0), 5e-9)
+
+	arr := geom.Regions(nil, []geom.ClosedCurve{outer, inner},
+		geom.WithVertexMerge(1e-12), geom.WithSegmentsPerTurn(64))
+
+	require.False(t, arr.Degenerate, "a genuinely nested hole is not a degeneracy")
+	require.Empty(t, arr.Degeneracies)
+	require.Len(t, arr.Regions, 2, "the annulus and the tiny disk")
+
+	var annulus *geom.Region
+	for _, reg := range arr.Regions {
+		if reg.Area > 1 {
+			annulus = reg
+		}
+	}
+	require.NotNil(t, annulus, "the outer circle must publish a region")
+	require.Len(t, annulus.Holes, 1, "the tiny circle stays the outer region's hole")
+	require.InDelta(t, 78.539816339744831, annulus.Area, 1e-9)
+}
+
 func TestRegionsHoleContainmentRejectsNestedBoxDisjointTriangle(t *testing.T) {
 	face := []geom.Curve{
 		geom.NewLine(geom.NewPoint(-1100000, 0), geom.NewPoint(1100000, 8)),
