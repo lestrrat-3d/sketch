@@ -50,7 +50,7 @@ func (c *NURBS) weightAt(i int) float64 {
 
 // domain returns the parametric interval [Knots[p], Knots[n+1]] the clamped
 // curve is defined on (the only span where the basis is a partition of unity).
-func (c *NURBS) domain() (lo, hi float64) {
+func (c *NURBS) domain() (float64, float64) {
 	p := c.Degree
 	n := len(c.Control) - 1
 	return c.Knots[p], c.Knots[n+1]
@@ -59,7 +59,7 @@ func (c *NURBS) domain() (lo, hi float64) {
 // Domain returns the parametric interval [lo, hi] the clamped curve is defined
 // on. A caller working in a normalized t ∈ [0, 1] maps to a knot parameter with
 // u = lo + t·(hi−lo) before calling [NURBS.Eval] / [NURBS.EvalDeriv].
-func (c *NURBS) Domain() (lo, hi float64) { return c.domain() }
+func (c *NURBS) Domain() (float64, float64) { return c.domain() }
 
 // findSpan returns the knot span index i such that U[i] <= u < U[i+1], with the
 // clamped-end conventions (The NURBS Book A2.1). n = len(control)-1.

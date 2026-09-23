@@ -72,7 +72,7 @@ type overlapExtent struct {
 // that like a degeneracy. For an unsupported kind it returns ok=false and the
 // caller falls back to the sampled segment test. scale is the scene size, used to
 // make the classification thresholds scale-relative.
-func analyticEvents(si, sj *source, scale float64) (events []xEvent, ambiguous, ok bool) {
+func analyticEvents(si, sj *source, scale float64) ([]xEvent, bool, bool) {
 	if !analyticKind(si.kind) || !analyticKind(sj.kind) {
 		return nil, false, false
 	}
@@ -80,6 +80,8 @@ func analyticEvents(si, sj *source, scale float64) (events []xEvent, ambiguous, 
 	// a sweep filter; a circle is a full sweep.
 	a := operandOf(si)
 	b := operandOf(sj)
+	var events []xEvent
+	var ambiguous bool
 	switch {
 	case a.isLine && b.isLine:
 		events, ambiguous = lineLineEvents(a, b, scale)
@@ -168,12 +170,12 @@ func (o operand) circleParam(x, y float64) float64 {
 // [start, start+length] with start ∈ [0,2π) and length ∈ [0,2π]. The covered SET
 // is independent of sweep direction (a CW arc covers the same angles as its CCW
 // mirror); a full circle spans the whole turn.
-func (o operand) arcSpan() (start, length float64) {
+func (o operand) arcSpan() (float64, float64) {
 	if o.fullCircle {
 		return 0, 2 * math.Pi
 	}
-	length = math.Abs(o.sweep)
-	start = o.phi0
+	length := math.Abs(o.sweep)
+	start := o.phi0
 	if o.sweep < 0 {
 		start = o.phi0 + o.sweep
 	}

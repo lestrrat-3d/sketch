@@ -909,7 +909,7 @@ func (c *tangentToSpline) seedParam() float64 {
 
 // conicCoords returns the conic's three defining-point coordinates (Start, Apex,
 // End) at the current solved configuration.
-func conicCoords(c *Conic) (start, apex, end [2]float64) {
+func conicCoords(c *Conic) ([2]float64, [2]float64, [2]float64) {
 	return [2]float64{c.Start.x(), c.Start.y()},
 		[2]float64{c.Apex.x(), c.Apex.y()},
 		[2]float64{c.End.x(), c.End.y()}

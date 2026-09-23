@@ -259,7 +259,9 @@ const maxAuxVars = 5
 // A new aux-var-owning constraint type MUST get a case here, or its variable
 // escapes this screen with the build, vet, lint and test gates all green — the
 // same failure shape entityShapeVars documents for a forgotten entity type.
-func auxVars(c Constraint) (idx [maxAuxVars]int, n int) {
+func auxVars(c Constraint) ([maxAuxVars]int, int) {
+	var idx [maxAuxVars]int
+	n := 0
 	add := func(v int) {
 		if v >= 0 {
 			idx[n] = v
@@ -334,7 +336,7 @@ func auxVars(c Constraint) (idx [maxAuxVars]int, n int) {
 	case *ArcLength:
 		add(t.theta)
 	}
-	return
+	return idx, n
 }
 
 // nonFiniteError is the refusal the two calls that CAN refuse return —

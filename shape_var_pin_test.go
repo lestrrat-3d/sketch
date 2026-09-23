@@ -265,7 +265,7 @@ type shapeVarCase struct {
 	Vars []struct{ Sel, Kind string }
 }
 
-func deriveShapeVarSets(t *testing.T) (shapeVars, kindGroups, structState string) {
+func deriveShapeVarSets(t *testing.T) (string, string, string) {
 	t.Helper()
 	paths, err := filepath.Glob("*.go")
 	require.NoError(t, err)
@@ -284,9 +284,9 @@ func deriveShapeVarSets(t *testing.T) (shapeVars, kindGroups, structState string
 	cases := deriveShapeVarCases(t, parsed)
 	require.NotEmpty(t, cases, "entityShapeVars not found or has no cases; this test's AST reader needs updating")
 
-	shapeVars = formatShapeVarPin(cases)
-	kindGroups = formatVarKindGroupPin(cases)
-	structState = deriveStructuralStatePin(t, parsed)
+	shapeVars := formatShapeVarPin(cases)
+	kindGroups := formatVarKindGroupPin(cases)
+	structState := deriveStructuralStatePin(t, parsed)
 	return shapeVars, kindGroups, structState
 }
 

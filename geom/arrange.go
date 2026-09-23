@@ -180,7 +180,7 @@ func (s *source) conicPoint(t float64) [2]float64 {
 // (ellipse/spline/elliptical-arc), which keep chord-based half-edge ordering. This
 // is the exact local geometry the analytic port ordering needs at a shared vertex,
 // where chord directions tie (a tangency) and would branch-swap the face walk.
-func (s *source) differential(t float64) (d1, d2 [2]float64, ok bool) {
+func (s *source) differential(t float64) ([2]float64, [2]float64, bool) {
 	switch s.kind {
 	case srcLine:
 		return [2]float64{s.bx - s.ax, s.by - s.ay}, [2]float64{0, 0}, true
@@ -188,15 +188,15 @@ func (s *source) differential(t float64) (d1, d2 [2]float64, ok bool) {
 		ang := 2 * math.Pi * t
 		w := 2 * math.Pi
 		sin, cos := math.Sin(ang), math.Cos(ang)
-		d1 = [2]float64{-w * s.r * sin, w * s.r * cos}
-		d2 = [2]float64{-w * w * s.r * cos, -w * w * s.r * sin}
+		d1 := [2]float64{-w * s.r * sin, w * s.r * cos}
+		d2 := [2]float64{-w * w * s.r * cos, -w * w * s.r * sin}
 		return d1, d2, true
 	case srcArc:
 		ang := s.phi0 + t*s.sweep
 		w := s.sweep
 		sin, cos := math.Sin(ang), math.Cos(ang)
-		d1 = [2]float64{-w * s.r * sin, w * s.r * cos}
-		d2 = [2]float64{-w * w * s.r * cos, -w * w * s.r * sin}
+		d1 := [2]float64{-w * s.r * sin, w * s.r * cos}
+		d2 := [2]float64{-w * w * s.r * cos, -w * w * s.r * sin}
 		return d1, d2, true
 	}
 	return [2]float64{}, [2]float64{}, false
@@ -3120,7 +3120,7 @@ type halfEdge struct {
 // direction dir (+1 along increasing param, −1 along decreasing). Reversing
 // traversal negates both the tangent direction and the signed curvature.
 // ok=false for a sampled-only source (ellipse/spline) or a zero-velocity point.
-func (a *arranger) portKey(src int, t, dir float64) (tx, ty, kappa float64, ok bool) {
+func (a *arranger) portKey(src int, t, dir float64) (float64, float64, float64, bool) {
 	d1, d2, ok := a.sources[src].differential(t)
 	if !ok {
 		return 0, 0, 0, false
@@ -3129,7 +3129,7 @@ func (a *arranger) portKey(src int, t, dir float64) (tx, ty, kappa float64, ok b
 	if n1 == 0 {
 		return 0, 0, 0, false
 	}
-	kappa = dir * (d1[0]*d2[1] - d1[1]*d2[0]) / (n1 * n1 * n1)
+	kappa := dir * (d1[0]*d2[1] - d1[1]*d2[0]) / (n1 * n1 * n1)
 	return dir * d1[0], dir * d1[1], kappa, true
 }
 
@@ -4452,7 +4452,8 @@ func (a *arranger) exactPointInRegion(q, exactQ [2]float64, c *cycle) bool {
 // sweep covers — the same closed-form test rayFragCrossings rests on, so this
 // bound is trustworthy exactly where that test is). ok is false for every other
 // source kind (no closed form here); the caller then has no exact bound to use.
-func (a *arranger) exactFragBounds(f cycFrag) (lo, hi [2]float64, ok bool) {
+func (a *arranger) exactFragBounds(f cycFrag) ([2]float64, [2]float64, bool) {
+	var lo, hi [2]float64
 	s := &a.sources[f.src]
 	switch s.kind {
 	case srcLine, srcCircle, srcArc:
@@ -4480,7 +4481,8 @@ func (a *arranger) exactFragBounds(f cycFrag) (lo, hi [2]float64, ok bool) {
 // the union of exactFragBounds over its fragments — or ok=false the moment any
 // fragment has no closed-form bound (an ellipse/spline/conic/NURBS is part of the
 // boundary), in which case the caller has no exact bound to check against.
-func (a *arranger) cycleBounds(c *cycle) (lo, hi [2]float64, ok bool) {
+func (a *arranger) cycleBounds(c *cycle) ([2]float64, [2]float64, bool) {
+	var lo, hi [2]float64
 	for i, f := range c.frags {
 		flo, fhi, fok := a.exactFragBounds(f)
 		if !fok {
