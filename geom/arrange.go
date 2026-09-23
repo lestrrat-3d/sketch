@@ -1250,8 +1250,10 @@ func (a *arranger) intersect() {
 // analyticPrepass classifies every supported (line/circle/arc) source pair with
 // the analytic event kernel and applies the result authoritatively: a transverse
 // crossing forces an exact cut on each source; a coincident overlap or an
-// unresolvable (ambiguous) classification flags degeneracy; a clean tangency is a
-// non-splitting contact that does NOT flag degeneracy — UNLESS it would merge into
+// unresolvable (ambiguous) classification flags degeneracy; a clean tangency does
+// not flag degeneracy and normally does not split either source. An arc endpoint
+// tangent to a line cuts the line at that endpoint so both share a graph vertex.
+// A tangency does flag degeneracy if it would merge into
 // a shared vertex between two cycle-bearing sources (where buildGraph's chord-angle
 // sort could branch-swap) AND a LINE is one of the two sources, which is
 // conservatively flagged degenerate; both curved cases (external and
@@ -1412,6 +1414,15 @@ func (a *arranger) analyticPrepass() {
 						a.analyticSelfX(i, j, e.x, e.y)
 					}
 				case evTangent:
+					// The arc endpoint is already a vertex. Its contact with the
+					// interior of a line must also split that line; otherwise the
+					// face walk passes the contact without joining the two sources.
+					if si.kind == srcLine && sj.kind == srcArc && atSourceEnd(sj, e.tj) {
+						a.applyAnalyticCut(i, e.ti, e.x, e.y)
+					}
+					if sj.kind == srcLine && si.kind == srcArc && atSourceEnd(si, e.ti) {
+						a.applyAnalyticCut(j, e.tj, e.x, e.y)
+					}
 					// A tangency at a SHARED ENDPOINT of both sources is a smooth (G1)
 					// join — a slot flank meeting its end cap, a fillet — and is always
 					// valid; no cut, no degeneracy.

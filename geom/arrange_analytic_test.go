@@ -56,6 +56,73 @@ func TestAnalyticTangentLineCircleClean(t *testing.T) {
 	require.InDelta(t, math.Pi*25, arr.Regions[0].Area, 1e-9)
 }
 
+func TestAnalyticArcEndpointTangentKeepsWeldedBoxFace(t *testing.T) {
+	p := geom.NewPoint
+	const y = 0.0541523093145383
+	curves := []geom.Curve{
+		geom.NewLine(p(0, 0), p(10, 0)),
+		geom.NewLine(p(10, 0), p(10, 10)),
+		geom.NewLine(p(10, 10), p(0, 10)),
+		geom.NewLine(p(0, 10), p(0, 0)),
+		geom.NewLine(p(0, -0.0657), p(10, 0.0267)),
+		geom.NewLine(p(0, 0.0149), p(10, 0.0054)),
+		geom.NewArc(p(5, y), p(0, y), p(10, y)),
+	}
+	closed := []geom.ClosedCurve{geom.NewCircle(p(10-1.7302966257556793, y), 1.7302966257556793)}
+	arr := geom.Regions(curves, closed, geom.WithVertexMerge(0.02480275642614712))
+
+	// The arc ends tangent to the box's right side. That interior contact must
+	// split the side so its upper span can close the box's large face.
+	var boxRegion *geom.Region
+	for _, region := range arr.Regions {
+		if !loopContainsPoint(polyOf(region.Outer), [2]float64{5, 5}) {
+			continue
+		}
+		inHole := false
+		for _, hole := range region.Holes {
+			if loopContainsPoint(polyOf(hole), [2]float64{5, 5}) {
+				inHole = true
+				break
+			}
+		}
+		if !inHole {
+			boxRegion = region
+			break
+		}
+	}
+	require.NotNil(t, boxRegion, "a published region must cover the box interior")
+	boxSides := map[int]struct{}{}
+	for _, edge := range boxRegion.Outer {
+		boxSides[edge.SourceIndex] = struct{}{}
+	}
+	for _, source := range []int{1, 2, 3} {
+		require.Contains(t, boxSides, source, "the box's upper sides must bound the interior region")
+	}
+	for _, chain := range arr.Chains {
+		for _, edge := range chain.Edges {
+			if edge.SourceIndex >= 1 && edge.SourceIndex <= 3 {
+				require.Less(t, chain.Length, 1.0,
+					"the box's upper sides must not form a long open chain")
+			}
+		}
+	}
+}
+
+func loopContainsPoint(loop [][2]float64, point [2]float64) bool {
+	inside := false
+	for i, j := 0, len(loop)-1; i < len(loop); j, i = i, i+1 {
+		a, b := loop[i], loop[j]
+		if (a[1] > point[1]) == (b[1] > point[1]) {
+			continue
+		}
+		x := a[0] + (point[1]-a[1])*(b[0]-a[0])/(b[1]-a[1])
+		if x > point[0] {
+			inside = !inside
+		}
+	}
+	return inside
+}
+
 func TestAnalyticTangentCirclesNonMergedClean(t *testing.T) {
 	// Two externally tangent circles whose contact (1,1) falls BETWEEN sample
 	// vertices (segsPerTurn=17 places no vertex at the 45° contact) stay two clean
