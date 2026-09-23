@@ -1,7 +1,9 @@
 package geom_test
 
 import (
+	"fmt"
 	"math"
+	"slices"
 	"testing"
 
 	"github.com/lestrrat-3d/sketch/geom"
@@ -28,6 +30,48 @@ func TestRegionsSquare(t *testing.T) {
 	require.Empty(t, arr.SelfIntersections)
 	for _, e := range r.Outer {
 		require.True(t, e.Whole, "each edge is a whole line")
+	}
+}
+
+func TestRegionsDistantOpenLineDoesNotHideLocalFaces(t *testing.T) {
+	base := append(
+		polygonLines([2]float64{-1100000, 0}, [2]float64{1100000, 8}, [2]float64{-1100000, 12}),
+		polygonLines([2]float64{-1000000, -1}, [2]float64{1000000, -1}, [2]float64{0, 2})...,
+	)
+	for _, far := range []float64{0, 2e9, 1e10} {
+		t.Run(fmt.Sprintf("open line at %g", far), func(t *testing.T) {
+			curves := append([]geom.Curve(nil), base...)
+			if far != 0 {
+				curves = append(curves, geom.NewLine(geom.NewPoint(far, 0), geom.NewPoint(far, 1)))
+			}
+			arr := geom.Regions(curves, nil, geom.WithVertexMerge(1e-9))
+			require.False(t, arr.Degenerate)
+			require.Len(t, arr.Regions, 2)
+			areas := []float64{arr.Regions[0].Area, arr.Regions[1].Area}
+			slices.Sort(areas)
+			require.Equal(t, []float64{3000000, 13200000}, areas)
+			for _, region := range arr.Regions {
+				require.False(t, region.Degenerate)
+			}
+		})
+	}
+}
+
+func TestRegionsDistantOpenLineDoesNotHideHole(t *testing.T) {
+	curves := append(square(0, 0, 10), square(3, 3, 4)...)
+	curves = append(curves, geom.NewLine(geom.NewPoint(1e7, 0), geom.NewPoint(1e7, 1)))
+	arr := geom.Regions(curves, nil, geom.WithVertexMerge(1e-9))
+	require.False(t, arr.Degenerate, "degeneracies: %v", arr.Degeneracies)
+	require.Len(t, arr.Regions, 2)
+	for _, region := range arr.Regions {
+		switch len(region.Holes) {
+		case 0:
+			require.Equal(t, 16.0, region.Area)
+		case 1:
+			require.Equal(t, 84.0, region.Area)
+		default:
+			t.Fatalf("unexpected hole count: %d", len(region.Holes))
+		}
 	}
 }
 
@@ -481,7 +525,7 @@ func regionPolylineArea(edges []geom.BoundaryEdge) float64 {
 //
 // extract's only guard against assigning a cycle its own unbounded/adjacent
 // boundary as someone else's hole was an area-magnitude compare
-// (f.area <= -h.area+epsArea at geom/arrange.go), and the weld shrank the
+// (f.area <= -h.area+areaFloor at geom/arrange.go), and the weld shrank the
 // wedge's own unbounded exterior cycle's computed magnitude below the wedge
 // itself: the wedge published Area=2.1276907741230033e-07 while its own Outer
 // polyline enclosed 0.147804554 (off by six orders of magnitude), carrying

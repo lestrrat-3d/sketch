@@ -269,7 +269,7 @@ are three chains, and two crossing lines are four. A run that closes back on its
 own start vertex is published as NO chain, and so is a component whose every
 vertex has degree 2: a `Chain` is open by definition, a closed loop that bounds
 anything is a `Profile`, and one that bounds nothing (its area under `extract`'s
-`epsArea`) is already absent from the region set, so publishing nothing loses
+local cycle floor) is already absent from the region set, so publishing nothing loses
 nothing the region pass was reporting.
 
 ### One edge vocabulary, one coalescing rule
@@ -474,38 +474,39 @@ the gap before `newFitEvaluator` ever runs.
 never sees that**: every input coordinate finite, and an accumulated area,
 length or scene extent past float64. Three sites past `finitePt` flag it, each
 as an UNATTRIBUTABLE degeneracy (`flagDegenerate(0, 0)`, so by `degenReaches` it
-reaches every region and every chain — the magnitude is a property of the scene,
-not of one curve). `densify` flags a scene extent that is `+Inf`; since a dropped
-source never reaches the bounding box, that can only be a finite scene whose
-extent overflowed, and the merge tolerance, the identity bands and the area
-floor are all multiples of it, so it also withholds exact bounds scene-wide and
-KEEPS the substitute scale of 1 so the later passes have a finite number to work
-with. `extract` flags an area floor `epsArea = scale²·1e-12` that is `+Inf` — past
-a scene extent of about `1.34e154` every cycle failed both classification
-comparisons and was DROPPED with no flag, so a `2e154 × 1e150` rectangle whose
-`2e304` area is finite and real published ZERO regions with `Degenerate=false` —
-and flags any cycle whose area is NaN or infinite, which a finite floor admits as
-a face with `Area=+Inf`. `walkChain` flags a chain whose accumulated `Length` is
-non-finite (a `(0,0)→(1.7e308,1.7e308)` line overflows inside `fragLength`'s
-hypot with the scene extent still FINITE, so a screen keyed on the scale alone
-misses it), and `extract` re-stamps `Arrangement.Degenerate`, every
-`Region.Degenerate` and every `Chain.Degenerate` after `buildChains` when the
-walk raised one, since it stamps the regions before the chain pass runs. That
-chain site is defence in depth: a length past float64 needs an extent past the
-floor band, so one of the first two sites has already flagged the scene, and it
-is stated where `Length` is computed so the invariant does not rest on those two.
-Classification is untouched — the screen sets flags and nothing else, so an
-infinite-area cycle is still published as a face, flagged, rather than dropped.
+reaches every region and every chain). `densify` flags a scene extent that is
+`+Inf`; finite samples can overflow the bounding-box subtraction. The merge
+tolerance and identity bands depend on that scale, so it withholds exact bounds
+scene-wide and KEEPS the substitute scale of 1 for later passes. `extract`
+flags when `scale²·1e-12` is `+Inf` as a scene-wide magnitude screen: past a
+scene extent of about `1.34e154`, crossing determinants can also overflow.
+It flags any cycle whose own area is NaN or infinite, and any cycle whose LOCAL
+area floor is `+Inf`. When the scene extent already overflowed and `densify`
+substituted scale=1, `extract` uses that fallback floor to keep publishing an
+infinite-area face with the flag. `walkChain` flags a chain whose accumulated
+`Length` is non-finite (a `(0,0)→(1.7e308,1.7e308)` line overflows inside
+`fragLength`'s hypot with the scene extent still FINITE). `extract` re-stamps
+`Arrangement.Degenerate`, every `Region.Degenerate` and every
+`Chain.Degenerate` after `buildChains` when the walk raised one.
 
-**The accepted cost is the floor band itself**: a scene whose extent exceeds
-about `1.34e154` reads degenerate even where its own published magnitudes are
-finite — two lines at `8e307` publish `Length=1.6e308` with `Degenerate=true`.
-Computing the floor as `(scale·1e-6)²` would push that band out six decades, to
-about `1.34e160`, and was NOT taken: `segParams` decides every sampled contact on
-`d1x·d2y − d1y·d2x`, a product of two chord lengths that overflows at the same
-`scale²` band, so the arrangement is not trustworthy past it either way and the
-narrower band would bless scenes whose crossing arithmetic had already gone
-non-finite. Pinned by `TestRegionsOverflowedExtentIsDegenerate`,
+**Classify each cycle with its own area floor**: `cycleAreaFloor` uses the cycle's
+sampled bounding-box extent, plus the full sampled extent of curved sources on
+its boundary, squared and multiplied by `1e-12`. A curved source's extent keeps
+the threshold above sampling slivers on its small fragments; a straight source
+contributes only its boundary fragment. Hole containment uses the larger of the
+face and hole floors. An unrelated open line at `x=1e10` cannot remove two
+triangle regions near the origin (`TestRegionsDistantOpenLineDoesNotHideLocalFaces`).
+A line at `x=1e7` cannot suppress a nested square's hole
+(`TestRegionsDistantOpenLineDoesNotHideHole`). The existing curved-source sliver
+control is `TestNearMissHiddenCrossingIsDegenerate`. The scene-wide magnitude
+screen sets a flag only; it does not raise any cycle's classification floor.
+
+**The accepted cost is the scene-wide magnitude band**: a scene whose extent
+exceeds about `1.34e154` reads degenerate even where its own published lengths
+are finite — two lines at `8e307` publish `Length=1.6e308` with
+`Degenerate=true`. `segParams` decides sampled contacts on
+`d1x·d2y − d1y·d2x`, a product of two chord lengths that can overflow in that
+band. Pinned by `TestRegionsOverflowedExtentIsDegenerate`,
 `TestRegionsOverflowedAreaFloorIsDegenerate` and
 `TestChainsOverflowedLengthIsDegenerate` (`geom`, the last also pinning the
 accepted cost), and at the sketch layer by `TestProfilesNonFiniteMagnitudeIsInvalid`

@@ -1044,7 +1044,7 @@ func (a *arranger) densify() {
 	// Every sample that reached note() passed finitePt, so an infinite extent here
 	// is a FINITE scene whose bounding box overflowed float64 — not a poisoned
 	// sample. Nothing downstream can be stated against that scene: the merge
-	// tolerance, the identity bands and extract's area floor are all multiples of
+	// tolerance, the identity bands and extract's magnitude screen all depend on
 	// the scale, and the substitute below is a stand-in that keeps them finite,
 	// not a measurement. Record it as an unattributable degeneracy (it reaches
 	// every region and every chain) and withhold exact bounds scene-wide, then
@@ -3798,32 +3798,31 @@ func (a *arranger) extract() *Arrangement {
 		}
 	}
 
-	// epsArea is the sliver floor a cycle must clear to count as a face or a hole.
-	// It is scale², so it overflows to +Inf once the scene extent passes about
-	// 1.34e154 — where every cycle would then fail both comparisons below and be
-	// dropped with no flag, however real its region. That overflow point is also
-	// where segParams' own crossing determinant (a product of two chord lengths)
-	// stops being finite, so the arrangement is not trustworthy past it either
-	// way; flag it rather than publish a silently empty region set. The cycle
-	// screen right after it is the other half: a cycle whose accumulated area is
-	// itself non-finite compares true against a finite floor and would be
-	// published as a face with Area=+Inf and no flag. Both are unattributable —
-	// the magnitude is a property of the whole scene, not of one curve.
-	epsArea := a.scale * a.scale * 1e-12
-	if math.IsInf(epsArea, 1) {
+	// Keep the scene-scale overflow screen: crossing arithmetic is not reliable
+	// beyond this band. Use only boundary geometry to classify each cycle, so an
+	// unrelated distant source cannot make a bounded face disappear.
+	sceneFloor := a.scale * a.scale * 1e-12
+	if math.IsInf(sceneFloor, 1) {
 		a.flagDegenerate(0, 0)
 	}
 	var faces []*cycle
 	var holes []*cycle
 	for i := range cycles {
 		c := &cycles[i]
+		c.areaFloor = a.cycleAreaFloor(c)
+		if math.IsInf(c.areaFloor, 1) {
+			a.flagDegenerate(0, 0)
+			// When the scene extent overflowed, densify substituted scale=1.
+			// Keep publishing a finite face area under that fallback floor.
+			c.areaFloor = sceneFloor
+		}
 		if math.IsNaN(c.area) || math.IsInf(c.area, 0) {
 			a.flagDegenerate(0, 0)
 		}
 		switch {
-		case c.area > epsArea:
+		case c.area > c.areaFloor:
 			faces = append(faces, c)
-		case c.area < -epsArea:
+		case c.area < -c.areaFloor:
 			holes = append(holes, c)
 		}
 	}
@@ -3862,7 +3861,7 @@ func (a *arranger) extract() *Arrangement {
 			// distort: two cycles that walk opposite sides of the same raw
 			// edge are directly adjacent, never one genuinely nested inside
 			// the other with boundary to spare between them.
-			if f.area <= -h.area+epsArea {
+			if f.area <= -h.area+math.Max(f.areaFloor, h.areaFloor) {
 				continue // not strictly larger than the hole
 			}
 			if cyclesShareEdge(f, h) {
@@ -4061,9 +4060,10 @@ type cycle struct {
 	// id is this cycle's index in extract's own cycle list, which is what
 	// arranger.cycleOf names. Publishing a cycle marks it, and the edges of the
 	// unmarked ones are what the chain pass takes.
-	id    int
-	area  float64
-	selfX bool
+	id        int
+	area      float64
+	areaFloor float64
+	selfX     bool
 	// rawEdges is the set of arranger.edges indices this cycle's half-edges walk
 	// (the RAW arrangement edges, before makeCycle coalesces consecutive same-
 	// source ones into boundary/frags). A raw edge's two half-edges belong to
@@ -4072,6 +4072,29 @@ type cycle struct {
 	// physical edge seen from its two sides: directly adjacent, never a face
 	// nested inside the other. See cyclesShareEdge, which this field exists for.
 	rawEdges map[int]struct{}
+}
+
+// cycleAreaFloor measures the sliver threshold from this boundary's sampled
+// extent and its curved sources' extents. The latter keeps the floor above
+// sampling slivers on a large curve whose small fragment bounds a tiny cycle.
+func (a *arranger) cycleAreaFloor(c *cycle) float64 {
+	if len(c.dense) == 0 {
+		return 0
+	}
+	minX, maxX := c.dense[0][0], c.dense[0][0]
+	minY, maxY := c.dense[0][1], c.dense[0][1]
+	for _, p := range c.dense[1:] {
+		minX, maxX = math.Min(minX, p[0]), math.Max(maxX, p[0])
+		minY, maxY = math.Min(minY, p[1]), math.Max(maxY, p[1])
+	}
+	scale := math.Max(maxX-minX, maxY-minY)
+	for _, f := range c.frags {
+		s := &a.sources[f.src]
+		if s.kind != srcLine {
+			scale = math.Max(scale, s.extent)
+		}
+	}
+	return scale * scale * 1e-12
 }
 
 // cyclesShareEdge reports whether a and b walk opposite sides of the same raw

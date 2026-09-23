@@ -222,10 +222,9 @@ func TestChainsSampledLengthPinsFragmentEnds(t *testing.T) {
 // Length=+Inf with Degenerate=false.
 //
 // The third case is the ACCEPTED COST, pinned so it is deliberate: past the
-// floor band (an extent above about 1.34e154) the arrangement reads degenerate
-// even where its own published length is finite, since the sliver floor — and
-// the crossing determinant segParams decides every contact with — cannot be
-// computed there.
+// magnitude band (an extent above about 1.34e154) the arrangement reads
+// degenerate even where its own published length is finite, since the
+// crossing determinant segParams decides every contact with can overflow there.
 func TestChainsOverflowedLengthIsDegenerate(t *testing.T) {
 	tests := []struct {
 		name   string

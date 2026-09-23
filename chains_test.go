@@ -799,21 +799,19 @@ func TestChainsExcludeConstruction(t *testing.T) {
 	require.Len(t, s.Chains(), 2, "clearing the flag admits it")
 }
 
-// TestChainsClosedRunPublishesNothing pins the closed-run rule: a loop that
-// bounds no published region (here its area falls below the arrangement's floor
-// beside a far larger scene) is published as no chain either. A Chain is open by
-// definition.
+// TestChainsClosedRunPublishesNothing pins the closed-run rule: a circle remains
+// a profile beside a distant open line, and only the line becomes a chain.
 func TestChainsClosedRunPublishesNothing(t *testing.T) {
 	s := newSketch(t)
-	s.CreateLine(s.CreatePoint(0, 0), s.CreatePoint(1e6, 0)) // sets the scene scale
-	s.CreateCircle(s.CreatePoint(0, 10), 0.5)                // area far under the floor
+	line := s.CreateLine(s.CreatePoint(0, 0), s.CreatePoint(1e6, 0))
+	circle := s.CreateCircle(s.CreatePoint(0, 10), 0.5)
 
-	require.Empty(t, s.Profiles(), "the circle bounds no publishable region")
+	profiles := s.Profiles()
+	require.Len(t, profiles, 1, "the distant line does not suppress the circle")
+	require.Equal(t, []sketch.Entity{circle}, profiles[0].Entities)
 	chains := s.Chains()
 	require.Len(t, chains, 1, "only the open line")
-	require.Len(t, chains[0].Entities, 1)
-	_, isLine := chains[0].Entities[0].(*sketch.Line)
-	require.True(t, isLine, "a closed run is not published as a chain")
+	require.Equal(t, []sketch.Entity{line}, chains[0].Entities)
 }
 
 // TestChainsAndProfilesPartitionTheSketch pins the partition invariant on a mixed
