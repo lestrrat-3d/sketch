@@ -7,6 +7,48 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestCollapsedTwoArcCycleFindsTrueInteriorProbe(t *testing.T) {
+	a := &arranger{sources: []source{
+		{kind: srcArc, cx: 0, cy: 0, r: 1, phi0: 0, sweep: math.Pi},
+		{kind: srcArc, cx: 0, cy: 0, r: 1, phi0: math.Pi, sweep: math.Pi},
+	}}
+	c := &cycle{
+		dense: [][2]float64{{1, 0}, {-1, 0}},
+		frags: []cycFrag{{src: 0, pStart: 0, pEnd: 1}, {src: 1, pStart: 0, pEnd: 1}},
+	}
+	_, ok := interiorPoint(c.dense)
+	require.False(t, ok, "a two-vertex polygon cannot provide an interior point")
+	q, ok := a.cycleInteriorPoint(c)
+	require.True(t, ok, "the true arcs enclose a disk")
+	require.Less(t, q[0]*q[0]+q[1]*q[1], 1.0)
+}
+
+func TestCollapsedArcCircleCycleUsesTrueOrientation(t *testing.T) {
+	const y = 0.0541523093145383
+	a := &arranger{
+		sources: []source{
+			{kind: srcArc, cx: 5, cy: y, r: 5, phi0: math.Pi, sweep: math.Pi},
+			{kind: srcCircle, cx: 10 - 1.7302966257556793, cy: y, r: 1.7302966257556793},
+		},
+		comp: []int{-1, -1},
+		verts: vertexTable{
+			xs: []float64{9.999782179763441, 10},
+			ys: []float64{0.026697987341014192, y},
+		},
+		edges: []arrEdge{
+			{src: 0, pu: 0.9982522785940858, pv: 1},
+			{src: 1, pu: 0.9974746096431135, pv: 1},
+		},
+		halfs: []halfEdge{
+			{from: 0, to: 1, edge: 0, forward: true},
+			{from: 1, to: 0, edge: 1, forward: false},
+		},
+	}
+	c := a.makeCycle([]int{0, 1})
+	require.Len(t, c.dense, 2)
+	require.InDelta(t, 1.30344e-6, c.area, 1e-10)
+}
+
 func lineCycleForBoundsTest(a *arranger, pts ...[2]float64) cycle {
 	var c cycle
 	for i, p := range pts {

@@ -1,6 +1,7 @@
 package geom_test
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 	"sort"
@@ -10,6 +11,67 @@ import (
 	"github.com/lestrrat-3d/sketch/geom"
 	"github.com/stretchr/testify/require"
 )
+
+func TestRegionsCollapsedCurvedCycleDoesNotCreateFalseHole(t *testing.T) {
+	p := geom.NewPoint
+	const y = 0.0541523093145383
+	curves := append(square(0, 0, 10),
+		geom.NewLine(p(0, -0.0657), p(10, 0.0267)),
+		geom.NewLine(p(0, 0.0149), p(10, 0.0054)),
+		geom.NewArc(p(5, y), p(0, y), p(10, y)),
+	)
+	closed := []geom.ClosedCurve{
+		geom.NewCircle(p(10-1.7302966257556793, y), 1.7302966257556793),
+	}
+	for _, tc := range []struct {
+		name string
+		opts []geom.Option
+	}{
+		{name: "default"},
+		{name: "merge_0.001", opts: []geom.Option{geom.WithVertexMerge(0.001)}},
+		{name: "merge_0.0248", opts: []geom.Option{geom.WithVertexMerge(0.02480275642614712)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			arr := geom.Regions(curves, closed, tc.opts...)
+			require.False(t, arr.Degenerate, fmt.Sprintf("false hole: %v", arr.Degeneracies))
+			require.NotEmpty(t, arr.Regions)
+			for _, r := range arr.Regions {
+				require.False(t, r.Degenerate)
+			}
+			if tc.name == "merge_0.0248" {
+				for _, r := range arr.Regions {
+					require.Empty(t, r.Holes)
+				}
+				found := false
+				for _, r := range arr.Regions {
+					if len(r.Outer) == 2 && r.Outer[0].SourceIndex == 6 && r.Outer[1].SourceIndex == 7 &&
+						math.Abs(r.Area-1.30344e-6) < 1e-10 {
+						found = true
+					}
+				}
+				require.True(t, found, "the short arc-circle face keeps its positive area")
+			}
+		})
+	}
+}
+
+func TestRegionsTwoArcHoleKeepsAnnulusArea(t *testing.T) {
+	p := geom.NewPoint
+	center, right, left := p(0, 0), p(1, 0), p(-1, 0)
+	curves := append(square(-3, -3, 6),
+		geom.NewArc(center, right, left), geom.NewArc(center, left, right))
+	arr := geom.Regions(curves, nil)
+	require.False(t, arr.Degenerate)
+	require.Len(t, arr.Regions, 2)
+	var annulus *geom.Region
+	for _, r := range arr.Regions {
+		if len(r.Holes) == 1 {
+			annulus = r
+		}
+	}
+	require.NotNil(t, annulus)
+	require.InDelta(t, 36-math.Pi, annulus.Area, 1e-9)
+}
 
 // TestRegionsArcLensDoesNotAdoptDisjointCircleAsHole pins the minimal
 // reproduction that corroborated the arc-parameter-aliasing defect: two arcs

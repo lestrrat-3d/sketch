@@ -3840,7 +3840,10 @@ func (a *arranger) extract() *Arrangement {
 	// boundary vertex), so a hole touching a face boundary still resolves.
 	holeOf := make([][]*cycle, len(faces))
 	for _, h := range holes {
-		probe := interiorPoint(h.dense)
+		probe, ok := a.cycleInteriorPoint(h)
+		if !ok {
+			continue
+		}
 		exactProbe := a.perturbContainmentProbe(probe, h)
 		best := -1
 		for fi, f := range faces {
@@ -4246,9 +4249,44 @@ func (a *arranger) makeCycle(hs []int) cycle {
 	}
 
 	chord := make([][2]float64, 0, len(frags))
+	var truePath [][2]float64
+	curved := false
+	analytic := true
+	for _, f := range frags {
+		kind := a.sources[f.src].kind
+		curved = curved || kind == srcArc || kind == srcCircle
+		analytic = analytic && (kind == srcLine || kind == srcArc || kind == srcCircle)
+	}
+	collapsed := curved && analytic
+	if collapsed {
+		var distinct [3][2]float64
+		count := 0
+		for _, f := range frags {
+			for _, p := range f.dense[:len(f.dense)-1] {
+				seen := false
+				for _, q := range distinct[:count] {
+					seen = seen || p == q
+				}
+				if !seen {
+					distinct[count] = p
+					count++
+				}
+				if count == 3 {
+					break
+				}
+			}
+			if count == 3 {
+				break
+			}
+		}
+		collapsed = count < 3
+	}
 	var bulge float64
 	for _, f := range frags {
 		s := &a.sources[f.src]
+		if collapsed {
+			truePath = append(truePath, s.at(f.pStart), s.at(f.pEnd))
+		}
 		// TStart/TEnd are reported in the source's NATURAL parameter direction, so
 		// TStart < TEnd always; Reversed is what says the walk traverses the fragment
 		// backwards, and both bounds must be trustworthy for TExact. That publication
@@ -4293,7 +4331,62 @@ func (a *arranger) makeCycle(hs []int) cycle {
 		}
 	}
 	c.area = signedPolyArea(chord) + bulge
+	if collapsed {
+		// A weld can collapse the chord polygon and reverse a curved cycle's
+		// orientation. Use its true fragment endpoints and the short joins
+		// between them only when they reverse the side classification.
+		trueArea := signedPolyArea(truePath) + bulge
+		if c.area*trueArea < 0 {
+			c.area = trueArea
+		}
+	}
 	return c
+}
+
+// cycleInteriorPoint first tries the sampled polygon. If that has no interior,
+// an analytic curved cycle tries points between fragment midpoints and chords,
+// then between pairs of fragment midpoints.
+func (a *arranger) cycleInteriorPoint(c *cycle) ([2]float64, bool) {
+	if q, ok := interiorPoint(c.dense); ok {
+		return q, true
+	}
+	curved := false
+	for _, f := range c.frags {
+		switch a.sources[f.src].kind {
+		case srcLine:
+		case srcArc, srcCircle:
+			curved = true
+		default:
+			return [2]float64{}, false
+		}
+	}
+	if !curved {
+		return [2]float64{}, false
+	}
+	var midpoints [][2]float64
+	for _, f := range c.frags {
+		s := &a.sources[f.src]
+		m := s.at((f.pStart + f.pEnd) / 2)
+		midpoints = append(midpoints, m)
+		if s.kind == srcLine {
+			continue
+		}
+		start, end := s.at(f.pStart), s.at(f.pEnd)
+		chordMid := [2]float64{(start[0] + end[0]) / 2, (start[1] + end[1]) / 2}
+		q := [2]float64{(m[0] + chordMid[0]) / 2, (m[1] + chordMid[1]) / 2}
+		if finitePt(q) && a.exactPointInRegion(q, q, c) {
+			return q, true
+		}
+	}
+	for i, m := range midpoints {
+		for _, n := range midpoints[:i] {
+			q := [2]float64{(m[0] + n[0]) / 2, (m[1] + n[1]) / 2}
+			if finitePt(q) && a.exactPointInRegion(q, q, c) {
+				return q, true
+			}
+		}
+	}
+	return [2]float64{}, false
 }
 
 // perturbContainmentProbe moves a hole's interior point by a small fraction of
