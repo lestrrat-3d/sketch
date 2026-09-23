@@ -888,6 +888,16 @@ got a `1.4e-8` band, 2400x its own accuracy, so a hole overshooting its face by
 (`TestRegionsRejectsHoleThatExitsItsFace`). Everything above the bound is a real
 gap and is rejected.
 
+**Every box comparison in `holeLiesInFace` is a POSITIVE DIFFERENCE against that
+bound** — the cycle boxes and the fragment-box prefilter alike — never a
+coordinate with the bound added to it. The derivation is on `holeLiesInFace`;
+the short version is that a bound narrower than half an ulp of the coordinate
+vanishes into the addition, so the effective band widens or narrows by up to
+half an ulp instead of being the derived bound. Against the difference the
+rounding error scales with the gap. An 8-ulp exit at `x=1e6` against a
+7.63-ulp allowance is the case the additive form could not distinguish
+(`TestRegionsRejectsHoleExitAbsorbedByAdditiveBoxTolerance`).
+
 The postcondition's local slack stays independent of probe placement. A slack
 stated against `a.scale` grew past a real `1.0` gap between two local triangles
 when an unrelated line sat at `x=1e9`; a tuned fraction of the local magnitude

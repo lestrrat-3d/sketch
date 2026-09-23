@@ -285,6 +285,36 @@ func TestRegionsRejectsHoleThatExitsItsFace(t *testing.T) {
 	}
 }
 
+// TestRegionsRejectsHoleExitAbsorbedByAdditiveBoxTolerance pins the exit that
+// the containment guard's box comparison can only see when it is written as a
+// positive difference. The hole's box overshoots the face's right edge
+// 1000005 by exactly 8 ulps of that coordinate, and the two cycles' summed
+// allowance is 7.63 of the same ulps, so the gap is genuinely outside the band
+// and the hole must be rejected. Adding the allowance to the coordinate
+// instead (fhi+tol) rounds the sum up to the full 8 ulps, which compares equal
+// to the hole's bound: the old additive form could not tell this exit from a
+// tangency and published the circle as a hole of a face it leaves.
+//
+// The centre is written in ulps rather than as a decimal literal because that
+// is the whole point of the case — a decimal would hide which side of the
+// half-ulp rounding step it falls on.
+func TestRegionsRejectsHoleExitAbsorbedByAdditiveBoxTolerance(t *testing.T) {
+	// 1e6 and the face's right edge 1000005 share a binade, hence an ulp.
+	ulp := math.Nextafter(1e6, math.Inf(1)) - 1e6
+	outer := geom.NewCircle(geom.NewPoint(1e6, 0), 5)
+	inner := geom.NewCircle(geom.NewPoint(1e6+5-2e-9+8*ulp, 0), 2e-9)
+
+	arr := geom.Regions(nil, []geom.ClosedCurve{outer, inner},
+		geom.WithVertexMerge(1e-12), geom.WithSegmentsPerTurn(64))
+
+	require.True(t, arr.Degenerate, "an 8-ulp exit against a 7.63-ulp allowance is positive evidence")
+	require.NotEmpty(t, arr.Degeneracies)
+	for i, reg := range arr.Regions {
+		require.Empty(t, reg.Holes,
+			"region %d: the inner circle leaves the outer one, so it is no hole of it", i)
+	}
+}
+
 func TestRegionsHoleContainmentRejectsNestedBoxDisjointTriangle(t *testing.T) {
 	face := []geom.Curve{
 		geom.NewLine(geom.NewPoint(-1100000, 0), geom.NewPoint(1100000, 8)),

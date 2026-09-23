@@ -4532,6 +4532,20 @@ func (a *arranger) cycleBoundsRoundoff(c *cycle) float64 {
 // internal-tangency contact reached via the hole's circle formula and via the
 // face's, say) may differ by that much and no more, so a genuinely nested hole
 // still cannot be rejected over round-off.
+//
+// Every box comparison is written as a POSITIVE DIFFERENCE against tol
+// (flo[k]-hlo[k] > tol, hhi[k]-fhi[k] > tol), never as a coordinate with tol
+// added to it. The two forms agree in exact arithmetic, but adding tol to a
+// coordinate rounds the sum to that coordinate's ulp, so a tol below half an
+// ulp of the coordinate is absorbed and the band silently widens or narrows by
+// up to half an ulp in either direction. Against the difference the rounding
+// error scales with the GAP instead, which is the same scale-correctness
+// cycleBoundsRoundoff applies to tol itself. Near the decision boundary the two
+// coordinates are within tol of each other, hence within a factor of two and
+// same-signed, so the subtraction is exact by Sterbenz; away from it a relative
+// error of one ulp cannot flip a verdict that is not close. No sign guard is
+// needed: tol is a max of non-negative products, so a difference of the wrong
+// sign is at most zero and can never exceed it.
 func (a *arranger) holeLiesInFace(h, f *cycle) (bool, bool) {
 	hlo, hhi, hok := a.cycleBounds(h)
 	flo, fhi, fok := a.cycleBounds(f)
@@ -4539,8 +4553,8 @@ func (a *arranger) holeLiesInFace(h, f *cycle) (bool, bool) {
 		return false, false
 	}
 	tol := a.cycleBoundsRoundoff(h) + a.cycleBoundsRoundoff(f)
-	if hlo[0] < flo[0]-tol || hlo[1] < flo[1]-tol ||
-		hhi[0] > fhi[0]+tol || hhi[1] > fhi[1]+tol {
+	if flo[0]-hlo[0] > tol || flo[1]-hlo[1] > tol ||
+		hhi[0]-fhi[0] > tol || hhi[1]-fhi[1] > tol {
 		return false, true
 	}
 	localScale := math.Max(fhi[0]-flo[0], fhi[1]-flo[1])
@@ -4552,8 +4566,10 @@ func (a *arranger) holeLiesInFace(h, f *cycle) (bool, bool) {
 		cuts := []float64{hf.pStart, hf.pEnd}
 		for _, ff := range f.frags {
 			ffLo, ffHi, _ := a.exactFragBounds(ff)
-			if hfHi[0] < ffLo[0]-tol || ffHi[0] < hfLo[0]-tol ||
-				hfHi[1] < ffLo[1]-tol || ffHi[1] < hfLo[1]-tol {
+			// Same positive-difference form as the cycle-box comparison above,
+			// for the same reason.
+			if ffLo[0]-hfHi[0] > tol || hfLo[0]-ffHi[0] > tol ||
+				ffLo[1]-hfHi[1] > tol || hfLo[1]-ffHi[1] > tol {
 				continue
 			}
 			events, ambiguous, _ := analyticEvents(hs, &a.sources[ff.src], localScale)
