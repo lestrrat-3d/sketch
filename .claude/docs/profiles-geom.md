@@ -501,6 +501,14 @@ A line at `x=1e7` cannot suppress a nested square's hole
 control is `TestNearMissHiddenCrossingIsDegenerate`. The scene-wide magnitude
 screen sets a flag only; it does not raise any cycle's classification floor.
 
+When a cycle contains an arc or circle, has no other kinds beyond lines,
+arcs and circles, and has fewer than three distinct welded sample vertices,
+`makeCycle` compares its sampled signed area with the area through
+the true fragment endpoints. If their signs differ, it uses the true area to
+classify and publish the cycle. The endpoint calculation includes the short
+joins left by welding and each arc's exact bulge. Other cycles keep their
+sampled chord area plus bulge.
+
 **The accepted cost is the scene-wide magnitude band**: a scene whose extent
 exceeds about `1.34e154` reads degenerate even where its own published lengths
 are finite — two lines at `8e307` publish `Length=1.6e308` with
@@ -837,6 +845,10 @@ polygon for them). The ray-cast probe moves by a fraction of the HOLE cycle's
 narrower sampled span, and the moved point must remain inside the sampled hole
 boundary and its exact boundary when that test is available. A distant source
 cannot move it into a disjoint face.
+If a hole's sampled polygon has no interior point, `cycleInteriorPoint` tries
+points between true fragment midpoints and chords, then between fragment
+midpoints. It accepts a point only when the exact fragment ray cast finds it
+inside. A sampled boundary vertex is never used as a fallback probe.
 `Sketch.Profiles()` is its consumer.
 
 **The assignment carries a postcondition, not just the probe.** For a hole and

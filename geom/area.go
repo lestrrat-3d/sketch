@@ -1,13 +1,11 @@
 package geom
 
-// interiorPoint returns a point guaranteed to lie strictly inside the closed
-// polygon through poly. It tries the centroid (correct for convex polygons),
-// then falls back to nudging each edge midpoint toward the centroid until one
-// lands inside — robust for non-convex polygons.
-func interiorPoint(poly [][2]float64) [2]float64 {
+// interiorPoint returns a strict interior point of the sampled polygon when one
+// can be found. A collapsed polygon has no sampled interior.
+func interiorPoint(poly [][2]float64) ([2]float64, bool) {
 	n := len(poly)
-	if n == 0 {
-		return [2]float64{}
+	if n < 3 {
+		return [2]float64{}, false
 	}
 	var cx, cy float64
 	for _, p := range poly {
@@ -16,17 +14,17 @@ func interiorPoint(poly [][2]float64) [2]float64 {
 	}
 	c := [2]float64{cx / float64(n), cy / float64(n)}
 	if pointInPolygon(c, poly) {
-		return c
+		return c, true
 	}
 	for i := 0; i < n; i++ {
 		j := (i + 1) % n
 		m := [2]float64{(poly[i][0] + poly[j][0]) / 2, (poly[i][1] + poly[j][1]) / 2}
 		probe := [2]float64{m[0]*0.999 + c[0]*0.001, m[1]*0.999 + c[1]*0.001}
 		if pointInPolygon(probe, poly) {
-			return probe
+			return probe, true
 		}
 	}
-	return poly[0]
+	return [2]float64{}, false
 }
 
 // signedPolyArea returns the signed area of the closed polygon through pts
