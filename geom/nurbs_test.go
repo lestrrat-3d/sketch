@@ -96,7 +96,7 @@ func fineBulge(c *geom.NURBS, t0, t1 float64) float64 {
 	return moment + 0.5*(ex*ay-ax*ey)
 }
 
-func nurbsDomain(c *geom.NURBS) (lo, hi float64) {
+func nurbsDomain(c *geom.NURBS) (float64, float64) {
 	p := c.Degree
 	n := len(c.Control) - 1
 	return c.Knots[p], c.Knots[n+1]

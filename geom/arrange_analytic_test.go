@@ -1112,7 +1112,7 @@ func TestAnalyticSameCarrierArcs(t *testing.T) {
 // and so, per "The SourceIndex decision" in
 // docs/coincident-carrier-resolution-design.md, which of {hubArc, rootArc} ends up
 // the lower (named) index.
-func gearArcArcCurves(hubFirst bool) (curves []geom.Curve, hubArcIdx, rootArcIdx int) {
+func gearArcArcCurves(hubFirst bool) ([]geom.Curve, int, int) {
 	c := geom.NewPoint(0, 0)
 	at := func(ang float64) *geom.Point { return geom.NewPoint(10*math.Cos(ang), 10*math.Sin(ang)) }
 	deg := math.Pi / 180
@@ -1754,7 +1754,7 @@ func flattenHoles(r *geom.Region) []geom.BoundaryEdge {
 // (.tmp/decad-2d-region-asks/probe/main.go, ask 2's motivating example): a root
 // arc lying EXACTLY on a hub circle's carrier, closed by two flank lines and a tip
 // line into a tooth. Mirrors the probe's own construction exactly.
-func gearProbeCaseCCurves() (curves []geom.Curve, closed []geom.ClosedCurve, rootArcIdx, hubIdx int) {
+func gearProbeCaseCCurves() ([]geom.Curve, []geom.ClosedCurve, int, int) {
 	hub := geom.NewCircle(geom.NewPoint(0, 0), 10)
 	ax, ay := 10*math.Cos(0.3), 10*math.Sin(0.3)
 	rootArc := geom.NewArc(geom.NewPoint(0, 0), geom.NewPoint(ax, -ay), geom.NewPoint(ax, ay))
@@ -1977,7 +1977,7 @@ func TestAnalyticCoincidentCarrierNearCertifyStaysDegenerate(t *testing.T) {
 // own span of the hub, with no interference between teeth.
 func TestAnalyticCoincidentCarrierMultiTooth(t *testing.T) {
 	hub := geom.NewCircle(geom.NewPoint(0, 0), 10)
-	tooth := func(center float64) (arc geom.Curve, f1, tip, f2 geom.Curve) {
+	tooth := func(center float64) (geom.Curve, geom.Curve, geom.Curve, geom.Curve) {
 		half := 0.15
 		ax0, ay0 := 10*math.Cos(center-half), 10*math.Sin(center-half)
 		ax1, ay1 := 10*math.Cos(center+half), 10*math.Sin(center+half)
