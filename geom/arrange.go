@@ -3771,16 +3771,20 @@ func (a *arranger) extract() *Arrangement {
 		if a.halfs[hi].visited {
 			continue
 		}
-		id := len(cycles)
 		var hs []int
 		for cur := hi; !a.halfs[cur].visited; cur = a.halfs[cur].next {
 			a.halfs[cur].visited = true
-			a.cycleOf[cur] = id
 			hs = append(hs, cur)
 		}
-		c := a.makeCycle(hs)
-		c.id = id
-		cycles = append(cycles, c)
+		for _, part := range a.splitInternalTangentCycle(hs) {
+			id := len(cycles)
+			for _, edge := range part {
+				a.cycleOf[edge] = id
+			}
+			c := a.makeCycle(part)
+			c.id = id
+			cycles = append(cycles, c)
+		}
 	}
 
 	// epsArea is the sliver floor a cycle must clear to count as a face or a hole.
@@ -3932,6 +3936,45 @@ func (a *arranger) extract() *Arrangement {
 		}
 	}
 	return arr
+}
+
+// splitInternalTangentCycle separates two full circle boundaries that the face
+// walk joins at their sole shared vertex. The two loops run in opposite
+// directions and bound one face, but Region reports its outer boundary and hole
+// independently. Keep all other face walks intact.
+func (a *arranger) splitInternalTangentCycle(hs []int) [][]int {
+	if len(hs) < 2 {
+		return [][]int{hs}
+	}
+	var turns []int
+	for i := range hs {
+		prev := a.edges[a.halfs[hs[(i+len(hs)-1)%len(hs)]].edge].src
+		curr := a.edges[a.halfs[hs[i]].edge].src
+		if prev != curr {
+			turns = append(turns, i)
+		}
+	}
+	if len(turns) != 2 {
+		return [][]int{hs}
+	}
+	i, j := turns[0], turns[1]
+	first := a.halfs[hs[i]]
+	second := a.halfs[hs[j]]
+	firstSource := a.edges[first.edge].src
+	secondSource := a.edges[second.edge].src
+	if first.forward == second.forward || a.sources[firstSource].kind != srcCircle ||
+		a.sources[secondSource].kind != srcCircle || !a.internalCurvedTangency(firstSource, secondSource) {
+		return [][]int{hs}
+	}
+	v := first.from
+	if v != second.from {
+		return [][]int{hs}
+	}
+	x, y := a.verts.coord(v)
+	if !a.certifiedPortVertex(x, y) {
+		return [][]int{hs}
+	}
+	return [][]int{hs[i:j], append(append([]int(nil), hs[j:]...), hs[:i]...)}
 }
 
 // chainDegenerate is regionDegenerate's twin for a published chain: whether any

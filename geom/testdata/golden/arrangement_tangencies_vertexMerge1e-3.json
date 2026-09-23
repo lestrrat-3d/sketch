@@ -67,18 +67,21 @@
           "TEnd": 1,
           "TExact": false,
           "PolylineLen": 257
-        },
-        {
-          "SourceIndex": 6,
-          "Whole": true,
-          "Reversed": true,
-          "TStart": 0,
-          "TEnd": 1,
-          "TExact": false,
-          "PolylineLen": 257
         }
       ],
-      "Holes": null
+      "Holes": [
+        [
+          {
+            "SourceIndex": 6,
+            "Whole": true,
+            "Reversed": true,
+            "TStart": 0,
+            "TEnd": 1,
+            "TExact": false,
+            "PolylineLen": 257
+          }
+        ]
+      ]
     },
     {
       "Area": 201.06192982974676,
