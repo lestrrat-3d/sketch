@@ -402,7 +402,13 @@ func (s *Sketch) buildProfiles() sketchArrangement {
 		// attributed to any curve at all), so trouble in one corner of a sketch no
 		// longer invalidates an unrelated region elsewhere. Verify still reports the
 		// arrangement-wide signal through ProfilesValid.
-		p.Valid = !r.SelfIntersecting && r.Area > areaEps && !r.Degenerate
+		//
+		// No area floor is applied here: geom's own arrangement (extract, in
+		// geom/arrange.go) already screens every published region's area against a
+		// SCALE-RELATIVE floor (scale²·1e-12) before it ever reaches this loop, so a
+		// second, absolute floor on top of it would make Valid depend on the physical
+		// size of the drawing rather than its shape.
+		p.Valid = !r.SelfIntersecting && !r.Degenerate
 		profiles = append(profiles, p)
 	}
 
@@ -442,9 +448,6 @@ func (s *Sketch) buildProfiles() sketchArrangement {
 		degeneracies: arr.Degeneracies,
 	}
 }
-
-// areaEps is the smallest area a region must enclose to count as non-degenerate.
-const areaEps = 1e-9
 
 func mapBoundaryEdge(ge geom.BoundaryEdge, entityFor func(int) Entity) BoundaryEdge {
 	return BoundaryEdge{
