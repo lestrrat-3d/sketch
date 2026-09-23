@@ -182,8 +182,8 @@ type VerificationReport struct {
 	// same as a sketch with no closed regions.
 	Profiles []*Profile
 	// InvalidProfiles lists the detected profiles that failed region validity —
-	// self-intersecting, zero-area, or reached by an unresolvable arrangement
-	// condition. A condition is reached when it involves one of the region's own
+	// self-intersecting, or reached by an unresolvable arrangement condition. A
+	// condition is reached when it involves one of the region's own
 	// boundary curves, or when no curve could be blamed for it at all (an unusable
 	// input dropped before it reached the arrangement), which reaches every detected
 	// region and so lists them all. A subset of Profiles. Such a region

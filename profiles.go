@@ -26,9 +26,9 @@ type Profile struct {
 	// >= 0 for a clean region, 0 for a degenerate one.
 	Area float64
 	// Valid is false when the region cannot be trusted as an extrudable profile:
-	// a self-intersecting or zero-area boundary, or an unresolvable (degenerate)
-	// arrangement condition that REACHES this region — one involving a curve its own
-	// boundary is built from, or one no curve could be blamed for at all.
+	// a self-intersecting boundary, or an unresolvable (degenerate) arrangement
+	// condition that REACHES this region — one involving a curve its own boundary
+	// is built from, or one no curve could be blamed for at all.
 	//
 	// An ATTRIBUTABLE condition, on curves this region's boundary does not use,
 	// leaves this region valid, so a sketch can hold both valid and invalid
@@ -402,7 +402,16 @@ func (s *Sketch) buildProfiles() sketchArrangement {
 		// attributed to any curve at all), so trouble in one corner of a sketch no
 		// longer invalidates an unrelated region elsewhere. Verify still reports the
 		// arrangement-wide signal through ProfilesValid.
-		p.Valid = !r.SelfIntersecting && r.Area > areaEps && !r.Degenerate
+		//
+		// No area floor is applied here: geom's own arrangement (extract, in
+		// geom/arrange.go) screens each face cycle and each hole cycle against a
+		// SCALE-RELATIVE floor (scale²·1e-12) before a region is built from them, so
+		// a second, absolute floor on top of it would make Valid depend on the
+		// physical size of the drawing rather than its shape. That screen is per
+		// CYCLE: a region's net area (outer minus holes) is not re-screened after
+		// hole subtraction, so a published region with two or more holes can carry
+		// a net Area below the floor and still read Valid.
+		p.Valid = !r.SelfIntersecting && !r.Degenerate
 		profiles = append(profiles, p)
 	}
 
@@ -442,9 +451,6 @@ func (s *Sketch) buildProfiles() sketchArrangement {
 		degeneracies: arr.Degeneracies,
 	}
 }
-
-// areaEps is the smallest area a region must enclose to count as non-degenerate.
-const areaEps = 1e-9
 
 func mapBoundaryEdge(ge geom.BoundaryEdge, entityFor func(int) Entity) BoundaryEdge {
 	return BoundaryEdge{
