@@ -833,7 +833,11 @@ circle/arc crossings, immune to the chord poke-out that defeated the sampled
 annulus + inner disk — exact at every sampling, tiny inner included. Line-involved
 merged tangency and genuine osculation stay conservatively `Degenerate`. Ellipse/
 spline pairs keep the sampled fallback (exact containment falls back to the chord
-polygon for them). `Sketch.Profiles()` is its consumer.
+polygon for them). The ray-cast probe moves by a fraction of the HOLE cycle's
+narrower sampled span, and the moved point must remain inside the sampled hole
+boundary and its exact boundary when that test is available. A distant source
+cannot move it into a disjoint face.
+`Sketch.Profiles()` is its consumer.
 
 **The assignment carries a postcondition, not just the probe.** For a hole and
 face whose boundaries are line/circle/arc only, `holeLiesInFace` re-derives both
@@ -858,21 +862,14 @@ endpoint coordinates, a circle/arc's centre and radius), which bounds the
 magnitude its extrema are evaluated at. Everything above that is a real gap and
 is rejected.
 
-Both halves of that are load-bearing, and each had its own failure. A slack
-stated against `a.scale` was set by the whole scene and grew without bound: a
-face triangle and a second triangle `1.0` apart in `minY`, plus ONE unrelated
-open line at `x=1e9`, pushed it past that whole gap, so the guard accepted a hole
-lying entirely outside its face and recorded no degeneracy — the probe failure
-the postcondition exists to catch, waved through by geometry that touches neither
-cycle (`TestRegionsHoleContainmentSlackIsLocalToTheTwoCycles`). Made local but
-left a round *fraction* of that local magnitude, it still swallowed every real
-separation below that fraction: a tuned `1e-9` is millions of ulps, so the same
-two triangles `5e-4` apart at magnitude `1.1e6` were published as face and hole
-with nothing recorded (`TestRegionsHoleContainmentRejectsANearGapSeparation`).
-A tuned band is not a bound; only the derived one can be checked against the
-operations it covers. This is the same scene-band-versus-local-band rule
-`vertexCertifies` and `carriersIdentical` follow, with its own constants because
-it bounds a different quantity.
+The postcondition's local slack stays independent of probe placement. A slack
+stated against `a.scale` grew past a real `1.0` gap between two local triangles
+when an unrelated line sat at `x=1e9`; a tuned fraction of the local magnitude
+still swallowed a `5e-4` gap. `TestHoleLiesInFaceUsesCycleLocalRoundoff` checks
+the postcondition directly, including a `1e-6` gap and a real nested hole.
+`TestRegionsHoleContainmentSlackIsLocalToTheTwoCycles` and
+`TestRegionsHoleContainmentRejectsANearGapSeparation` now check that the local
+probe leaves disjoint triangles clean without relying on a rejected assignment.
 
 ### Curve/curve transverse crossing authority (§7b)
 

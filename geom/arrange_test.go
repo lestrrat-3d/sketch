@@ -38,7 +38,7 @@ func TestRegionsDistantOpenLineDoesNotHideLocalFaces(t *testing.T) {
 		polygonLines([2]float64{-1100000, 0}, [2]float64{1100000, 8}, [2]float64{-1100000, 12}),
 		polygonLines([2]float64{-1000000, -1}, [2]float64{1000000, -1}, [2]float64{0, 2})...,
 	)
-	for _, far := range []float64{0, 2e9, 1e10} {
+	for _, far := range []float64{0, 1e7, 1e9, 2e9, 1e10} {
 		t.Run(fmt.Sprintf("open line at %g", far), func(t *testing.T) {
 			curves := append([]geom.Curve(nil), base...)
 			if far != 0 {
@@ -52,6 +52,7 @@ func TestRegionsDistantOpenLineDoesNotHideLocalFaces(t *testing.T) {
 			require.Equal(t, []float64{3000000, 13200000}, areas)
 			for _, region := range arr.Regions {
 				require.False(t, region.Degenerate)
+				require.Empty(t, region.Holes)
 			}
 		})
 	}
@@ -64,6 +65,7 @@ func TestRegionsDistantOpenLineDoesNotHideHole(t *testing.T) {
 	require.False(t, arr.Degenerate, "degeneracies: %v", arr.Degeneracies)
 	require.Len(t, arr.Regions, 2)
 	for _, region := range arr.Regions {
+		require.False(t, region.Degenerate)
 		switch len(region.Holes) {
 		case 0:
 			require.Equal(t, 16.0, region.Area)

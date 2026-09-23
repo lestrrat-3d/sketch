@@ -3841,6 +3841,7 @@ func (a *arranger) extract() *Arrangement {
 	holeOf := make([][]*cycle, len(faces))
 	for _, h := range holes {
 		probe := interiorPoint(h.dense)
+		exactProbe := a.perturbContainmentProbe(probe, h)
 		best := -1
 		for fi, f := range faces {
 			// A genuine hole is strictly smaller than the face that nests it
@@ -3867,7 +3868,7 @@ func (a *arranger) extract() *Arrangement {
 			if cyclesShareEdge(f, h) {
 				continue // f and h are directly adjacent, not nested
 			}
-			if !a.exactPointInRegion(probe, f) {
+			if !a.exactPointInRegion(probe, exactProbe, f) {
 				continue
 			}
 			if best < 0 || faces[best].area > f.area {
@@ -4300,14 +4301,49 @@ func (a *arranger) makeCycle(hs []int) cycle {
 	return c
 }
 
-// exactPointInRegion reports whether q is inside the cycle, by ray-casting a
+// perturbContainmentProbe moves a hole's interior point by a small fraction of
+// the hole's own narrower span. It checks the sampled hole boundary and, when
+// available, its exact boundary before accepting the move, so a narrow or
+// near-boundary hole keeps its probe.
+// A distant source never changes this offset.
+func (a *arranger) perturbContainmentProbe(q [2]float64, h *cycle) [2]float64 {
+	lo, hi := h.dense[0], h.dense[0]
+	for _, p := range h.dense[1:] {
+		lo[0], lo[1] = math.Min(lo[0], p[0]), math.Min(lo[1], p[1])
+		hi[0], hi[1] = math.Max(hi[0], p[0]), math.Max(hi[1], p[1])
+	}
+	span := math.Min(hi[0]-lo[0], hi[1]-lo[1])
+	if span <= 0 || math.IsInf(span, 0) {
+		return q
+	}
+	for range 32 {
+		for _, direction := range [2]float64{1, -1} {
+			candidate := [2]float64{
+				q[0] + direction*span*4.131e-9,
+				q[1] + direction*span*9.073e-9,
+			}
+			if candidate[1] == q[1] {
+				candidate[1] = math.Nextafter(q[1], math.Copysign(math.Inf(1), direction))
+			}
+			if finitePt(candidate) && pointInPolygon(candidate, h.dense) &&
+				a.exactPointInRegion(candidate, candidate, h) {
+				return candidate
+			}
+		}
+		span *= 0.5
+	}
+	return q
+}
+
+// exactPointInRegion reports whether a probe is inside the cycle, by ray-casting a
 // horizontal +x ray and counting EXACT crossings with each boundary fragment
 // (closed-form for line/circle/arc). This is immune to the chord poke-out that
 // defeats the sampled pointInPolygon at a tangency (the inner circle's chord
 // polygon dips outside the outer's near the contact). Falls back to the chord
 // polygon when any boundary fragment is an ellipse/spline (no closed-form ray
-// crossing here, and those are not the poke-out case).
-func (a *arranger) exactPointInRegion(q [2]float64, c *cycle) bool {
+// crossing here, and those are not the poke-out case). exactQ is the locally
+// perturbed probe used only for exact ray casting; the sampled fallback keeps q.
+func (a *arranger) exactPointInRegion(q, exactQ [2]float64, c *cycle) bool {
 	for _, f := range c.frags {
 		switch a.sources[f.src].kind {
 		case srcLine, srcCircle, srcArc:
@@ -4315,17 +4351,9 @@ func (a *arranger) exactPointInRegion(q [2]float64, c *cycle) bool {
 			return pointInPolygon(q, c.dense)
 		}
 	}
-	// Perturb the probe by a tiny GENERIC offset — far above the float-rounding floor
-	// (~ULP·scale ≈ scale·1e-16) yet far below any real feature (and below the
-	// strictly-interior margin of the hole the probe came from). This stops the
-	// horizontal ray from crossing a circle exactly at its param seam (angle 0),
-	// where the seam param rounds to the fragment-endpoint boundary and the half-open
-	// test drops the crossing — the gap that double-counted a hole near angle 0. The
-	// offset's irrational ratio avoids re-aligning with another source's seam.
-	q = [2]float64{q[0] + a.scale*4.131e-9, q[1] + a.scale*9.073e-9}
 	crossings := 0
 	for _, f := range c.frags {
-		crossings += a.rayFragCrossings(q, f)
+		crossings += a.rayFragCrossings(exactQ, f)
 	}
 	return crossings%2 == 1
 }
