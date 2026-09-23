@@ -1305,6 +1305,44 @@ func TestAnalyticInternalTangentBlessed(t *testing.T) {
 	}
 }
 
+func TestAnalyticInternalTangentCircleHasSeparateHoleBoundary(t *testing.T) {
+	const outerRadius = 5.0
+	for _, innerRadius := range []float64{0.2, 1, 3} {
+		for _, angle := range []float64{0, math.Pi / 2, math.Pi, 3 * math.Pi / 2, 0.01} {
+			for _, segments := range []int{8, 24, 64} {
+				distance := outerRadius - innerRadius
+				closed := []geom.ClosedCurve{
+					geom.NewCircle(geom.NewPoint(0, 0), outerRadius),
+					geom.NewCircle(geom.NewPoint(distance*math.Cos(angle), distance*math.Sin(angle)), innerRadius),
+				}
+				arr := geom.Regions(nil, closed, geom.WithSegmentsPerTurn(segments))
+				label := "r=%g angle=%g segments=%d"
+				require.Falsef(t, arr.Degenerate, label, innerRadius, angle, segments)
+				require.Lenf(t, arr.Regions, 2, label, innerRadius, angle, segments)
+				var annulus, disk *geom.Region
+				for _, region := range arr.Regions {
+					if len(region.Holes) == 1 {
+						annulus = region
+					} else {
+						disk = region
+					}
+				}
+				require.NotNilf(t, annulus, label, innerRadius, angle, segments)
+				require.NotNilf(t, disk, label, innerRadius, angle, segments)
+				require.Len(t, annulus.Outer, 1)
+				require.Equal(t, 0, annulus.Outer[0].SourceIndex)
+				require.Len(t, annulus.Holes[0], 1)
+				require.Equal(t, 1, annulus.Holes[0][0].SourceIndex)
+				require.True(t, annulus.Holes[0][0].Reversed)
+				require.Len(t, disk.Outer, 1)
+				require.Equal(t, 1, disk.Outer[0].SourceIndex)
+				require.InDelta(t, math.Pi*(outerRadius*outerRadius-innerRadius*innerRadius), annulus.Area, 1e-9)
+				require.InDelta(t, math.Pi*innerRadius*innerRadius, disk.Area, 1e-9)
+			}
+		}
+	}
+}
+
 func TestAnalyticLineInvolvedMergedTangentStaysDegenerate(t *testing.T) {
 	// Unlike the two curved cases above, a merged-vertex tangency with a LINE as
 	// one of the two sources is still deferred and stays conservatively
