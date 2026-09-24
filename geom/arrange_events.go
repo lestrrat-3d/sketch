@@ -519,6 +519,16 @@ func circleCircleEvents(a, b operand, scale float64) ([]xEvent, bool) {
 		if math.IsInf(mx, 0) || math.IsNaN(mx) || math.IsInf(my, 0) || math.IsNaN(my) {
 			return nil, true // magnitudes past float64 → ambiguous
 		}
+		// Both guards above screen OVERFLOW, where a quantity reaches Inf or NaN.
+		// They are deliberately silent on UNDERFLOW: below a sampled chord of about
+		// 1.8e-162 the two radicands and the aDist numerator all round to zero,
+		// which is finite, so `half` is 0 and the emitted center is finite. Scenes
+		// at that scale do publish NaN, but it is produced downstream in
+		// collinearOverlap, where dd = d1x*d1x + d1y*d1y underflows to zero while
+		// Hypot(d1x, d1y) stays healthy and pa becomes 0/0. That is not this
+		// function's arithmetic: two ellipses at the same scale never reach
+		// circleCircleEvents and publish the same NaN, and two equal-radius circles
+		// 1e-200 apart do so on main with this file unchanged.
 		nx, ny := -uy, ux // perpendicular to the center line
 		var out []xEvent
 		for _, s := range []float64{-half, half} {
