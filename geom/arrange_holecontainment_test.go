@@ -323,6 +323,39 @@ func TestRegionsKeepsHoleInsideFaceBoundaryRoundoff(t *testing.T) {
 	require.InDelta(t, 78.539816339744831, annulus.Area, 1e-9)
 }
 
+func TestRegionsRejectsSubNanometreCircleExit(t *testing.T) {
+	outer := geom.NewCircle(geom.NewPoint(1e6, 0), 5)
+	inner := geom.NewCircle(geom.NewPoint(1000004.9999999995, 0), 5e-10)
+	require.Greater(t, math.Hypot(inner.Center.X-outer.Center.X,
+		inner.Center.Y-outer.Center.Y)+inner.Radius-outer.Radius, 0.0)
+
+	arr := geom.Regions(nil, []geom.ClosedCurve{outer, inner},
+		geom.WithVertexMerge(1e-12), geom.WithSegmentsPerTurn(64))
+	require.True(t, arr.Degenerate)
+	for _, reg := range arr.Regions {
+		require.Empty(t, reg.Holes, "the inner circle crosses the face boundary")
+	}
+}
+
+func TestRegionsKeepsSubNanometreCircleInside(t *testing.T) {
+	outer := geom.NewCircle(geom.NewPoint(1e6, 0), 5)
+	inner := geom.NewCircle(geom.NewPoint(1000004.9999999995, 0), 4e-10)
+	require.Less(t, math.Hypot(inner.Center.X-outer.Center.X,
+		inner.Center.Y-outer.Center.Y)+inner.Radius-outer.Radius, 0.0)
+
+	arr := geom.Regions(nil, []geom.ClosedCurve{outer, inner},
+		geom.WithVertexMerge(1e-12), geom.WithSegmentsPerTurn(64))
+	require.False(t, arr.Degenerate)
+	var annulus *geom.Region
+	for _, reg := range arr.Regions {
+		if reg.Area > 1 {
+			annulus = reg
+		}
+	}
+	require.NotNil(t, annulus)
+	require.Len(t, annulus.Holes, 1)
+}
+
 // TestRegionsRejectsHoleThatExitsItsFace pins the other side of the same band:
 // a hole whose boundary genuinely LEAVES its face must never be published as
 // that face's hole. The inner circle's centre distance 4.9999999980209395 plus
