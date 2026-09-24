@@ -501,7 +501,12 @@ A line at `x=1e7` cannot suppress a nested square's hole
 control is `TestNearMissHiddenCrossingIsDegenerate`. The scene-wide magnitude
 screen sets a flag only; it does not raise any cycle's classification floor.
 When `extract` drops a cycle that uses both sources of a crossing, it flags that
-pair degenerate. The two crossing-bounded faces of a tiny circle can fall below
+pair degenerate — unless the cycle's area is exactly zero, which bounds nothing,
+so the floor discarded no face and there is nothing to report. The lens the scan
+exists for carries a small but nonzero area, while two open segments whose far
+ends weld into one vertex close a real 2-gon of area zero over a union that has
+no bounded face at all (`TestRegionsWeldedOpenLinesEncloseNoFace`). The two
+crossing-bounded faces of a tiny circle can fall below
 a floor set by a much larger circle; pruning both must not publish the remaining
 large disk as a clean complete map (`TestRegionsRejectsHoleThatExitsItsFace`).
 The scan is driven by the discarded cycle's OWN sources — each distinct pair of

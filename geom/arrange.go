@@ -3829,6 +3829,12 @@ func (a *arranger) extract() *Arrangement {
 		case c.area < -c.areaFloor:
 			holes = append(holes, c)
 		default:
+			// A cycle enclosing exactly zero area bounds nothing, so the floor
+			// discarded no face and there is nothing to report. The lens this
+			// arm exists for carries a small but nonzero area.
+			if c.area == 0 {
+				continue
+			}
 			// A cycle discarded by the area floor can contain the only face made
 			// by a crossing. Keep pruning it, but report the missing topology on
 			// the two sources that crossed.

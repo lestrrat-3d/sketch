@@ -437,6 +437,32 @@ func TestRegionsRejectsHoleExitAbsorbedByAdditiveBoxTolerance(t *testing.T) {
 	}
 }
 
+// TestRegionsWeldedOpenLinesEncloseNoFace pins the counterpart of the discarded
+// crossing scan: a discarded cycle that encloses exactly nothing must not be
+// reported.
+//
+// The two segments share (0,0) and their far ends sit 1e-7 apart, which is this
+// scene's vertex-merge tolerance, so those ends weld into one graph vertex. The
+// two runs become parallel graph edges between the same pair of vertices and the
+// face walk closes a real 2-gon over them, of area exactly 0. In exact
+// arithmetic the union of the two segments is a tree whose subdivision has only
+// the unbounded face, so no bounded face exists and none was pruned. Without the
+// zero-area guard the discarded-cycle scan finds the pair's crossing at the
+// shared origin and flags the whole arrangement degenerate for a loss that never
+// happened.
+func TestRegionsWeldedOpenLinesEncloseNoFace(t *testing.T) {
+	curves := []geom.Curve{
+		geom.NewLine(geom.NewPoint(0, 0), geom.NewPoint(1, 0)),
+		geom.NewLine(geom.NewPoint(0, 0), geom.NewPoint(1, 1e-7)),
+	}
+
+	arr := geom.Regions(curves, nil)
+
+	require.False(t, arr.Degenerate, "two open segments enclose nothing, so nothing was discarded")
+	require.Empty(t, arr.Degeneracies)
+	require.Empty(t, arr.Regions)
+}
+
 func TestRegionsHoleContainmentRejectsNestedBoxDisjointTriangle(t *testing.T) {
 	face := []geom.Curve{
 		geom.NewLine(geom.NewPoint(-1100000, 0), geom.NewPoint(1100000, 8)),
