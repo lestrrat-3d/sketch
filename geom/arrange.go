@@ -296,7 +296,10 @@ type arranger struct {
 	// weld of their sample vertices. The fallback is only sound while the sampled map
 	// represents those crossings; where it does not, the map is fused and no fragment
 	// of the affected component may report an exact parameter. refuseExactOnFusedMap
-	// compares the two and fills exactRefused.
+	// compares the two and fills exactRefused. deferredCross has a second reader:
+	// extract's discarded-cycle scan consults it alongside events, because a
+	// deferred crossing loses the same face a certified one does and this is the
+	// only ledger carrying it.
 	deferredCross   map[[2]int][]xEvent
 	sampledContacts map[[2]int][][2]float64
 
@@ -3807,6 +3810,7 @@ func (a *arranger) extract() *Arrangement {
 	}
 	var faces []*cycle
 	var holes []*cycle
+	flaggedCross := map[[2]int]struct{}{}
 	for i := range cycles {
 		c := &cycles[i]
 		c.areaFloor = a.cycleAreaFloor(c)
@@ -3824,6 +3828,65 @@ func (a *arranger) extract() *Arrangement {
 			faces = append(faces, c)
 		case c.area < -c.areaFloor:
 			holes = append(holes, c)
+		default:
+			// A cycle enclosing exactly zero area bounds nothing, so the floor
+			// discarded no face and there is nothing to report. The lens this
+			// arm exists for carries a small but nonzero area.
+			if c.area == 0 {
+				continue
+			}
+			// A cycle discarded by the area floor can contain the only face made
+			// by a crossing. Keep pruning it, but report the missing topology on
+			// the two sources that crossed.
+			//
+			// This arm sees floor-discarded CYCLES and nothing else, so it is not
+			// a general net for every face the arrangement loses. A face lost to
+			// VERTEX-MERGE FUSION never reaches here at all: the merge welds the
+			// sampled polylines before the cut, so no cycle is built and none is
+			// discarded. That loss is the sampled path's own limit, described on
+			// refuseExactOnFusedMap and pinned by
+			// TestAnalyticFusedComponentWithdrawsLineAndArcBounds; it predates
+			// this scan and is not something widening the scan could catch.
+			//
+			// The scan is driven by THIS cycle's own sources, and consults both
+			// crossing ledgers. Driving it from the cycle keeps the cost O(k²)
+			// lookups in the k distinct sources on the cycle — scanning a.events
+			// instead is O(N²) per discarded cycle, hence cubic in a scene whose
+			// discarded cycles grow with N. Reading a.deferredCross as well as
+			// a.events is what makes the arm reachable at all for a pair handed
+			// back to the sampled path: analyticPrepass records such a pair ONLY
+			// in a.deferredCross, so an events-only scan can never fire for it,
+			// while the face it loses is the same one a certified crossing loses.
+			// Sources are sorted so a cycle carrying several crossing pairs
+			// publishes their degeneracy records in a stable order.
+			var srcs []int
+			for _, f := range c.frags {
+				if !slices.Contains(srcs, f.src) {
+					srcs = append(srcs, f.src)
+				}
+			}
+			slices.Sort(srcs)
+			for x := 0; x < len(srcs); x++ {
+				for y := x + 1; y < len(srcs); y++ {
+					pair := pairKey(srcs[x], srcs[y])
+					if _, flagged := flaggedCross[pair]; flagged {
+						continue
+					}
+					for _, events := range [2][]xEvent{a.events[pair], a.deferredCross[pair]} {
+						for _, e := range events {
+							if e.kind != evCross {
+								continue
+							}
+							a.flagDegenerate(e.x, e.y, pair[0], pair[1])
+							flaggedCross[pair] = struct{}{}
+							break
+						}
+						if _, flagged := flaggedCross[pair]; flagged {
+							break
+						}
+					}
+				}
+			}
 		}
 	}
 

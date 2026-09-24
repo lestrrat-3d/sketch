@@ -500,6 +500,26 @@ A line at `x=1e7` cannot suppress a nested square's hole
 (`TestRegionsDistantOpenLineDoesNotHideHole`). The existing curved-source sliver
 control is `TestNearMissHiddenCrossingIsDegenerate`. The scene-wide magnitude
 screen sets a flag only; it does not raise any cycle's classification floor.
+When `extract` drops a cycle that uses both sources of a crossing, it flags that
+pair degenerate — unless the cycle's area is exactly zero, which bounds nothing,
+so the floor discarded no face and there is nothing to report. The lens the scan
+exists for carries a small but nonzero area, while two open segments whose far
+ends weld into one vertex close a real 2-gon of area zero over a union that has
+no bounded face at all (`TestRegionsWeldedOpenLinesEncloseNoFace`). The two
+crossing-bounded faces of a tiny circle can fall below
+a floor set by a much larger circle; pruning both must not publish the remaining
+large disk as a clean complete map (`TestRegionsRejectsHoleThatExitsItsFace`).
+The scan is driven by the discarded cycle's OWN sources — each distinct pair of
+them, sorted, so several pairs on one cycle publish in a stable order — and it
+consults BOTH crossing ledgers, the certified `a.events` and the deferred
+`a.deferredCross`. It never scans the event map, which would cost `O(N²)` per
+discarded cycle. Reading the deferred ledger is what makes the flag reachable
+for a pair handed back to the sampled path: `analyticPrepass` records such a
+pair only in `a.deferredCross`, and the face it loses is the same one a
+certified crossing loses
+(`TestRegionsRejectsHoleOnItsFaceRimFromDeferredCrossing`). A tiny circle
+strictly inside the large one has no crossing and stays clean
+(`TestRegionsKeepsHoleInsideFaceBoundaryRoundoff`).
 
 When a cycle contains an arc or circle, has no other kinds beyond lines,
 arcs and circles, and has fewer than three distinct welded sample vertices,

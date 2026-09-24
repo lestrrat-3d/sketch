@@ -420,6 +420,16 @@ func circleCircleEvents(a, b operand, scale float64) ([]xEvent, bool) {
 	d := math.Hypot(dx, dy)
 	certify := scale * tangentCertify
 	band := scale * tangentBand
+	minRadius, maxRadius := math.Min(a.r, b.r), math.Max(a.r, b.r)
+	if minRadius < maxRadius*tangentBand {
+		// A scene-sized band can swallow an entire much smaller circle. Limit it
+		// to that circle's radius while retaining room for rounded center coordinates.
+		coord := math.Max(math.Max(math.Abs(a.cx), math.Abs(a.cy)), math.Max(math.Abs(b.cx), math.Abs(b.cy)))
+		ulp := math.Nextafter(coord, math.Inf(1)) - coord
+		local := math.Min(scale, minRadius)
+		certify = math.Min(certify, math.Max(local*tangentCertify, 4*ulp))
+		band = math.Min(band, math.Max(local*tangentBand, 16*ulp))
+	}
 	if d < band {
 		// Near-coincident centers. Certify only EXACT coincidence (same center AND
 		// radius) as a degenerate overlap. Clearly different radii are concentric —
@@ -488,12 +498,37 @@ func circleCircleEvents(a, b operand, scale float64) ([]xEvent, bool) {
 	case d > diff+band && d < sum-band:
 		// Clean secant: two symmetric points about the center line.
 		aDist := (d*d + a.r*a.r - b.r*b.r) / (2 * d) // signed distance from a's center to the radical line
-		hh := a.r*a.r - aDist*aDist
-		if hh < 0 {
-			return nil, true // numerically inconsistent → ambiguous
+		// The factored form keeps the half-chord when one radius is tiny;
+		// subtracting aDist² from the larger radius² can round it to zero. The two
+		// square roots stay SEPARATE: multiplying all four radius-scale factors
+		// first overflows at a fourth root of MaxFloat64 (about 1.16e77), far below
+		// the ~1.34e154 scene extent the rest of the arrangement carries. Each
+		// argument here is bounded by about 4·max², so the ceiling matches.
+		//
+		// Staging bounds `half` but NOT `aDist`, which still forms d² and so
+		// overflows above sqrt(MaxFloat64). A finite `half` therefore proves
+		// nothing about the point built from both, and the emitted center is the
+		// only quantity that proves both are usable — so it is what gets tested.
+		// An overflowed `aDist` becomes the same ambiguous refusal the guard
+		// below records, rather than an Inf/NaN crossing handed downstream.
+		half := math.Sqrt((sum+d)*(sum-d)) * math.Sqrt((d+diff)*(d-diff)) / (2 * d)
+		if math.IsInf(half, 0) || math.IsNaN(half) {
+			return nil, true // magnitudes past float64 → ambiguous
 		}
-		half := math.Sqrt(hh)
 		mx, my := a.cx+aDist*ux, a.cy+aDist*uy
+		if math.IsInf(mx, 0) || math.IsNaN(mx) || math.IsInf(my, 0) || math.IsNaN(my) {
+			return nil, true // magnitudes past float64 → ambiguous
+		}
+		// Both guards above screen OVERFLOW, where a quantity reaches Inf or NaN.
+		// They are deliberately silent on UNDERFLOW: below a sampled chord of about
+		// 1.8e-162 the two radicands and the aDist numerator all round to zero,
+		// which is finite, so `half` is 0 and the emitted center is finite. Scenes
+		// at that scale do publish NaN, but it is produced downstream in
+		// collinearOverlap, where dd = d1x*d1x + d1y*d1y underflows to zero while
+		// Hypot(d1x, d1y) stays healthy and pa becomes 0/0. That is not this
+		// function's arithmetic: two ellipses at the same scale never reach
+		// circleCircleEvents and publish the same NaN, and two equal-radius circles
+		// 1e-200 apart do so on main with this file unchanged.
 		nx, ny := -uy, ux // perpendicular to the center line
 		var out []xEvent
 		for _, s := range []float64{-half, half} {

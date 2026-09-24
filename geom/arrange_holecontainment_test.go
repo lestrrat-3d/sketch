@@ -380,6 +380,33 @@ func TestRegionsRejectsHoleThatExitsItsFace(t *testing.T) {
 	}
 }
 
+// TestRegionsRejectsHoleOnItsFaceRimFromDeferredCrossing pins the DEFERRED half
+// of the same rejection. The inner circle sits exactly on the rim — centre
+// distance 5 plus radius 5e-9 — so the pair crosses, but the crossing fails
+// analytic certification and is handed to the sampled path. A deferred pair is
+// recorded only in the deferred crossing ledger, never in the certified event
+// map, so a discarded-cycle scan that reads the event map alone can never fire
+// here: both lens cycles fall under the area floor, both are pruned, and the
+// scene reads clean with the large disk published whole.
+//
+// The certified half is TestRegionsRejectsHoleThatExitsItsFace, whose centre is
+// 2e-9 short of this one. That 2e-9 is the whole distance between the two paths,
+// which is why this case needs its own scene rather than a tweak of that one.
+func TestRegionsRejectsHoleOnItsFaceRimFromDeferredCrossing(t *testing.T) {
+	outer := geom.NewCircle(geom.NewPoint(1e6, 0), 5)
+	inner := geom.NewCircle(geom.NewPoint(1e6+5, 0), 5e-9)
+
+	arr := geom.Regions(nil, []geom.ClosedCurve{outer, inner},
+		geom.WithVertexMerge(1e-12), geom.WithSegmentsPerTurn(64))
+
+	require.True(t, arr.Degenerate, "a crossing whose only faces are pruned is reported, certified or deferred")
+	require.NotEmpty(t, arr.Degeneracies)
+	for i, reg := range arr.Regions {
+		require.Empty(t, reg.Holes,
+			"region %d: the inner circle leaves the outer one, so it is no hole of it", i)
+	}
+}
+
 // TestRegionsRejectsHoleExitAbsorbedByAdditiveBoxTolerance pins the exit that
 // the containment guard's box comparison can only see when it is written as a
 // positive difference. The hole's box overshoots the face's right edge
@@ -408,6 +435,32 @@ func TestRegionsRejectsHoleExitAbsorbedByAdditiveBoxTolerance(t *testing.T) {
 		require.Empty(t, reg.Holes,
 			"region %d: the inner circle leaves the outer one, so it is no hole of it", i)
 	}
+}
+
+// TestRegionsWeldedOpenLinesEncloseNoFace pins the counterpart of the discarded
+// crossing scan: a discarded cycle that encloses exactly nothing must not be
+// reported.
+//
+// The two segments share (0,0) and their far ends sit 1e-7 apart, which is this
+// scene's vertex-merge tolerance, so those ends weld into one graph vertex. The
+// two runs become parallel graph edges between the same pair of vertices and the
+// face walk closes a real 2-gon over them, of area exactly 0. In exact
+// arithmetic the union of the two segments is a tree whose subdivision has only
+// the unbounded face, so no bounded face exists and none was pruned. Without the
+// zero-area guard the discarded-cycle scan finds the pair's crossing at the
+// shared origin and flags the whole arrangement degenerate for a loss that never
+// happened.
+func TestRegionsWeldedOpenLinesEncloseNoFace(t *testing.T) {
+	curves := []geom.Curve{
+		geom.NewLine(geom.NewPoint(0, 0), geom.NewPoint(1, 0)),
+		geom.NewLine(geom.NewPoint(0, 0), geom.NewPoint(1, 1e-7)),
+	}
+
+	arr := geom.Regions(curves, nil)
+
+	require.False(t, arr.Degenerate, "two open segments enclose nothing, so nothing was discarded")
+	require.Empty(t, arr.Degeneracies)
+	require.Empty(t, arr.Regions)
 }
 
 func TestRegionsHoleContainmentRejectsNestedBoxDisjointTriangle(t *testing.T) {
