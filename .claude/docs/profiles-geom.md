@@ -852,8 +852,13 @@ inside. A sampled boundary vertex is never used as a fallback probe.
 `Sketch.Profiles()` is its consumer.
 
 **The assignment carries a postcondition, not just the probe.** For a hole and
-face whose boundaries are line/circle/arc only, `holeLiesInFace` re-derives both
-cycles' exact bounding boxes from their fragments (`exactFragBounds`/
+face whose boundaries are line/circle/arc only, `holeLiesInFace` checks radial
+reach first when the face is bounded by one circular carrier. It tests line
+fragment endpoints, full circle centre distance plus radius, and arc endpoints
+plus the farthest radial angle when that angle lies in the fragment. A reach
+beyond the face radius by more than arithmetic round-off rejects the hole even
+when every ray-test witness lies in the larger box round-off band. It then
+re-derives both cycles' exact bounding boxes from their fragments (`exactFragBounds`/
 `cycleBounds`) and requires the hole's box inside the face's. It then gets
 analytic contacts between each hole and face fragment. An interior transverse
 crossing or coincident overlap rejects the assignment. Contacts divide each
@@ -865,8 +870,9 @@ rejection leaves the hole unassigned and flags the arrangement `Degenerate`,
 attributed to both cycles' sources.
 
 **The guard rejects only on POSITIVE evidence, and answers "nothing to check"
-otherwise.** Its rejections are a box separation past the summed round-off, an
-interior transverse crossing or overlap, and an even crossing parity at a
+otherwise.** Its rejections are a radial exit from a circular face, a box
+separation past the summed round-off, an interior transverse crossing or overlap,
+and an even crossing parity at a
 witness the round-off band did not swallow. A witness the band DID swallow is
 ignorance about the hole, never a counter-example, so an interval that yields no
 classifiable witness contributes nothing rather than refusing. When NOTHING on
@@ -881,7 +887,7 @@ on positive witnesses and which must publish.
 An ambiguous analytic contact is the same case and answers the same way. `ok ==
 false` therefore covers three situations: an ellipse/spline in either boundary
 (matching `exactPointInRegion`'s analytic coverage), an ambiguous contact, and
-no classifiable witness anywhere.
+no classifiable witness anywhere after the radial check.
 
 **Its slack is source-local AND derived, and that is what makes it a check at
 all.** The box comparison forgives the sum of the two boxes' own evaluation

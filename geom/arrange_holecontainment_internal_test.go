@@ -123,6 +123,26 @@ func TestHoleLiesInFaceKeepsNestedArcCycle(t *testing.T) {
 	require.True(t, contained)
 }
 
+func TestHoleExitsCircleFaceChecksFragmentRadialMaximum(t *testing.T) {
+	a := &arranger{sources: []source{
+		{kind: srcCircle, cx: 0, cy: 0, r: 5},
+		{kind: srcLine, ax: 4.5, ay: 0, bx: 5.1, by: 0},
+		{kind: srcCircle, cx: 4.5, cy: 0, r: 0.7},
+		{kind: srcArc, cx: 4.5, cy: 0, r: 0.7, phi0: -math.Pi / 2, sweep: math.Pi},
+		{kind: srcCircle, cx: 4.5, cy: 0, r: 0.4},
+		{kind: srcArc, cx: 4.5, cy: 0, r: 0.7, phi0: math.Pi / 2, sweep: math.Pi},
+	}}
+	face := &cycle{frags: []cycFrag{{src: 0, pEnd: 1}}}
+	for _, src := range []int{1, 2, 3} {
+		hole := &cycle{frags: []cycFrag{{src: src, pEnd: 1}}}
+		require.True(t, a.holeExitsCircleFace(hole, face), "source %d exceeds radius 5", src)
+	}
+	hole := &cycle{frags: []cycFrag{{src: 4, pEnd: 1}}}
+	require.False(t, a.holeExitsCircleFace(hole, face))
+	hole = &cycle{frags: []cycFrag{{src: 5, pEnd: 1}}}
+	require.False(t, a.holeExitsCircleFace(hole, face), "the far radial point is outside this arc")
+}
+
 func notchedFace() ([]source, *cycle) {
 	points := [][2]float64{{0, 0}, {10, 0}, {10, 10}, {6.9, 10},
 		{6.9, 6.5}, {6.6, 6.5}, {6.6, 10}, {0, 10}}

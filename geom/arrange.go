@@ -4591,9 +4591,82 @@ func (a *arranger) cycleBoundsRoundoff(c *cycle) float64 {
 	return worst
 }
 
+// holeExitsCircleFace tests the hole's true fragments against a face bounded by
+// one circular carrier. The subtraction of centres precedes the radial
+// calculation, so a distant origin cannot widen its round-off band. For an arc,
+// the farthest point is an endpoint or the point directed away from the face
+// centre; for a line it is an endpoint.
+func (a *arranger) holeExitsCircleFace(h, f *cycle) bool {
+	if len(f.frags) == 0 {
+		return false
+	}
+	face := &a.sources[f.frags[0].src]
+	if face.kind != srcCircle && face.kind != srcArc {
+		return false
+	}
+	turn := 0.0
+	for _, ff := range f.frags {
+		s := &a.sources[ff.src]
+		if (s.kind != srcCircle && s.kind != srcArc) ||
+			s.cx != face.cx || s.cy != face.cy || s.r != face.r {
+			return false
+		}
+		sweep := s.sweep
+		if s.kind == srcCircle {
+			sweep = 2 * math.Pi
+		}
+		turn += sweep * (ff.pEnd - ff.pStart)
+	}
+	if math.Abs(math.Abs(turn)-2*math.Pi) > 64*unitRoundoff {
+		return false
+	}
+	for _, hf := range h.frags {
+		s := &a.sources[hf.src]
+		var reach float64
+		var scale float64
+		switch s.kind {
+		case srcLine:
+			dx, dy := s.bx-s.ax, s.by-s.ay
+			for _, t := range [...]float64{hf.pStart, hf.pEnd} {
+				x := (s.ax - face.cx) + t*dx
+				y := (s.ay - face.cy) + t*dy
+				reach = math.Max(reach, math.Hypot(x, y))
+			}
+			scale = math.Max(math.Abs(s.ax-face.cx), math.Abs(s.ay-face.cy)) +
+				math.Hypot(dx, dy)
+		case srcCircle, srcArc:
+			dx, dy := s.cx-face.cx, s.cy-face.cy
+			centerDistance := math.Hypot(dx, dy)
+			for _, t := range [...]float64{hf.pStart, hf.pEnd} {
+				ang := s.phi0 + t*s.sweep
+				if s.kind == srcCircle {
+					ang = 2 * math.Pi * t
+				}
+				reach = math.Max(reach, math.Hypot(dx+s.r*math.Cos(ang), dy+s.r*math.Sin(ang)))
+			}
+			if s.kind == srcCircle && math.Abs(hf.pEnd-hf.pStart) >= 1 ||
+				a.angInFragment(s, hf, math.Atan2(dy, dx)) {
+				reach = math.Max(reach, centerDistance+s.r)
+			}
+			scale = centerDistance + math.Abs(s.r)
+		default:
+			return false
+		}
+		// Source-to-face subtraction, parameter evaluation, hypot, and the
+		// final radius subtraction cost fewer than 8 unit roundoffs for a line.
+		// An arc's angle and trig evaluation cost fewer than 32 at this scale.
+		// Double that bound to allow for the platform's trig implementation.
+		if reach-face.r > 64*unitRoundoff*math.Max(face.r, scale) {
+			return true
+		}
+	}
+	return false
+}
+
 // holeLiesInFace checks analytic hole/face containment independently of the
-// interiorPoint probe used to propose an assignment. The box check first rejects
-// separated extents. Interior transverse intersections then reject a boundary
+// interiorPoint probe used to propose an assignment. A circular face first gets
+// a radial reach check. The box check then rejects separated extents. Interior
+// transverse intersections reject a boundary
 // that leaves and re-enters a nonconvex face between tested points. Finally,
 // every interval between contacts on each hole fragment contributes boundary
 // points to the face's analytic ray test. Inside/outside status cannot change
@@ -4601,7 +4674,7 @@ func (a *arranger) cycleBoundsRoundoff(c *cycle) float64 {
 // notch between fixed sample points. Contact points themselves are skipped at
 // the two cycles' evaluation roundoff, allowing clean tangencies.
 //
-// The guard rejects only on POSITIVE evidence: a box separation past the two
+// The guard rejects only on POSITIVE evidence: a radial exit, a box separation past the two
 // boxes' own round-off, an interior transverse crossing or overlap, or an even
 // crossing parity at a witness the roundoff band did not swallow. A witness the
 // band DID swallow is ignorance, not a counter-example, so it never rejects on
@@ -4642,6 +4715,9 @@ func (a *arranger) cycleBoundsRoundoff(c *cycle) float64 {
 // needed: tol is a max of non-negative products, so a difference of the wrong
 // sign is at most zero and can never exceed it.
 func (a *arranger) holeLiesInFace(h, f *cycle) (bool, bool) {
+	if a.holeExitsCircleFace(h, f) {
+		return false, true
+	}
 	hlo, hhi, hok := a.cycleBounds(h)
 	flo, fhi, fok := a.cycleBounds(f)
 	if !hok || !fok {
