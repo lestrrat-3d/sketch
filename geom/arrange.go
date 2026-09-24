@@ -296,7 +296,10 @@ type arranger struct {
 	// weld of their sample vertices. The fallback is only sound while the sampled map
 	// represents those crossings; where it does not, the map is fused and no fragment
 	// of the affected component may report an exact parameter. refuseExactOnFusedMap
-	// compares the two and fills exactRefused.
+	// compares the two and fills exactRefused. deferredCross has a second reader:
+	// extract's discarded-cycle scan consults it alongside events, because a
+	// deferred crossing loses the same face a certified one does and this is the
+	// only ledger carrying it.
 	deferredCross   map[[2]int][]xEvent
 	sampledContacts map[[2]int][][2]float64
 
@@ -3827,27 +3830,45 @@ func (a *arranger) extract() *Arrangement {
 			holes = append(holes, c)
 		default:
 			// A cycle discarded by the area floor can contain the only face made
-			// by a certified crossing. Keep pruning it, but report the missing
-			// topology on the two sources that crossed.
-			srcs := map[int]struct{}{}
+			// by a crossing. Keep pruning it, but report the missing topology on
+			// the two sources that crossed.
+			//
+			// The scan is driven by THIS cycle's own sources, and consults both
+			// crossing ledgers. Driving it from the cycle keeps the cost O(k²)
+			// lookups in the k distinct sources on the cycle — scanning a.events
+			// instead is O(N²) per discarded cycle, hence cubic in a scene whose
+			// discarded cycles grow with N. Reading a.deferredCross as well as
+			// a.events is what makes the arm reachable at all for a pair handed
+			// back to the sampled path: analyticPrepass records such a pair ONLY
+			// in a.deferredCross, so an events-only scan can never fire for it,
+			// while the face it loses is the same one a certified crossing loses.
+			// Sources are sorted so a cycle carrying several crossing pairs
+			// publishes their degeneracy records in a stable order.
+			var srcs []int
 			for _, f := range c.frags {
-				srcs[f.src] = struct{}{}
+				if !slices.Contains(srcs, f.src) {
+					srcs = append(srcs, f.src)
+				}
 			}
-			for pair, events := range a.events {
-				if _, flagged := flaggedCross[pair]; flagged {
-					continue
-				}
-				if _, present := srcs[pair[0]]; !present {
-					continue
-				}
-				if _, present := srcs[pair[1]]; !present {
-					continue
-				}
-				for _, e := range events {
-					if e.kind == evCross {
-						a.flagDegenerate(e.x, e.y, pair[0], pair[1])
-						flaggedCross[pair] = struct{}{}
-						break
+			slices.Sort(srcs)
+			for x := 0; x < len(srcs); x++ {
+				for y := x + 1; y < len(srcs); y++ {
+					pair := pairKey(srcs[x], srcs[y])
+					if _, flagged := flaggedCross[pair]; flagged {
+						continue
+					}
+					for _, events := range [2][]xEvent{a.events[pair], a.deferredCross[pair]} {
+						for _, e := range events {
+							if e.kind != evCross {
+								continue
+							}
+							a.flagDegenerate(e.x, e.y, pair[0], pair[1])
+							flaggedCross[pair] = struct{}{}
+							break
+						}
+						if _, flagged := flaggedCross[pair]; flagged {
+							break
+						}
 					}
 				}
 			}
