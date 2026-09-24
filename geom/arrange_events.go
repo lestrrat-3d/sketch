@@ -504,11 +504,21 @@ func circleCircleEvents(a, b operand, scale float64) ([]xEvent, bool) {
 		// first overflows at a fourth root of MaxFloat64 (about 1.16e77), far below
 		// the ~1.34e154 scene extent the rest of the arrangement carries. Each
 		// argument here is bounded by about 4·max², so the ceiling matches.
+		//
+		// Staging bounds `half` but NOT `aDist`, which still forms d² and so
+		// overflows above sqrt(MaxFloat64). A finite `half` therefore proves
+		// nothing about the point built from both, and the emitted center is the
+		// only quantity that proves both are usable — so it is what gets tested.
+		// An overflowed `aDist` becomes the same ambiguous refusal the guard
+		// below records, rather than an Inf/NaN crossing handed downstream.
 		half := math.Sqrt((sum+d)*(sum-d)) * math.Sqrt((d+diff)*(d-diff)) / (2 * d)
 		if math.IsInf(half, 0) || math.IsNaN(half) {
 			return nil, true // magnitudes past float64 → ambiguous
 		}
 		mx, my := a.cx+aDist*ux, a.cy+aDist*uy
+		if math.IsInf(mx, 0) || math.IsNaN(mx) || math.IsInf(my, 0) || math.IsNaN(my) {
+			return nil, true // magnitudes past float64 → ambiguous
+		}
 		nx, ny := -uy, ux // perpendicular to the center line
 		var out []xEvent
 		for _, s := range []float64{-half, half} {
