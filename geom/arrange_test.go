@@ -243,6 +243,26 @@ func TestRegionsEllipseArea(t *testing.T) {
 	require.InDelta(t, math.Pi*4*2, arr.Regions[0].Area, 1e-2, "pi*rx*ry")
 }
 
+func TestRegionsThinEllipseContainmentProbeFallback(t *testing.T) {
+	// At y=1, this minor radius is narrower than one float64 step. The
+	// sampled hole's interior probe lies on its lowest representable y value,
+	// so neither perturbation direction can keep a candidate inside it.
+	step := math.Nextafter(1, math.Inf(1)) - 1
+	e := geom.NewEllipse(geom.NewPoint(0, 1), 1e-5, 0.375*step, 0)
+	arr := geom.Regions(nil, []geom.ClosedCurve{e},
+		geom.WithVertexMerge(1e-20), geom.WithSegmentsPerTurn(32))
+
+	require.False(t, arr.Degenerate, "the ellipse remains a valid region")
+	require.Len(t, arr.Regions, 1)
+	r := arr.Regions[0]
+	require.False(t, r.Degenerate)
+	require.False(t, r.SelfIntersecting)
+	require.Empty(t, r.Holes)
+	require.NotEmpty(t, r.Outer)
+	require.Greater(t, r.Area, 0.0)
+	require.False(t, math.IsInf(r.Area, 0))
+}
+
 func TestRegionsCollinearOverlapDegenerate(t *testing.T) {
 	// A square with a duplicate segment lying on its bottom edge.
 	curves := square(0, 0, 10)
