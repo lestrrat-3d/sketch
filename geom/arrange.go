@@ -4252,10 +4252,16 @@ func (a *arranger) makeCycle(hs []int) cycle {
 	var truePath [][2]float64
 	curved := false
 	analytic := true
+	lineEndpointMoved := false
 	for _, f := range frags {
-		kind := a.sources[f.src].kind
+		s := &a.sources[f.src]
+		kind := s.kind
 		curved = curved || kind == srcArc || kind == srcCircle
 		analytic = analytic && (kind == srcLine || kind == srcArc || kind == srcCircle)
+		if kind == srcLine && (!a.endpointReproduces(s, f.pStart, f.dense[0][0], f.dense[0][1]) ||
+			!a.endpointReproduces(s, f.pEnd, f.dense[len(f.dense)-1][0], f.dense[len(f.dense)-1][1])) {
+			lineEndpointMoved = true
+		}
 	}
 	collapsed := curved && analytic
 	if collapsed {
@@ -4284,7 +4290,7 @@ func (a *arranger) makeCycle(hs []int) cycle {
 	var bulge float64
 	for _, f := range frags {
 		s := &a.sources[f.src]
-		if collapsed {
+		if collapsed && !lineEndpointMoved {
 			truePath = append(truePath, s.at(f.pStart), s.at(f.pEnd))
 		}
 		// TStart/TEnd are reported in the source's NATURAL parameter direction, so
@@ -4331,10 +4337,12 @@ func (a *arranger) makeCycle(hs []int) cycle {
 		}
 	}
 	c.area = signedPolyArea(chord) + bulge
-	if collapsed {
+	if collapsed && !lineEndpointMoved {
 		// A weld can collapse the chord polygon and reverse a curved cycle's
 		// orientation. Use its true fragment endpoints and the short joins
-		// between them only when they reverse the side classification.
+		// between them only when they reverse the side classification. A welded
+		// line follows its emitted chord, so its original endpoint cannot decide
+		// which side of that chord the emitted curved cycle bounds.
 		trueArea := signedPolyArea(truePath) + bulge
 		if c.area*trueArea < 0 {
 			c.area = trueArea

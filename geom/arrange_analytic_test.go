@@ -108,6 +108,53 @@ func TestAnalyticArcEndpointTangentKeepsWeldedBoxFace(t *testing.T) {
 	}
 }
 
+func TestAnalyticWeldedArcSliverKeepsRightFace(t *testing.T) {
+	p := geom.NewPoint
+	curves := []geom.Curve{
+		geom.NewLine(p(0, 0), p(10, 0)),
+		geom.NewLine(p(10, 0), p(10, 10)),
+		geom.NewLine(p(10, 10), p(0, 10)),
+		geom.NewLine(p(0, 10), p(0, 0)),
+		geom.NewLine(p(0, -0.0657), p(10, 0.0267)),
+		geom.NewArc(p(5, 0.025), p(0, 0.025), p(10, 0.025)),
+	}
+	for _, tc := range []struct {
+		name     string
+		options  []geom.Option
+		edges    int
+		wantArea float64
+	}{
+		{name: "default", edges: 3, wantArea: 5.20835286468e-7},
+		{name: "small weld", options: []geom.Option{geom.WithVertexMerge(0.0001)},
+			edges: 2, wantArea: 2.60419596402e-7},
+		{name: "large weld", options: []geom.Option{geom.WithVertexMerge(0.02480275642614712)},
+			edges: 2, wantArea: 2.60419596402e-7},
+	} {
+		arr := geom.Regions(curves, nil, tc.options...)
+		require.False(t, arr.Degenerate, tc.name)
+		require.Len(t, arr.Regions, 6, tc.name)
+		found := false
+		for _, region := range arr.Regions {
+			if len(region.Outer) != tc.edges {
+				continue
+			}
+			srcs := map[int]struct{}{}
+			for _, edge := range region.Outer {
+				srcs[edge.SourceIndex] = struct{}{}
+			}
+			if _, ok := srcs[1]; !ok {
+				continue
+			}
+			if _, ok := srcs[5]; !ok {
+				continue
+			}
+			require.InDelta(t, tc.wantArea, region.Area, 1e-11, tc.name)
+			found = true
+		}
+		require.True(t, found, "%s: the arc and right side must bound a face", tc.name)
+	}
+}
+
 func loopContainsPoint(loop [][2]float64, point [2]float64) bool {
 	inside := false
 	for i, j := 0, len(loop)-1; i < len(loop); j, i = i, i+1 {
