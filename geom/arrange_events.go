@@ -499,8 +499,15 @@ func circleCircleEvents(a, b operand, scale float64) ([]xEvent, bool) {
 		// Clean secant: two symmetric points about the center line.
 		aDist := (d*d + a.r*a.r - b.r*b.r) / (2 * d) // signed distance from a's center to the radical line
 		// The factored form keeps the half-chord when one radius is tiny;
-		// subtracting aDist² from the larger radius² can round it to zero.
-		half := math.Sqrt((sum+d)*(sum-d)*(d+diff)*(d-diff)) / (2 * d)
+		// subtracting aDist² from the larger radius² can round it to zero. The two
+		// square roots stay SEPARATE: multiplying all four radius-scale factors
+		// first overflows at a fourth root of MaxFloat64 (about 1.16e77), far below
+		// the ~1.34e154 scene extent the rest of the arrangement carries. Each
+		// argument here is bounded by about 4·max², so the ceiling matches.
+		half := math.Sqrt((sum+d)*(sum-d)) * math.Sqrt((d+diff)*(d-diff)) / (2 * d)
+		if math.IsInf(half, 0) || math.IsNaN(half) {
+			return nil, true // magnitudes past float64 → ambiguous
+		}
 		mx, my := a.cx+aDist*ux, a.cy+aDist*uy
 		nx, ny := -uy, ux // perpendicular to the center line
 		var out []xEvent

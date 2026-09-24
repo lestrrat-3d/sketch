@@ -257,3 +257,65 @@ func TestRegionsLargeFiniteSceneIsUnchanged(t *testing.T) {
 		})
 	}
 }
+
+// equalRadiusLensArea is the closed-form area of the lens two EQUAL-radius circles
+// cut from each other at center distance d: 2r²·acos(d/2r) − (d/2)·√((2r−d)(2r+d)).
+// It is staged so no three radius-scale factors ever multiply, which is what lets it
+// stay exact at the radii the two tests below use — twoCircleUnionArea's
+// (−d+R+r)(d+R−r)(d−R+r)(d+R+r) form cannot, by the same overflow those tests pin.
+func equalRadiusLensArea(r, d float64) float64 {
+	return 2*r*r*math.Acos(d/(2*r)) - (d/2)*math.Sqrt((2*r-d)*(2*r+d))
+}
+
+// TestRegionsCircleSecantAtLargeRadiusIsExact pins the circle/circle secant's
+// magnitude envelope to the ~1.34e154 scene band the rest of the arrangement
+// carries (see TestRegionsLargeFiniteSceneIsUnchanged). The half-chord is a product
+// of four radius-scale factors, so computing it before taking any square root
+// overflows at the fourth root of MaxFloat64 — about 1.16e77, some 77 decades below
+// that band. The overflow does NOT flag: the resulting (NaN, ±Inf) crossing events
+// survive the sweep filter, fail certification, and the pair falls through to the
+// sampled path, which publishes a WRONG lens area with Degenerate=false. Staging the
+// two square roots separately keeps each argument bounded by about 4·max².
+func TestRegionsCircleSecantAtLargeRadiusIsExact(t *testing.T) {
+	const r = 1e80
+	circles := []geom.ClosedCurve{
+		geom.NewCircle(geom.NewPoint(0, 0), r),
+		geom.NewCircle(geom.NewPoint(r, 0), r),
+	}
+	arr := geom.Regions(nil, circles, geom.WithSegmentsPerTurn(64))
+	require.False(t, arr.Degenerate, "two circles at d=r is a clean transverse crossing at any radius in band")
+	require.Len(t, arr.Regions, 3, "two equal circles crossing are two lune caps plus the lens")
+	areas := make([]float64, len(arr.Regions))
+	for i, rg := range arr.Regions {
+		areas[i] = rg.Area
+		require.Falsef(t, rg.Degenerate, "region %d", i)
+	}
+	sort.Float64s(areas)
+	require.InEpsilon(t, equalRadiusLensArea(r, r), areas[0], 1e-12,
+		"the lens is the closed-form area, not the sampled fallback's")
+}
+
+// TestRegionsArcSecantAtLargeRadiusPublishesTheLens is the ARC face of the same
+// overflow. The operand kind changes the symptom, not the cause: for arcs the sweep
+// filter drops the non-finite crossing events instead of passing them on, a
+// downstream gate catches the loss, and the scene reads Degenerate with NO region at
+// all — where the circle pair above reads clean and wrong. One formulation fixes
+// both, so both are pinned; a change that reopens only one half must fail here.
+func TestRegionsArcSecantAtLargeRadiusPublishesTheLens(t *testing.T) {
+	const r = 1e80
+	c1, c2 := geom.NewPoint(0, 0), geom.NewPoint(r, 0)
+	at := func(c *geom.Point, ang float64) *geom.Point {
+		return geom.NewPoint(c.X+r*math.Cos(ang), c.Y+r*math.Sin(ang))
+	}
+	// Half-circle sweeps: each crossing (at ±60° on c1, 120°/240° on c2) is interior
+	// to both arcs, so the lens is bounded and the four tails are open chains.
+	arcs := []geom.Curve{
+		geom.NewArc(c1, at(c1, -math.Pi/2), at(c1, math.Pi/2)),
+		geom.NewArc(c2, at(c2, math.Pi/2), at(c2, 3*math.Pi/2)),
+	}
+	arr := geom.Regions(arcs, nil, geom.WithSegmentsPerTurn(64))
+	require.False(t, arr.Degenerate, "the two arcs cross transversally twice")
+	require.Len(t, arr.Regions, 1, "the only bounded face is the lens")
+	require.False(t, arr.Regions[0].Degenerate)
+	require.InEpsilon(t, equalRadiusLensArea(r, r), arr.Regions[0].Area, 1e-12)
+}
