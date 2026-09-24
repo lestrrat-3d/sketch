@@ -3839,6 +3839,15 @@ func (a *arranger) extract() *Arrangement {
 			// by a crossing. Keep pruning it, but report the missing topology on
 			// the two sources that crossed.
 			//
+			// This arm sees floor-discarded CYCLES and nothing else, so it is not
+			// a general net for every face the arrangement loses. A face lost to
+			// VERTEX-MERGE FUSION never reaches here at all: the merge welds the
+			// sampled polylines before the cut, so no cycle is built and none is
+			// discarded. That loss is the sampled path's own limit, described on
+			// refuseExactOnFusedMap and pinned by
+			// TestAnalyticFusedComponentWithdrawsLineAndArcBounds; it predates
+			// this scan and is not something widening the scan could catch.
+			//
 			// The scan is driven by THIS cycle's own sources, and consults both
 			// crossing ledgers. Driving it from the cycle keeps the cost O(k²)
 			// lookups in the k distinct sources on the cycle — scanning a.events
