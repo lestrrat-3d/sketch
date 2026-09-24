@@ -420,6 +420,16 @@ func circleCircleEvents(a, b operand, scale float64) ([]xEvent, bool) {
 	d := math.Hypot(dx, dy)
 	certify := scale * tangentCertify
 	band := scale * tangentBand
+	minRadius, maxRadius := math.Min(a.r, b.r), math.Max(a.r, b.r)
+	if minRadius < maxRadius*tangentBand {
+		// A scene-sized band can swallow an entire much smaller circle. Limit it
+		// to that circle's radius while retaining room for rounded center coordinates.
+		coord := math.Max(math.Max(math.Abs(a.cx), math.Abs(a.cy)), math.Max(math.Abs(b.cx), math.Abs(b.cy)))
+		ulp := math.Nextafter(coord, math.Inf(1)) - coord
+		local := math.Min(scale, minRadius)
+		certify = math.Min(certify, math.Max(local*tangentCertify, 4*ulp))
+		band = math.Min(band, math.Max(local*tangentBand, 16*ulp))
+	}
 	if d < band {
 		// Near-coincident centers. Certify only EXACT coincidence (same center AND
 		// radius) as a degenerate overlap. Clearly different radii are concentric —
@@ -488,11 +498,9 @@ func circleCircleEvents(a, b operand, scale float64) ([]xEvent, bool) {
 	case d > diff+band && d < sum-band:
 		// Clean secant: two symmetric points about the center line.
 		aDist := (d*d + a.r*a.r - b.r*b.r) / (2 * d) // signed distance from a's center to the radical line
-		hh := a.r*a.r - aDist*aDist
-		if hh < 0 {
-			return nil, true // numerically inconsistent → ambiguous
-		}
-		half := math.Sqrt(hh)
+		// The factored form keeps the half-chord when one radius is tiny;
+		// subtracting aDist² from the larger radius² can round it to zero.
+		half := math.Sqrt((sum+d)*(sum-d)*(d+diff)*(d-diff)) / (2 * d)
 		mx, my := a.cx+aDist*ux, a.cy+aDist*uy
 		nx, ny := -uy, ux // perpendicular to the center line
 		var out []xEvent

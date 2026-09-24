@@ -3807,6 +3807,7 @@ func (a *arranger) extract() *Arrangement {
 	}
 	var faces []*cycle
 	var holes []*cycle
+	flaggedCross := map[[2]int]struct{}{}
 	for i := range cycles {
 		c := &cycles[i]
 		c.areaFloor = a.cycleAreaFloor(c)
@@ -3824,6 +3825,32 @@ func (a *arranger) extract() *Arrangement {
 			faces = append(faces, c)
 		case c.area < -c.areaFloor:
 			holes = append(holes, c)
+		default:
+			// A cycle discarded by the area floor can contain the only face made
+			// by a certified crossing. Keep pruning it, but report the missing
+			// topology on the two sources that crossed.
+			srcs := map[int]struct{}{}
+			for _, f := range c.frags {
+				srcs[f.src] = struct{}{}
+			}
+			for pair, events := range a.events {
+				if _, flagged := flaggedCross[pair]; flagged {
+					continue
+				}
+				if _, present := srcs[pair[0]]; !present {
+					continue
+				}
+				if _, present := srcs[pair[1]]; !present {
+					continue
+				}
+				for _, e := range events {
+					if e.kind == evCross {
+						a.flagDegenerate(e.x, e.y, pair[0], pair[1])
+						flaggedCross[pair] = struct{}{}
+						break
+					}
+				}
+			}
 		}
 	}
 

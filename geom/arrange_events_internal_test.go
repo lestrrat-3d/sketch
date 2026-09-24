@@ -103,6 +103,62 @@ func TestAnalyticCircleCircleSecant(t *testing.T) {
 	}
 }
 
+func TestAnalyticCircleCircleTinySecantAtLargeCoordinate(t *testing.T) {
+	const x0, largeRadius, smallRadius = 1e6, 5.0, 5e-9
+	x1 := x0 + largeRadius - 2e-9
+	for _, pair := range [][2]*source{
+		{circleSrc(x0, 0, largeRadius), circleSrc(x1, 0, smallRadius)},
+		{circleSrc(x1, 0, smallRadius), circleSrc(x0, 0, largeRadius)},
+	} {
+		events, ambiguous, ok := analyticEvents(pair[0], pair[1], 10)
+		require.True(t, ok)
+		require.False(t, ambiguous)
+		require.Len(t, events, 2, "the small circle crosses the large circle twice")
+		require.Equal(t, evCross, events[0].kind)
+		require.Equal(t, evCross, events[1].kind)
+		require.Less(t, events[0].y*events[1].y, 0.0)
+		for _, event := range events {
+			require.InDelta(t, largeRadius, math.Hypot(event.x-x0, event.y), 1e-10)
+			require.InDelta(t, smallRadius, math.Hypot(event.x-x1, event.y), 1e-10)
+		}
+	}
+}
+
+func TestAnalyticCircleCircleTinyTangenciesAtLargeCoordinate(t *testing.T) {
+	const x0, largeRadius, smallRadius = 1e6, 5.0, 5e-9
+	for _, tc := range []struct {
+		name string
+		x1   float64
+	}{
+		{name: "external", x1: x0 + largeRadius + smallRadius},
+		{name: "internal", x1: x0 + largeRadius - smallRadius},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			events, ambiguous, ok := analyticEvents(
+				circleSrc(x0, 0, largeRadius), circleSrc(tc.x1, 0, smallRadius), 10)
+			require.True(t, ok)
+			require.False(t, ambiguous)
+			require.Len(t, events, 1)
+			require.Equal(t, evTangent, events[0].kind)
+		})
+	}
+}
+
+func TestAnalyticCircleCircleTinyNearMissAtLargeCoordinate(t *testing.T) {
+	const x0, largeRadius, smallRadius = 1e6, 5.0, 5e-9
+	near := circleSrc(x0+largeRadius+smallRadius+1e-9, 0, smallRadius)
+	events, ambiguous, ok := analyticEvents(circleSrc(x0, 0, largeRadius), near, 10)
+	require.True(t, ok)
+	require.True(t, ambiguous)
+	require.Empty(t, events)
+
+	clear := circleSrc(x0+largeRadius+smallRadius+3e-9, 0, smallRadius)
+	events, ambiguous, ok = analyticEvents(circleSrc(x0, 0, largeRadius), clear, 10)
+	require.True(t, ok)
+	require.False(t, ambiguous)
+	require.Empty(t, events)
+}
+
 func TestAnalyticCircleCircleSeparate(t *testing.T) {
 	ev, _, ok := analyticEvents(circleSrc(0, 0, 1), circleSrc(5, 0, 1), 6)
 	require.True(t, ok)

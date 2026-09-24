@@ -500,6 +500,13 @@ A line at `x=1e7` cannot suppress a nested square's hole
 (`TestRegionsDistantOpenLineDoesNotHideHole`). The existing curved-source sliver
 control is `TestNearMissHiddenCrossingIsDegenerate`. The scene-wide magnitude
 screen sets a flag only; it does not raise any cycle's classification floor.
+When `extract` drops a cycle that uses both sources of a certified crossing,
+it flags that pair degenerate. The two crossing-bounded faces of a tiny circle
+can fall below a floor set by a much larger circle; pruning both must not
+publish the remaining large disk as a clean complete map
+(`TestRegionsRejectsHoleThatExitsItsFace`). A tiny circle strictly inside the
+large one has no crossing and stays clean
+(`TestRegionsKeepsHoleInsideFaceBoundaryRoundoff`).
 
 When a cycle contains an arc or circle, has no other kinds beyond lines,
 arcs and circles, and has fewer than three distinct welded sample vertices,
