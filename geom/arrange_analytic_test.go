@@ -108,6 +108,109 @@ func TestAnalyticArcEndpointTangentKeepsWeldedBoxFace(t *testing.T) {
 	}
 }
 
+func TestAnalyticWeldedArcSliverKeepsRightFace(t *testing.T) {
+	p := geom.NewPoint
+	curves := []geom.Curve{
+		geom.NewLine(p(0, 0), p(10, 0)),
+		geom.NewLine(p(10, 0), p(10, 10)),
+		geom.NewLine(p(10, 10), p(0, 10)),
+		geom.NewLine(p(0, 10), p(0, 0)),
+		geom.NewLine(p(0, -0.0657), p(10, 0.0267)),
+		geom.NewArc(p(5, 0.025), p(0, 0.025), p(10, 0.025)),
+	}
+	for _, tc := range []struct {
+		name     string
+		options  []geom.Option
+		edges    int
+		wantArea float64
+	}{
+		{name: "default", edges: 3, wantArea: 5.20835286468e-7},
+		{name: "small weld", options: []geom.Option{geom.WithVertexMerge(0.0001)},
+			edges: 2, wantArea: 2.60419596402e-7},
+		{name: "large weld", options: []geom.Option{geom.WithVertexMerge(0.02480275642614712)},
+			edges: 2, wantArea: 2.60419596402e-7},
+	} {
+		arr := geom.Regions(curves, nil, tc.options...)
+		require.False(t, arr.Degenerate, tc.name)
+		require.Len(t, arr.Regions, 6, tc.name)
+		found := false
+		for _, region := range arr.Regions {
+			if len(region.Outer) != tc.edges {
+				continue
+			}
+			srcs := map[int]struct{}{}
+			for _, edge := range region.Outer {
+				srcs[edge.SourceIndex] = struct{}{}
+			}
+			if _, ok := srcs[1]; !ok {
+				continue
+			}
+			if _, ok := srcs[5]; !ok {
+				continue
+			}
+			require.InDelta(t, tc.wantArea, region.Area, 1e-11, tc.name)
+			found = true
+		}
+		require.True(t, found, "%s: the arc and right side must bound a face", tc.name)
+	}
+}
+
+func TestAnalyticWeldedMixedCycleKeepsLineArcFace(t *testing.T) {
+	// A collapsed cycle mixing a welded LINE fragment with a CURVED one still needs
+	// the true-endpoint orientation correction. Here the weld pulls three points onto
+	// (0,0), so the cycle over the box's left side (source 3) and the arc (source 6)
+	// has a chord polygon of two distinct points: its sampled area is just the arc's
+	// negative bulge, and only the true fragment endpoints say which side it bounds.
+	// The left side's own endpoint moved, so a rule that disables the correction for
+	// any weld-moved line drops this face and emits source 3 as an open chain.
+	p := geom.NewPoint
+	const y = 0.0541523093145383
+	curves := []geom.Curve{
+		geom.NewLine(p(0, 0), p(10, 0)),
+		geom.NewLine(p(10, 0), p(10, 10)),
+		geom.NewLine(p(10, 10), p(0, 10)),
+		geom.NewLine(p(0, 10), p(0, 0)),
+		geom.NewLine(p(0, -0.0657), p(10, 0.04)),
+		geom.NewLine(p(0, 0.0149), p(10, -0.002)),
+		geom.NewArc(p(5, y), p(0, y), p(10, y)),
+	}
+	closed := []geom.ClosedCurve{geom.NewCircle(p(8.4, y), 1.6)}
+	arr := geom.Regions(curves, closed, geom.WithVertexMerge(0.02480275642614712))
+
+	require.False(t, arr.Degenerate)
+	require.Len(t, arr.Regions, 11)
+
+	found := false
+	for _, region := range arr.Regions {
+		if len(region.Outer) != 2 {
+			continue
+		}
+		bySource := map[int]geom.BoundaryEdge{}
+		for _, edge := range region.Outer {
+			bySource[edge.SourceIndex] = edge
+		}
+		side, okSide := bySource[3]
+		arc, okArc := bySource[6]
+		if !okSide || !okArc {
+			continue
+		}
+		require.InDelta(t, 0.994584769069, side.TStart, 1e-9, "the left side's fragment starts at the weld")
+		require.InDelta(t, 0.99851, side.TEnd, 1e-9, "the left side's fragment ends at the sloped cut")
+		require.InDelta(t, 0, arc.TStart, 1e-9, "the arc's fragment starts at its own start")
+		require.InDelta(t, 0.00249892186799, arc.TEnd, 1e-9, "the arc's fragment ends at the sloped cut")
+		require.InDelta(t, 2.0159637529357271e-06, region.Area, 1e-15,
+			"the face keeps the true-endpoint area, not the sampled orientation")
+		found = true
+	}
+	require.True(t, found, "the box's left side and the arc must bound a face")
+
+	for _, chain := range arr.Chains {
+		for _, edge := range chain.Edges {
+			require.NotEqual(t, 3, edge.SourceIndex, "the box's left side must bound a face, not dangle")
+		}
+	}
+}
+
 func loopContainsPoint(loop [][2]float64, point [2]float64) bool {
 	inside := false
 	for i, j := 0, len(loop)-1; i < len(loop); j, i = i, i+1 {

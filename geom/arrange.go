@@ -4249,7 +4249,7 @@ func (a *arranger) makeCycle(hs []int) cycle {
 	}
 
 	chord := make([][2]float64, 0, len(frags))
-	var truePath [][2]float64
+	var truePath, heldPath [][2]float64
 	curved := false
 	analytic := true
 	for _, f := range frags {
@@ -4285,7 +4285,21 @@ func (a *arranger) makeCycle(hs []int) cycle {
 	for _, f := range frags {
 		s := &a.sources[f.src]
 		if collapsed {
-			truePath = append(truePath, s.at(f.pStart), s.at(f.pEnd))
+			// Two comparison paths for the orientation check below. truePath always
+			// takes the fragment's TRUE parameter endpoints. heldPath differs on one
+			// case only: a LINE fragment a weld moved off its own parametric endpoint
+			// is held to its EMITTED chord, because such a line follows that chord and
+			// its original endpoint cannot say which side of it the emitted cycle
+			// bounds.
+			ts, te := s.at(f.pStart), s.at(f.pEnd)
+			truePath = append(truePath, ts, te)
+			if s.kind == srcLine && len(f.dense) > 1 &&
+				(!a.endpointReproduces(s, f.pStart, f.dense[0][0], f.dense[0][1]) ||
+					!a.endpointReproduces(s, f.pEnd, f.dense[len(f.dense)-1][0], f.dense[len(f.dense)-1][1])) {
+				heldPath = append(heldPath, f.dense[0], f.dense[len(f.dense)-1])
+			} else {
+				heldPath = append(heldPath, ts, te)
+			}
 		}
 		// TStart/TEnd are reported in the source's NATURAL parameter direction, so
 		// TStart < TEnd always; Reversed is what says the walk traverses the fragment
@@ -4334,9 +4348,16 @@ func (a *arranger) makeCycle(hs []int) cycle {
 	if collapsed {
 		// A weld can collapse the chord polygon and reverse a curved cycle's
 		// orientation. Use its true fragment endpoints and the short joins
-		// between them only when they reverse the side classification.
+		// between them only when they reverse the side classification. A
+		// weld-moved line endpoint on its own cannot decide that side, so the
+		// reversal must survive holding every such line to its emitted chord:
+		// both paths must flip the sign before the substitution fires. The held
+		// path is a SIGN test only — its magnitude describes a boundary that
+		// mixes emitted and true endpoints, so the substituted value is always
+		// the true-endpoint area.
 		trueArea := signedPolyArea(truePath) + bulge
-		if c.area*trueArea < 0 {
+		heldArea := signedPolyArea(heldPath) + bulge
+		if c.area*trueArea < 0 && c.area*heldArea < 0 {
 			c.area = trueArea
 		}
 	}
