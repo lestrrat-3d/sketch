@@ -16,7 +16,8 @@ func TestBannerAnimationFramesAreSVG(t *testing.T) {
 	require.NoError(t, err)
 	animation, err := newBannerAnimation(static)
 	require.NoError(t, err)
-	for _, index := range []int{0, 16, 48, bannerFrames - 1} {
+	for _, index := range []int{0, 16, int(bannerHoldStart * bannerFPS),
+		int(bannerExitStart * bannerFPS), bannerFrames - 1} {
 		var root struct {
 			XMLName xml.Name
 		}
@@ -32,13 +33,33 @@ func TestBannerGIF(t *testing.T) {
 	defer file.Close()
 	animation, err := gif.DecodeAll(file)
 	require.NoError(t, err)
-	require.Equal(t, bannerFrames, len(animation.Image))
+	require.Greater(t, len(animation.Image), 10)
+	require.LessOrEqual(t, len(animation.Image), bannerFrames)
 	require.Equal(t, 720, animation.Config.Width)
 	require.Equal(t, 299, animation.Config.Height)
 	require.Equal(t, 0, animation.LoopCount)
-	require.Zero(t, bannerBluePixels(animation.Image[0]))
-	require.Greater(t, bannerBluePixels(animation.Image[48]), 100)
-	require.Zero(t, bannerBluePixels(animation.Image[bannerFrames-1]))
+	fullBlue := bannerBluePixels(bannerGIFFrameAt(animation, int(bannerHoldStart*100)))
+	require.Zero(t, bannerBluePixels(bannerGIFFrameAt(animation, 0)))
+	require.Greater(t, fullBlue, 100)
+	require.Equal(t, fullBlue, bannerBluePixels(bannerGIFFrameAt(animation, int(bannerExitStart*100)-1)))
+	require.Less(t, bannerBluePixels(bannerGIFFrameAt(animation, int((bannerExitStart+0.5)*100))), fullBlue)
+	require.Zero(t, bannerBluePixels(animation.Image[len(animation.Image)-1]))
+	totalCentiseconds := 0
+	for _, delay := range animation.Delay {
+		totalCentiseconds += delay
+	}
+	require.InDelta(t, bannerExitEnd*100, totalCentiseconds, 10)
+}
+
+func bannerGIFFrameAt(animation *gif.GIF, centiseconds int) image.Image {
+	elapsed := 0
+	for i, delay := range animation.Delay {
+		elapsed += delay
+		if centiseconds < elapsed {
+			return animation.Image[i]
+		}
+	}
+	return animation.Image[len(animation.Image)-1]
 }
 
 func bannerBluePixels(frame image.Image) int {

@@ -10,8 +10,12 @@ import (
 )
 
 const (
-	bannerFPS    = 16
-	bannerFrames = 80
+	bannerFPS         = 16
+	bannerHoldStart   = 2.5
+	bannerHoldSeconds = 10
+	bannerExitStart   = bannerHoldStart + bannerHoldSeconds
+	bannerExitEnd     = bannerExitStart + 1
+	bannerFrames      = int(bannerExitEnd * bannerFPS)
 )
 
 // bannerAnimation keeps the frame layout anchored to the SVG rendered by
@@ -77,9 +81,9 @@ func bannerProgress(t, start, end float64) float64 {
 
 func (a bannerAnimation) frame(index int) string {
 	t := float64(index) / bannerFPS
-	exit := 1 - bannerProgress(t, 4, 5)
+	exit := 1 - bannerProgress(t, bannerExitStart, bannerExitEnd)
 	word := bannerProgress(t, 0, 1.6) * exit
-	tagline := bannerProgress(t, 1.5, 2.4) * exit
+	tagline := bannerProgress(t, 1.5, bannerHoldStart) * exit
 	split := a.height * 0.61 // between the wordmark and tagline in banner.go
 	clip := fmt.Sprintf(
 		"  <defs><clipPath id=\"banner-reveal\">"+
@@ -121,10 +125,12 @@ func renderBannerGIF(out string) error {
 	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 		return fmt.Errorf("create GIF directory: %w", err)
 	}
-	filter := "[0:v]split[a][b];[a]palettegen=max_colors=64[p];[b][p]paletteuse[v]"
+	// Collapse identical hold frames into one long GIF delay without dropping changed frames.
+	filter := "[0:v]mpdecimate=hi=0:lo=0:frac=0,split[a][b];" +
+		"[a]palettegen=max_colors=64[p];[b][p]paletteuse[v]"
 	cmd := exec.Command("ffmpeg", "-y", "-loglevel", "error", "-framerate", strconv.Itoa(bannerFPS),
 		"-i", filepath.Join(framesDir, "frame_%04d.svg"), "-filter_complex", filter,
-		"-map", "[v]", "-loop", "0", out)
+		"-map", "[v]", "-fps_mode", "vfr", "-loop", "0", out)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("encode banner GIF with ffmpeg: %w: %s", err, strings.TrimSpace(string(output)))
 	}
