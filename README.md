@@ -1,7 +1,9 @@
 # sketch
 
 <p align="center">
-  <img src="docs/images/banner.svg" alt="The word 'sketch' in outlined letters over a CAD grid and frame, above the tagline 'A headless parametric 2D sketch engine'" width="640">
+  <img src="docs/images/banner.gif"
+       alt="The sketch wordmark and tagline appear from left to right over a CAD grid, then clear and repeat"
+       width="640">
 </p>
 
 A standalone, fully programmable **headless parametric 2D sketch engine** for
@@ -76,6 +78,10 @@ which point is which. The gallery also renders
 "windowed" — `WithFrame` draws a border and `WithGrid` lays
 a coordinate grid behind the sketch; a framed render always carries a small
 `github.com/lestrrat-3d/sketch` provenance footer.
+
+The masthead GIF uses the same Sketch-generated geometry as `banner.svg`.
+Regenerate it with `go run ./internal/cmd/genimages banner-gif docs/images/banner.gif`.
+This command requires ffmpeg with SVG decoding.
 
 **Constraints and dimensions** — geometric-constraint glyphs (H/V = horizontal
 / vertical, ∥ = parallel, ⊥ = perpendicular) and CAD-style dimensions with
