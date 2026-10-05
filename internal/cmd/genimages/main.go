@@ -23,6 +23,21 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "banner-gif" {
+		if len(os.Args) > 3 {
+			fmt.Fprintln(os.Stderr, "genimages: usage: go run ./internal/cmd/genimages banner-gif [output.gif]")
+			os.Exit(2)
+		}
+		out := filepath.Join("docs", "images", "banner.gif")
+		if len(os.Args) == 3 {
+			out = os.Args[2]
+		}
+		if err := renderBannerGIF(out); err != nil {
+			fmt.Fprintln(os.Stderr, "genimages:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	dir := "docs/images"
 	if len(os.Args) > 1 {
 		dir = os.Args[1]

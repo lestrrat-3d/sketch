@@ -269,6 +269,8 @@ func buildBannerSketch() (*sketch.Sketch, error) {
 	return s, nil
 }
 
+const bannerStroke = "#1a73e8"
+
 // bannerOptions is the shared render styling for the masthead: blue geometry
 // over a CAD frame and background grid, no point markers or annotations. The
 // masthead is the strongest proof the engine draws its own images — the wordmark
@@ -277,7 +279,7 @@ func buildBannerSketch() (*sketch.Sketch, error) {
 var bannerOptions = []sketch.SVGOption{
 	sketch.WithShowPoints(false),
 	sketch.WithBackground("white"),
-	sketch.WithStroke("#1a73e8"),
+	sketch.WithStroke(bannerStroke),
 	sketch.WithStrokeWidth(0.5),
 	sketch.WithFrame(true),
 	sketch.WithGrid(true),
