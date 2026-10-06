@@ -1,5 +1,7 @@
 # sketch
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/lestrrat-3d/sketch)
+
 <p align="center">
   <img src="docs/images/banner.gif"
        alt="The sketch wordmark and tagline appear from left to right over a CAD grid, then clear and repeat"
