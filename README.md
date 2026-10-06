@@ -45,6 +45,10 @@ along the way.
 * **Verification diagnostics** — redundant/conflicting constraint detection,
   free-DOF attribution, over-constraint rejection, and a multi-solution
   ambiguity probe.
+* **Certified solve** — `Sketch.Enclose` returns outward-rounded intervals
+  that contain the exact solution of a point-and-line sketch, proves the
+  solution is the only one in its box, and follows it across a range of a
+  driving dimension, or refuses with a named cause.
 * **Units of measure and expression-driven dimensions** — typed units and a
   parameter/expression engine, so a single parameter can drive a whole sketch.
 * **Profile (closed-region) detection** with exact areas and hole nesting.

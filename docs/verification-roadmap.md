@@ -101,6 +101,12 @@ algorithms stay above.
   as often drafting leftovers as intended geometry, and the conditions that
   invalidate one already reach the verdict through `ProfilesValid` or belong to
   the single chain a consumer is about to sweep.
+- **Certified solve:** `Sketch.Enclose` encloses the EXACT solution over a range
+  of one driving dimension — boxes proven by interval Krawczyk to hold exactly
+  one solution per driving value, one continuous branch across the range, and
+  intervals for every driven dimension — or refuses with a named sentinel.
+  Point/line constraint kinds only. Design in
+  `docs/certified-enclosure-design.md`.
 - **Placement & I/O:** `World`/`Plane` 3D placement with local↔world readout;
   JSON v2 round-trip (sketch + world); SVG/PNG/DXF export; units system.
 - **Reference geometry:** the separation keystone — read-only, externally-locked
