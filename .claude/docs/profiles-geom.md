@@ -14,6 +14,7 @@ Detail moved out of CLAUDE.md. Read before touching `Sketch.Profiles`, `Boundary
 | What decides the order chains come back in? | Direction, order, length and validity |
 | What does `geom.Regions` return? | The planar-arrangement / region engine |
 | Which crossings are analytic? | Analytic crossing detection |
+| Where is a pair's handled/events state stored? | Per-pair prepass state |
 | Why was a clean crossing refused? | Curve/curve transverse crossing authority |
 | Why is a region flagged degenerate? | Chord-deviation degeneracy bounds |
 | Why did a huge but finite scene read degenerate, or publish `Area=+Inf`? | The magnitude screen |
@@ -1140,9 +1141,22 @@ not taken.
 ### What joins a component
 
 **What joins a component is a CONTACT, never a classification**: a handled pair with
-NO event means the kernel looked and found the two sources never meet, so unioning on
-the presence of its `a.events` key alone collapsed every analytic source in the scene
-into one component and let a single refused crossing withdraw exactness scene-wide.
+NO event means the kernel looked and found the two sources never meet → it MUST NOT
+union. Unioning every handled pair collapses every analytic source in the scene into
+one component, so a single refused crossing withdraws exactness scene-wide.
+
+### Per-pair prepass state
+
+**`analyticPrepass` writes NO per-pair record for a pair that is merely handled.**
+It visits every analytic pair (`O(N²)`), so a per-pair write dominated its cost on
+many-sided outlines.
+
+- `a.events` holds only pairs whose kernel result is non-empty. A missing key = empty
+  event list; every reader relies on that.
+- `a.handled(i, j)` is DERIVED: both sources analytic kind AND pair absent from
+  `a.deferredCross`. NEVER reintroduce a stored handled set; add a new prepass
+  outcome that hands a pair back to the sampled path → record it in
+  `a.deferredCross` (or extend `handled`) so the derivation stays exact.
 
 ### Regression tests
 
