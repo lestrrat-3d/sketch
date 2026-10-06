@@ -1,4 +1,4 @@
-# Diagnostics and verification — `solver.go`, `diagnose.go`, `verify.go`, `probe.go`
+# Diagnostics and verification — `solver.go`, `diagnose.go`, `verify.go`, `probe.go`, `enclose.go`
 
 Detail moved out of CLAUDE.md's architecture table. Read before touching rank/DOF analysis, the conflict/redundancy passes, `Verify`'s report or trust verdict, or the ambiguity probe.
 
@@ -17,6 +17,7 @@ Detail moved out of CLAUDE.md's architecture table. Read before touching rank/DO
 | Why does `CheckConstraint` refuse a candidate? | `diagnose.go` — overview and the `CheckConstraint` screens |
 | Why does the probe refuse or return NaN? | `probe.go` — the ambiguity probe |
 | When does the solver skip residual rows while building its Jacobian? | `jacobian.go` — the local residual Jacobian |
+| What does `Enclose` claim, and what may change it? | `enclose.go` — the certified enclosure |
 
 Navigation only — the sections below are the authority.
 
@@ -627,3 +628,47 @@ false "identical". `probe_ownership_test.go` pins the refusal at both index
 regimes and against a removed point, and — the load-bearing half — an owned
 point, `s.Origin()`, and every point of the sketch reading unchanged across
 every configuration the probe returns.
+
+## `enclose.go` — the certified enclosure
+
+### Overview
+
+`Sketch.Enclose(ctx, driver, lo, hi, ...EncloseOption) (*Enclosure, error)`:
+interval Krawczyk certificate of the EXACT solution over a range of one driving
+dimension's value. Design + claims in `docs/certified-enclosure-design.md` (the
+authority). Files: `enclose.go` (API, piece loop, ties, tightness, fingerprint),
+`enclose_system.go` (certified equations, interval Jacobian, `krawczyk`),
+`interval.go` (outward-rounded arithmetic), `interval_trig.go` (proven
+sin/cos/atan2 bounds).
+
+### Rules
+
+- NEVER feed the certified path from `residual()` or the central-difference
+  Jacobian. Each supported kind has a restated equation with the SAME zero set
+  inside the box + closed-form partials in `certEquationsOf`. Adding a kind →
+  add its equation, its partials, and any side condition that makes the zero
+  sets agree (the angle's `cross·sin θ + dot·cos θ > 0`).
+- Unsupported kind anywhere (driving OR driven, internal ones included) →
+  `ErrUncertifiedConstraint` for the whole sketch. NEVER skip a constraint the
+  certified system cannot read; the claim is about every equation.
+- NEVER trust `math.Sin`/`Cos`/`Atan2` for a bound. Use `sinCosPoint`
+  (fixed-point Taylor + tracked error), `sinCosRange`, `atan2Point`
+  (bracket-and-verify), `atan2Box`.
+- Every interval op rounds outward via `down`/`up`. Write products as
+  `float64(a*b)` → forbids FMA fusion per the Go spec.
+- A refusal returns a NIL enclosure. NEVER return a partial enclosure with an
+  error.
+- `Enclose` restores `s.vars` and the driver's `dimBase` in a `defer`, on
+  success and refusal → `Revision` unchanged. NEVER call `Solve` or
+  `refreshDriven` from the certified path; it runs `lm` directly.
+- Determinism (bit-identical on the same state) is part of the contract. NEVER
+  add map iteration, randomness, or goroutines to the run.
+- Uniqueness is per piece box, never per hull. NEVER document the hull as a
+  uniqueness box.
+- Piece ties: accept a piece only when the certified point boxes at BOTH ends
+  lie in its uniqueness box `X`. `WithContinuation` reuses the same check
+  against the previous enclosure's end box. Removing a tie breaks the
+  one-branch claim.
+- `IsStale` uses `encloseFingerprint` (Revision + fixed flags + per-constraint
+  kind/operand vars/target/driven). A new input the certified equations read →
+  hash it there.

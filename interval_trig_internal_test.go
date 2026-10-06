@@ -1,0 +1,211 @@
+package sketch
+
+// In-package on purpose (see revision_internal_test.go for the repo's stance):
+// the properties under test are the outward-rounding guarantees of the
+// certified path's private interval and trigonometric kernels. The consumer-
+// visible half of the contract (Enclose's boxes holding the closed-form poses)
+// is covered by enclose_test.go.
+
+import (
+	"math"
+	"math/big"
+	"math/rand"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+// ratSinCosOracle encloses sin(x) and cos(x) as exact rationals by summing the
+// Taylor series in big.Rat until a term past the peak drops below 2^-120,
+// taking that term as the tail bound. It shares the series with sinCosPoint but
+// none of its fixed-point error bookkeeping, which is the part under test.
+func ratSinCosOracle(x float64) (*big.Rat, *big.Rat, *big.Rat, *big.Rat) {
+	xr := new(big.Rat).SetFloat64(x)
+	eps := new(big.Rat).SetFrac(big.NewInt(1), new(big.Int).Lsh(big.NewInt(1), 120))
+	s, c := new(big.Rat), new(big.Rat)
+	t := big.NewRat(1, 1)
+	abs := new(big.Rat)
+	for n := 0; ; n++ {
+		if float64(n) > math.Abs(x)+1 && abs.Abs(t).Cmp(eps) < 0 {
+			break
+		}
+		switch n % 4 {
+		case 0:
+			c.Add(c, t)
+		case 1:
+			s.Add(s, t)
+		case 2:
+			c.Sub(c, t)
+		case 3:
+			s.Sub(s, t)
+		}
+		t.Mul(t, xr)
+		t.Quo(t, new(big.Rat).SetInt64(int64(n+1)))
+	}
+	r := new(big.Rat).Abs(t)
+	return clampRat(new(big.Rat).Sub(s, r)), clampRat(new(big.Rat).Add(s, r)),
+		clampRat(new(big.Rat).Sub(c, r)), clampRat(new(big.Rat).Add(c, r))
+}
+
+// clampRat limits an oracle bound to [−1, 1], where every sine and cosine lies;
+// the tail bound alone can push cos(1e-300)'s upper bound past 1.
+func clampRat(r *big.Rat) *big.Rat {
+	one := big.NewRat(1, 1)
+	if r.Cmp(one) > 0 {
+		return one
+	}
+	if m := big.NewRat(-1, 1); r.Cmp(m) < 0 {
+		return m
+	}
+	return r
+}
+
+func ratOf(v float64) *big.Rat { return new(big.Rat).SetFloat64(v) }
+
+// requireEncloses asserts the float interval iv contains the exact rational
+// interval [lo, hi].
+func requireEncloses(t *testing.T, iv Interval, lo, hi *big.Rat, msg string, args ...any) {
+	t.Helper()
+	margs := append([]any{msg}, args...)
+	require.LessOrEqual(t, ratOf(iv.Lo).Cmp(lo), 0, margs...)
+	require.GreaterOrEqual(t, ratOf(iv.Hi).Cmp(hi), 0, margs...)
+}
+
+func ulp(v float64) float64 { return math.Nextafter(math.Abs(v), math.Inf(1)) - math.Abs(v) }
+
+func TestSinCosPointEnclosesExactValue(t *testing.T) {
+	xs := []float64{0, 1e-300, -1e-300, 0.5, math.Pi / 2, math.Pi, -math.Pi, 3, 10, -33.3, 63.99, -64}
+	rng := rand.New(rand.NewSource(1))
+	for range 40 {
+		xs = append(xs, (rng.Float64()*2-1)*8)
+	}
+	for _, x := range xs {
+		sin, cos, ok := sinCosPoint(x)
+		require.True(t, ok, "x=%v is in range", x)
+		sLo, sHi, cLo, cHi := ratSinCosOracle(x)
+		requireEncloses(t, sin, sLo, sHi, "sin(%v)", x)
+		requireEncloses(t, cos, cLo, cHi, "cos(%v)", x)
+		require.LessOrEqual(t, sin.Hi-sin.Lo, 2*ulp(sin.mid())+0x1p-100, "sin(%v) is tight", x)
+		require.LessOrEqual(t, cos.Hi-cos.Lo, 2*ulp(cos.mid())+0x1p-100, "cos(%v) is tight", x)
+	}
+	for _, x := range []float64{64.0000001, -100, math.NaN(), math.Inf(1)} {
+		_, _, ok := sinCosPoint(x)
+		require.False(t, ok, "x=%v is refused", x)
+	}
+}
+
+func TestSinCosRangeIncludesInteriorExtrema(t *testing.T) {
+	sin, cos, ok := sinCosRange(Interval{1.5, 1.7})
+	require.True(t, ok, "range in bounds")
+	require.Equal(t, 1.0, sin.Hi, "π/2 lies inside, so sin reaches 1")
+	require.Less(t, cos.Lo, 0.0, "cos changes sign across π/2")
+
+	sin, cos, ok = sinCosRange(Interval{3, 3.3})
+	require.True(t, ok, "range in bounds")
+	require.Equal(t, -1.0, cos.Lo, "π lies inside, so cos reaches −1")
+	require.Less(t, sin.Lo, 0.0, "sin changes sign across π")
+
+	sin, cos, ok = sinCosRange(Interval{-1.6, -1.5})
+	require.True(t, ok, "range in bounds")
+	require.Equal(t, -1.0, sin.Lo, "−π/2 lies inside, so sin reaches −1")
+	require.Greater(t, cos.Hi, 0.0, "cos is positive near −π/2")
+
+	sin, cos, ok = sinCosRange(Interval{0.1, 0.2})
+	require.True(t, ok, "range in bounds")
+	require.Less(t, sin.Hi, 1.0, "no extremum inside")
+	require.Less(t, cos.Hi, 1.0, "no extremum inside")
+	for _, q := range []float64{0.1, 0.15, 0.2} {
+		require.True(t, sin.Contains(math.Sin(q)) && cos.Contains(math.Cos(q)), "q=%v is enclosed", q)
+	}
+}
+
+func TestAtan2PointBracketsDirection(t *testing.T) {
+	quarter := func(k int64) (*big.Rat, *big.Rat) {
+		f := big.NewRat(k, 4)
+		a, b := new(big.Rat).Mul(f, piLo), new(big.Rat).Mul(f, piHi)
+		if k < 0 {
+			a, b = b, a
+		}
+		return a, b
+	}
+	for _, tc := range []struct {
+		c, d float64
+		k    int64 // the exact angle is k·π/4
+	}{{1, 1, 1}, {1, 0, 2}, {0, 1, 0}, {-1, -1, -3}, {1, -1, 3}, {-5, 5, -1}} {
+		iv, ok := atan2Point(tc.c, tc.d)
+		require.True(t, ok, "(%v, %v) has a direction", tc.c, tc.d)
+		lo, hi := quarter(tc.k)
+		requireEncloses(t, iv, lo, hi, "atan2(%v, %v) = %d·π/4", tc.c, tc.d, tc.k)
+	}
+	iv, ok := atan2Point(0, -1)
+	require.True(t, ok, "the negative x axis has a direction")
+	lo, hi := quarter(4)
+	requireEncloses(t, shiftNear(iv, 3), lo, hi, "atan2(0, −1) = π")
+
+	_, ok = atan2Point(0, 0)
+	require.False(t, ok, "the zero vector has no direction")
+
+	rng := rand.New(rand.NewSource(2))
+	for range 200 {
+		c, d := rng.NormFloat64()*50, rng.NormFloat64()*50
+		iv, ok := atan2Point(c, d)
+		require.True(t, ok, "(%v, %v) has a direction", c, d)
+		require.True(t, iv.Contains(math.Atan2(c, d)), "the float estimate lies in the bracket")
+		require.Less(t, iv.Hi-iv.Lo, 1e-13, "the bracket is tight")
+	}
+}
+
+func TestAtan2BoxAcrossTheCut(t *testing.T) {
+	iv, ok := atan2Box(Interval{-1e-3, 1e-3}, Interval{-1.01, -0.99})
+	require.True(t, ok, "the box misses the origin")
+	iv = shiftNear(iv, math.Pi)
+	require.True(t, iv.Contains(math.Pi), "the box straddles the negative x axis")
+	require.Less(t, iv.Hi-iv.Lo, 3e-3, "the enclosure stays narrow across the cut")
+
+	_, ok = atan2Box(Interval{-1, 1}, Interval{-1, 1})
+	require.False(t, ok, "a box around the origin has no direction")
+}
+
+func TestIntervalArithmeticEnclosesExactResults(t *testing.T) {
+	rng := rand.New(rand.NewSource(3))
+	draw := func() Interval {
+		a, b := rng.NormFloat64()*1e3, rng.NormFloat64()*1e3
+		return Interval{min(a, b), max(a, b)}
+	}
+	exact := func(op func(x, y *big.Rat) *big.Rat, a, b Interval) (*big.Rat, *big.Rat) {
+		var lo, hi *big.Rat
+		for _, x := range []float64{a.Lo, a.Hi} {
+			for _, y := range []float64{b.Lo, b.Hi} {
+				v := op(ratOf(x), ratOf(y))
+				if lo == nil || v.Cmp(lo) < 0 {
+					lo = v
+				}
+				if hi == nil || v.Cmp(hi) > 0 {
+					hi = v
+				}
+			}
+		}
+		return lo, hi
+	}
+	for range 500 {
+		a, b := draw(), draw()
+		lo, hi := exact(func(x, y *big.Rat) *big.Rat { return new(big.Rat).Add(x, y) }, a, b)
+		requireEncloses(t, iadd(a, b), lo, hi, "add")
+		lo, hi = exact(func(x, y *big.Rat) *big.Rat { return new(big.Rat).Sub(x, y) }, a, b)
+		requireEncloses(t, isub(a, b), lo, hi, "sub")
+		lo, hi = exact(func(x, y *big.Rat) *big.Rat { return new(big.Rat).Mul(x, y) }, a, b)
+		requireEncloses(t, imul(a, b), lo, hi, "mul")
+		sq := isqr(a)
+		for _, x := range []float64{a.Lo, a.Hi} {
+			v := new(big.Rat).Mul(ratOf(x), ratOf(x))
+			requireEncloses(t, sq, v, v, "sqr endpoint")
+		}
+		if a.Lo <= 0 && 0 <= a.Hi {
+			require.Equal(t, 0.0, sq.Lo, "a square straddling zero starts at zero")
+		}
+	}
+	r := isqrtNonNeg(Interval{2, 2})
+	two := big.NewRat(2, 1)
+	require.Negative(t, new(big.Rat).Mul(ratOf(r.Lo), ratOf(r.Lo)).Cmp(two), "√2's lower bound squares below 2")
+	require.Positive(t, new(big.Rat).Mul(ratOf(r.Hi), ratOf(r.Hi)).Cmp(two), "√2's upper bound squares above 2")
+}

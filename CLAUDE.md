@@ -16,7 +16,7 @@ stays cheap to load, not because it is optional.
 |------|---------|-----|
 | Entities & grounding | Adding an entity type, touching `entityPoints`/`entityShapeVars`/`Entity.isNil`, grounding, or `Sketch.Revision` | `.claude/docs/sketch-core.md` |
 | Modification tools | Adding or changing a tool in `tools.go` (trim/extend/break/fillet/chamfer/mirror/pattern/offset) | `.claude/docs/sketch-core.md` |
-| Diagnostics & verification | Touching rank/DOF, conflict/redundancy analysis, `Verify`, `Check`/`Trustworthy`, the probe, or the non-finite screen | `.claude/docs/diagnostics.md` |
+| Diagnostics & verification | Touching rank/DOF, conflict/redundancy analysis, `Verify`, `Check`/`Trustworthy`, the probe, the certified enclosure (`Enclose`), or the non-finite screen | `.claude/docs/diagnostics.md` |
 | Profiles & geometry | Anything under `geom/`, `Sketch.Profiles`, `Sketch.Chains`, `BoundaryEdge`/`TExact`, or the arrangement engine | `.claude/docs/profiles-geom.md` |
 | Export & serialization | Changing an exporter, the JSON schema, a document version, or reference resolution | `.claude/docs/serialization.md` |
 | Constraints | Adding a constraint with auxiliary variables, or changing `AddConstraint`/`CheckConstraint`/introspection | `.claude/docs/constraints.md` |
@@ -92,6 +92,7 @@ from a solid — the seam is first-class reference geometry), live in
 | `verify.go` | `Sketch.Verify(ctx, ...VerifyOption) *VerificationReport`: the headless-oracle aggregation layer, `Check()`/`Trustworthy()`, and the skipped-analysis contract. | `.claude/docs/diagnostics.md` → "`verify.go` — the headless-oracle report" |
 | `reference.go` | Reference geometry — the sketch/3D separation keystone: read-only, externally-locked 2D snapshots of 3D-derived geometry (`CreateReferencePoint`/`CreateReferenceLine`/`CreateReferenceArc`/`CreateReferenceCircle`) carrying a `source` id + staleness; locked via `fixed[]`, a topology seal (`refSeals`), `RefreshReference`/`RefreshReferenceCircle`/`MarkStale`, and the Verify integrity/staleness/reachability scan. Design in `docs/reference-geometry-design.md`. | — |
 | `probe.go` | `Sketch.ProbeConfigurations`: multi-solution ambiguity probe — a deterministic multi-start falsifier. Design in `docs/ambiguity-probe-design.md`. | `.claude/docs/diagnostics.md` → "`probe.go` — the ambiguity probe" |
+| `enclose.go` / `enclose_system.go` / `interval.go` / `interval_trig.go` | `Sketch.Enclose`: certified enclosure of the EXACT solution over a range of one driving dimension — parametric Krawczyk on restated constraint equations in outward-rounded interval arithmetic, proven sin/cos/atan2 bounds, adaptive pieces tied into one branch, `WithContinuation`, refusal sentinels. Design in `docs/certified-enclosure-design.md`. | `.claude/docs/diagnostics.md` → "`enclose.go` — the certified enclosure" |
 | `plane.go` / `world.go` | 3D world & construction planes. `Plane` (datum = `r3.Frame` derived from a stored definition), `World` (the mandatory document root: owns planes + sketches, datum accessors `XY`/`XZ`/`YZ`, plane builders `CreatePlaneFromFrame`/`CreatePlaneFromPoints`/`CreateOffsetPlane`, `CreateSketch`, `RemovePlane`). Design in `docs/3d-planes-design.md`. | "The world & planes" below |
 | `annotate.go` | Annotation-rendering overlay for `Sketch.SVG` (in-package so it can type-switch the unexported constraint types). Opt-in `SVGPNGOption`s, all default off so baseline output stays byte-identical. Design in `docs/constraint-visualization-design.md`. | `.claude/docs/rendering.md` → "`annotate.go` — annotation overlays" |
 | `frame.go` | Windowed framing for `Sketch.SVG` (opt-in, default off → byte-identical baseline): `WithFrame`, `WithGrid`, `WithGridSpacing`, `WithFramePadding`, and the fixed provenance watermark. | `.claude/docs/rendering.md` → "`frame.go` — windowed framing" |
@@ -245,7 +246,10 @@ auxiliary variables.
   per-element Marquardt scaling. This gives the minimum-norm step for
   rank-deficient / under-constrained sketches. Don't revert to `λ·A[i][i]`.
 - **The Jacobian is numerical** (central differences). Simple and robust; see
-  the open questions for when this might change.
+  the open questions for when this might change. The one exception is the
+  certified path (`enclose_system.go`), which carries its own closed-form
+  interval Jacobian for the constraint kinds it supports and never feeds the
+  solver.
 - **DOF/redundancy analysis recomputes the Jacobian at the call-time
   configuration.** `rank()`/`DOF()` rebuild J via `scaledJacobian` when called — after
   `Solve` that is the *solved* point. NEVER reuse the Solve loop's
@@ -392,7 +396,9 @@ regions". Read it before touching anything under `geom/`.
   length/dimensionless for the conditioning gate; an unclassified constraint makes
   the conditioning measure NaN, which fails the trust gate fail-safe — never a
   false pass — but a healthy sketch using it would then read untrustworthy), and a
-  test asserting on the solved geometry.
+  test asserting on the solved geometry. A kind with no case in `certEquationsOf`
+  (`enclose_system.go`) refuses `Sketch.Enclose` with `ErrUncertifiedConstraint`;
+  add one only with its restated equation, closed-form partials and a test.
 
 ## Open design questions
 
@@ -420,5 +426,7 @@ subdivision, holes/nesting, net area, and self-intersection/degeneracy validity
 gating `Trustworthy()`) +
 open boundary chains (`geom/chain.go` + `chains.go`: `Sketch.Chains()`, the same
 arrangement's open publication — ordered runs of the edges no region uses, with
-arc length, per-chain validity and profile-equivalent staleness handles) are
-implemented and tested.
+arc length, per-chain validity and profile-equivalent staleness handles) +
+the certified enclosure (`enclose.go`: `Sketch.Enclose`, interval Krawczyk boxes
+around the exact solution over a driving range, for point/line constraint kinds)
+are implemented and tested.

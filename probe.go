@@ -10,11 +10,12 @@ import (
 	"github.com/lestrrat-go/option/v3"
 )
 
-// ErrUnderconstrained is returned (wrapped) by [Sketch.ProbeConfigurations]
-// when the sketch has remaining degrees of freedom: an under-constrained
-// sketch admits a continuum of configurations, so probing for discrete
-// alternatives is meaningless. Fully constrain the sketch (DOF 0) first.
-var ErrUnderconstrained = errors.New("sketch: ambiguity probe requires a fully constrained sketch")
+// ErrUnderconstrained is returned (wrapped, with the remaining DOF count) by
+// [Sketch.ProbeConfigurations] and [Sketch.Enclose] when the sketch has
+// remaining degrees of freedom: an under-constrained sketch admits a continuum
+// of configurations, so it has no discrete alternatives to probe and no
+// isolated solution to certify. Fully constrain the sketch (DOF 0) first.
+var ErrUnderconstrained = errors.New("sketch: requires a fully constrained sketch")
 
 // separationTol decides when two converged configurations are the same
 // solution. Distances are relative (coordinates and radii to the bounding-box

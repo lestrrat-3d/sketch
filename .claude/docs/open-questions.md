@@ -283,6 +283,13 @@ Navigation only — the sections below are the authority.
   absolute tolerance — not the rank analysis — is what breaks down at extreme
   geometry scales ≳1e6); and better over-constrained diagnostics (identify *which*
   constraints conflict, not just a count).
+- **Certified solve.** *Resolved for point/line kinds* (`enclose.go`; design in
+  `docs/certified-enclosure-design.md`). `Sketch.Enclose` proves, by parametric
+  Krawczyk in outward-rounded interval arithmetic, boxes holding exactly one
+  exact solution per driving value, tied into one continuous branch across
+  pieces. Still open: certified forms for circles/arcs/conics/splines and their
+  constraints; a fold proof (today a fold only refuses); uniqueness over the hull
+  of several pieces.
 
 ## Constraint diagnostics & UX
 
