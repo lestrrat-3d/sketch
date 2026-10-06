@@ -157,4 +157,24 @@ func BenchmarkRegions(b *testing.B) {
 			geom.Regions(curves, closed)
 		}
 	})
+	b.Run("polygon192", func(b *testing.B) {
+		curves, closed := polygonWithHoleFixture(192)
+		b.ReportAllocs()
+		for b.Loop() {
+			geom.Regions(curves, closed)
+		}
+	})
+}
+
+// polygonWithHoleFixture returns a regular n-gon of lines sharing their corner
+// points, with a circle hole at its center. It stands in for a many-sided
+// outline such as a gear, where the analytic pre-pass visits every pair of
+// sides.
+func polygonWithHoleFixture(n int) ([]geom.Curve, []geom.ClosedCurve) {
+	corners := circlePoints(0, 0, 50, n)
+	curves := make([]geom.Curve, n)
+	for i := range corners {
+		curves[i] = geom.NewLine(corners[i], corners[(i+1)%n])
+	}
+	return curves, []geom.ClosedCurve{geom.NewCircle(geom.NewPoint(0, 0), 10)}
 }

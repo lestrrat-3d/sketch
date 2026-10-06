@@ -273,12 +273,13 @@ type arranger struct {
 	degen     []degenRecord    // degenerate (collinear-overlap / unresolvable) conditions
 	degenSet  bool
 
-	// Analytic-arrangement state (increment 2): which line/circle/arc source pairs
-	// were classified analytically (so the sampled segment loop skips them), the
-	// events that classification found (so a distance-weld between the pair's sample
-	// vertices can be audited against them), and a per-source segment index for
-	// mapping an analytic event's source parameter to the tiny segment it cuts.
-	handled    map[[2]int]struct{}
+	// Analytic-arrangement state (increment 2): the events the analytic
+	// classification found for each handled pair (so a distance-weld between the
+	// pair's sample vertices can be audited against them), and a per-source segment
+	// index for mapping an analytic event's source parameter to the tiny segment it
+	// cuts. events holds only pairs that MEET: a handled pair the kernel found apart
+	// has no key, and every reader treats a missing key as an empty event list. Which
+	// pairs are handled is not stored at all — see handled.
 	events     map[[2]int][]xEvent
 	sourceSegs [][]int
 
@@ -1145,7 +1146,7 @@ func (a *arranger) intersect() {
 				// declines the pair — a near-miss just outside the window, or a parallel
 				// pair that never reaches the test at all. Taint on the map's own merge
 				// rule so no split can hide in that gap.
-				if _, h := a.handled[pairKey(si.src, sj.src)]; h {
+				if a.handled(si.src, sj.src) {
 					// Supported source pairs (line/circle/arc) were classified analytically
 					// in the pre-pass; their crossings are authoritative, so the sampled
 					// segment test must not add contradictory ones. But the vertex table
@@ -1260,10 +1261,13 @@ func (a *arranger) intersect() {
 // a shared vertex between two cycle-bearing sources (where buildGraph's chord-angle
 // sort could branch-swap) AND a LINE is one of the two sources, which is
 // conservatively flagged degenerate; both curved cases (external and
-// internal/containment) are certified instead. Handled pairs are recorded so
-// the sampled segment loop skips them.
+// internal/containment) are certified instead. The sampled segment loop skips
+// handled pairs (see handled).
+//
+// The pass visits every analytic pair, so it writes per-pair state only for the
+// rare pair that needs it: events for a pair that meets, deferredCross for a
+// refused crossing. A pair that is merely handled leaves no record.
 func (a *arranger) analyticPrepass() {
-	a.handled = make(map[[2]int]struct{})
 	a.events = make(map[[2]int][]xEvent)
 	a.deferredCross = make(map[[2]int][]xEvent)
 	a.sampledContacts = make(map[[2]int][][2]float64)
@@ -1343,8 +1347,9 @@ func (a *arranger) analyticPrepass() {
 				a.deferredCross[pairKey(i, j)] = crossings
 				continue
 			}
-			a.handled[[2]int{i, j}] = struct{}{}
-			a.events[[2]int{i, j}] = events
+			if len(events) > 0 {
+				a.events[[2]int{i, j}] = events
+			}
 			// Consistency gate (curved pairs only): the sampled polyline must host
 			// the analytic contacts faithfully, or injecting exact cuts would warp
 			// the planar map (a vanished disk, a tangled face) while reading clean.
@@ -1459,6 +1464,22 @@ func (a *arranger) analyticPrepass() {
 			}
 		}
 	}
+}
+
+// handled reports whether analyticPrepass classified the pair of distinct
+// sources i and j authoritatively, so the sampled segment loop must not add
+// crossings of its own. That is every pair of line/circle/arc sources
+// (analyticEvents answers ok for exactly those) except a curve/curve pair whose
+// crossings the incidence certificate refused, which the pass hands back to the
+// sampled path by recording it in deferredCross. Answering from those two facts
+// instead of a per-pair set spares analyticPrepass a write for every pair it
+// visits, which on a many-sided outline dominated its cost.
+func (a *arranger) handled(i, j int) bool {
+	if !analyticKind(a.sources[i].kind) || !analyticKind(a.sources[j].kind) {
+		return false
+	}
+	_, deferred := a.deferredCross[pairKey(i, j)]
+	return !deferred
 }
 
 func pairKey(i, j int) [2]int {
