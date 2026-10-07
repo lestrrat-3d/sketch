@@ -20,13 +20,20 @@ import (
 // taking that term as the tail bound. It shares the series with sinCosPoint but
 // none of its fixed-point error bookkeeping, which is the part under test.
 func ratSinCosOracle(x float64) (*big.Rat, *big.Rat, *big.Rat, *big.Rat) {
-	xr := new(big.Rat).SetFloat64(x)
+	return ratSinCosOracleAt(new(big.Rat).SetFloat64(x), new(big.Rat))
+}
+
+// ratSinCosOracleAt is ratSinCosOracle at an exact rational xr known only to
+// within ±slack of the argument wanted: sine and cosine move by at most the
+// argument's change, so slack widens every bound by itself.
+func ratSinCosOracleAt(xr, slack *big.Rat) (*big.Rat, *big.Rat, *big.Rat, *big.Rat) {
+	ax, _ := new(big.Rat).Abs(xr).Float64()
 	eps := new(big.Rat).SetFrac(big.NewInt(1), new(big.Int).Lsh(big.NewInt(1), 120))
 	s, c := new(big.Rat), new(big.Rat)
 	t := big.NewRat(1, 1)
 	abs := new(big.Rat)
 	for n := 0; ; n++ {
-		if float64(n) > math.Abs(x)+1 && abs.Abs(t).Cmp(eps) < 0 {
+		if float64(n) > ax+1 && abs.Abs(t).Cmp(eps) < 0 {
 			break
 		}
 		switch n % 4 {
@@ -43,6 +50,7 @@ func ratSinCosOracle(x float64) (*big.Rat, *big.Rat, *big.Rat, *big.Rat) {
 		t.Quo(t, new(big.Rat).SetInt64(int64(n+1)))
 	}
 	r := new(big.Rat).Abs(t)
+	r.Add(r, slack)
 	return clampRat(new(big.Rat).Sub(s, r)), clampRat(new(big.Rat).Add(s, r)),
 		clampRat(new(big.Rat).Sub(c, r)), clampRat(new(big.Rat).Add(c, r))
 }
@@ -88,10 +96,87 @@ func TestSinCosPointEnclosesExactValue(t *testing.T) {
 		require.LessOrEqual(t, sin.Hi-sin.Lo, 2*ulp(sin.mid())+0x1p-100, "sin(%v) is tight", x)
 		require.LessOrEqual(t, cos.Hi-cos.Lo, 2*ulp(cos.mid())+0x1p-100, "cos(%v) is tight", x)
 	}
-	for _, x := range []float64{64.0000001, -100, math.NaN(), math.Inf(1)} {
+	for _, x := range []float64{math.Nextafter(maxTrigArg, math.Inf(1)), -2 * maxTrigArg, math.NaN(), math.Inf(1)} {
 		_, _, ok := sinCosPoint(x)
 		require.False(t, ok, "x=%v is refused", x)
 	}
+}
+
+// machinPi encloses π as [lo, hi] from Machin's formula π = 16·atan(1/5) −
+// 4·atan(1/239), each arctangent summed in exact rationals until a term drops
+// below 2^-400 and that term taken as the tail bound. It shares nothing with
+// piLo and piHi, so it checks the reduction's bracket independently.
+func machinPi() (*big.Rat, *big.Rat) {
+	eps := new(big.Rat).SetFrac(big.NewInt(1), new(big.Int).Lsh(big.NewInt(1), 400))
+	atanInv := func(n int64) (*big.Rat, *big.Rat) {
+		sum := new(big.Rat)
+		pow := big.NewRat(1, n) // 1/n^(2k+1)
+		n2 := big.NewRat(1, n*n)
+		for k := int64(0); ; k++ {
+			term := new(big.Rat).Quo(pow, big.NewRat(2*k+1, 1))
+			if term.Cmp(eps) < 0 {
+				return sum, term
+			}
+			if k%2 == 0 {
+				sum.Add(sum, term)
+			} else {
+				sum.Sub(sum, term)
+			}
+			pow.Mul(pow, n2)
+		}
+	}
+	a, ea := atanInv(5)
+	b, eb := atanInv(239)
+	mid := new(big.Rat).Sub(new(big.Rat).Mul(big.NewRat(16, 1), a), new(big.Rat).Mul(big.NewRat(4, 1), b))
+	err := new(big.Rat).Add(new(big.Rat).Mul(big.NewRat(16, 1), ea), new(big.Rat).Mul(big.NewRat(4, 1), eb))
+	return new(big.Rat).Sub(mid, err), new(big.Rat).Add(mid, err)
+}
+
+func TestSinCosPointReducesWholeTurns(t *testing.T) {
+	pLo, pHi := machinPi()
+	require.True(t, pLo.Cmp(piHi) <= 0 && piLo.Cmp(pHi) <= 0, "the two π brackets agree")
+	xs := []float64{64.0000001, -100, 1e6, -1e6, math.Pi/2 + 40*math.Pi, 1e12, -maxTrigArg, maxTrigArg}
+	rng := rand.New(rand.NewSource(2))
+	for range 20 {
+		xs = append(xs, (rng.Float64()*2-1)*1e9)
+	}
+	for _, x := range xs {
+		sin, cos, ok := sinCosPoint(x)
+		require.True(t, ok, "x=%v is in range", x)
+		// The oracle evaluates at x − 2πk for Machin's π, a rational within
+		// |2k|·(pHi − pLo) of the reduced argument.
+		k := int64(math.Round(x / (2 * math.Pi)))
+		kk := big.NewRat(2*k, 1)
+		r := new(big.Rat).Sub(ratOf(x), new(big.Rat).Mul(kk, pLo))
+		slack := new(big.Rat).Abs(new(big.Rat).Mul(kk, new(big.Rat).Sub(pHi, pLo)))
+		// Truncating r to a multiple of 2^-400 keeps the oracle's sums short; the
+		// truncation joins the slack.
+		unit := new(big.Int).Lsh(big.NewInt(1), 400)
+		num := new(big.Int).Quo(new(big.Int).Mul(r.Num(), unit), r.Denom())
+		r.SetFrac(num, unit)
+		slack.Add(slack, new(big.Rat).SetFrac(big.NewInt(1), unit))
+		sLo, sHi, cLo, cHi := ratSinCosOracleAt(r, slack)
+		requireEncloses(t, sin, sLo, sHi, "sin(%v)", x)
+		requireEncloses(t, cos, cLo, cHi, "cos(%v)", x)
+		require.Less(t, sin.Hi-sin.Lo, 4e-15, "sin(%v) is tight", x)
+		require.Less(t, cos.Hi-cos.Lo, 4e-15, "cos(%v) is tight", x)
+	}
+	t.Run("R3 sin(1e6) against math.Sin", func(t *testing.T) {
+		sin, cos, ok := sinCosPoint(1e6)
+		require.True(t, ok, "1e6 rad is in range")
+		require.True(t, sin.Contains(math.Sin(1e6)), "math.Sin(1e6) lies in %v", sin)
+		require.True(t, cos.Contains(math.Cos(1e6)), "math.Cos(1e6) lies in %v", cos)
+		require.Less(t, sin.Hi-sin.Lo, 1e-9, "the sine enclosure is under 1e-9 wide")
+	})
+	t.Run("an interval past 64 rad", func(t *testing.T) {
+		q := Interval{40 * math.Pi, 40*math.Pi + math.Pi/2}
+		sin, cos, ok := sinCosRange(q)
+		require.True(t, ok, "the range is in bounds")
+		require.Equal(t, 1.0, sin.Hi, "π/2 + 40π lies inside, so sin reaches 1")
+		require.Equal(t, 1.0, cos.Hi, "40π lies inside, so cos reaches 1")
+		require.InDelta(t, 0, sin.Lo, 1e-13, "sin starts at 0")
+		require.InDelta(t, 0, cos.Lo, 1e-13, "cos ends at 0")
+	})
 }
 
 func TestSinCosRangeIncludesInteriorExtrema(t *testing.T) {

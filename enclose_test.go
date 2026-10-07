@@ -273,6 +273,58 @@ func TestEncloseCrankRockerRange(t *testing.T) {
 	})
 }
 
+func TestEncloseWholeTurns(t *testing.T) {
+	turns := 40 * math.Pi // the crank twenty turns on from its zero pose
+	t.Run("R1 the point ask twenty turns on", func(t *testing.T) {
+		fb := crankRocker(t, 90, true)
+		base, err := fb.s.Enclose(t.Context(), fb.crank, math.Pi/2, math.Pi/2)
+		require.NoError(t, err, "the 90° ask")
+		e, err := fb.s.Enclose(t.Context(), fb.crank, math.Pi/2+turns, math.Pi/2+turns)
+		require.NoError(t, err, "the same pose twenty turns on is certifiable")
+		requirePieceHolds(t, fb, e, math.Pi/2+turns, true)
+		want, ok := base.Driven(fb.follower)
+		require.True(t, ok, "the driven follower has an interval at 90°")
+		got, ok := e.Driven(fb.follower)
+		require.True(t, ok, "the driven follower has an interval twenty turns on")
+		require.InDelta(t, want.Lo, got.Lo, 1e-9, "the follower interval matches the 90° ask")
+		require.InDelta(t, want.Hi, got.Hi, 1e-9, "the follower interval matches the 90° ask")
+	})
+	t.Run("R2 a quarter-turn cell twenty turns on", func(t *testing.T) {
+		fb := crankRocker(t, 0, true)
+		start, err := fb.s.Enclose(t.Context(), fb.crank, turns, turns)
+		require.NoError(t, err, "the cell's predecessor at 2π·20")
+		e, err := fb.s.Enclose(t.Context(), fb.crank, turns, turns+math.Pi/2, sketch.WithContinuation(start))
+		require.NoError(t, err, "the quarter turn twenty turns on is certifiable")
+		requireContiguous(t, e)
+		fol, ok := e.Driven(fb.follower)
+		require.True(t, ok, "the driven follower has an interval")
+		requireTableAngle(t, fol, 101.5370, "the follower's minimum inside the range")
+		requireTableAngle(t, fol, 113.3250, "the follower at 90°")
+		mn, mx := sampledRange(fb, 0, math.Pi/2)
+		requireContains(t, fol, mn, "sampled minimum")
+		requireContains(t, fol, mx, "sampled maximum")
+		for _, deg := range []float64{0, 15, 38.5727, 60, 90} {
+			requirePieceHolds(t, fb, e, turns+rad(deg), true)
+		}
+	})
+	t.Run("an angle target range twenty turns on", func(t *testing.T) {
+		fb := crankRocker(t, 90, true)
+		q := math.Pi/2 + turns
+		e, err := fb.s.Enclose(t.Context(), fb.bars[2], 80, 80, sketch.WithTargetRange(fb.crank, q-1e-12, q+1e-12))
+		require.NoError(t, err, "a crank target range past 64 rad is certifiable")
+		fol, ok := e.Driven(fb.follower)
+		require.True(t, ok, "the driven follower has an interval")
+		requireTableAngle(t, fol, 113.3250, "follower at 113.3250°")
+		requireAngleContains(t, fol, followerAt(80, math.Pi/2), "follower at the closed form")
+	})
+	t.Run("an angle beyond the domain", func(t *testing.T) {
+		fb := crankRocker(t, 90, true)
+		e, err := fb.s.Enclose(t.Context(), fb.crank, 0x1p41, 0x1p41)
+		require.ErrorIs(t, err, sketch.ErrNotCertified, "an angle beyond ±2^40 rad is refused")
+		require.Nil(t, e, "a refusal carries no enclosure")
+	})
+}
+
 // nonGrashof is decad's folding four-bar (g=100, r=50, l=60, f=50), seeded at
 // 80° with B above the ground line (θ4 = 130.3270°).
 func nonGrashof(t *testing.T) *fourBar {
@@ -321,6 +373,110 @@ func TestEncloseNonGrashofRefuses(t *testing.T) {
 		require.Nil(t, e, "a refusal carries no enclosure")
 		require.Equal(t, before, fb.s.Revision(), "a refused call also leaves the sketch untouched")
 	})
+}
+
+func TestEncloseFold(t *testing.T) {
+	fold := math.Acos(0.04)
+	t.Run("F1 the non-Grashof four-bar over [0°, 90°]", func(t *testing.T) {
+		for _, above := range []bool{true, false} {
+			ref := &fourBar{g: 100, r: 50, l: 60, f: 50}
+			_, bx, by := ref.pose(0, above)
+			fb := newFourBar(t, 100, 50, 60, 50, 0, bx, by)
+			before := fb.s.Revision()
+			e, err := fb.s.Enclose(t.Context(), fb.crank, 0, math.Pi/2)
+			require.Nil(t, e, "a refusal carries no enclosure")
+			require.ErrorIs(t, err, sketch.ErrNotCertified, "a fold is a refusal")
+			var fe *sketch.FoldError
+			require.ErrorAs(t, err, &fe, "the refusal proves the fold")
+			// math.Acos is accurate to an ulp, so the containment is checked to 1e-15.
+			requireContainsWithin(t, fe.Fold, fold, 1e-15, "the fold enclosure holds acos(0.04)")
+			require.Less(t, fe.Fold.Hi-fe.Fold.Lo, 1e-9, "the fold enclosure is under 1e-9 wide")
+			require.Less(t, fe.Reached, fe.Fold.Lo, "the branch is certified up to a value short of the fold")
+			require.Equal(t, before, fb.s.Revision(), "a fold refusal leaves the sketch untouched")
+		}
+	})
+	t.Run("a continued call into the fold", func(t *testing.T) {
+		fb := nonGrashof(t)
+		first, err := fb.s.Enclose(t.Context(), fb.crank, rad(80), rad(87))
+		require.NoError(t, err, "the range short of the fold")
+		e, err := fb.s.Enclose(t.Context(), fb.crank, rad(87), rad(90), sketch.WithContinuation(first))
+		require.Nil(t, e, "a refusal carries no enclosure")
+		var fe *sketch.FoldError
+		require.ErrorAs(t, err, &fe, "the continued call proves the fold")
+		requireContainsWithin(t, fe.Fold, fold, 1e-15, "the fold enclosure holds acos(0.04)")
+		require.GreaterOrEqual(t, fe.Reached, rad(87), "the continued branch is certified from 87°")
+	})
+	t.Run("a coupler range widens the fold", func(t *testing.T) {
+		fb := nonGrashof(t)
+		const dl = 1e-9
+		e, err := fb.s.Enclose(t.Context(), fb.crank, rad(80), rad(90), sketch.WithTargetRange(fb.bars[2], 60-dl, 60+dl))
+		require.Nil(t, e, "a refusal carries no enclosure")
+		var fe *sketch.FoldError
+		require.ErrorAs(t, err, &fe, "the fold is proven for every coupler length in the range")
+		for _, l := range []float64{60 - dl, 60, 60 + dl} {
+			at := math.Acos((100*100 + 50*50 - (l+50)*(l+50)) / (2 * 100 * 50))
+			requireContainsWithin(t, fe.Fold, at, 1e-15, "the fold for every coupler length")
+		}
+		require.Less(t, fe.Fold.Hi-fe.Fold.Lo, 1e-9, "the fold enclosure stays near the coupler range's own spread")
+	})
+	t.Run("a fold above the range's end is not reported", func(t *testing.T) {
+		fb := nonGrashof(t)
+		_, err := fb.s.Enclose(t.Context(), fb.crank, rad(80), fold-1e-8)
+		var fe *sketch.FoldError
+		require.False(t, errors.As(err, &fe), "a fold at or above hi is never reported: %v", err)
+	})
+	t.Run("F2 the crank-rocker over [0°, 90°] has no fold", func(t *testing.T) {
+		fb := crankRocker(t, 0, true)
+		e, err := fb.s.Enclose(t.Context(), fb.crank, 0, math.Pi/2)
+		require.NoError(t, err, "the crank-rocker turns fully")
+		requireContiguous(t, e)
+	})
+	t.Run("F3 no configuration at the range's start", func(t *testing.T) {
+		fb := nonGrashof(t)
+		e, err := fb.s.Enclose(t.Context(), fb.crank, math.Pi/2, rad(100))
+		require.Nil(t, e, "a refusal carries no enclosure")
+		require.ErrorIs(t, err, sketch.ErrNotConverged, "no configuration exists at 90°")
+		var fe *sketch.FoldError
+		require.False(t, errors.As(err, &fe), "a failed start is never a fold")
+	})
+	t.Run("the slider-crank with a rod shorter than the crank", func(t *testing.T) {
+		sc := newSliderCrank(t, 50, 40, 50)
+		e, err := sc.s.Enclose(t.Context(), sc.crank, rad(50), rad(55))
+		require.Nil(t, e, "a refusal carries no enclosure")
+		var fe *sketch.FoldError
+		require.ErrorAs(t, err, &fe, "the refusal proves the fold")
+		require.True(t, fe.Fold.Contains(math.Asin(40.0/50)), "the fold enclosure %v holds asin(0.8)", fe.Fold)
+	})
+}
+
+func TestEncloseFoldDistanceDriver(t *testing.T) {
+	// Two bars from pivots 100 apart meet at B: one of length 60, the other
+	// driven. B exists while the driven bar is at most 160 long, where the two
+	// bars lie along the ground on the far side of O2.
+	s := newSketch(t)
+	o2 := s.CreatePoint(0, 0)
+	o4 := s.CreatePoint(100, 0)
+	b := s.CreatePoint(0, 60)
+	ground := s.CreateLine(o2, o4)
+	s.CreateLine(o2, b)
+	s.CreateLine(o4, b)
+	driver := sketch.NewDistance(o4, b, math.Hypot(100, 60))
+	s.AddConstraint(
+		sketch.NewCoincident(o2, s.Origin()),
+		sketch.NewHorizontal(ground),
+		sketch.NewDistance(o2, o4, 100),
+		sketch.NewDistance(o2, b, 60),
+		driver,
+	)
+	_, err := s.Solve(t.Context())
+	require.NoError(t, err, "the seeded bars must solve")
+
+	e, err := s.Enclose(t.Context(), driver, 120, 170)
+	require.Nil(t, e, "a refusal carries no enclosure")
+	var fe *sketch.FoldError
+	require.ErrorAs(t, err, &fe, "the refusal proves the fold")
+	require.True(t, fe.Fold.Contains(160), "the fold enclosure %v holds 160", fe.Fold)
+	require.Less(t, fe.Fold.Hi-fe.Fold.Lo, 1e-9, "the fold enclosure is under 1e-9 wide")
 }
 
 func isRefusal(err error) bool {

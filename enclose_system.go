@@ -68,6 +68,9 @@ type certEquation interface {
 	// side reports whether the equation's side condition holds over the whole
 	// box; equations without one return true.
 	side(e *certEnv) bool
+	// dq appends the equation's partial derivatives with respect to the driving
+	// value, zero for an equation the driver does not enter.
+	dq(e *certEnv, out []Interval) []Interval
 }
 
 // --- affine rows -------------------------------------------------------------
@@ -106,6 +109,13 @@ func (a *certAffine) jac(_ *certEnv, w *jacWriter) {
 }
 
 func (a *certAffine) side(*certEnv) bool { return true }
+
+func (a *certAffine) dq(_ *certEnv, out []Interval) []Interval {
+	if a.useQ {
+		return append(out, pt(-1))
+	}
+	return append(out, pt(0))
+}
 
 // diff is the affine row p − q over one coordinate.
 func diff(pi, qi int) []affineTerm { return []affineTerm{{pi, 1}, {qi, -1}} }
@@ -156,6 +166,8 @@ func (c *certProduct) jac(e *certEnv, w *jacWriter) {
 
 func (c *certProduct) side(*certEnv) bool { return true }
 
+func (c *certProduct) dq(_ *certEnv, out []Interval) []Interval { return append(out, pt(0)) }
+
 // writeVecPartials chains partials taken with respect to u = U1 − U0 and
 // v = V1 − V0 down to the points' coordinates, for a one-row equation.
 func writeVecPartials(w *jacWriter, u0, u1, v0, v1 *Point, dux, duy, dvx, dvy Interval) {
@@ -201,6 +213,13 @@ func (c *certDistance) jac(e *certEnv, w *jacWriter) {
 }
 
 func (c *certDistance) side(*certEnv) bool { return true }
+
+func (c *certDistance) dq(e *certEnv, out []Interval) []Interval {
+	if c.useQ {
+		return append(out, imul(pt(-2), e.q))
+	}
+	return append(out, pt(0))
+}
 
 // --- signed angle ---------------------------------------------------------------
 
@@ -259,6 +278,17 @@ func (c *certAngle) side(e *certEnv) bool {
 	return h.Lo > 0
 }
 
+// dq is −cross·sin θ − dot·cos θ, the derivative of the equation in θ.
+func (c *certAngle) dq(e *certEnv, out []Interval) []Interval {
+	if !c.useQ {
+		return append(out, pt(0))
+	}
+	ux, uy, vx, vy := c.parts(e)
+	cross := isub(imul(ux, vy), imul(uy, vx))
+	dot := iadd(imul(ux, vx), imul(uy, vy))
+	return append(out, ineg(iadd(imul(cross, e.sinQ), imul(dot, e.cosQ))))
+}
+
 // --- driven dimensions -----------------------------------------------------------
 
 // certDriven encloses one driven dimension's measured value over a box. The
@@ -278,6 +308,9 @@ type certSystem struct {
 	m           int
 	driven      []certDriven
 	driverAngle bool
+	// driverDistance marks a point-to-point distance driver, whose squared
+	// equation agrees with the solver's residual only for a positive value.
+	driverDistance bool
 	// params holds the fixed variables that range over an interval (a
 	// WithFixedBox point's coordinates), in variable order.
 	params []paramVar
@@ -325,6 +358,7 @@ func (s *Sketch) certifiedSystem(driver Dimension, targets []encloseTarget, boxe
 		}
 		if isDriver {
 			_, sys.driverAngle = c.(*Angle)
+			_, sys.driverDistance = c.(*Distance)
 		}
 		for _, eq := range eqs {
 			sys.eqs = append(sys.eqs, eq)
@@ -386,7 +420,7 @@ func certEquationsOf(c Constraint, isDriver bool, rng Interval, isRanged bool) (
 			th := targetOf(t, rng, isRanged)
 			sin, cos, ok := sinCosRange(th)
 			if !ok {
-				return nil, fmt.Errorf("%w: angle target [%v, %v] rad is outside ±%d rad", ErrNotCertified, th.Lo, th.Hi, maxTrigArg)
+				return nil, fmt.Errorf("%w: angle target [%v, %v] rad is outside ±2^40 rad", ErrNotCertified, th.Lo, th.Hi)
 			}
 			eq.sin, eq.cos = sin, cos
 		}
@@ -461,6 +495,15 @@ func (sys *certSystem) jacobian(e *certEnv, col []int, n int) [][]Interval {
 		w.row += eq.rows()
 	}
 	return J
+}
+
+// dq encloses ∂F/∂q, the derivative of every equation in the driving value.
+func (sys *certSystem) dq(e *certEnv) []Interval {
+	out := make([]Interval, 0, sys.m)
+	for _, eq := range sys.eqs {
+		out = eq.dq(e, out)
+	}
+	return out
 }
 
 func (sys *certSystem) side(e *certEnv) bool {

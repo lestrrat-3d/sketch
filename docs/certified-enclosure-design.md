@@ -1,9 +1,10 @@
 # Certified Enclosure of a Solved Configuration — Design
 
-Status: **implemented** (`enclose.go`, `enclose_system.go`, `interval.go`,
-`interval_trig.go`; tests in `enclose_test.go` and
-`interval_trig_internal_test.go`; example in
-`examples/sketch_enclose_example_test.go`). Requested by decad, which must
+Status: **implemented** (`enclose.go`, `enclose_system.go`, `enclose_fold.go`,
+`interval.go`, `interval_trig.go`; tests in `enclose_test.go` and
+`interval_trig_internal_test.go`; examples in
+`examples/sketch_enclose_example_test.go` and
+`examples/sketch_enclose_fold_example_test.go`). Requested by decad, which must
 admit the pose of a closed-loop mechanism (a four-bar, a slider-crank) only on
 a claim about the exact solution, never on a float residual.
 
@@ -133,7 +134,7 @@ rotated into a sketch plane gets rounded coordinates. Without the options the
 enclosure describes the mechanism with the rounded floats.
 
 `WithTargetRange(d, lo, hi)` applies to a driving `Distance` (`lo > 0`),
-`HorizontalDistance`, `VerticalDistance` or `Angle` (within ±64 rad), other
+`HorizontalDistance`, `VerticalDistance` or `Angle` (within ±2^40 rad), other
 than the driver. The equation of `d` reads the whole interval: a distance's
 `d²` term becomes the square of the interval, an offset becomes the interval,
 and an angle's `sin θ` and `cos θ` are enclosed over the interval with
@@ -169,7 +170,7 @@ continues, because that enclosure's end box covers only its own.
 |---|---|
 | a target range on the driver, a driven dimension, a nil dimension, or another sketch's dimension | `ErrNotCertified` |
 | `lo > hi`, a NaN or infinite endpoint, or a distance range with `lo <= 0` | `ErrNotCertified` |
-| an angle range outside ±64 rad | `ErrNotCertified` |
+| an angle range outside ±2^40 rad | `ErrNotCertified` |
 | a dimension kind with no range form | `ErrUncertifiedConstraint` |
 | a fixed box on a point that is not fixed, is nil, or belongs to another sketch | `ErrNotCertified` |
 | a fixed box interval that is reversed or not finite | `ErrNotCertified` |
@@ -194,8 +195,12 @@ forbid fusing a multiply and an add.
 - `sinCosPoint` sums the Taylor series of `sin x` and `cos x` in 256-bit
   fixed-point integers, tracking an integer bound on the error each term
   carries. It stops at a term past the series' peak that is below `2^-110`,
-  adds that term as the tail bound, and converts outward to float64. It
-  refuses `|x| > 64`.
+  adds that term as the tail bound, and converts outward to float64. For
+  `|x| > 64` it first subtracts `2πk`, with `k` the integer nearest `x/2π`,
+  in exact rationals over the 40-decimal bracket of `π`. The result is an
+  interval about one float64 step wide that contains `x − 2πk` for the exact
+  `π`, and `sinCosRange` encloses sine and cosine over it. It refuses `|x| > 2^40`. Below that bound the bracket's width
+  adds under `10^-28` rad to the reduced argument.
 - `sinCosRange` encloses sine and cosine over an interval from the endpoint
   values, adding `±1` wherever a multiple of `π/2` might lie inside. That test
   uses a 40-decimal bracket of `π`.
@@ -208,7 +213,8 @@ forbid fusing a multiply and an add.
 
 `interval_trig_internal_test.go` checks the fixed-point sums against an
 exact-rational evaluation, and the interval operations against exact rational
-products.
+products. It checks the reduction against a rational oracle that uses Machin's
+formula for `π` instead of the bracket.
 
 ## Pieces
 
@@ -252,6 +258,102 @@ On decad's fixtures the rule costs pieces and buys width:
 
 The full turn takes about 0.4 s.
 
+## Folds
+
+A non-Grashof four-bar driven by its crank cannot turn fully. At
+`acos(0.04) = 87.707557°` the coupler and the follower lie on one line, and
+the branch the drive follows turns back. Close to that value the Jacobian
+with the driver held becomes singular. The Krawczyk test then fails for every
+piece that reaches the fold, and the piece loop stops short of it. When the
+loop stops at a value `qc`, `enclose_fold.go` tries to prove that the branch
+turns back. On success the refusal is a `*FoldError`:
+
+```go
+type FoldError struct {
+	Reached float64  // qc: the branch is certified as a function of q up to here
+	Fold    Interval // holds q_f, the largest driving value the branch reaches
+}
+```
+
+It wraps `ErrNotCertified`, so code that checks for that sentinel keeps
+working. It carries no enclosure.
+
+### What a fold claims
+
+For every value of each ranged target and boxed fixed point:
+
+1. Past `Reached`, the branch continues as one continuous curve of exact
+   solutions, on which the driving value reaches a largest value `q_f` inside
+   `Fold`. At `q_f` the Jacobian with the driver held is singular.
+2. A continuous path of solutions that starts at the branch's solution at
+   `Reached` and never takes the driving value below `Reached` never reaches a
+   driving value above `Fold.Hi`.
+
+Every driving value in `(Fold.Hi, hi]` is therefore out of the branch's
+reach. A fold refusal is returned only when `Fold.Hi < hi`. Nothing is claimed
+about the curve between `Reached` and `Fold.Lo` being a function of the
+driving value.
+
+### The swapped parameter
+
+Near a fold, `F(x, q) = 0` cannot be solved for `x` as a function of `q`, but
+it can be solved for `q` and all but one variable as functions of that
+variable. `newFoldCurve` takes the float tangent `t = −F_x⁻¹·∂F/∂q` at `qc` and
+picks the free variable `x_k` with the largest `|t_k|`. The system then holds
+`s = x_k` as its parameter, and `q` takes `x_k`'s column, which now holds
+`∂F/∂q`. At `qc` that matrix is nonsingular exactly when `t_k ≠ 0`. At a
+regular fold `∂F/∂q` lies outside the range of `F_x`, so it stays nonsingular
+there too.
+
+`foldKrawczyk` is the Krawczyk test for this system over an interval `S` of
+`s`. It differs from `krawczyk` in one way: the residual over `S` is split by
+the mean value theorem,
+
+```text
+F(ũ, s) ∈ F(ũ, s̃) + ∂F/∂x_k(ũ, S)·(S − s̃)
+```
+
+and `Y` multiplies `∂F/∂x_k` before `(S − s̃)` does. Near the fold `q` barely
+moves with `s`, and that product keeps `q`'s box narrow. The unsplit form
+would widen `q`'s box by the first-order motion of every other row.
+
+### The certificate
+
+1. Float walks with Newton's method on the swapped system find the turning
+   point, where `dq/ds` changes sign. From there they continue until `q` is
+   back below `qc − 10^-9·(1 + |qc|)`. A third walk goes back from `qc` until
+   `q` is below the same value.
+2. `s` pieces cover the range between the two end points in two legs that
+   meet at the turning point. Each piece passes `foldKrawczyk` and is tied to
+   its neighbours by certified point boxes, as `q` pieces are. A piece is split
+   when its `q` box reaches more than `10^-12·(1 + |q_f|)` above the best lower
+   bound on `q_f`.
+3. The certified point boxes at both ends must have `q < qc`.
+4. The branch's certified box at `qc` must lie inside the uniqueness box of
+   every piece whose `s` range it meets.
+
+The solutions inside the union of the pieces' uniqueness boxes then form one
+continuous curve. Each box holds the curve strictly inside except at the two
+ends, and both ends have `q < qc`. So a path that starts on the branch at `qc`
+and keeps `q ≥ qc` cannot leave the union, and its `q` is at most the curve's
+largest. `Fold.Hi` is the highest `q` any piece box reaches. `Fold.Lo` is the
+highest lower end of a tied endpoint box. The largest `q` is attained inside
+the curve, where `dq/ds = 0`. Along the curve that happens only where `F_x` is
+singular, because the swapped Jacobian is not.
+
+A failure at any step returns the original `ErrNotCertified` refusal. The
+bounds do not depend on the curve's shape between its ends, because
+`Fold.Hi` bounds every piece. A second rise of `q` past the lower bound only
+makes step 2 fail. A distance driver
+whose box is not positive also fails, because `|p − q|² − d²` agrees with the
+solver's residual only for `d > 0`.
+
+| Fixture | `Fold` width | `Reached` below `q_f` |
+|---|---|---|
+| non-Grashof four-bar over `[0°, 90°]`, B above | `2.0e-12` rad | `3.9e-8` rad |
+| non-Grashof four-bar over `[0°, 90°]`, B below | `1.6e-12` rad | `3.0e-8` rad |
+| slider-crank, rod 40 shorter than crank 50, `[50°, 55°]` | `1.7e-12` rad | `5.3e-8` rad |
+
 ## Refusals
 
 A refusal returns a nil `*Enclosure` and an error wrapping one sentinel:
@@ -262,12 +364,10 @@ A refusal returns a nil `*Enclosure` and an error wrapping one sentinel:
 | degrees of freedom remain with the driver held | `ErrUnderconstrained` |
 | more equations than unknowns | `ErrRedundant` |
 | an unsupported constraint kind is present | `ErrUncertifiedConstraint` |
+| the branch is proven to turn back below `hi` | `*FoldError`, wrapping `ErrNotCertified` |
 | no piece could be certified over some sub-range, a driven value could not be enclosed, or the call is invalid | `ErrNotCertified` |
 | non-finite geometry or a foreign operand | `ErrNonFiniteGeometry`, `ErrForeignHandle` |
 | the context ended | `ctx.Err()` |
-
-`Enclose` does not prove that a fold exists. A range holding a fold refuses
-with `ErrNotCertified`, because no piece shrinks past the fold.
 
 ## Side effects and determinism
 
@@ -300,7 +400,10 @@ Changing a dimension's value makes a held enclosure stale before any solve.
 
 - Circles, arcs, ellipses, splines and their constraints have no certified
   form yet. Each would need a restated equation and its derivatives.
-- Fold detection: a proof that a range holds a fold, as opposed to a refusal.
+- A fold reached by driving the value downward. The piece loop runs from
+  `lo` up, so a fold refusal always reports a largest driving value.
+- A proof that the curve between `Reached` and `Fold.Lo` is a function of the
+  driving value.
 - Uniqueness over the hull of several pieces.
 - Splitting a ranged target or a fixed box. Only the driving range is split
   into pieces.
