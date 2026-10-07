@@ -37,6 +37,9 @@ func (s *Sketch) Enclose(ctx context.Context, driver Dimension, lo, hi float64,
 - `WithContinuation(prev)` seeds the call from where `prev` ended and proves
   that the two enclosures follow one branch. `WithMaxPieces(n)` caps the
   number of pieces (default 4096).
+- `WithTargetRange(d, lo, hi)` makes driving dimension `d`'s target the
+  interval `[lo, hi]`, and `WithFixedBox(p, x, y)` makes fixed point `p`'s
+  position the box `x × y`. See "Ranged targets and fixed boxes".
 
 An `Enclosure` is an ordered list of `EnclosurePiece`s that together cover
 `[lo, hi]`, adjacent pieces sharing an endpoint. A piece reports its
@@ -50,11 +53,13 @@ rational it is, and the exact quantity lies between them.
 ## What a piece claims
 
 For every driving value `q` in the piece's sub-range, with every other
-dimension at its float64 target in base units:
+dimension at its float64 target in base units (or at every value of its
+`WithTargetRange` range) and every fixed point at its coordinates (or at every
+position in its `WithFixedBox` box):
 
 1. Exactly one exact solution of the constraint equations lies in the piece's
    box.
-2. That solution moves continuously with `q`.
+2. That solution moves continuously with `q` and with the ranged values.
 3. Every coordinate it takes lies in the box, and every driven dimension's
    exact measured value lies in the piece's interval for it.
 
@@ -119,6 +124,60 @@ continuity in `q`. The published box is `K(X)`.
 `X` is found by ε-inflation. It starts from `x̃ − Y·F(x̃, Q)`, and each pass
 widens the previous image by 10% plus `1e-15·(1 + |x̃|)` and always keeps
 `x̃` inside. After 20 passes without inclusion the piece fails.
+
+## Ranged targets and fixed boxes
+
+decad needs these options when the value a mechanism should have is not a
+float64. A bar between two given pins has an irrational length, and a pin
+rotated into a sketch plane gets rounded coordinates. Without the options the
+enclosure describes the mechanism with the rounded floats.
+
+`WithTargetRange(d, lo, hi)` applies to a driving `Distance` (`lo > 0`),
+`HorizontalDistance`, `VerticalDistance` or `Angle` (within ±64 rad), other
+than the driver. The equation of `d` reads the whole interval: a distance's
+`d²` term becomes the square of the interval, an offset becomes the interval,
+and an angle's `sin θ` and `cos θ` are enclosed over the interval with
+`sinCosRange`. Those terms enter `F(x̃, Q, T)`, `F_x(X, Q, T)` and the angle's
+side condition.
+
+`WithFixedBox(p, x, y)` applies to a point `Fix` has grounded. Its two
+variables stay out of the Jacobian's columns, as they do for every other fixed
+point. Inside `krawczyk` they read their intervals in `F(x̃, ·)`, in the box
+`X` that `F_x` is evaluated over, and in the published box `K`. The
+approximate inverse `Y` is still built at the float point.
+
+For any one choice of target `t` and position `p`, the single-value Krawczyk
+image is contained in the image computed over the whole intervals. If that
+image lies strictly inside `X`, each choice has exactly one solution in `X`.
+The implicit function theorem then makes the solution continuous in `q`, `t`
+and `p` together. The piece ties also hold per choice: the point box at a
+shared value `b` covers every `(b, t, p)`, so for each choice both neighbours
+hold the same solution at `b`.
+
+The pieces split only the driving range. A ranged target or a fixed box keeps
+its whole interval in every piece, so a wide one widens every box. A width the
+test cannot close refuses with `ErrNotCertified`, as a wide `Q` does.
+
+The float solves run with each ranged target at its interval's midpoint and
+each boxed point at its box's center. `Enclose` writes a midpoint only when it
+differs from the current value. A zero-width range on a dimension's own target
+therefore reruns the call without the option, bit for bit.
+`WithContinuation` requires the same ranges and boxes as the enclosure it
+continues, because that enclosure's end box covers only its own.
+
+| Request | Refusal |
+|---|---|
+| a target range on the driver, a driven dimension, a nil dimension, or another sketch's dimension | `ErrNotCertified` |
+| `lo > hi`, a NaN or infinite endpoint, or a distance range with `lo <= 0` | `ErrNotCertified` |
+| an angle range outside ±64 rad | `ErrNotCertified` |
+| a dimension kind with no range form | `ErrUncertifiedConstraint` |
+| a fixed box on a point that is not fixed, is nil, or belongs to another sketch | `ErrNotCertified` |
+| a fixed box interval that is reversed or not finite | `ErrNotCertified` |
+| the same dimension or point named twice | `ErrNotCertified` |
+| a continuation whose ranges or boxes differ from the continued enclosure's | `ErrNotCertified` |
+
+On the crank-rocker at `θ2 = 90°`, a coupler range of `[79, 81]` gives a
+follower interval 1.69° wide. The exact follower moves 1.64° over that range.
 
 ## Rounding
 
@@ -212,8 +271,9 @@ with `ErrNotCertified`, because no piece shrinks past the fold.
 
 ## Side effects and determinism
 
-`Enclose` moves the sketch's variables and the driver's target while it runs
-and restores both exactly before it returns, on success and on refusal.
+`Enclose` moves the sketch's variables, the driver's target and every ranged
+target while it runs and restores them exactly before it returns, on success
+and on refusal.
 `Sketch.Revision` is unchanged afterwards. Two calls on the same state with
 the same arguments return bit-identical enclosures, because every step is a
 deterministic float or integer computation from the same inputs.
@@ -242,5 +302,7 @@ Changing a dimension's value makes a held enclosure stale before any solve.
   form yet. Each would need a restated equation and its derivatives.
 - Fold detection: a proof that a range holds a fold, as opposed to a refusal.
 - Uniqueness over the hull of several pieces.
+- Splitting a ranged target or a fixed box. Only the driving range is split
+  into pieces.
 - A tolerance option: the float solves use the solver's default tolerance and
   iteration budget, which only decide whether a certificate is attempted.

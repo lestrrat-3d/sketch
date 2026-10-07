@@ -42,15 +42,18 @@ func (encloseOption) encloseOption() {}
 type (
 	identContinuation struct{}
 	identMaxPieces    struct{}
+	identTargetRange  struct{}
+	identFixedBox     struct{}
 )
 
 // WithContinuation continues the branch a previous enclosure certified. The
 // new call must start where prev ended (lo equal to prev's upper driving
-// value, exactly), use the same driver, and run on the same unchanged sketch.
-// It is seeded from prev's float solution at that value instead of the
-// sketch's current geometry, and it proves that prev's certified box at the
-// shared value lies inside the new first piece's uniqueness box, so the two
-// enclosures describe one continuous branch.
+// value, exactly), use the same driver, the same [WithTargetRange] and
+// [WithFixedBox] options, and run on the same unchanged sketch. It is seeded
+// from prev's float solution at that value instead of the sketch's current
+// geometry, and it proves that prev's certified box at the shared value lies
+// inside the new first piece's uniqueness box, so the two enclosures describe
+// one continuous branch.
 func WithContinuation(prev *Enclosure) EncloseOption {
 	return encloseOption{option.New(identContinuation{}, prev)}
 }
@@ -61,9 +64,52 @@ func WithMaxPieces(n int) EncloseOption {
 	return encloseOption{option.New(identMaxPieces{}, n)}
 }
 
+// WithTargetRange makes driving dimension d's target the interval [lo, hi]
+// instead of its float64 target: the enclosure's claims then hold for every
+// target value in [lo, hi] at once. lo and hi are base units (mm or rad), each
+// read as the exact rational the float64 represents. d must be a driving
+// [Distance] (with lo > 0), [HorizontalDistance], [VerticalDistance] or [Angle]
+// (within ±64 rad) committed to the sketch, other than the driver, and named
+// by at most one such option. The float solves read the interval's midpoint;
+// [Sketch.Enclose] restores the target before it returns.
+//
+// Use it when the value a dimension should hold is not a float64, such as the
+// irrational distance between two given pins: state it as the two floats
+// around it, and the enclosure covers the exact value.
+func WithTargetRange(d Dimension, lo, hi float64) EncloseOption {
+	return encloseOption{option.New(identTargetRange{}, targetRange{d: d, rng: Interval{lo, hi}})}
+}
+
+// WithFixedBox makes the position of p, a point the sketch has grounded with
+// [Sketch.Fix], the box x × y instead of its float64 coordinates: the
+// enclosure's claims then hold for every position of p in the box at once,
+// and [EnclosurePiece.PointBox] reports the box for p. Each interval is in mm,
+// its endpoints read as exact rationals. A point may be named by at most one
+// such option. The float solves place p at the box's center; [Sketch.Enclose]
+// restores it before it returns.
+func WithFixedBox(p *Point, x, y Interval) EncloseOption {
+	return encloseOption{option.New(identFixedBox{}, fixedBox{p: p, x: x, y: y})}
+}
+
+// targetRange is one WithTargetRange request; idx is the dimension's position
+// in the sketch's constraint list once validated.
+type targetRange struct {
+	d   Dimension
+	rng Interval
+	idx int
+}
+
+// fixedBox is one WithFixedBox request.
+type fixedBox struct {
+	p    *Point
+	x, y Interval
+}
+
 type encloseConfig struct {
 	prev      *Enclosure
 	maxPieces int
+	targets   []targetRange
+	boxes     []fixedBox
 }
 
 func defaultEncloseConfig() encloseConfig { return encloseConfig{maxPieces: 4096} }
@@ -82,6 +128,12 @@ func defaultEncloseConfig() encloseConfig { return encloseConfig{maxPieces: 4096
 //   - every coordinate that solution takes lies in the piece's box, and every
 //     driven dimension's measured value lies in the piece's interval for it.
 //
+// A dimension given a [WithTargetRange] reads every value in its range instead
+// of its float64 target, and a point given a [WithFixedBox] takes every
+// position in its box instead of its fixed coordinates. The claims then hold
+// for every combination of those values with every q: exactly one solution in
+// the box for each, continuous in all of them jointly.
+//
 // Adjacent pieces are proven to hold the same solution at their shared value,
 // so across the whole range the solution is one continuous function of q. The
 // whole-range readings ([Enclosure.PointBox], [Enclosure.Driven]) are the hulls
@@ -98,6 +150,8 @@ type Enclosure struct {
 	fp      uint64
 	endVars []float64
 	endBox  []Interval
+	targets []encloseTarget
+	boxes   []fixedBox
 }
 
 // EnclosurePiece is one piece of an [Enclosure]: a sub-range of the driving
@@ -119,7 +173,7 @@ func (p EnclosurePiece) Range() Interval { return p.rng }
 
 // PointBox returns the enclosures of p's x and y coordinates over the piece.
 // It reports false for a nil point or one the sketch does not own. A fixed
-// point's box is its exact coordinate.
+// point's box is its exact coordinate, or its [WithFixedBox] box.
 func (p EnclosurePiece) PointBox(pnt *Point) (Interval, Interval, bool) {
 	if pnt == nil || p.s == nil || !p.s.owns(pnt) || pnt.xi >= len(p.box) || pnt.yi >= len(p.box) {
 		return Interval{}, Interval{}, false
@@ -219,11 +273,16 @@ func (e *Enclosure) IsStale() bool { return e.s.encloseFingerprint() != e.fp }
 //   - [ErrNonFiniteGeometry], [ErrForeignHandle]: the sketch is unreadable.
 //   - ctx.Err(): the context ended.
 //
-// Enclose moves the sketch's variables and the driver's target while it
-// works and restores both exactly before returning, so the sketch reads as
-// untouched afterwards ([Sketch.Revision] is unchanged); it must not run
-// concurrently with any other call on the same sketch. Two calls on the same
-// sketch state with the same arguments return bit-identical enclosures.
+// [WithTargetRange] and [WithFixedBox] widen a dimension's target or a fixed
+// point's position to an interval; an invalid one refuses with
+// [ErrNotCertified].
+//
+// Enclose moves the sketch's variables, the driver's target and every ranged
+// target while it works and restores them exactly before returning, so the
+// sketch reads as untouched afterwards ([Sketch.Revision] is unchanged); it
+// must not run concurrently with any other call on the same sketch. Two calls
+// on the same sketch state with the same arguments return bit-identical
+// enclosures.
 func (s *Sketch) Enclose(ctx context.Context, driver Dimension, lo, hi float64, options ...EncloseOption) (*Enclosure, error) {
 	cfg := defaultEncloseConfig()
 	for _, opt := range options {
@@ -232,6 +291,10 @@ func (s *Sketch) Enclose(ctx context.Context, driver Dimension, lo, hi float64, 
 			cfg.prev = option.MustGet[*Enclosure](opt)
 		case identMaxPieces:
 			cfg.maxPieces = option.MustGet[int](opt)
+		case identTargetRange:
+			cfg.targets = append(cfg.targets, option.MustGet[targetRange](opt))
+		case identFixedBox:
+			cfg.boxes = append(cfg.boxes, option.MustGet[fixedBox](opt))
 		}
 	}
 	if err := ctx.Err(); err != nil {
@@ -254,11 +317,19 @@ func (s *Sketch) Enclose(ctx context.Context, driver Dimension, lo, hi float64, 
 	if s.hasNonFiniteVars() {
 		return nil, fmt.Errorf("%w: the sketch holds a non-finite value", ErrNonFiniteGeometry)
 	}
-	sys, err := s.certifiedSystem(driver)
+	targets, err := s.encloseTargets(driver, cfg.targets)
 	if err != nil {
 		return nil, err
 	}
-	db, err := driverBase(driver, lo, hi)
+	boxes, err := s.encloseBoxes(cfg.boxes)
+	if err != nil {
+		return nil, err
+	}
+	sys, err := s.certifiedSystem(driver, targets, boxes)
+	if err != nil {
+		return nil, err
+	}
+	db, err := rangeBase(driver, lo, hi)
 	if err != nil {
 		return nil, err
 	}
@@ -272,16 +343,36 @@ func (s *Sketch) Enclose(ctx context.Context, driver Dimension, lo, hi float64, 
 			return nil, fmt.Errorf("%w: the continued enclosure is stale", ErrNotCertified)
 		case prev.rng.Hi != lo:
 			return nil, fmt.Errorf("%w: the range starts at %v, the continued enclosure ends at %v", ErrNotCertified, lo, prev.rng.Hi)
+		case !slices.Equal(prev.targets, targets) || !slices.Equal(prev.boxes, boxes):
+			return nil, fmt.Errorf("%w: the continued enclosure has different target ranges or fixed boxes", ErrNotCertified)
 		}
 	}
 
 	fp := s.encloseFingerprint()
 	savedVars := slices.Clone(s.vars)
 	savedDim := *db
+	savedTargets := make([]dimBase, len(targets))
+	for i, tr := range targets {
+		savedTargets[i] = *tr.base
+	}
 	defer func() {
 		copy(s.vars, savedVars)
 		*db = savedDim
+		for i, tr := range targets {
+			*tr.base = savedTargets[i]
+		}
 	}()
+	// The float solves run at the center of every range and box. A value that
+	// already sits there is left alone, so a zero-width range on a dimension's
+	// own target reruns exactly the call without it.
+	for _, tr := range targets {
+		if m := tr.rng.mid(); m != tr.d.base() {
+			setBase(tr.base, m)
+		}
+	}
+	for _, b := range boxes {
+		s.vars[b.p.xi], s.vars[b.p.yi] = b.x.mid(), b.y.mid()
+	}
 
 	free := s.freeVars()
 	col := make([]int, len(s.vars))
@@ -297,13 +388,15 @@ func (s *Sketch) Enclose(ctx context.Context, driver Dimension, lo, hi float64, 
 		return nil, err
 	}
 	e.s, e.driver, e.rng, e.fp = s, driver, Interval{lo, hi}, fp
+	e.targets, e.boxes = targets, boxes
 	return e, nil
 }
 
-// driverBase returns the dimension state Enclose rewrites to move the driving
-// value, refusing a driver kind or range the certified path cannot take.
-func driverBase(driver Dimension, lo, hi float64) (*dimBase, error) {
-	switch t := driver.(type) {
+// rangeBase returns the dimension state Enclose rewrites to move a ranged
+// value (the driver's, or a WithTargetRange target's), refusing a dimension
+// kind or range the certified path cannot take.
+func rangeBase(d Dimension, lo, hi float64) (*dimBase, error) {
+	switch t := d.(type) {
 	case *Angle:
 		if math.Abs(lo) > maxTrigArg || math.Abs(hi) > maxTrigArg {
 			return nil, fmt.Errorf("%w: angle range [%v, %v] rad is outside ±%d rad", ErrNotCertified, lo, hi, maxTrigArg)
@@ -319,7 +412,83 @@ func driverBase(driver Dimension, lo, hi float64) (*dimBase, error) {
 	case *VerticalDistance:
 		return &t.dimBase, nil
 	}
-	return nil, fmt.Errorf("%w: %s cannot drive an enclosure", ErrUncertifiedConstraint, ConstraintKind(driver))
+	return nil, fmt.Errorf("%w: %s cannot take a range in an enclosure", ErrUncertifiedConstraint, ConstraintKind(d))
+}
+
+// setBase makes a dimension's target exactly v in base units.
+func setBase(db *dimBase, v float64) {
+	u := units.Millimeter
+	if db.kind == units.Angle {
+		u = units.Radian
+	}
+	db.target = units.New(v, u)
+}
+
+// encloseTargets validates the WithTargetRange requests and returns them in
+// constraint order, each carrying the dimension state Enclose rewrites.
+func (s *Sketch) encloseTargets(driver Dimension, reqs []targetRange) ([]encloseTarget, error) {
+	out := make([]encloseTarget, 0, len(reqs))
+	for _, tr := range reqs {
+		if tr.d == nil || isNilConstraint(tr.d) {
+			return nil, fmt.Errorf("%w: a target range names a nil dimension", ErrNotCertified)
+		}
+		idx := slices.Index(s.cons, Constraint(tr.d))
+		switch {
+		case idx < 0:
+			return nil, fmt.Errorf("%w: a target range names a dimension that is not a constraint of this sketch", ErrNotCertified)
+		case Constraint(tr.d) == Constraint(driver):
+			return nil, fmt.Errorf("%w: a target range names the driver", ErrNotCertified)
+		case tr.d.Driven():
+			return nil, fmt.Errorf("%w: a target range names a driven dimension", ErrNotCertified)
+		case !(tr.rng.Lo <= tr.rng.Hi) || math.IsInf(tr.rng.Lo, 0) || math.IsInf(tr.rng.Hi, 0):
+			return nil, fmt.Errorf("%w: target range [%v, %v] is not a finite ordered range", ErrNotCertified, tr.rng.Lo, tr.rng.Hi)
+		}
+		for _, o := range out {
+			if o.idx == idx {
+				return nil, fmt.Errorf("%w: two target ranges name the same %s", ErrNotCertified, ConstraintKind(tr.d))
+			}
+		}
+		db, err := rangeBase(tr.d, tr.rng.Lo, tr.rng.Hi)
+		if err != nil {
+			return nil, err
+		}
+		tr.idx = idx
+		out = append(out, encloseTarget{targetRange: tr, base: db})
+	}
+	slices.SortFunc(out, func(a, b encloseTarget) int { return a.idx - b.idx })
+	return out, nil
+}
+
+// encloseTarget is a validated target range with the dimension state it
+// rewrites. Two are equal when they range the same dimension over the same
+// interval.
+type encloseTarget struct {
+	targetRange
+	base *dimBase
+}
+
+// encloseBoxes validates the WithFixedBox requests and returns them in point
+// order.
+func (s *Sketch) encloseBoxes(reqs []fixedBox) ([]fixedBox, error) {
+	out := make([]fixedBox, 0, len(reqs))
+	for _, b := range reqs {
+		switch {
+		case b.p == nil || !s.owns(b.p):
+			return nil, fmt.Errorf("%w: a fixed box names a point this sketch does not own", ErrNotCertified)
+		case !s.fixed[b.p.xi] || !s.fixed[b.p.yi]:
+			return nil, fmt.Errorf("%w: a fixed box names a point that is not fixed", ErrNotCertified)
+		case !b.x.isFinite() || !b.y.isFinite():
+			return nil, fmt.Errorf("%w: fixed box [%v, %v] × [%v, %v] is not finite and ordered", ErrNotCertified, b.x.Lo, b.x.Hi, b.y.Lo, b.y.Hi)
+		}
+		for _, o := range out {
+			if o.p == b.p {
+				return nil, fmt.Errorf("%w: two fixed boxes name the same point", ErrNotCertified)
+			}
+		}
+		out = append(out, b)
+	}
+	slices.SortFunc(out, func(a, b fixedBox) int { return a.p.xi - b.p.xi })
+	return out, nil
 }
 
 // encloseRun is the per-call state of one Enclose call.
@@ -332,13 +501,7 @@ type encloseRun struct {
 }
 
 // setDriver makes the driver's target exactly q in base units.
-func (r *encloseRun) setDriver(q float64) {
-	u := units.Millimeter
-	if r.db.kind == units.Angle {
-		u = units.Radian
-	}
-	r.db.target = units.New(q, u)
-}
+func (r *encloseRun) setDriver(q float64) { setBase(r.db, q) }
 
 // solveAt runs the float solver at driving value q from seed and returns the
 // solved variables, or an error wrapping ErrNotConverged (or the context's).
