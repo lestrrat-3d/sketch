@@ -89,8 +89,8 @@ type BoundaryEdge struct {
 	// *Ellipse).
 	//
 	// Where two entities on the same carrier share one span and [Sketch.Profiles]
-	// resolves them, that span names ONE of them: the earlier of two arcs in
-	// [Sketch.Entities], or the arc of an arc and a circle. Input order decides which,
+	// resolves them, that span names ONE of them: the earlier of two arcs or two lines
+	// in [Sketch.Entities], or the arc of an arc and a circle. Input order decides which,
 	// and everything the report says about that span follows from the naming — so read
 	// the span's entity off this field rather than looking for an entity you expect.
 	// Treat the whole report for such a scene as order-dependent, not just this field.
@@ -221,13 +221,18 @@ type BoundaryEdge struct {
 // under ONE entity. The other emits no edge over the span, and the rest of it is
 // arranged as usual. The named entity is the earlier of two arcs in
 // [Sketch.Entities], or the arc of an arc and a circle, since circles are arranged
-// after every open entity. Every other same-carrier overlap is one of the
-// unresolvable conditions above, so the regions it reaches are reported invalid and
-// neither entity loses a span to the other, though the returned boundary need not name
-// either of them: two entities sharing more than one span of
-// the carrier, two that each sweep the full turn, two lines overlapping along one
-// carrier, carriers equal only to within the near-tangency band, and a span the
-// arrangement cannot cut cleanly at both ends.
+// after every open entity. Two LINES on one carrier line that overlap in a span of
+// positive length — the shared wall of two outlines drawn edge to edge — are
+// resolved the same way, naming the earlier line in [Sketch.Entities], when each
+// line lies on a closed loop of entities joined end to end at shared points and the
+// two are not edges of one simple loop. A line dangling from such a loop, an open run
+// that doubles back over itself, and a single loop that doubles back over its own
+// edge stay unresolved. Every other same-carrier overlap is one of the unresolvable
+// conditions above, so the regions it reaches are reported invalid and neither entity
+// loses a span to the other, though the returned boundary need not name either of
+// them: two entities sharing more than one span of the carrier, two that each sweep
+// the full turn, carriers equal only to within the near-tangency band (for lines, the
+// vertex-merge band), and a span the arrangement cannot cut cleanly at both ends.
 //
 // Input order decides which of the two is named, and everything this report says
 // about that span follows from the naming. Among the outputs that move are the entity

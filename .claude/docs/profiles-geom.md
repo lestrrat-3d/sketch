@@ -19,6 +19,7 @@ Detail moved out of CLAUDE.md. Read before touching `Sketch.Profiles`, `Boundary
 | Why is a region flagged degenerate? | Chord-deviation degeneracy bounds |
 | Why did a huge but finite scene read degenerate, or publish `Area=+Inf`? | The magnitude screen |
 | Two curves lying on the same carrier? | Coincident-carrier overlap resolution |
+| Two collinear lines sharing a span? | Coincident LINE carriers |
 | Why did one drawing publish different regions in a different authoring order? | The canonical weld order |
 | What do `geom`'s constructors validate? | `geom` constructors are value holders |
 | Which segment pairs does `intersect` even look at? | The broad-phase reach (`intersect`'s pair enumeration) |
@@ -1217,8 +1218,7 @@ the global band alone an `r=2` arc and an `r=1` circle read identical and a
 suppression window is recorded over the whole circle carrier — a resolution reached
 with no carrier near any other. The
 centre separation is the quantity under test, so it enters the offset, never the
-tolerance. Also unconditionally `Degenerate`: a
-coincident LINE carrier; a multi-window overlap (`coincidentArcOverlap` reports only
+tolerance. Also unconditionally `Degenerate`: a multi-window overlap (`coincidentArcOverlap` reports only
 the longest window, a limit inherited rather than fixed, so it refuses on ANY second
 window of positive length — tested against zero, never against `arcParamEps`, since
 only ONE suppression window is recorded and a dismissed second span would be emitted
@@ -1293,3 +1293,31 @@ anywhere.
 `TestAnalyticCoincidentCarrierNamingIsOrderDependent` is a regression pin on two
 concrete scenes — two arcs sharing a START, and two arcs `0..160°`/`0..170°` closed by a
 chord PAST the short one — and is evidence for those scenes only, never for a universal.
+
+### Coincident LINE carriers
+
+**Two collinear lines overlapping in a positive-length span resolve through the same
+cut/name/certify/suppress steps** (design: "Coincident line carriers" in
+`docs/coincident-carrier-resolution-design.md`). Line-specific rules:
+
+- Boundary points are the lines' OWN endpoints, verbatim — never a projection. Cut on
+  the owning line → `atSourceEnd` no-op; on the other line → exact cut at its projected
+  parameter.
+- Resolution gate is `linesIdentical`, NOT the classification band (`scale·mergeEps`):
+  max perpendicular distance of both boundary points from both carriers ≤
+  `weldIdentEps·scale` AND ≤ `weldIdentEps·min(len_a, len_b)`. MUST stay `min`, never
+  `max` → a long line's length would admit a miss beyond the short line's own identity
+  band.
+- Shared-wall gate in `analyticPrepass`: resolve only when `sharedWall(i, j)` (both in
+  `a.core`, and not two edges of one simple loop); otherwise `flagDegenerate`. NEVER
+  drop or loosen it → a dangling duplicate stroke, an open walk that retraces itself,
+  and a closed loop doubling back over its own edge would stop reading invalid (pinned
+  by `TestCoincidentLineCarrierDanglingLineStaysDegenerate`,
+  `TestCoincidentLineCarrierOneLoopDoublingBackStaysDegenerate`,
+  `TestChainsSelfTouchIsInvalid`, `TestVerifyListsAnInvalidChain`, and the chain-order
+  tie tests, which need coincident open lines to stay unresolved). `core`/`comp` are
+  `*Point` identity, not coordinates. Known pass-through: a slit drawn out and back
+  from an outline's corner resolves (same local shape as a whole wall shared through
+  shared corners).
+- Window is `paramWindow` (losing line's own `[lo, hi]` parameter), tested at the
+  fragment's parameter midpoint with no slop; `certifySuppression` applies unchanged.

@@ -31,13 +31,13 @@ type xEvent struct {
 	x, y   float64
 	ti, tj float64
 	kind   eventKind
-	// overlap carries the SECOND boundary of a coincident-carrier evOverlap event
-	// this repository can RESOLVE (see coincident-carrier-resolution-design.md) — x
-	// /y/ti/tj above already carry the first. nil for every other event, and for an
-	// evOverlap this design leaves out of scope (a coincident LINE carrier, two
+	// overlap carries both boundaries of a coincident-carrier evOverlap event this
+	// repository can RESOLVE (see coincident-carrier-resolution-design.md). nil for
+	// every other event, and for an evOverlap this design leaves out of scope (two
 	// fully-coincident COMPLETE carriers, a multi-window overlap, or a carrier match
 	// that holds only within the classification band and not at round-off — see
-	// carriersIdentical), which callers still treat as an unconditional degeneracy.
+	// carriersIdentical and linesIdentical), which callers still treat as an
+	// unconditional degeneracy.
 	//
 	// When it is non-nil, its lo/hi are the event's authoritative CONTACT points —
 	// the two sites resolveCoincidentOverlap cuts both sources at (and the two
@@ -49,14 +49,14 @@ type xEvent struct {
 }
 
 // overlapExtent carries BOTH boundaries of a resolvable coincident-carrier
-// overlap window explicitly — lo (the same point xEvent.x/y/ti/tj already
-// carries, repeated here so resolveCoincidentOverlap has both ends in one
-// place) and hi (the second boundary) — plus each source's natural parameter
-// at each, and the window's absolute angular extent on the shared carrier
-// (angLo, hi's own absolute angle minus lo's — i.e. width — around the shared
-// center). Angle space is used because it needs no per-source
-// natural-parameter sign/wrap bookkeeping: the two sources can have
-// independent sweep directions, but they share one physical center.
+// overlap window explicitly — lo and hi — plus each source's natural parameter
+// at each. For a circular carrier it also carries the window's absolute angular
+// extent on the shared carrier (angLo, hi's own absolute angle minus lo's — i.e.
+// width — around the shared center). Angle space is used there because it needs
+// no per-source natural-parameter sign/wrap bookkeeping: the two sources can have
+// independent sweep directions, but they share one physical center. A line
+// carrier leaves angLo/width zero: a line's natural parameter never wraps, so
+// the losing line's own [loTj, hiTj] range is the window.
 type overlapExtent struct {
 	loX, loY     float64
 	loTi, loTj   float64
@@ -354,7 +354,35 @@ func lineLineEvents(a, b operand, scale float64) ([]xEvent, bool) {
 		}
 		mid := (ov0 + ov1) / 2 // a point inside the positive-length overlap, in a's param
 		x, y := a.ax+mid*d1x, a.ay+mid*d1y
-		return []xEvent{{x: x, y: y, ti: mid, tj: b.lineParam(x, y), kind: evOverlap}}, false
+		e := xEvent{x: x, y: y, ti: mid, tj: b.lineParam(x, y), kind: evOverlap}
+		// The overlap's two ends are each an endpoint of one of the two lines: a's
+		// own end where b reaches past it, b's endpoint where b stops inside a. A pair
+		// whose carriers are the same line at round-off is RESOLVABLE (see
+		// docs/coincident-carrier-resolution-design.md, "Coincident line carriers"):
+		// both ends are reported so analyticPrepass can cut both lines there and
+		// suppress the losing one over the shared span. A pair collinear only within
+		// the classification band above keeps the nil extent and stays a degeneracy.
+		loX, loY := a.ax, a.ay
+		if lo > 0 {
+			loX, loY = b.ax, b.ay
+			if tb1 < tb0 {
+				loX, loY = b.bx, b.by
+			}
+		}
+		hiX, hiY := a.bx, a.by
+		if hi < 1 {
+			hiX, hiY = b.bx, b.by
+			if tb1 < tb0 {
+				hiX, hiY = b.ax, b.ay
+			}
+		}
+		if linesIdentical(a, b, [2][2]float64{{loX, loY}, {hiX, hiY}}, scale) {
+			e.overlap = &overlapExtent{
+				loX: loX, loY: loY, loTi: a.lineParam(loX, loY), loTj: b.lineParam(loX, loY),
+				hiX: hiX, hiY: hiY, hiTi: a.lineParam(hiX, hiY), hiTj: b.lineParam(hiX, hiY),
+			}
+		}
+		return []xEvent{e}, false
 	}
 	t := ((b.ax-a.ax)*d2y - (b.ay-a.ay)*d2x) / den
 	x, y := a.ax+t*d1x, a.ay+t*d1y
@@ -589,6 +617,42 @@ func circleCircleEvents(a, b operand, scale float64) ([]xEvent, bool) {
 func carriersIdentical(a, b operand, scale float64) bool {
 	off := math.Hypot(b.cx-a.cx, b.cy-a.cy) + math.Abs(a.r-b.r)
 	return off <= weldIdentEps*scale && off <= weldIdentEps*math.Max(a.r, b.r)
+}
+
+// linesIdentical is carriersIdentical's counterpart for two line operands already
+// classified collinear: it reports whether the two carriers are the same line at
+// round-off at the overlap's two boundary points, which are the only points
+// resolveCoincidentOverlap cuts at.
+//
+// Each boundary point is an endpoint of one of the two lines, so it lies on that
+// line's own carrier, and it is cut onto the OTHER line with exact:true at its
+// projected parameter. The parameter then evaluates to the point's foot on that
+// carrier, which misses the point by exactly the point's perpendicular distance from
+// it. That distance, taken against both carriers so neither operand's role matters,
+// is the offset the two bands below bound.
+//
+// The bands mirror carriersIdentical's. The GLOBAL band, weldIdentEps·scale, ties the
+// resolution to vertexCertifies' scene yardstick. The CARRIER-LOCAL band uses the
+// SHORTER of the two lengths, where the circular case uses the larger radius: two
+// coincident circles have radii equal to within the band, but two collinear lines can
+// differ in length without limit, and a miss judged against the long line's length
+// would publish a bound on the short line that is off by far more than the short
+// line's own identity band. A band built from the pair's own lengths cannot be widened
+// by geometry drawn elsewhere in the scene.
+func linesIdentical(a, b operand, ends [2][2]float64, scale float64) bool {
+	la := math.Hypot(a.bx-a.ax, a.by-a.ay)
+	lb := math.Hypot(b.bx-b.ax, b.by-b.ay)
+	off := 0.0
+	for _, p := range ends {
+		off = math.Max(off, math.Max(perpDistance(a, p[0], p[1], la), perpDistance(b, p[0], p[1], lb)))
+	}
+	return off <= weldIdentEps*scale && off <= weldIdentEps*math.Min(la, lb)
+}
+
+// perpDistance returns the distance of (px,py) from the carrier line of the line
+// operand o, whose length is l (non-zero).
+func perpDistance(o operand, px, py, l float64) float64 {
+	return math.Abs((px-o.ax)*(o.by-o.ay)-(py-o.ay)*(o.bx-o.ax)) / l
 }
 
 // footOnLine returns the foot of the perpendicular from (px,py) to the carrier
