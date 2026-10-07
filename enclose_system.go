@@ -386,7 +386,7 @@ func certEquationsOf(c Constraint, isDriver bool, rng Interval, isRanged bool) (
 			th := targetOf(t, rng, isRanged)
 			sin, cos, ok := sinCosRange(th)
 			if !ok {
-				return nil, fmt.Errorf("%w: angle target [%v, %v] rad is outside ±%d rad", ErrNotCertified, th.Lo, th.Hi, maxTrigArg)
+				return nil, fmt.Errorf("%w: angle target [%v, %v] rad is outside ±2^40 rad", ErrNotCertified, th.Lo, th.Hi)
 			}
 			eq.sin, eq.cos = sin, cos
 		}

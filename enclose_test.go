@@ -273,6 +273,58 @@ func TestEncloseCrankRockerRange(t *testing.T) {
 	})
 }
 
+func TestEncloseWholeTurns(t *testing.T) {
+	turns := 40 * math.Pi // the crank twenty turns on from its zero pose
+	t.Run("R1 the point ask twenty turns on", func(t *testing.T) {
+		fb := crankRocker(t, 90, true)
+		base, err := fb.s.Enclose(t.Context(), fb.crank, math.Pi/2, math.Pi/2)
+		require.NoError(t, err, "the 90° ask")
+		e, err := fb.s.Enclose(t.Context(), fb.crank, math.Pi/2+turns, math.Pi/2+turns)
+		require.NoError(t, err, "the same pose twenty turns on is certifiable")
+		requirePieceHolds(t, fb, e, math.Pi/2+turns, true)
+		want, ok := base.Driven(fb.follower)
+		require.True(t, ok, "the driven follower has an interval at 90°")
+		got, ok := e.Driven(fb.follower)
+		require.True(t, ok, "the driven follower has an interval twenty turns on")
+		require.InDelta(t, want.Lo, got.Lo, 1e-9, "the follower interval matches the 90° ask")
+		require.InDelta(t, want.Hi, got.Hi, 1e-9, "the follower interval matches the 90° ask")
+	})
+	t.Run("R2 a quarter-turn cell twenty turns on", func(t *testing.T) {
+		fb := crankRocker(t, 0, true)
+		start, err := fb.s.Enclose(t.Context(), fb.crank, turns, turns)
+		require.NoError(t, err, "the cell's predecessor at 2π·20")
+		e, err := fb.s.Enclose(t.Context(), fb.crank, turns, turns+math.Pi/2, sketch.WithContinuation(start))
+		require.NoError(t, err, "the quarter turn twenty turns on is certifiable")
+		requireContiguous(t, e)
+		fol, ok := e.Driven(fb.follower)
+		require.True(t, ok, "the driven follower has an interval")
+		requireTableAngle(t, fol, 101.5370, "the follower's minimum inside the range")
+		requireTableAngle(t, fol, 113.3250, "the follower at 90°")
+		mn, mx := sampledRange(fb, 0, math.Pi/2)
+		requireContains(t, fol, mn, "sampled minimum")
+		requireContains(t, fol, mx, "sampled maximum")
+		for _, deg := range []float64{0, 15, 38.5727, 60, 90} {
+			requirePieceHolds(t, fb, e, turns+rad(deg), true)
+		}
+	})
+	t.Run("an angle target range twenty turns on", func(t *testing.T) {
+		fb := crankRocker(t, 90, true)
+		q := math.Pi/2 + turns
+		e, err := fb.s.Enclose(t.Context(), fb.bars[2], 80, 80, sketch.WithTargetRange(fb.crank, q-1e-12, q+1e-12))
+		require.NoError(t, err, "a crank target range past 64 rad is certifiable")
+		fol, ok := e.Driven(fb.follower)
+		require.True(t, ok, "the driven follower has an interval")
+		requireTableAngle(t, fol, 113.3250, "follower at 113.3250°")
+		requireAngleContains(t, fol, followerAt(80, math.Pi/2), "follower at the closed form")
+	})
+	t.Run("an angle beyond the domain", func(t *testing.T) {
+		fb := crankRocker(t, 90, true)
+		e, err := fb.s.Enclose(t.Context(), fb.crank, 0x1p41, 0x1p41)
+		require.ErrorIs(t, err, sketch.ErrNotCertified, "an angle beyond ±2^40 rad is refused")
+		require.Nil(t, e, "a refusal carries no enclosure")
+	})
+}
+
 // nonGrashof is decad's folding four-bar (g=100, r=50, l=60, f=50), seeded at
 // 80° with B above the ground line (θ4 = 130.3270°).
 func nonGrashof(t *testing.T) *fourBar {

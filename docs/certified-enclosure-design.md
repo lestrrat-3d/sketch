@@ -133,7 +133,7 @@ rotated into a sketch plane gets rounded coordinates. Without the options the
 enclosure describes the mechanism with the rounded floats.
 
 `WithTargetRange(d, lo, hi)` applies to a driving `Distance` (`lo > 0`),
-`HorizontalDistance`, `VerticalDistance` or `Angle` (within ±64 rad), other
+`HorizontalDistance`, `VerticalDistance` or `Angle` (within ±2^40 rad), other
 than the driver. The equation of `d` reads the whole interval: a distance's
 `d²` term becomes the square of the interval, an offset becomes the interval,
 and an angle's `sin θ` and `cos θ` are enclosed over the interval with
@@ -169,7 +169,7 @@ continues, because that enclosure's end box covers only its own.
 |---|---|
 | a target range on the driver, a driven dimension, a nil dimension, or another sketch's dimension | `ErrNotCertified` |
 | `lo > hi`, a NaN or infinite endpoint, or a distance range with `lo <= 0` | `ErrNotCertified` |
-| an angle range outside ±64 rad | `ErrNotCertified` |
+| an angle range outside ±2^40 rad | `ErrNotCertified` |
 | a dimension kind with no range form | `ErrUncertifiedConstraint` |
 | a fixed box on a point that is not fixed, is nil, or belongs to another sketch | `ErrNotCertified` |
 | a fixed box interval that is reversed or not finite | `ErrNotCertified` |
@@ -194,8 +194,12 @@ forbid fusing a multiply and an add.
 - `sinCosPoint` sums the Taylor series of `sin x` and `cos x` in 256-bit
   fixed-point integers, tracking an integer bound on the error each term
   carries. It stops at a term past the series' peak that is below `2^-110`,
-  adds that term as the tail bound, and converts outward to float64. It
-  refuses `|x| > 64`.
+  adds that term as the tail bound, and converts outward to float64. For
+  `|x| > 64` it first subtracts `2πk`, with `k` the integer nearest `x/2π`,
+  in exact rationals over the 40-decimal bracket of `π`. The result is an
+  interval about one float64 step wide that contains `x − 2πk` for the exact
+  `π`, and `sinCosRange` encloses sine and cosine over it. It refuses `|x| > 2^40`. Below that bound the bracket's width
+  adds under `10^-28` rad to the reduced argument.
 - `sinCosRange` encloses sine and cosine over an interval from the endpoint
   values, adding `±1` wherever a multiple of `π/2` might lie inside. That test
   uses a 40-decimal bracket of `π`.
@@ -208,7 +212,8 @@ forbid fusing a multiply and an add.
 
 `interval_trig_internal_test.go` checks the fixed-point sums against an
 exact-rational evaluation, and the interval operations against exact rational
-products.
+products. It checks the reduction against a rational oracle that uses Machin's
+formula for `π` instead of the bracket.
 
 ## Pieces
 

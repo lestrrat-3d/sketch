@@ -28,10 +28,18 @@ var (
 	piHi = ratLit("3.1415926535897932384626433832795028841972")
 )
 
+// maxTaylorArg bounds the arguments the Taylor series is summed at directly. It
+// keeps the series short (the terms shrink once n exceeds |x|); a larger
+// argument is first reduced by whole turns.
+//
 // maxTrigArg bounds the arguments the certified path evaluates sine and cosine
-// at. It keeps the Taylor series short (the terms shrink once n exceeds |x|);
-// an angle beyond ±64 rad is refused rather than reduced.
-const maxTrigArg = 64
+// at, about 1.75e11 turns. The reduction subtracts 2πk for an integer k below
+// 2^38, so the 1e-40 width of the π bracket costs under 1e-28 rad; beyond the
+// bound an angle is refused.
+const (
+	maxTaylorArg = 64
+	maxTrigArg   = 1 << 40
+)
 
 // trigFracBits is the fixed-point precision of the Taylor sums: every term is
 // held as an integer count of 2^-trigFracBits. trigEpsBits ends the series once
@@ -92,7 +100,9 @@ func fixedUpper(v *big.Int) float64 {
 }
 
 // sinCosPoint encloses sin(x) and cos(x) for the exact value of x. It reports
-// false for a non-finite x or one beyond maxTrigArg.
+// false for a non-finite x or one beyond maxTrigArg. An x beyond maxTaylorArg
+// is reduced by whole turns first (see reduceTurns); every other x is summed
+// directly.
 //
 // The terms t_n = x^n/n! are summed into the two series by n mod 4 until a term
 // both lies past the peak (n > |x|+1, so every later term of either series is
@@ -111,6 +121,9 @@ func fixedUpper(v *big.Int) float64 {
 func sinCosPoint(x float64) (Interval, Interval, bool) {
 	if !(math.Abs(x) <= maxTrigArg) {
 		return Interval{}, Interval{}, false
+	}
+	if math.Abs(x) > maxTaylorArg {
+		return sinCosRange(reduceTurns(x))
 	}
 	frac, exp := math.Frexp(x)
 	m := big.NewInt(int64(frac * (1 << 53))) // exact: frac has 53 significant bits
@@ -174,6 +187,23 @@ func sinCosPoint(x float64) (Interval, Interval, bool) {
 	sin := Interval{fixedLower(new(big.Int).Sub(s, sw)), fixedUpper(new(big.Int).Add(s, sw))}
 	cos := Interval{fixedLower(new(big.Int).Sub(c, cw)), fixedUpper(new(big.Int).Add(c, cw))}
 	return clampUnit(sin), clampUnit(cos), true
+}
+
+// reduceTurns encloses x − 2πk, for k the integer nearest x/2π, over every π in
+// [piLo, piHi]. Sine and cosine take the same value at x and at x − 2πk for
+// the exact π, so the sine and cosine of the result enclose those of x. Any
+// integer k would do; the nearest one leaves |x − 2πk| ≤ π plus rounding, well
+// inside maxTaylorArg. The endpoints are exact rationals rounded outward once.
+func reduceTurns(x float64) Interval {
+	k := int64(math.Round(x / (2 * math.Pi)))
+	kk := big.NewRat(2*k, 1)
+	xr := new(big.Rat).SetFloat64(x)
+	a := new(big.Rat).Sub(xr, new(big.Rat).Mul(kk, piHi))
+	b := new(big.Rat).Sub(xr, new(big.Rat).Mul(kk, piLo))
+	if k < 0 {
+		a, b = b, a
+	}
+	return ratInterval(a, b)
 }
 
 // clampUnit intersects an enclosure of a sine or cosine with [-1, 1], which is

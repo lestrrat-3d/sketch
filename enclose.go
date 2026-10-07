@@ -69,7 +69,7 @@ func WithMaxPieces(n int) EncloseOption {
 // target value in [lo, hi] at once. lo and hi are base units (mm or rad), each
 // read as the exact rational the float64 represents. d must be a driving
 // [Distance] (with lo > 0), [HorizontalDistance], [VerticalDistance] or [Angle]
-// (within ±64 rad) committed to the sketch, other than the driver, and named
+// (within ±2^40 rad) committed to the sketch, other than the driver, and named
 // by at most one such option. The float solves read the interval's midpoint;
 // [Sketch.Enclose] restores the target before it returns.
 //
@@ -399,7 +399,7 @@ func rangeBase(d Dimension, lo, hi float64) (*dimBase, error) {
 	switch t := d.(type) {
 	case *Angle:
 		if math.Abs(lo) > maxTrigArg || math.Abs(hi) > maxTrigArg {
-			return nil, fmt.Errorf("%w: angle range [%v, %v] rad is outside ±%d rad", ErrNotCertified, lo, hi, maxTrigArg)
+			return nil, fmt.Errorf("%w: angle range [%v, %v] rad is outside ±2^40 rad", ErrNotCertified, lo, hi)
 		}
 		return &t.dimBase, nil
 	case *Distance:
