@@ -269,7 +269,8 @@ type Arrangement struct {
 	// boundaries, which subdivides rather than invalidates.
 	SelfIntersections [][2]float64
 	// Degenerate is set when the arrangement could not be resolved soundly:
-	// collinear overlapping curves (duplicated/coincident edges), a crossing
+	// overlapping curves on one carrier that [Regions] does not resolve
+	// (duplicated/coincident edges), a crossing
 	// too close to a vertex or another crossing to place reliably given the
 	// sampling, or a free-form near miss — two curves approaching within the
 	// proven chord-deviation bounds of their own samples, so a crossing hidden

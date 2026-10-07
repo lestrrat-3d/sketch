@@ -437,6 +437,59 @@ func TestProfilesCoincidentCarrierGearTooth(t *testing.T) {
 	}
 }
 
+// TestProfilesCoincidentLineCarrierSharedWall is the sketch-level face of
+// coincident line-carrier resolution: a 10x10 rectangle and a 10x6 rectangle drawn
+// edge to edge, the smaller one's left wall lying wholly on the larger one's right
+// wall. Both profiles are valid, the report is Trustworthy, and both profiles name
+// the SAME entity for the shared span — the earlier-authored right wall — while the
+// later left wall, which lies wholly inside it, appears in neither.
+func TestProfilesCoincidentLineCarrierSharedWall(t *testing.T) {
+	s := newSketch(t)
+	a := s.CreateRectangle(0, 0, 10, 10)
+	s.AddConstraint(sketch.NewCoincident(a.A, s.Origin()))
+	s.AddConstraint(sketch.NewDistance(a.A, a.B, 10), sketch.NewDistance(a.A, a.D, 10))
+
+	b := s.CreateRectangle(10, 2, 20, 8)
+	s.AddConstraint(sketch.NewPointOnLine(b.A, a.BC))
+	s.AddConstraint(sketch.NewVerticalDistance(a.B, b.A, 2))
+	s.AddConstraint(sketch.NewDistance(b.A, b.B, 10), sketch.NewDistance(b.A, b.D, 6))
+
+	_, err := s.Solve(t.Context())
+	require.NoError(t, err)
+	require.InDelta(t, 10, b.A.X(), 1e-9)
+	require.InDelta(t, 2, b.A.Y(), 1e-9)
+
+	rep := s.Verify(t.Context())
+	require.Equal(t, sketch.FullyConstrained, rep.Status)
+	require.Truef(t, rep.Trustworthy(), "%v", rep.Check())
+	require.True(t, rep.ProfilesValid)
+	require.Len(t, rep.Profiles, 2)
+
+	var big, small *sketch.Profile
+	for _, p := range rep.Profiles {
+		require.True(t, p.Valid)
+		if p.Area > 80 {
+			big = p
+			continue
+		}
+		small = p
+	}
+	require.NotNil(t, big)
+	require.NotNil(t, small)
+	require.InDelta(t, 100, big.Area, 1e-9)
+	require.InDelta(t, 60, small.Area, 1e-9)
+
+	require.Contains(t, big.Entities, sketch.Entity(a.BC))
+	require.Contains(t, small.Entities, sketch.Entity(a.BC), "the shared span is named by the earlier wall")
+	require.NotContains(t, small.Entities, sketch.Entity(b.DA), "the later wall lies wholly inside the span")
+	require.NotContains(t, big.Entities, sketch.Entity(b.DA))
+	for _, p := range rep.Profiles {
+		for _, e := range p.Outer {
+			require.Truef(t, e.TExact, "%+v", e)
+		}
+	}
+}
+
 // TestProfilesHiddenCrossingIsInvalid is the sketch-level face of the near-miss
 // guard (geom/nearmiss.go): a curve whose bow between two consecutive samples is
 // larger than the thing it crosses hides the crossing from the planar map

@@ -1,8 +1,9 @@
 # Coincident Carrier Resolution — Design
 
-Status: **implemented** (`geom/arrange_events.go`'s coincident-carrier branch +
-`geom/arrange.go`'s `resolveCoincidentOverlap`, `certifySuppression` and `split`
-suppression). Companion to
+Status: **implemented** (`geom/arrange_events.go`'s coincident-carrier branch
+and `lineLineEvents`' collinear branch + `geom/arrange.go`'s
+`resolveCoincidentOverlap`, `certifySuppression` and `split` suppression).
+Companion to
 `docs/analytic-arrangement-design.md` — that document's §7b covers the sibling
 curve/curve crossing lift; this one is the "new arrangement semantics" the
 crossing lift does not touch (source splitting at overlap ends, edge
@@ -72,10 +73,9 @@ exactly as today:
   `NewArc(c, p, p)` is a 2π arc — a complete carrier the flag, set only for a
   `srcCircle`, calls partial. Keyed on the flag, such an arc pairs with a real
   circle, resolves, and suppresses the whole circle carrier.
-- **Coincident line carriers** (`lineLineEvents`'s overlap branch, gated by
-  `mergeEps` rather than `tangentCertify`/`tangentBand`). A different code
-  path, a different tolerance, and not what the note's gear workload needs;
-  left for a future design if a consumer asks for it.
+- **Coincident line carriers** are resolved by the same machinery under their
+  own detection and gates; see "Coincident line carriers" below. The rest of
+  this section and the "Mechanism" section describe the circular case.
 - **A pair whose sweeps overlap in more than one disjoint angular window.**
   `coincidentArcOverlap` reports only the single longest contiguous overlap — a
   pre-existing scope limit this design inherits rather than fixes — so it
@@ -403,8 +403,8 @@ case with a genuine arc sweep, plus an in-certify-band case (see "Tests").
   representation: swapping an arc's endpoints builds the COMPLEMENTARY arc on the
   far side of the carrier (0.6 rad becomes 2π−0.6 rad), a different curve whose
   overlap window is a different span — not the same curve authored backwards. A
-  `Circle` has no authored direction to reverse at all, and a coincident LINE
-  carrier is out of scope. Reversal invariance is therefore unexpressible here,
+  `Circle` has no authored direction to reverse at all. (A LINE can be reversed;
+  see "Coincident line carriers".) Reversal invariance is therefore unexpressible here,
   not merely untested; `TestAnalyticCoincidentCarrierMajorArcResolves` covers the
   complementary-arc geometry for what it actually is.
 - **Sampling density:** the resolution is analytic end to end — the overlap
@@ -420,6 +420,133 @@ case with a genuine arc sweep, plus an in-certify-band case (see "Tests").
   direction is safe — a withdrawal is a `Degenerate` flag, never a quietly
   different region set — and the threshold is a property of the cut and dedup
   machinery, not of the window.
+
+## Coincident line carriers
+
+Two line sources on one carrier line that overlap in a span of positive length
+are resolved by the same cut, name, certify and suppress steps as the circular
+case. The workload is two outlines drawn edge to edge into one arrangement: an
+L-bracket drawn as two rectangles, a step, a mirrored half joined to its source
+along the mirror line, or a row of pegs placed side by side. Each one puts two
+collinear, overlapping line sources into the scene.
+
+### Detection
+
+`lineLineEvents` classifies a pair as collinear when the sine of the angle
+between the lines is below `lineParallelEps` and `b`'s start lies within
+`scale·mergeEps` of `a`'s carrier. The overlap is the intersection of the two
+segments in `a`'s parameter, and an overlap of length `arcParamEps` or less is a
+corner join, not an overlap. This classification is unchanged.
+
+Each end of the overlap is an endpoint of one of the two lines: `a`'s own
+endpoint where `b` reaches past it, `b`'s endpoint where `b` stops inside `a`.
+The event's `overlap` extent carries those endpoint coordinates verbatim, never a
+point projected onto the other carrier. On the line whose endpoint it is, the cut
+is a no-op (`cutSite` reports `atSourceEnd`). On the other line it is an exact
+cut at the endpoint's projected parameter.
+
+### The identity gate (`linesIdentical`)
+
+The extent is reported, and the pair made resolvable, only when the two
+carriers are the same line at round-off at the two boundary points. The miss a
+resolved bound can carry is the boundary point's perpendicular distance from
+the carrier it was cut onto, so `linesIdentical` takes the larger of each
+point's distance from both carriers and bounds it twice:
+
+- by `weldIdentEps·scale`, the scene yardstick `vertexCertifies` uses; and
+- by `weldIdentEps·min(len_a, len_b)`, the SHORTER line's own length.
+
+The local band uses the shorter length where the circular case uses the larger
+radius. Two coincident circles have radii equal to within the band, but two
+collinear lines can differ in length without limit, and a miss judged against
+the long line would publish a bound on the short one that misses by more than
+the short line's own identity band. A pair inside the classification band but
+outside either identity band keeps a nil extent and is flagged `Degenerate`
+(`TestCoincidentLineCarrierNearCollinearStaysDegenerate`). A line far away from
+the pair widens only the scene band, so it cannot turn that refusal into a
+resolution (`TestCoincidentLineCarrierDistantSceneStaysDegenerate`).
+
+### The shared-wall gate (`sharedWall`)
+
+`analyticPrepass` resolves a line pair only when `sharedWall` holds:
+
+- both lines are in the arranger's cycle-bearing core (`a.core`), so each lies
+  on a closed loop of curves joined end to end through shared `*Point` values;
+  and
+- the two lines are not edges of ONE simple loop (the same `a.comp` component
+  with no entry in `a.notSimple`).
+
+A pair that fails it is flagged `Degenerate`. The gate keeps these authoring
+defects visible to `Verify`:
+
+- a duplicated stroke dangling on an outline's edge
+  (`TestCoincidentLineCarrierDanglingLineStaysDegenerate`,
+  `TestRegionsCollinearOverlapDegenerate`);
+- an open walk that doubles back over itself (`TestChainsSelfTouchIsInvalid`);
+- a closed loop that doubles back over its own edge, such as a line drawn there
+  and back or a notch whose floor runs back along the loop's own bottom edge
+  (`TestCoincidentLineCarrierOneLoopDoublingBackStaysDegenerate`).
+
+Two distinct closed outlines never form one simple loop. Joined at a shared
+point they give that point degree four, and otherwise they are separate
+components. So every scene of two outlines sharing a wall passes the gate. A
+slit drawn out and back from a corner of an outline passes it as well: the
+corner has degree four, and the slit's two lines share both endpoints and run
+in opposite directions, exactly as a whole wall shared by two outlines through
+shared corner points does. The slit resolves into the outline's region plus one
+open chain for the slit.
+
+The gate reads `*Point` identity, so a `geom.Regions` caller whose outlines
+close only by equal coordinates gets the refusal. `Sketch.Profiles` passes one
+`*Point` per sketch point, so outlines built from shared sketch points pass the
+gate. The circular case has no such gate.
+
+### Window and suppression
+
+The window on the losing line is `paramWindow{lo, hi}`, the closed range of
+the losing line's own natural parameter between the two boundaries. A line's
+parameter never wraps, so it needs none of the angle-space bookkeeping
+`angularWindow` carries, and the losing line's direction does not matter.
+`fragmentSuppressed` tests the fragment's parameter midpoint against it with
+no slop, for the reason step 5 gives. `certifySuppression` runs unchanged: a
+window whose two boundaries do not come out of `split` as distinct vertices
+shared by both lines is withdrawn and the pair flagged `Degenerate`
+(`TestCoincidentLineCarrierCompetingCutStaysDegenerate`).
+
+The named line is the lower source index, as in "The `SourceIndex` decision";
+lines are open curves, so both index in input order. Where three or more lines
+share one carrier, each pair records its own window. At any point of the
+carrier, the lowest-indexed line covering it is never a losing source there,
+and every other line covering it loses to that one, so the span is emitted
+exactly once.
+
+Area needs no new formula: a line edge contributes its chord to the shoelace
+sum, and the named line's chord over the span is the losing line's chord over
+the same span.
+
+### Tests
+
+`geom/arrange_coincident_line_test.go`:
+
+- `TestCoincidentLineCarriersResolve`: two rectangles sharing a whole wall, an
+  interior sub-span, a wall inside a longer carrier, and collinear floor and
+  roof with no shared wall, in both input orders and with the second rectangle
+  walked either way. It asserts `Degenerate == false`, valid cells whose areas
+  sum to the union's, and every bound `TExact` and reproducing its polyline.
+- `TestCoincidentLineCarrierSpanIsOneEdgePerCell`: the span is one edge on
+  each cell under the lower index, walked in opposite senses, and the losing
+  line keeps its outer parts with exact ranges.
+- `TestCoincidentLineCarrierNearCollinearStaysDegenerate`,
+  `TestCoincidentLineCarrierDistantSceneStaysDegenerate`,
+  `TestCoincidentLineCarrierDanglingLineStaysDegenerate`,
+  `TestCoincidentLineCarrierOneLoopDoublingBackStaysDegenerate`,
+  `TestCoincidentLineCarrierCompetingCutStaysDegenerate`: the refusals above.
+- `TestCoincidentLineCarrierRotatedWall`: the sub-span scene on a carrier at
+  0.5 rad, so the identity gate runs on rounded coordinates.
+
+`profiles_test.go`: `TestProfilesCoincidentLineCarrierSharedWall`, a fully
+constrained sketch of the sub-span scene that is `Verify(ctx).Trustworthy()`
+and names the earlier wall in both profiles.
 
 ## Acceptance criteria (repository terms)
 

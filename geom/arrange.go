@@ -24,14 +24,19 @@ import (
 // span under a single SourceIndex — the lower of the pair's two input positions.
 // The higher-indexed curve emits no edge there, and the rest of it is arranged as
 // usual. Closed curves index after every open one, so a circle never takes a span
-// from an arc. Every other same-carrier overlap is left Degenerate with nothing
-// suppressed — neither curve loses a span to the other, but neither is guaranteed an
-// edge in the returned regions either, since coincident edges can be walked only once
-// and the coincidence can destroy the region outright: two
-// curves sharing more than one disjoint span, two that each cover the full turn,
-// two lines overlapping along one carrier, carriers equal only to within the
-// near-tangency band rather than at round-off, and a span whose two ends do not
-// come out of the split as distinct bounds of both curves.
+// from an arc. Two LINES on one carrier that overlap in a span of positive length
+// are resolved the same way — the shared wall of two outlines drawn edge to edge —
+// when both lie on a closed loop of curves joined end to end through shared *Point
+// values and are not two edges of one simple loop. A line that dangles from such a
+// loop, an open run that doubles back over itself, and a single loop that doubles
+// back over its own edge are left Degenerate instead. Every other same-carrier
+// overlap is left Degenerate with nothing suppressed — neither curve loses a span to
+// the other, but neither is guaranteed an edge in the returned regions either, since
+// coincident edges can be walked only once and the coincidence can destroy the
+// region outright: two curves sharing more than one disjoint span, two that each
+// cover the full turn, carriers equal only to within the near-tangency band (for
+// lines, the vertex-merge band) rather than at round-off, and a span whose two ends
+// do not come out of the split as distinct bounds of both curves.
 //
 // Input order decides which of the two is named, and everything this report says
 // about that span follows from the naming. Among the outputs that move are the
@@ -375,8 +380,35 @@ type coincidentOverlap struct {
 	// repX/repY is the event's own window MIDPOINT — never a cut site, only where
 	// flagDegenerate points when the resolution is withdrawn.
 	repX, repY float64
-	win        angularWindow
+	win        suppressionWindow
 	refused    bool
+}
+
+// suppressionWindow is the span of a LOSING source that a resolved coincident-carrier
+// overlap omits from split()'s emitted edges. covers reports whether the losing
+// source s, at natural parameter p, lies inside it. The window is an angularWindow
+// for a circular carrier and a paramWindow for a line carrier.
+type suppressionWindow interface {
+	covers(s *source, p float64) bool
+}
+
+// paramWindow is a suppression range on a LINE source that shares its carrier with a
+// lower-indexed line: the closed range [lo, hi] of the losing line's own natural
+// parameter. A line's parameter is linear and never wraps, so the range needs none of
+// the angle-space bookkeeping angularWindow carries. It is tested exactly, with no
+// slop, for the reason angularWindow.contains gives.
+type paramWindow struct {
+	lo, hi float64
+}
+
+func (w paramWindow) covers(_ *source, p float64) bool {
+	return p >= w.lo && p <= w.hi
+}
+
+// covers evaluates s at p and tests that point (see contains).
+func (w angularWindow) covers(s *source, p float64) bool {
+	pt := s.at(p)
+	return w.contains(pt[0], pt[1])
 }
 
 // angularWindow is a suppression range on a source that shares a coincident carrier
@@ -1394,19 +1426,23 @@ func (a *arranger) analyticPrepass() {
 			for _, e := range events {
 				switch e.kind {
 				case evOverlap:
-					// A certified, single-window, at-least-one-arc coincidence (see
+					// A certified, single-window, at-least-one-arc coincidence, or a
+					// collinear line pair identical at round-off (see
 					// docs/coincident-carrier-resolution-design.md) is RESOLVED — cut,
 					// suppress the losing source's edges over the shared span, and mark
 					// handled rather than degenerate. Everything else that reaches this
-					// arm (both operands covering the full turn, multi-window, a
-					// coincident LINE carrier, or carriers equal only within the
-					// classification band rather than at round-off) keeps the original
-					// unconditional flag — e.overlap is nil there (populated only by
-					// circleCircleEvents' in-scope branch). Whether the resolution
-					// actually holds is NOT decided here: certifySuppression settles it
-					// in split(), against the fragments split emits, and flags the pair
-					// degenerate there if the window's boundaries did not survive.
-					if e.overlap == nil {
+					// arm (both operands covering the full turn, multi-window, or
+					// carriers equal only within the classification band rather than at
+					// round-off) keeps the original unconditional flag — e.overlap is nil
+					// there. Whether the resolution actually holds is NOT decided here:
+					// certifySuppression settles it in split(), against the fragments
+					// split emits, and flags the pair degenerate there if the window's
+					// boundaries did not survive.
+					//
+					// A LINE pair is resolved only when it is a wall shared by two
+					// outlines (sharedWall); every other collinear overlap stays flagged
+					// so the authoring defect remains visible.
+					if e.overlap == nil || (si.kind == srcLine && !a.sharedWall(i, j)) {
 						a.flagDegenerate(e.x, e.y, i, j)
 						break
 					}
@@ -1464,6 +1500,29 @@ func (a *arranger) analyticPrepass() {
 			}
 		}
 	}
+}
+
+// sharedWall reports whether two collinear, overlapping LINE sources i and j are a
+// wall shared by two outlines, the only line overlap analyticPrepass resolves: both
+// lines lie in the cycle-bearing core (each on a closed loop of curves joined end to
+// end through shared *Point values), and they are not two edges of ONE simple loop.
+//
+// The excluded cases bound no region, so suppressing one line would only hide the
+// defect. A line outside the core is a duplicated stroke dangling on an outline's
+// edge, or part of an open walk that doubles back over itself. Two edges of one
+// simple loop sharing a span are that loop doubling back over itself; the smallest
+// is two lines drawn there and back, which encloses nothing. Two distinct closed
+// outlines never form one simple loop: joined at a shared point they give it degree
+// four, and otherwise they are separate components.
+func (a *arranger) sharedWall(i, j int) bool {
+	if !a.core[i] || !a.core[j] {
+		return false
+	}
+	if a.comp[i] != a.comp[j] {
+		return true
+	}
+	_, branched := a.notSimple[a.comp[i]]
+	return branched
 }
 
 // handled reports whether analyticPrepass classified the pair of distinct
@@ -2269,10 +2328,10 @@ func (a *arranger) applyAnalyticCut(src int, t, x, y float64) {
 //
 // Both boundary points are exact — each is one operand's own domain end or the
 // other's, never a solved root — and both cuts are stamped exact:true on BOTH
-// sources even though the points are computed on ONE operand's carrier. That is
+// sources even though each point lies on only one operand's own curve. That is
 // sound only because the event is emitted only for carriers identical at round-off
-// (carriersIdentical), which bounds how far the point can sit off the other
-// operand's own curve.
+// (carriersIdentical for circles, linesIdentical for lines), which bounds how far
+// the point can sit off the other operand's own curve.
 //
 // Recording the window is a CLAIM, not the resolution: nothing here predicts what
 // the cut phase and split's per-segment dedup will make of these two boundaries.
@@ -2289,12 +2348,16 @@ func (a *arranger) resolveCoincidentOverlap(i, j int, e xEvent) {
 	if a.suppressed == nil {
 		a.suppressed = map[int][]int{}
 	}
+	var win suppressionWindow = angularWindow{cx: a.sources[j].cx, cy: a.sources[j].cy, angLo: ov.angLo, width: ov.width}
+	if a.sources[j].kind == srcLine {
+		win = paramWindow{lo: math.Min(ov.loTj, ov.hiTj), hi: math.Max(ov.loTj, ov.hiTj)}
+	}
 	a.suppressed[j] = append(a.suppressed[j], len(a.overlaps))
 	a.overlaps = append(a.overlaps, coincidentOverlap{
 		named: i, losing: j,
 		loX: ov.loX, loY: ov.loY, hiX: ov.hiX, hiY: ov.hiY,
 		repX: e.x, repY: e.y,
-		win: angularWindow{cx: a.sources[j].cx, cy: a.sources[j].cy, angLo: ov.angLo, width: ov.width},
+		win: win,
 	})
 }
 
@@ -2398,9 +2461,10 @@ func (a *arranger) fragmentSuppressed(src int, p0, p1 float64) bool {
 	if len(ks) == 0 {
 		return false
 	}
-	p := a.sources[src].at((p0 + p1) / 2)
+	s := &a.sources[src]
+	mid := (p0 + p1) / 2
 	for _, k := range ks {
-		if !a.overlaps[k].refused && a.overlaps[k].win.contains(p[0], p[1]) {
+		if !a.overlaps[k].refused && a.overlaps[k].win.covers(s, mid) {
 			return true
 		}
 	}
