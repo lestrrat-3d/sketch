@@ -658,8 +658,9 @@ sin/cos/atan2 bounds).
   `float64(a*b)` → forbids FMA fusion per the Go spec.
 - A refusal returns a NIL enclosure. NEVER return a partial enclosure with an
   error.
-- `Enclose` restores `s.vars` and the driver's `dimBase` in a `defer`, on
-  success and refusal → `Revision` unchanged. NEVER call `Solve` or
+- `Enclose` restores `s.vars`, the driver's `dimBase` and every
+  `WithTargetRange` target's `dimBase` in a `defer`, on success and refusal →
+  `Revision` unchanged. NEVER call `Solve` or
   `refreshDriven` from the certified path; it runs `lm` directly.
 - Determinism (bit-identical on the same state) is part of the contract. NEVER
   add map iteration, randomness, or goroutines to the run.
@@ -669,6 +670,18 @@ sin/cos/atan2 bounds).
   lie in its uniqueness box `X`. `WithContinuation` reuses the same check
   against the previous enclosure's end box. Removing a tie breaks the
   one-branch claim.
+- `WithTargetRange`/`WithFixedBox` are interval PARAMETERS, never split into
+  pieces. A ranged target lives in its equation as an `Interval`
+  (`certDistance.d`, `certAffine.k`, `certAngle.sin`/`cos` via `sinCosRange`);
+  a boxed fixed var lives in `certSystem.params` and reads its interval in
+  `krawczyk`'s `base` (residual, `X`, published `K`). `Y` stays built at the
+  float point. NEVER give a param var a Jacobian column.
+- Float solves read each range's midpoint + each box's center, written ONLY
+  when it differs from the current value → a zero-width range on a dimension's
+  own target is bit-identical to no option (T7 in `enclose_test.go` pins it).
+- `WithContinuation` MUST refuse unless the continued enclosure's ranges and
+  boxes equal this call's (`Enclosure.targets`/`boxes`, sorted by constraint
+  index / point var). Its end box covers only its own parameters.
 - `IsStale` uses `encloseFingerprint` (Revision + fixed flags + per-constraint
   kind/operand vars/target/driven). A new input the certified equations read →
   hash it there.

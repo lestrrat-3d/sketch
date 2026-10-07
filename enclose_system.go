@@ -30,8 +30,9 @@ import (
 // ErrUncertifiedConstraint.
 
 // certEnv is one evaluation point of the certified system: an enclosure of
-// every sketch variable (a fixed variable is a degenerate interval) and of the
-// driving value, with the driver's sine and cosine when it is an angle.
+// every sketch variable (a fixed variable is a degenerate interval, or its
+// WithFixedBox interval) and of the driving value, with the driver's sine and
+// cosine when it is an angle.
 type certEnv struct {
 	box        []Interval
 	q          Interval
@@ -77,9 +78,11 @@ type affineTerm struct {
 }
 
 // certAffine is Σ coef·var − k, with k the driving value when useQ is set.
+// k is an interval: a dimension's float64 target is a degenerate one, and a
+// WithTargetRange target is the whole range.
 type certAffine struct {
 	terms []affineTerm
-	k     float64
+	k     Interval
 	useQ  bool
 }
 
@@ -93,7 +96,7 @@ func (a *certAffine) eval(e *certEnv, out []Interval) []Interval {
 	if a.useQ {
 		return append(out, isub(v, e.q))
 	}
-	return append(out, isub(v, pt(a.k)))
+	return append(out, isub(v, a.k))
 }
 
 func (a *certAffine) jac(_ *certEnv, w *jacWriter) {
@@ -169,9 +172,10 @@ func writeVecPartials(w *jacWriter, u0, u1, v0, v1 *Point, dux, duy, dvx, dvy In
 // --- point-to-point distance ---------------------------------------------------
 
 // certDistance is |P1 − P2|² − d², with d the driving value when useQ is set.
+// d is an interval for the same reason as certAffine's k.
 type certDistance struct {
 	p1, p2 *Point
-	d      float64
+	d      Interval
 	useQ   bool
 }
 
@@ -180,7 +184,7 @@ func (c *certDistance) rows() int { return 1 }
 func (c *certDistance) eval(e *certEnv, out []Interval) []Interval {
 	dx := isub(e.px(c.p1), e.px(c.p2))
 	dy := isub(e.py(c.p1), e.py(c.p2))
-	d := pt(c.d)
+	d := c.d
 	if c.useQ {
 		d = e.q
 	}
@@ -202,8 +206,8 @@ func (c *certDistance) side(*certEnv) bool { return true }
 
 // certAngle is cross(d1, d2)·cos θ − dot(d1, d2)·sin θ, with the side
 // condition cross·sin θ + dot·cos θ > 0. θ is the driving value when useQ is
-// set, else the dimension's own target, whose sine and cosine were enclosed
-// once when the system was built.
+// set, else the dimension's own target (or its WithTargetRange range), whose
+// sine and cosine were enclosed once when the system was built.
 type certAngle struct {
 	l1, l2   *Line
 	sin, cos Interval
@@ -274,13 +278,31 @@ type certSystem struct {
 	m           int
 	driven      []certDriven
 	driverAngle bool
+	// params holds the fixed variables that range over an interval (a
+	// WithFixedBox point's coordinates), in variable order.
+	params []paramVar
+}
+
+// paramVar is a fixed variable that reads a whole interval.
+type paramVar struct {
+	vi  int
+	rng Interval
 }
 
 // certifiedSystem builds the certified form of every committed constraint, the
-// driver's equation reading the open driving value. It refuses the whole sketch
-// on the first constraint it has no certified form for.
-func (s *Sketch) certifiedSystem(driver Dimension) (*certSystem, error) {
+// driver's equation reading the open driving value and each ranged target its
+// range. It refuses the whole sketch on the first constraint it has no
+// certified form for.
+func (s *Sketch) certifiedSystem(driver Dimension, targets []encloseTarget, boxes []fixedBox) (*certSystem, error) {
 	sys := &certSystem{}
+	for _, b := range boxes {
+		sys.params = append(sys.params, paramVar{b.p.xi, b.x}, paramVar{b.p.yi, b.y})
+	}
+	slices.SortFunc(sys.params, func(a, b paramVar) int { return a.vi - b.vi })
+	ranged := make(map[Constraint]Interval, len(targets))
+	for _, tr := range targets {
+		ranged[tr.d] = tr.rng
+	}
 	found := false
 	for _, c := range s.cons {
 		if d, ok := c.(Dimension); ok && d.Driven() {
@@ -296,7 +318,8 @@ func (s *Sketch) certifiedSystem(driver Dimension) (*certSystem, error) {
 		}
 		isDriver := Constraint(driver) == c
 		found = found || isDriver
-		eqs, err := certEquationsOf(c, isDriver)
+		rng, isRanged := ranged[c]
+		eqs, err := certEquationsOf(c, isDriver, rng, isRanged)
 		if err != nil {
 			return nil, err
 		}
@@ -318,8 +341,9 @@ func uncertified(c Constraint) error {
 	return fmt.Errorf("%w: %s", ErrUncertifiedConstraint, ConstraintKind(c))
 }
 
-// certEquationsOf returns the certified form of one driving constraint.
-func certEquationsOf(c Constraint, isDriver bool) ([]certEquation, error) {
+// certEquationsOf returns the certified form of one driving constraint. A
+// ranged dimension (isRanged) reads every target in rng instead of its own.
+func certEquationsOf(c Constraint, isDriver bool, rng Interval, isRanged bool) ([]certEquation, error) {
 	switch t := c.(type) {
 	case *coincident:
 		return []certEquation{
@@ -347,27 +371,37 @@ func certEquationsOf(c Constraint, isDriver bool) ([]certEquation, error) {
 			&certProduct{op: opCross, u0: l.Start, u1: l.End, v0: l.Start, v1: t.L2.End},
 		}, nil
 	case *Distance:
-		d := t.base()
-		if !isDriver && !(d > 0) {
-			return nil, fmt.Errorf("%w: distance dimension with target %v is not positive", ErrNotCertified, d)
+		d := targetOf(t, rng, isRanged)
+		if !isDriver && !(d.Lo > 0) {
+			return nil, fmt.Errorf("%w: distance dimension with target %v is not positive", ErrNotCertified, d.Lo)
 		}
 		return []certEquation{&certDistance{p1: t.P1, p2: t.P2, d: d, useQ: isDriver}}, nil
 	case *HorizontalDistance:
-		return []certEquation{&certAffine{terms: diff(t.P2.xi, t.P1.xi), k: t.base(), useQ: isDriver}}, nil
+		return []certEquation{&certAffine{terms: diff(t.P2.xi, t.P1.xi), k: targetOf(t, rng, isRanged), useQ: isDriver}}, nil
 	case *VerticalDistance:
-		return []certEquation{&certAffine{terms: diff(t.P2.yi, t.P1.yi), k: t.base(), useQ: isDriver}}, nil
+		return []certEquation{&certAffine{terms: diff(t.P2.yi, t.P1.yi), k: targetOf(t, rng, isRanged), useQ: isDriver}}, nil
 	case *Angle:
 		eq := &certAngle{l1: t.L1, l2: t.L2, useQ: isDriver}
 		if !isDriver {
-			sin, cos, ok := sinCosPoint(t.base())
+			th := targetOf(t, rng, isRanged)
+			sin, cos, ok := sinCosRange(th)
 			if !ok {
-				return nil, fmt.Errorf("%w: angle target %v rad is outside ±%d rad", ErrNotCertified, t.base(), maxTrigArg)
+				return nil, fmt.Errorf("%w: angle target [%v, %v] rad is outside ±%d rad", ErrNotCertified, th.Lo, th.Hi, maxTrigArg)
 			}
 			eq.sin, eq.cos = sin, cos
 		}
 		return []certEquation{eq}, nil
 	}
 	return nil, uncertified(c)
+}
+
+// targetOf is a driving dimension's target as an interval: its range when it
+// is ranged, else its float64 target in base units.
+func targetOf(d Dimension, rng Interval, isRanged bool) Interval {
+	if isRanged {
+		return rng
+	}
+	return pt(d.base())
 }
 
 // certDrivenOf returns the evaluator of one driven dimension's measured value.
@@ -444,9 +478,10 @@ const krawczykMaxIter = 20
 
 // krawczyk runs the Krawczyk test for the square system F(x, q) = 0 over every
 // q in Q, around the float solution xt (solved at qMid ∈ Q). On success it
-// returns K, an enclosure of every sketch variable (fixed ones degenerate),
-// and X ⊇ K: for every q in Q exactly one solution lies in X, it lies in K, and
-// it moves continuously with q. On failure it returns the reason.
+// returns K, an enclosure of every sketch variable (fixed ones degenerate, or
+// their WithFixedBox interval), and X ⊇ K: for every q in Q exactly one
+// solution lies in X, it lies in K, and it moves continuously with q. On
+// failure it returns the reason.
 //
 // The test is the parametric form with F(x̃, Q) in place of the split
 // F(x̃, q̃) + F_q·(Q − q̃): for a fixed q the image
@@ -454,14 +489,25 @@ const krawczykMaxIter = 20
 // K(X) = x̃ − Y·F(x̃, Q) + (I − Y·F_x(X, Q))·(X − x̃), so K(X) ⊂ int X proves the
 // single-q Krawczyk inclusion for every q at once. That inclusion also proves Y
 // and every Jacobian in F_x(X, Q) nonsingular, so the implicit function theorem
-// gives the continuity. The box is grown by ε-inflation (each pass widens the
-// previous image by 10% plus a relative floor, always containing x̃) until the
-// image falls strictly inside or the pass budget runs out.
+// gives the continuity. Every other parameter enters the same way: a ranged
+// target is already an interval inside its equation, and a ranged fixed
+// variable reads its interval in both F(x̃, ·) and F_x(X, ·), so the claims hold
+// for every value of each parameter jointly with every q. The box is grown by
+// ε-inflation (each pass widens the previous image by 10% plus a relative
+// floor, always containing x̃) until the image falls strictly inside or the
+// pass budget runs out.
 func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, col []int) ([]Interval, []Interval, string) {
 	n := len(free)
 	point := make([]Interval, len(xt))
 	for i, v := range xt {
 		point[i] = pt(v)
+	}
+	// base is x̃ with every ranged fixed variable widened to its interval: the
+	// residual, the Jacobian over X and the published box read every value of
+	// the parameter, while Y is built at the float point alone.
+	base := slices.Clone(point)
+	for _, p := range sys.params {
+		base[p.vi] = p.rng
 	}
 
 	// Y ≈ F_x(x̃, q̃)⁻¹, in plain float arithmetic: any matrix is admissible,
@@ -488,7 +534,7 @@ func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, co
 	if !ok {
 		return nil, nil, "the driving range is outside the certified trigonometric range"
 	}
-	eQ := &certEnv{box: point, q: Q, sinQ: sinQ, cosQ: cosQ}
+	eQ := &certEnv{box: base, q: Q, sinQ: sinQ, cosQ: cosQ}
 	F := sys.eval(eQ)
 	// c = −Y·F(x̃, Q): the Newton correction, spread over the driving range.
 	c := make([]Interval, n)
@@ -504,7 +550,7 @@ func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, co
 	}
 
 	Z := slices.Clone(c)
-	X := slices.Clone(point)
+	X := slices.Clone(base)
 	D := make([]Interval, n)
 	K := make([]Interval, n)
 	for iter := 0; iter < krawczykMaxIter; iter++ {
@@ -544,7 +590,7 @@ func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, co
 			}
 		}
 		if inside {
-			out := slices.Clone(point)
+			out := slices.Clone(base)
 			for i, vi := range free {
 				out[vi] = K[i]
 			}
