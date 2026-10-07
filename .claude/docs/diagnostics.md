@@ -18,6 +18,7 @@ Detail moved out of CLAUDE.md's architecture table. Read before touching rank/DO
 | Why does the probe refuse or return NaN? | `probe.go` — the ambiguity probe |
 | When does the solver skip residual rows while building its Jacobian? | `jacobian.go` — the local residual Jacobian |
 | What does `Enclose` claim, and what may change it? | `enclose.go` — the certified enclosure |
+| When does `Enclose` return `*FoldError`? | `enclose.go` — the certified enclosure → Fold certificate rules |
 
 Navigation only — the sections below are the authority.
 
@@ -638,6 +639,7 @@ interval Krawczyk certificate of the EXACT solution over a range of one driving
 dimension's value. Design + claims in `docs/certified-enclosure-design.md` (the
 authority). Files: `enclose.go` (API, piece loop, ties, tightness, fingerprint),
 `enclose_system.go` (certified equations, interval Jacobian, `krawczyk`),
+`enclose_fold.go` (`FoldError`, swapped-parameter curve, `foldKrawczyk`),
 `interval.go` (outward-rounded arithmetic), `interval_trig.go` (proven
 sin/cos/atan2 bounds).
 
@@ -685,3 +687,27 @@ sin/cos/atan2 bounds).
 - `IsStale` uses `encloseFingerprint` (Revision + fixed flags + per-constraint
   kind/operand vars/target/driven). A new input the certified equations read →
   hash it there.
+- Angles: `sinCosPoint` sums Taylor directly for `|x| ≤ maxTaylorArg` (64) and
+  reduces by whole turns (`reduceTurns`, exact rationals over `piLo`/`piHi`)
+  up to `maxTrigArg` (2^40). NEVER change the direct path → decad relies on
+  every result under 64 rad staying bit-identical.
+
+### Fold certificate rules
+
+- `certifyFold` runs ONLY where `run`'s halving loop gives up mid-range. Any
+  failure inside it → return the original `ErrNotCertified` error, never a
+  weaker claim.
+- Every new `certEquation` MUST implement `dq` (∂/∂q of its rows, zero when
+  the driver does not enter). `foldKrawczyk` puts `dq` in column `ck`.
+- `foldKrawczyk` uses the mean-value split for the parameter `s`. NEVER switch
+  it to `krawczyk`'s unsplit `F(x̃, Q)` form → `q`'s box widens to first order
+  and `Fold` can no longer reach 1e-9.
+- Claimed bounds come ONLY from tied pieces: `fHi` = max piece `K` q upper end,
+  `fLo` = max tied endpoint-box q lower end. `foldCert.ref` (the untied box at
+  the float turning point) steers the split only. NEVER fold it into `fLo`.
+- Required before returning `*FoldError`: both end boxes `q.Hi < qc`;
+  `holds` (the branch's box at `qc` inside every overlapping piece's `X`);
+  `fHi < hi`. Dropping any one breaks the exit argument in `enclose_fold.go`'s
+  header comment.
+- A `Distance` driver needs `Xq.Lo > 0` in every `foldKrawczyk` box
+  (`certSystem.driverDistance`).

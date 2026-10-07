@@ -26,7 +26,8 @@ var ErrUncertifiedConstraint = errors.New("sketch: constraint kind has no certif
 // enclosed, or the piece budget ran out. It is also returned for a call that
 // cannot be answered as asked (an invalid range, a driver that is not a
 // driving constraint of the sketch, a continuation that does not start where
-// the previous enclosure ended). It never carries an enclosure.
+// the previous enclosure ended). It never carries an enclosure. When the
+// branch is proven to turn back inside the range, the error is a [*FoldError].
 var ErrNotCertified = errors.New("sketch: enclosure not certified")
 
 // EncloseOption tunes [Sketch.Enclose].
@@ -270,6 +271,9 @@ func (e *Enclosure) IsStale() bool { return e.s.encloseFingerprint() != e.fp }
 //   - [ErrRedundant]: there are more equations than unknowns.
 //   - [ErrUncertifiedConstraint]: see above.
 //   - [ErrNotCertified]: no enclosure could be proven over some sub-range.
+//     When the pieces stop short of hi because the branch turns back, and
+//     Enclose can prove that it does, the error is a [*FoldError] carrying
+//     the turning value's enclosure.
 //   - [ErrNonFiniteGeometry], [ErrForeignHandle]: the sketch is unreadable.
 //   - ctx.Err(): the context ended.
 //
@@ -611,6 +615,13 @@ func (r *encloseRun) run(ctx context.Context, lo, hi float64, prev *Enclosure) (
 		if K == nil {
 			step = (b - cur) / 2
 			if step < minStep || !(cur+step > cur) {
+				fold, err := r.certifyFold(ctx, cur, xcur, pcur, hi)
+				switch {
+				case err != nil:
+					return nil, err
+				case fold != nil:
+					return nil, fold
+				}
 				return nil, fmt.Errorf("%w: over [%v, %v]: %s", ErrNotCertified, cur, b, why)
 			}
 			continue
