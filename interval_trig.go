@@ -138,6 +138,8 @@ func sinCosPoint(x float64) (Interval, Interval, bool) {
 	t := new(big.Int).Set(one)
 	tErr := new(big.Int)
 	bound := new(big.Int)
+	div, den, rem := new(big.Int), new(big.Int), new(big.Int)
+	oneInt, twoInt := big.NewInt(1), big.NewInt(2)
 	for n := 0; ; n++ {
 		bound.Abs(t)
 		bound.Add(bound, tErr)
@@ -160,7 +162,7 @@ func sinCosPoint(x float64) (Interval, Interval, bool) {
 		}
 		// t ← ⌊t·m·2^e⌉/(n+1), losing under one unit in the shift and under
 		// one in the division.
-		div := big.NewInt(int64(n + 1))
+		div.SetInt64(int64(n + 1))
 		t.Mul(t, m)
 		if e >= 0 {
 			t.Lsh(t, uint(e))
@@ -168,18 +170,20 @@ func sinCosPoint(x float64) (Interval, Interval, bool) {
 			t.Rsh(t, uint(-e))
 		}
 		t.Quo(t, div)
-		// err ← ⌈err·|m|·2^e/(n+1)⌉ + 2, as ⌈num/den⌉ = ⌊(num+den−1)/den⌋.
-		num := tErr.Mul(tErr, am)
-		den := div
+		// err ← ⌈err·|m|·2^e/(n+1)⌉ + 2. The remainder says
+		// whether the exact quotient needs one more unit.
+		tErr.Mul(tErr, am)
+		den.Set(div)
 		if e >= 0 {
-			num.Lsh(num, uint(e))
+			tErr.Lsh(tErr, uint(e))
 		} else {
-			den = new(big.Int).Lsh(div, uint(-e))
+			den.Lsh(den, uint(-e))
 		}
-		num.Add(num, den)
-		num.Sub(num, big.NewInt(1))
-		tErr.Quo(num, den)
-		tErr.Add(tErr, big.NewInt(2))
+		tErr.QuoRem(tErr, den, rem)
+		if rem.Sign() != 0 {
+			tErr.Add(tErr, oneInt)
+		}
+		tErr.Add(tErr, twoInt)
 	}
 	// bound now holds |t̂_n| + err_n ≥ |t_n|, the tail bound for both series.
 	sw := new(big.Int).Add(sErr, bound)
