@@ -235,6 +235,12 @@ func TestAtan2PointBracketsDirection(t *testing.T) {
 		c, d := rng.NormFloat64()*50, rng.NormFloat64()*50
 		iv, ok := atan2Point(c, d)
 		require.True(t, ok, "(%v, %v) has a direction", c, d)
+		sl, cl, ok := sinCosPoint(iv.Lo)
+		require.True(t, ok)
+		sh, ch, ok := sinCosPoint(iv.Hi)
+		require.True(t, ok)
+		require.Greater(t, isub(imul(cl, pt(c)), imul(sl, pt(d))).Lo, 0.0)
+		require.Less(t, isub(imul(ch, pt(c)), imul(sh, pt(d))).Hi, 0.0)
 		require.True(t, iv.Contains(math.Atan2(c, d)), "the float estimate lies in the bracket")
 		require.Less(t, iv.Hi-iv.Lo, 1e-13, "the bracket is tight")
 	}

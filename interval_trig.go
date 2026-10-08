@@ -300,9 +300,11 @@ func twoPiTimes(k int64) Interval {
 //
 // A candidate [lo, hi] around the float estimate is accepted when the exact
 // direction is strictly counterclockwise of lo's unit vector (their cross
-// product is positive) and strictly clockwise of hi's (negative). Each
-// condition alone selects an open half-turn; with hi−lo far below π, the two
-// half-turns overlap in exactly the open arc (lo, hi).
+// product is positive) and strictly clockwise of hi's (negative). The cross
+// product and its slope are enclosed at the float estimate using one certified
+// sine/cosine pair; the second-order remainder at each end is bounded by
+// (|c|+|d|)·h²/2. With hi−lo far below π, the two open half-turns overlap in
+// exactly the arc (lo, hi).
 func atan2Point(c, d float64) (Interval, bool) {
 	if c == 0 && d == 0 {
 		return Interval{}, false
@@ -311,19 +313,23 @@ func atan2Point(c, d float64) (Interval, bool) {
 	if math.IsNaN(phi) {
 		return Interval{}, false
 	}
+	sin, cos, ok := sinCosPoint(phi)
+	if !ok {
+		return Interval{}, false
+	}
+	base := isub(imul(pt(c), cos), imul(pt(d), sin))
+	slope := ineg(iadd(imul(pt(c), sin), imul(pt(d), cos)))
+	crossAt := func(angle float64) Interval {
+		h := isub(pt(angle), pt(phi))
+		halfSq := Interval{0, up(isqr(h).Hi / 2)}
+		tail := iadd(imul(pt(math.Abs(c)), halfSq), imul(pt(math.Abs(d)), halfSq))
+		return iadd(iadd(base, imul(h, slope)), Interval{-tail.Hi, tail.Hi})
+	}
 	for k := 0; k < 6; k++ {
 		delta := math.Ldexp((1+math.Abs(phi))*1e-15, 4*k)
 		lo, hi := phi-delta, phi+delta
-		sl, cl, ok := sinCosPoint(lo)
-		if !ok {
-			return Interval{}, false
-		}
-		sh, ch, ok := sinCosPoint(hi)
-		if !ok {
-			return Interval{}, false
-		}
-		crossLo := isub(imul(cl, pt(c)), imul(sl, pt(d)))
-		crossHi := isub(imul(ch, pt(c)), imul(sh, pt(d)))
+		crossLo := crossAt(lo)
+		crossHi := crossAt(hi)
 		if crossLo.Lo > 0 && crossHi.Hi < 0 {
 			return Interval{lo, hi}, true
 		}
