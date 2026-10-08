@@ -205,9 +205,10 @@ forbid fusing a multiply and an add.
   values, adding `±1` wherever a multiple of `π/2` might lie inside. That test
   uses a 40-decimal bracket of `π`.
 - `atan2Point` brackets a direction instead of computing it. It takes
-  `math.Atan2` as an estimate, and accepts `[lo, hi]` around it only when the
-  exact sines and cosines of `lo` and `hi` show the vector strictly between
-  them.
+  `math.Atan2` as an estimate, encloses the cross product and its slope using
+  certified sine and cosine at that estimate, and charges
+  `(|c|+|d|)·h²/2` for each endpoint's second-order remainder. It accepts
+  `[lo, hi]` only when those bounds show the vector strictly between them.
 - `atan2Box` encloses the direction over a rectangle from its four corners.
   It refuses a rectangle that touches the origin.
 
