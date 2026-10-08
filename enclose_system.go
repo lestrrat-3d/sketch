@@ -555,9 +555,15 @@ func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, co
 
 	// Y ≈ F_x(x̃, q̃)⁻¹, in plain float arithmetic: any matrix is admissible,
 	// a good one only makes the test close.
-	sinM, cosM, ok := sys.trig(pt(qMid))
-	if !ok {
-		return nil, nil, "the driving value is outside the certified trigonometric range"
+	var sinM, cosM Interval
+	if sys.driverAngle {
+		if !(math.Abs(qMid) <= maxTrigArg) {
+			return nil, nil, "the driving value is outside the certified trigonometric range"
+		}
+		// J0 only chooses the trial inverse Y. The inclusion test below uses
+		// certified trigonometry for both F and the box Jacobian.
+		s, c := math.Sincos(qMid)
+		sinM, cosM = pt(s), pt(c)
 	}
 	e0 := &certEnv{box: point, q: pt(qMid), sinQ: sinM, cosQ: cosM}
 	J0 := sys.jacobian(e0, col, n)
