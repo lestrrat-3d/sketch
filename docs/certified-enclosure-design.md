@@ -209,8 +209,10 @@ forbid fusing a multiply and an add.
   certified sine and cosine at that estimate, and charges
   `(|c|+|d|)·h²/2` for each endpoint's second-order remainder. It accepts
   `[lo, hi]` only when those bounds show the vector strictly between them.
-- `atan2Box` encloses the direction over a rectangle from its four corners.
-  It refuses a rectangle that touches the origin.
+- `atan2Box` encloses the direction over a rectangle. It reads the two
+  extreme corners selected by the angle's partial-derivative signs when no
+  coordinate endpoint is zero; other boxes read all four corners. It refuses
+  a rectangle that touches the origin.
 
 `interval_trig_internal_test.go` checks the fixed-point sums against an
 exact-rational evaluation, and the interval operations against exact rational

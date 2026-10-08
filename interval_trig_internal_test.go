@@ -247,6 +247,29 @@ func TestAtan2PointBracketsDirection(t *testing.T) {
 }
 
 func TestAtan2BoxAcrossTheCut(t *testing.T) {
+	for _, tc := range []struct{ c, d Interval }{
+		{Interval{1, 2}, Interval{3, 5}},
+		{Interval{1, 2}, Interval{-5, -3}},
+		{Interval{-2, -1}, Interval{3, 5}},
+		{Interval{-2, -1}, Interval{-5, -3}},
+		{Interval{-1, 1}, Interval{3, 5}},
+		{Interval{-1, 1}, Interval{-5, -3}},
+		{Interval{3, 5}, Interval{-1, 1}},
+		{Interval{-5, -3}, Interval{-1, 1}},
+	} {
+		got, ok := atan2Box(tc.c, tc.d)
+		require.True(t, ok)
+		for _, c := range []float64{tc.c.Lo, tc.c.Hi} {
+			for _, d := range []float64{tc.d.Lo, tc.d.Hi} {
+				corner, ok := atan2Point(c, d)
+				require.True(t, ok)
+				corner = shiftNear(corner, got.mid())
+				require.LessOrEqual(t, got.Lo, corner.Lo)
+				require.GreaterOrEqual(t, got.Hi, corner.Hi)
+			}
+		}
+	}
+
 	iv, ok := atan2Box(Interval{-1e-3, 1e-3}, Interval{-1.01, -0.99})
 	require.True(t, ok, "the box misses the origin")
 	iv = shiftNear(iv, math.Pi)
