@@ -341,19 +341,52 @@ func atan2Point(c, d float64) (Interval, bool) {
 // rectangle c × d, refusing when the rectangle touches the origin (where the
 // angle is undefined). A convex set that misses the origin is seen from it
 // under an angle below a half-turn, and the extreme directions are supporting
-// rays through its corners, so the hull of the four corner brackets — each
-// shifted by whole turns to lie within a half-turn of the centre's direction —
-// is the enclosure. A corner more than 3 rad from the centre (a rectangle
-// nearly surrounding the origin) is refused rather than trusted to the float
-// shift decision.
+// rays through its corners. Where no coordinate endpoint is zero, the signs
+// of the angle's two partial derivatives fix two extreme corners; otherwise
+// all four corners are read. Their brackets are shifted by whole turns to lie
+// within a half-turn of the centre's direction. A corner more than 3 rad from the
+// centre (a rectangle nearly surrounding the origin) is refused rather than
+// trusted to the float shift decision.
 func atan2Box(c, d Interval) (Interval, bool) {
 	if c.Lo <= 0 && 0 <= c.Hi && d.Lo <= 0 && 0 <= d.Hi {
 		return Interval{}, false
 	}
 	ref := math.Atan2(c.mid(), d.mid())
 	corners := [4][2]float64{{c.Lo, d.Lo}, {c.Lo, d.Hi}, {c.Hi, d.Lo}, {c.Hi, d.Hi}}
+	count := len(corners)
+	switch {
+	case c.Lo == 0 || c.Hi == 0 || d.Lo == 0 || d.Hi == 0:
+	case d.Lo > 0 || d.Hi < 0:
+		minC, maxC := c.Lo, c.Hi
+		if d.Hi < 0 {
+			minC, maxC = maxC, minC
+		}
+		minD, maxD := d.Lo, d.Hi
+		if minC > 0 {
+			minD = d.Hi
+		}
+		if maxC > 0 {
+			maxD = d.Lo
+		}
+		corners[0], corners[1] = [2]float64{minC, minD}, [2]float64{maxC, maxD}
+		count = 2
+	case c.Lo > 0 || c.Hi < 0:
+		minD, maxD := d.Hi, d.Lo
+		if c.Hi < 0 {
+			minD, maxD = maxD, minD
+		}
+		minC, maxC := c.Hi, c.Lo
+		if minD > 0 {
+			minC = c.Lo
+		}
+		if maxD > 0 {
+			maxC = c.Hi
+		}
+		corners[0], corners[1] = [2]float64{minC, minD}, [2]float64{maxC, maxD}
+		count = 2
+	}
 	var out Interval
-	for i, cd := range corners {
+	for i, cd := range corners[:count] {
 		phi, ok := atan2Point(cd[0], cd[1])
 		if !ok {
 			return Interval{}, false
