@@ -3,6 +3,7 @@ package sketch
 import (
 	"math"
 	"math/big"
+	"sync/atomic"
 )
 
 // The certified path needs sine, cosine and the direction angle with PROVEN
@@ -49,6 +50,17 @@ const (
 	trigFracBits = 256
 	trigEpsBits  = 110
 )
+
+// Each slot holds one completed point enclosure. Collisions only cause a
+// recomputation; the Taylor path still decides every result.
+const trigPointCacheSize = 4096
+
+type trigPointEntry struct {
+	key      uint64
+	sin, cos Interval
+}
+
+var trigPointCache [trigPointCacheSize]atomic.Pointer[trigPointEntry]
 
 // ratLower and ratUpper convert an exact rational to the nearest float64 at or
 // below / at or above it.
@@ -125,6 +137,11 @@ func sinCosPoint(x float64) (Interval, Interval, bool) {
 	if math.Abs(x) > maxTaylorArg {
 		return sinCosRange(reduceTurns(x))
 	}
+	key := math.Float64bits(x)
+	slot := &trigPointCache[(key^(key>>32)^(key>>16))&(trigPointCacheSize-1)]
+	if held := slot.Load(); held != nil && held.key == key {
+		return held.sin, held.cos, true
+	}
 	frac, exp := math.Frexp(x)
 	m := big.NewInt(int64(frac * (1 << 53))) // exact: frac has 53 significant bits
 	e := exp - 53
@@ -190,7 +207,9 @@ func sinCosPoint(x float64) (Interval, Interval, bool) {
 	cw := new(big.Int).Add(cErr, bound)
 	sin := Interval{fixedLower(new(big.Int).Sub(s, sw)), fixedUpper(new(big.Int).Add(s, sw))}
 	cos := Interval{fixedLower(new(big.Int).Sub(c, cw)), fixedUpper(new(big.Int).Add(c, cw))}
-	return clampUnit(sin), clampUnit(cos), true
+	sin, cos = clampUnit(sin), clampUnit(cos)
+	slot.Store(&trigPointEntry{key: key, sin: sin, cos: cos})
+	return sin, cos, true
 }
 
 // reduceTurns encloses x − 2πk, for k the integer nearest x/2π, over every π in
