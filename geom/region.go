@@ -89,12 +89,10 @@ type BoundaryEdge struct {
 	// elsewhere in the scene cannot turn a bound this reports as inexact into an exact
 	// one (it can still withhold exactness — see the whole-scene gate below).
 	//
-	// FIRST, a WHOLE-SCENE gate: exact bounds are published only when EVERY source in
-	// the arrangement is a Line, Circle or Arc. One Ellipse, EllipticalArc, Conic,
-	// Spline, ClosedSpline, FitSpline or NURBS anywhere in the scene makes every bound
-	// of that arrangement report TExact = false — the lines, circles and arcs beside it
-	// included, however far apart they sit, and the free-form curve's own uncut whole
-	// edge included.
+	// FIRST, a WHOLE-SCENE gate: exact bounds are published when every source is a
+	// Line, Circle or Arc, or when the four-source fit-spline/circle certificate
+	// described below covers the entire arrangement. Otherwise one free-form source
+	// makes every bound report TExact = false, including analytic sources beside it.
 	//
 	// The reason is that a free-form curve reaches the arrangement only as chords, and
 	// it bows away from them: it can cross another curve entirely between two samples.
@@ -104,9 +102,14 @@ type BoundaryEdge struct {
 	// that departure and reports [Arrangement.Degenerate] where a hidden crossing cannot
 	// be ruled out, but a flag is a warning, not a certificate: where that guard stays
 	// silent it has certified nothing about the map. So exactness is gated on the source
-	// kinds alone, with no deviation estimate entering the verdict. The cost is exactness
+	// kinds or the narrow whole-scene certificate, with no deviation estimate entering
+	// the verdict. The cost is exactness
 	// on the analytic sources sharing a scene with a free-form one; nothing else moves —
-	// topology, areas and the reported ranges are unchanged.
+	// topology, areas and the reported ranges are unchanged. The exception requires
+	// exactly two FitSplines, their shared tip Arc, and a root Circle. Rational
+	// polynomial bounds prove that each flank crosses the root circle once, stays
+	// inside the tip radius until its endpoint, and occupies its own half-plane.
+	// Sketch then checks that the certified cuts preserve the sampled incidence.
 	//
 	// Within an all-analytic scene, a CUT bound is exact only when the closed-form
 	// kernel placed it, which it does for any pair of a Line, Circle and Arc.
@@ -152,7 +155,8 @@ type BoundaryEdge struct {
 	// contact. In an all-analytic scene those ends are the curve's own evaluation at
 	// t=0/t=1, so a whole Line/Arc/Circle edge reports TExact = true and its [0,1]
 	// reconstructs the curve exactly. A whole edge of a free-form curve reports
-	// TExact = false, by the scene gate — and an EllipticalArc's would anyway: its ends
+	// TExact = false, unless that scene passes the four-source certificate — and an
+	// EllipticalArc's would anyway: its ends
 	// are PINNED to the sketch Start/End points, which lie on the parametric ellipse only
 	// within solver tolerance, so eval(t=0/t=1) misses the emitted Polyline end (by that
 	// tolerance, e.g. ~5e-3). That is why exactness is decided by reproduction, not by
