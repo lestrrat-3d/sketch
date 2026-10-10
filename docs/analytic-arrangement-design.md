@@ -413,7 +413,10 @@ fit-spline/circle certificate proves each flank's radial distance increases
 strictly on every cubic piece and crosses the root circle once. The two flanks
 of each tooth stay on opposite sides of their tip arc's radial bisector. Cubic
 Bézier hulls prove flanks of different teeth disjoint outside the root circle.
-Each fit spline meets its assigned tip arc at one domain end, and the tip arcs
+The proof first checks exact coordinate bounds over every Bézier control point
+of each flank. Separated bounds establish the same gap for every piece pair;
+overlapping bounds continue through the per-piece hull checks. Each fit spline
+meets its assigned tip arc at one domain end, and the tip arcs
 do not meet each other. Every fit/root cut must also pass
 `analyticCrossingsCertified` against the sampled incidence.
 
