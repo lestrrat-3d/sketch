@@ -317,8 +317,9 @@ type arranger struct {
 	// exactAllowed gates EVERY exact bound this arrangement emits, ahead of any
 	// per-source or per-pair reasoning. It starts true only when every source is
 	// a line, circle or arc. certifyFitCircleScene can also set it for its narrow
-	// four-source scene after proving every pair contact. Other free-form scenes
-	// publish no exact bound anywhere.
+	// fit-spline/root-circle scene after proving every pair contact on or outside
+	// the root circle. Fragments below that circle remain inexact. Other free-form
+	// scenes publish no exact bound anywhere.
 	//
 	// A free-form source reaches the planar map only as chords, so a curve with a lobe
 	// between two consecutive samples can cross another curve entirely between them
@@ -343,6 +344,9 @@ type arranger struct {
 	// its own deviation per source — a separate change to densify, not a wider estimate
 	// here.
 	exactAllowed bool
+	// fitExactAbove keeps fragments below a certified root-circle crossing
+	// sampled when neighbouring teeth meet inside the root circle.
+	fitExactAbove map[int]float64
 	// specialHandled holds pairs certified by the bounded fit/circle scene proof.
 	specialHandled map[[2]int]struct{}
 
@@ -745,7 +749,7 @@ func newArranger(curves []Curve, closed []ClosedCurve, cfg arrangeConfig) *arran
 		a.sources = append(a.sources, s)
 	}
 	// Default whole-scene gate. A later narrow certificate can admit the
-	// four-source fit-spline/circle scene after sampling and pair checks.
+	// bounded fit-spline/circle scene after sampling and pair checks.
 	a.exactAllowed = true
 	for i := range a.sources {
 		if !analyticKind(a.sources[i].kind) {
@@ -2873,15 +2877,21 @@ func (a *arranger) split() {
 		// the curve's domain end"), which a weld does not change, and Whole must not
 		// be lost to one.
 		//
-		// Two withdrawals, both applied to every bound of this fragment. The SCENE gate
+		// Scene and source withdrawals apply to every bound of this fragment. The SCENE gate
 		// (exactAllowed) withholds exactness from the whole arrangement when any source
 		// is free-form; the per-source one (exactRefused) withholds it from a component
 		// whose map may be fused (refuseExactOnFusedMap). Either is applied wholesale,
 		// cut records and vertex identity notwithstanding: the bounds are individually
 		// right about their own curve and may collectively describe a topology that is
 		// missing a crossing. Neither changes what is emitted — only whether its
-		// parameter is published as exact.
+		// parameter is published as exact. A certified gear scene also withholds
+		// exactness from the portions of fit splines below the root circle, where
+		// neighbouring flanks can cross through the sampled path.
 		refused := !a.exactAllowed || (a.exactRefused != nil && a.exactRefused[s.src])
+		if rootCut, ok := a.fitExactAbove[s.src]; ok &&
+			math.Min(s.param(f.b0.t), s.param(f.b1.t)) < rootCut {
+			refused = true
+		}
 		a.edges = append(a.edges, arrEdge{u: f.u, v: f.v, src: s.src,
 			pu: s.param(f.b0.t), pv: s.param(f.b1.t),
 			exactU: !refused && f.b0.exact && a.vertexCertifies(&a.sources[s.src], f.u, f.b0.px, f.b0.py),

@@ -44,8 +44,15 @@ type Profile struct {
 	// sketch is the sketch this profile was built from, and revision that
 	// sketch's [Sketch.Revision] at build time. Together they let a consumer ask
 	// whether the profile still describes its sketch — see [Profile.IsStale].
-	sketch   *Sketch
-	revision uint64
+	sketch             *Sketch
+	revision           uint64
+	unionRegionIndices []int
+}
+
+// UnionRegionIndices returns the positions in Sketch.Profiles used to build
+// this composite profile. It returns nil for an ordinary atomic profile.
+func (p *Profile) UnionRegionIndices() []int {
+	return append([]int(nil), p.unionRegionIndices...)
 }
 
 // Sketch returns the sketch this profile was built from.
@@ -140,7 +147,7 @@ type BoundaryEdge struct {
 	// one — though it can still withhold exactness, by the whole-sketch gate below.
 	//
 	// FIRST, a WHOLE-SKETCH gate: exact bounds are published when every entity is
-	// a *Line, *Circle or *Arc, or when the four-source fit-spline/circle certificate
+	// a *Line, *Circle or *Arc, or when the bounded fit-spline/circle certificate
 	// covers the sketch. Other free-form scenes make every BoundaryEdge report
 	// TExact = false, including analytic edges beside the free-form source.
 	//
@@ -152,12 +159,12 @@ type BoundaryEdge struct {
 	// upper bound on that departure and reports [Profile.Valid] = false where a hidden
 	// crossing cannot be ruled out, but a flag is a warning, not a certificate: where that
 	// guard stays silent it has certified nothing about the profile set. So exactness is
-	// gated on the entity kinds or a proof for the whole four-source arrangement.
-	// That proof covers two *FitSpline flanks, their common tip *Arc and a root
-	// *Circle: each flank's radial distance increases across every cubic piece,
-	// the flanks stay in opposite half-planes, and their exact cuts preserve the
-	// sampled crossing incidence. Other scenes retain the kind gate. Only this
-	// flag is withheld: profiles, areas and ranges are unchanged.
+	// gated on the entity kinds or a proof for a whole bounded gear arrangement.
+	// That proof covers pairs of *FitSpline flanks, one tip *Arc per pair and one
+	// root *Circle. Each flank increases in radius and crosses the root circle
+	// once. Different teeth have no contacts outside that circle. Portions of
+	// flanks below the root circle remain inexact because neighbouring teeth may
+	// meet there. Other scenes retain the kind gate.
 	//
 	// Within an all line/circle/arc sketch, a CUT bound is exact only when the
 	// closed-form kernel placed it, which it does for any pair of those three.

@@ -5,70 +5,73 @@ import (
 	"math/big"
 )
 
-// fitCircleScene certifies the four-source outline made by two interpolating
-// flanks, their common outer arc, and an inner circle. It is deliberately
-// narrow: every other free-form arrangement keeps the sampled fallback.
+// certifyFitCircleScene certifies one or more tooth outlines made by pairs of
+// interpolating flanks, their outer arcs, and one common inner circle. Other
+// free-form arrangements keep the sampled fallback.
 //
 // The proof has three parts. Each flank's squared distance from the common
 // centre has a strictly positive derivative on every cubic piece, so it meets
 // each radius at most once. The flanks occupy opposite open half-planes of the
-// outer arc's radial bisector, so they cannot meet each other. The outer arc
-// meets each flank only at its own domain end. Bernstein coefficients give
-// whole-piece sign bounds; all coefficient arithmetic below is exact over the
-// stored binary64 interpolant data.
+// outer arc's radial bisector, so the two flanks of a tooth cannot meet. Flanks
+// of different teeth have disjoint exact Bezier hulls outside the root circle;
+// they may meet inside it, so those inner fragments stay inexact. The outer arcs
+// meet flanks only at their assigned domain ends and do not meet one another.
+// Bernstein coefficients give whole-piece sign bounds; all coefficient
+// arithmetic below is exact over the stored binary64 interpolant data.
 func (a *arranger) certifyFitCircleScene() {
-	if len(a.sources) != 4 {
+	if len(a.sources) < 4 || (len(a.sources)-1)%3 != 0 {
 		return
 	}
 	var fits []int
-	circle, arc := -1, -1
+	var arcs []int
+	circle := -1
 	for i := range a.sources {
 		switch a.sources[i].kind {
 		case srcFitSpline:
 			fits = append(fits, i)
 		case srcCircle:
+			if circle >= 0 {
+				return
+			}
 			circle = i
 		case srcArc:
-			arc = i
+			arcs = append(arcs, i)
 		default:
 			return
 		}
 	}
-	if len(fits) != 2 || circle < 0 || arc < 0 {
+	if len(arcs) == 0 || len(fits) != 2*len(arcs) || circle < 0 {
 		return
 	}
-	c, tip := &a.sources[circle], &a.sources[arc]
-	if c.cx != tip.cx || c.cy != tip.cy || !(c.r > 0 && tip.r > c.r) ||
-		!(math.Abs(tip.sweep) > 0 && math.Abs(tip.sweep) < math.Pi) {
+	c := &a.sources[circle]
+	tipRadius := a.sources[arcs[0]].r
+	if !(c.r > 0 && tipRadius > c.r) {
 		return
 	}
-	ends := [2][2]float64{a.sources[fits[0]].at(1), a.sources[fits[1]].at(1)}
-	axisX := (ends[0][0]+ends[1][0])/2 - c.cx
-	axisY := (ends[0][1]+ends[1][1])/2 - c.cy
-	if !finiteVal(axisX) || !finiteVal(axisY) || math.Hypot(axisX, axisY) <= c.r {
-		return
-	}
-	endArcParam := [2]float64{}
-	for k := range fits {
-		p := ends[k]
-		at0, at1 := tip.at(0), tip.at(1)
-		d0 := math.Hypot(p[0]-at0[0], p[1]-at0[1])
-		d1 := math.Hypot(p[0]-at1[0], p[1]-at1[1])
-		if math.Min(d0, d1) > weldIdentEps*a.scale {
+	for k, arc := range arcs {
+		tip := &a.sources[arc]
+		if c.cx != tip.cx || c.cy != tip.cy || math.Abs(tip.r-tipRadius) > weldIdentEps*a.scale ||
+			!(math.Abs(tip.sweep) > 0 && math.Abs(tip.sweep) < math.Pi) {
 			return
 		}
-		if d0 < d1 {
-			endArcParam[k] = 0
-		} else {
-			endArcParam[k] = 1
+		for _, other := range arcs[:k] {
+			events, ambiguous, ok := analyticEvents(tip, &a.sources[other], a.scale)
+			if !ok || ambiguous || len(events) != 0 {
+				return
+			}
 		}
 	}
-	if endArcParam[0] == endArcParam[1] {
-		return
+	type fitCertificate struct {
+		index, arc int
+		arcEnd     float64
+		end        [2]float64
+		root       xEvent
+		pieces     []exactFitPiece
+		hulls      []exactFitHull
+		outerHulls []exactFitHull
 	}
-
-	var roots [2]xEvent
-	var side [2]int
+	certs := make([]fitCertificate, len(fits))
+	arcEnds := make(map[int][2]int, len(arcs))
 	for k, index := range fits {
 		src := &a.sources[index]
 		if src.fitEval == nil {
@@ -79,11 +82,34 @@ func (a *arranger) certifyFitCircleScene() {
 		if !ok {
 			return
 		}
-		side[k] = fitSide(pieces, c.cx, c.cy, axisX, axisY, a.scale)
-		if side[k] == 0 {
+		end := src.at(1)
+		matchedArc, matchedEnd := -1, -1
+		for _, arc := range arcs {
+			tip := &a.sources[arc]
+			for endpoint := range 2 {
+				p := tip.at(float64(endpoint))
+				if math.Hypot(end[0]-p[0], end[1]-p[1]) > weldIdentEps*a.scale {
+					continue
+				}
+				if matchedArc >= 0 {
+					return
+				}
+				matchedArc, matchedEnd = arc, endpoint
+			}
+		}
+		if matchedArc < 0 {
 			return
 		}
-		t, ok := fitRadiusCrossing(pieces, c.cx, c.cy, c.r, tip.r, a.scale)
+		for _, arc := range arcs {
+			if arc == matchedArc {
+				continue
+			}
+			param := operandOf(&a.sources[arc]).circleParam(end[0], end[1])
+			if param <= 1+arcParamEps {
+				return
+			}
+		}
+		t, ok := fitRadiusCrossing(pieces, c.cx, c.cy, c.r, tipRadius, a.scale)
 		if !ok {
 			return
 		}
@@ -91,8 +117,8 @@ func (a *arranger) certifyFitCircleScene() {
 		if !finitePt(p) || math.Abs(math.Hypot(p[0]-c.cx, p[1]-c.cy)-c.r) > weldIdentEps*a.scale {
 			return
 		}
-		roots[k] = xEvent{x: p[0], y: p[1], ti: t, tj: operandOf(c).circleParam(p[0], p[1]), kind: evCross}
-		e := roots[k]
+		root := xEvent{x: p[0], y: p[1], ti: t, tj: operandOf(c).circleParam(p[0], p[1]), kind: evCross}
+		e := root
 		if index > circle {
 			e.ti, e.tj = e.tj, e.ti
 		}
@@ -100,37 +126,84 @@ func (a *arranger) certifyFitCircleScene() {
 		if !a.analyticCrossingsCertified(pair[0], pair[1], []xEvent{e}) {
 			return
 		}
-		if !a.fitArcHasOnlyEndpoint(index, arc, endArcParam[k]) {
+		if !a.fitArcHasOnlyEndpoint(index, matchedArc, float64(matchedEnd)) {
+			return
+		}
+		outerCut := math.Max(0, t-1e-7)
+		if !fitCutBelowRoot(pieces, outerCut, c.cx, c.cy, c.r, a.scale) {
+			return
+		}
+		certs[k] = fitCertificate{index: index, arc: matchedArc, arcEnd: float64(matchedEnd),
+			end: end, root: root, pieces: pieces, hulls: exactFitHulls(pieces),
+			outerHulls: exactFitHullsAfter(pieces, outerCut)}
+		arcPair := arcEnds[matchedArc]
+		if arcPair[matchedEnd] != 0 {
+			return
+		}
+		arcPair[matchedEnd] = k + 1
+		arcEnds[matchedArc] = arcPair
+	}
+	for _, arc := range arcs {
+		pair := arcEnds[arc]
+		if pair[0] == 0 || pair[1] == 0 {
+			return
+		}
+		first, second := certs[pair[0]-1], certs[pair[1]-1]
+		axisX := (first.end[0]+second.end[0])/2 - c.cx
+		axisY := (first.end[1]+second.end[1])/2 - c.cy
+		if !finiteVal(axisX) || !finiteVal(axisY) || math.Hypot(axisX, axisY) <= c.r {
+			return
+		}
+		s0 := fitSide(first.pieces, c.cx, c.cy, axisX, axisY, a.scale)
+		s1 := fitSide(second.pieces, c.cx, c.cy, axisX, axisY, a.scale)
+		if s0 == 0 || s1 == 0 || s0 == s1 {
 			return
 		}
 	}
-	if side[0] == side[1] {
-		return
+	fullySeparated := make(map[[2]int]struct{})
+	for i := range certs {
+		for j := i + 1; j < len(certs); j++ {
+			pair := pairKey(certs[i].index, certs[j].index)
+			if certs[i].arc == certs[j].arc ||
+				exactFitHullsSeparate(certs[i].hulls, certs[j].hulls, a.scale) {
+				fullySeparated[pair] = struct{}{}
+				continue
+			}
+			if !exactFitHullsSeparate(certs[i].outerHulls, certs[j].outerHulls, a.scale) {
+				return
+			}
+		}
 	}
 
 	if a.specialHandled == nil {
-		a.specialHandled = make(map[[2]int]struct{}, 5)
+		a.specialHandled = make(map[[2]int]struct{}, len(fits)*(len(fits)+len(arcs)+1))
 	}
-	a.specialHandled[pairKey(fits[0], fits[1])] = struct{}{}
-	for k, index := range fits {
-		e := roots[k]
+	for pair := range fullySeparated {
+		a.specialHandled[pair] = struct{}{}
+	}
+	a.fitExactAbove = make(map[int]float64, len(fits))
+	for i, index := range fits {
+		a.fitExactAbove[index] = certs[i].root.ti
+		for _, arc := range arcs {
+			a.specialHandled[pairKey(index, arc)] = struct{}{}
+		}
+		cert := certs[i]
+		e := cert.root
 		pair := pairKey(index, circle)
 		if index > circle {
 			e.ti, e.tj = e.tj, e.ti
 		}
 		a.events[pair] = []xEvent{e}
 		a.specialHandled[pair] = struct{}{}
-		a.applyAnalyticCut(index, roots[k].ti, roots[k].x, roots[k].y)
-		a.applyAnalyticCut(circle, roots[k].tj, roots[k].x, roots[k].y)
+		a.applyAnalyticCut(index, cert.root.ti, cert.root.x, cert.root.y)
+		a.applyAnalyticCut(circle, cert.root.tj, cert.root.x, cert.root.y)
 
-		end := ends[k]
-		e = xEvent{x: end[0], y: end[1], ti: 1, tj: endArcParam[k], kind: evCross}
-		pair = pairKey(index, arc)
-		if index > arc {
+		e = xEvent{x: cert.end[0], y: cert.end[1], ti: 1, tj: cert.arcEnd, kind: evCross}
+		pair = pairKey(index, cert.arc)
+		if index > cert.arc {
 			e.ti, e.tj = e.tj, e.ti
 		}
 		a.events[pair] = []xEvent{e}
-		a.specialHandled[pair] = struct{}{}
 	}
 	a.exactAllowed = true
 }
@@ -158,6 +231,137 @@ func (a *arranger) fitArcHasOnlyEndpoint(fit, arc int, arcEnd float64) bool {
 type exactFitPiece struct {
 	t0, t1 float64
 	x, y   [4]*big.Rat
+}
+
+// exactFitHull is the convex hull witness for one interpolant piece. The
+// curve lies in the hull of these exact Bernstein control points.
+type exactFitHull struct {
+	points [4][2]*big.Rat
+}
+
+func exactFitHulls(pieces []exactFitPiece) []exactFitHull {
+	hulls := make([]exactFitHull, len(pieces))
+	third := new(big.Rat).SetFrac64(1, 3)
+	twoThirds := new(big.Rat).SetFrac64(2, 3)
+	for i, p := range pieces {
+		h := &hulls[i]
+		for axis, coeff := range [2][4]*big.Rat{p.x, p.y} {
+			h.points[0][axis] = coeff[0]
+			h.points[1][axis] = add(coeff[0], mul(coeff[1], third))
+			h.points[2][axis] = add(add(coeff[0], mul(coeff[1], twoThirds)), mul(coeff[2], third))
+			h.points[3][axis] = add(add(coeff[0], coeff[1]), add(coeff[2], coeff[3]))
+		}
+	}
+	return hulls
+}
+
+// exactFitHullsAfter bounds the portion at or above cut. cut is chosen below
+// the certified root crossing, so it includes the whole exterior flank.
+func exactFitHullsAfter(pieces []exactFitPiece, cut float64) []exactFitHull {
+	all := exactFitHulls(pieces)
+	remaining := make([]exactFitHull, 0, len(all))
+	for i, piece := range pieces {
+		if piece.t1 <= cut {
+			continue
+		}
+		if piece.t0 >= cut {
+			remaining = append(remaining, all[i])
+			continue
+		}
+		u := quo(sub(rat(cut), rat(piece.t0)), sub(rat(piece.t1), rat(piece.t0)))
+		var right exactFitHull
+		for axis := range 2 {
+			p := all[i].points
+			q0 := add(p[0][axis], mul(u, sub(p[1][axis], p[0][axis])))
+			q1 := add(p[1][axis], mul(u, sub(p[2][axis], p[1][axis])))
+			q2 := add(p[2][axis], mul(u, sub(p[3][axis], p[2][axis])))
+			r0 := add(q0, mul(u, sub(q1, q0)))
+			r1 := add(q1, mul(u, sub(q2, q1)))
+			right.points[0][axis] = add(r0, mul(u, sub(r1, r0)))
+			right.points[1][axis] = r1
+			right.points[2][axis] = q2
+			right.points[3][axis] = p[3][axis]
+		}
+		remaining = append(remaining, right)
+	}
+	return remaining
+}
+
+func fitCutBelowRoot(pieces []exactFitPiece, cut, cx, cy, root, scale float64) bool {
+	margin := rat(1e-11 * scale * scale)
+	for i := range pieces {
+		piece := &pieces[i]
+		if cut < piece.t0 || cut > piece.t1 {
+			continue
+		}
+		u := quo(sub(rat(cut), rat(piece.t0)), sub(rat(piece.t1), rat(piece.t0)))
+		return evalRatPoly(radialPoly(piece, cx, cy, root), u).Cmp(new(big.Rat).Neg(margin)) < 0
+	}
+	return false
+}
+
+func exactFitHullsSeparate(a, b []exactFitHull, scale float64) bool {
+	margin := rat(1e-11 * scale * scale)
+	if margin == nil || margin.Sign() <= 0 {
+		return false
+	}
+	for _, left := range a {
+		for _, right := range b {
+			if fitHullAxisSeparate(&left, &right, rat(1), rat(0), margin) ||
+				fitHullAxisSeparate(&left, &right, rat(0), rat(1), margin) {
+				continue
+			}
+			separated := false
+			for _, hull := range [2]*exactFitHull{&left, &right} {
+				for i := range hull.points {
+					for j := i + 1; j < len(hull.points); j++ {
+						dx := sub(hull.points[j][0], hull.points[i][0])
+						dy := sub(hull.points[j][1], hull.points[i][1])
+						if dx.Sign() == 0 && dy.Sign() == 0 {
+							continue
+						}
+						if fitHullAxisSeparate(&left, &right, new(big.Rat).Neg(dy), dx, margin) {
+							separated = true
+							break
+						}
+					}
+					if separated {
+						break
+					}
+				}
+				if separated {
+					break
+				}
+			}
+			if !separated {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func fitHullAxisSeparate(a, b *exactFitHull, ax, ay, margin *big.Rat) bool {
+	if ax.Sign() == 0 && ay.Sign() == 0 {
+		return false
+	}
+	project := func(h *exactFitHull) (*big.Rat, *big.Rat) {
+		first := add(mul(ax, h.points[0][0]), mul(ay, h.points[0][1]))
+		lo, hi := first, first
+		for _, p := range h.points[1:] {
+			value := add(mul(ax, p[0]), mul(ay, p[1]))
+			if value.Cmp(lo) < 0 {
+				lo = value
+			}
+			if value.Cmp(hi) > 0 {
+				hi = value
+			}
+		}
+		return lo, hi
+	}
+	loA, hiA := project(a)
+	loB, hiB := project(b)
+	return add(hiA, margin).Cmp(loB) < 0 || add(hiB, margin).Cmp(loA) < 0
 }
 
 func exactFitPieces(fi *FitInterpolant) ([]exactFitPiece, bool) {
