@@ -10,7 +10,7 @@ deferred. **Curve/curve transverse crossings are no longer deferred**: §7b is
 implemented, so a circle/arc × circle/arc crossing takes analytic authority
 whenever its own incidence certificate passes, and falls back to the sampled path
 otherwise. Exact parameter bounds require a whole-scene certificate: either all
-sources are line/circle/arc or §7b's four-source fit-spline/circle case passes.
+sources are line/circle/arc or §7b's bounded fit-spline/circle case passes.
 Other free-form scenes report `TExact = false` everywhere. The rest is the roadmap
 below. Resolves the "analytic (non-sampled) arrangement" open follow-up of the
 Profile/region engine (`docs/verification-roadmap.md`).
@@ -392,8 +392,8 @@ connected component (`refuseExactOnFusedMap`), since a fused crossing moves the
 face boundaries of every cycle it takes part in.
 
 **The whole-scene gate** (`exactAllowed`). Exact bounds are published when every
-source is a line, circle or arc, or when `certifyFitCircleScene` proves the entire
-four-source fit-spline/circle scene. An ellipse, elliptical arc, conic, spline,
+source is a line, circle or arc, or when `certifyFitCircleScene` proves a bounded
+fit-spline/circle scene. An ellipse, elliptical arc, conic, spline,
 closed spline or NURBS makes every bound report `TExact = false`. A fit spline
 does so too unless that narrow certificate passes.
 
@@ -408,19 +408,27 @@ there is no sampled-only pair at all, so only the refused-crossing reconciliatio
 above remains, and its bound errs toward withdrawing exactness.
 
 The near-miss guard below reports that fusion as `Degenerate`, but does not lift
-this gate: silence does not prove that the crossing set is right. The four-source
-certificate instead proves each flank's radial distance increases strictly on
-every cubic piece and each flank stays on its own side of the tip arc's radial
-bisector. Each therefore crosses the root circle once; the flanks cannot cross
-one another, and neither meets the tip arc before its endpoint. The exact cuts
-must also pass `analyticCrossingsCertified` against the sampled incidence.
+this gate: silence does not prove that the crossing set is right. The bounded
+fit-spline/circle certificate proves each flank's radial distance increases
+strictly on every cubic piece and crosses the root circle once. The two flanks
+of each tooth stay on opposite sides of their tip arc's radial bisector. Cubic
+Bézier hulls prove flanks of different teeth disjoint outside the root circle.
+Each fit spline meets its assigned tip arc at one domain end, and the tip arcs
+do not meet each other. Every fit/root cut must also pass
+`analyticCrossingsCertified` against the sampled incidence.
+
+For the 30-tooth gear, neighbouring flanks meet below the root circle. Their
+sampled contacts stay in the arrangement, but their inner fragments report
+`TExact = false`. Only the root-circle boundary and exterior flank fragments
+receive exact bounds. The exterior hull proof uses a cut strictly below each
+certified root crossing, so it covers every point of the exposed flank.
 
 Outside that certificate, a scene containing a free-form curve loses exact
 bounds everywhere. Topology, areas and reported ranges are unchanged.
 
-The gallery's embedded tooth uses this four-source certificate for its two
-original involute fit splines, tip arc and root circle. An extra source disables
-the certificate for the whole scene; Sketch then withholds exact bounds.
+The gallery's embedded gear uses this certificate for 30 or 60 pairs of original
+involute fit splines, their tip arcs and one root circle. An unrelated source
+disables it; Sketch then withholds exact bounds.
 
 **The near-miss guard** (`geom/nearmiss.go`, `nearMissGuard`). The gate above
 withholds *exactness* from a scene whose map may be missing a crossing; this
@@ -789,7 +797,7 @@ hole, collinear-overlap degeneracy, spline self-intersection/fallback.
 - All existing profile/region/self-intersection/degenerate tests pass.
 - Supported pairs are analytic-authoritative; unsupported pairs stay sampled.
 - An exact parameter bound requires every source to be line/circle/arc or the
-  four-source fit-spline/circle certificate to pass (§7b).
+  bounded fit-spline/circle certificate to pass (§7b).
 - Coarse vs fine sampling gives the same topology for analytically-covered pairs —
   or, where the coarse sampled map cannot host the exact crossings, the
   three-part consistency gate (incidence, resolution, explanation) makes it

@@ -9,6 +9,7 @@ Detail moved out of CLAUDE.md. Read before touching `Sketch.Profiles`, `Boundary
 | When is a `BoundaryEdge` range exact? | The whole-sketch gate comes first |
 | Why did exactness disappear scene-wide? | The whole-scene kind gate `exactAllowed` |
 | When is a profile invalid or stale? | `Valid` is per-region / A profile is a snapshot |
+| How are adjacent profile regions joined? | `Sketch.UnionProfiles` |
 | Where does OPEN geometry go? | `chains.go` — open boundary chains |
 | Why did my chain get cut in two? | Where a chain walk stops |
 | What decides the order chains come back in? | Direction, order, length and validity |
@@ -57,6 +58,21 @@ at, and `Profile.IsStale()` says the sketch has moved under it. A consumer that
 turns a profile into a solid MUST check — extruding a stale profile silently
 builds the old shape with no error anywhere.
 
+### `Sketch.UnionProfiles`
+
+`Sketch.UnionProfiles(indices...)` recomputes the current `Profiles()` snapshot and
+joins regions at those positions. Shared intervals of one source cancel by signed
+parameter coverage. This also splits a whole circle against partial circle
+intervals, as the 60-tooth gear requires. Exposed edges keep their source entity
+and `TExact`; a sampled trim is never upgraded. A split circle interval gets
+certified endpoint coordinates from existing exact region edges. The call refuses
+fewer than two regions, invalid or duplicate indices, overlapping coverage,
+branched/open boundaries, unsupported non-circle interval splits and disconnected
+unions. It returns one outer loop and any holes, with area equal to the sum of
+selected region areas. `Profile.UnionRegionIndices()` returns a copy of the
+sorted selection for consumers that recompute and authenticate a composite
+profile before recording it.
+
 ### `TStart`/`TEnd`/`TExact` — the sub-range an edge covers
 
 A `BoundaryEdge` also reports
@@ -69,7 +85,7 @@ the curve's own endpoint.
 ### The whole-sketch gate comes first
 
 **A WHOLE-SKETCH gate comes first**: exact bounds are
-published when every entity is a line/circle/arc or the four-source
+published when every entity is a line/circle/arc or the bounded
 fit-spline/circle certificate passes. Otherwise one free-form entity anywhere
 makes every `BoundaryEdge` of every profile read `TExact=false` — the lines,
 circles and arcs beside it included, however far apart they sit (`exactAllowed`,
@@ -77,7 +93,8 @@ in the `geom` section: a free-form entity is only ever chords, so it can hide a
 crossing between two samples and leave the certified pairs publishing the fused
 profile set as exact — the near-miss guard now reports such a map `Degenerate`,
 but it certifies nothing where it stays silent, so exactness keeps the kind
-gate). `docs/analytic-arrangement-design.md` §7b owns the four-source proof.
+gate). `docs/analytic-arrangement-design.md` §7b owns the bounded proof. Fit
+fragments below the root circle stay inexact where neighbouring teeth can meet.
 Within an all line/circle/arc sketch the closed-form kernel runs on any
 pair of those three, so **every** contact involving an
 ellipse/elliptical-arc/conic/spline/NURBS — *even against a plain line, and even
@@ -1078,7 +1095,7 @@ reconciliation bound is deliberately the tight one.
 
 **A pair the kernel never classified is answered a level up, by the WHOLE-SCENE gate
 `exactAllowed`**: an exact bound is published when every source is a line, circle
-or arc, or when `certifyFitCircleScene` proves its four-source fit-spline/circle
+or arc, or when `certifyFitCircleScene` proves its bounded fit-spline/circle
 case. Other free-form scenes make every bound read `TExact=false` —
 the analytic sources beside it included, however far apart they sit, and the free-form
 curve's own uncut whole edge included. The reason it is a KIND gate and not a distance
@@ -1089,8 +1106,9 @@ deviation of `2.1e-05` against a true `4.7e-01` maximum on the same segment, wit
 resulting wrong-but-all-exact map surfacing through `Sketch.Profiles()` with no options
 at all. Any per-segment deviation ESTIMATE used as a reach is the same bug with a wider
 constant; the kind gate needs no threshold, and in an all-analytic scene there is no
-sampled-only pair for it to bite on. The narrow exception proves all free-form
-pair contacts with exact rational polynomial bounds before lifting the scene gate.
+sampled-only pair for it to bite on. The narrow exception proves all exterior
+free-form pair contacts with exact rational polynomial bounds before lifting the
+scene gate, and leaves inner fit fragments inexact.
 **`nearMissGuard` now reports that fused map as
 `Degenerate`** (below), but it does not lift this gate — it says where a crossing cannot
 be RULED OUT, never that the crossing set is right where it stays silent, and a
