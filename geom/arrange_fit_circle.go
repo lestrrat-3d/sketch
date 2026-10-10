@@ -62,13 +62,15 @@ func (a *arranger) certifyFitCircleScene() {
 		}
 	}
 	type fitCertificate struct {
-		index, arc int
-		arcEnd     float64
-		end        [2]float64
-		root       xEvent
-		pieces     []exactFitPiece
-		hulls      []exactFitHull
-		outerHulls []exactFitHull
+		index, arc  int
+		arcEnd      float64
+		end         [2]float64
+		root        xEvent
+		pieces      []exactFitPiece
+		hulls       []exactFitHull
+		outerHulls  []exactFitHull
+		bounds      exactFitBounds
+		outerBounds exactFitBounds
 	}
 	certs := make([]fitCertificate, len(fits))
 	arcEnds := make(map[int][2]int, len(arcs))
@@ -133,9 +135,11 @@ func (a *arranger) certifyFitCircleScene() {
 		if !fitCutBelowRoot(pieces, outerCut, c.cx, c.cy, c.r, a.scale) {
 			return
 		}
+		hulls := exactFitHulls(pieces)
+		outerHulls := exactFitHullsAfter(pieces, outerCut)
 		certs[k] = fitCertificate{index: index, arc: matchedArc, arcEnd: float64(matchedEnd),
-			end: end, root: root, pieces: pieces, hulls: exactFitHulls(pieces),
-			outerHulls: exactFitHullsAfter(pieces, outerCut)}
+			end: end, root: root, pieces: pieces, hulls: hulls, outerHulls: outerHulls,
+			bounds: exactFitHullBounds(hulls), outerBounds: exactFitHullBounds(outerHulls)}
 		arcPair := arcEnds[matchedArc]
 		if arcPair[matchedEnd] != 0 {
 			return
@@ -161,15 +165,18 @@ func (a *arranger) certifyFitCircleScene() {
 		}
 	}
 	fullySeparated := make(map[[2]int]struct{})
+	margin := rat(1e-11 * a.scale * a.scale)
 	for i := range certs {
 		for j := i + 1; j < len(certs); j++ {
 			pair := pairKey(certs[i].index, certs[j].index)
 			if certs[i].arc == certs[j].arc ||
+				exactFitBoundsSeparate(certs[i].bounds, certs[j].bounds, margin) ||
 				exactFitHullsSeparate(certs[i].hulls, certs[j].hulls, a.scale) {
 				fullySeparated[pair] = struct{}{}
 				continue
 			}
-			if !exactFitHullsSeparate(certs[i].outerHulls, certs[j].outerHulls, a.scale) {
+			if !exactFitBoundsSeparate(certs[i].outerBounds, certs[j].outerBounds, margin) &&
+				!exactFitHullsSeparate(certs[i].outerHulls, certs[j].outerHulls, a.scale) {
 				return
 			}
 		}
@@ -237,6 +244,42 @@ type exactFitPiece struct {
 // curve lies in the hull of these exact Bernstein control points.
 type exactFitHull struct {
 	points [4][2]*big.Rat
+}
+
+// exactFitBounds encloses every Bezier hull in a fit. A gap between these
+// boxes proves separation of all piece pairs without projecting each hull.
+type exactFitBounds struct {
+	min, max [2]*big.Rat
+}
+
+func exactFitHullBounds(hulls []exactFitHull) exactFitBounds {
+	var bounds exactFitBounds
+	for _, hull := range hulls {
+		for _, point := range hull.points {
+			for axis := range 2 {
+				if bounds.min[axis] == nil || point[axis].Cmp(bounds.min[axis]) < 0 {
+					bounds.min[axis] = point[axis]
+				}
+				if bounds.max[axis] == nil || point[axis].Cmp(bounds.max[axis]) > 0 {
+					bounds.max[axis] = point[axis]
+				}
+			}
+		}
+	}
+	return bounds
+}
+
+func exactFitBoundsSeparate(a, b exactFitBounds, margin *big.Rat) bool {
+	if margin == nil || margin.Sign() <= 0 || a.min[0] == nil || b.min[0] == nil {
+		return false
+	}
+	for axis := range 2 {
+		if add(a.max[axis], margin).Cmp(b.min[axis]) < 0 ||
+			add(b.max[axis], margin).Cmp(a.min[axis]) < 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func exactFitHulls(pieces []exactFitPiece) []exactFitHull {
