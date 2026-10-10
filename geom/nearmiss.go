@@ -505,7 +505,8 @@ func (a *arranger) nearMissGuard() {
 			if kj == srcDegenerate {
 				continue
 			}
-			if analyticKind(ki) && analyticKind(kj) {
+			_, certifiedFitPair := a.specialHandled[pairKey(i, j)]
+			if (analyticKind(ki) && analyticKind(kj)) || certifiedFitPair {
 				continue
 			}
 			if x, y, miss := a.pairNearMiss(i, j); miss {

@@ -315,11 +315,10 @@ type arranger struct {
 	exactRefused []bool
 
 	// exactAllowed gates EVERY exact bound this arrangement emits, ahead of any
-	// per-source or per-pair reasoning: it is true only when EVERY source is a line,
-	// circle or arc (analyticKind). A scene holding any free-form source — ellipse,
-	// elliptical arc, conic, spline, closed spline, fit spline or NURBS — publishes NO
-	// exact bound anywhere, including on the lines, circles and arcs that share the
-	// scene with it, and including a free-form curve's own uncut whole edge.
+	// per-source or per-pair reasoning. It starts true only when every source is
+	// a line, circle or arc. certifyFitCircleScene can also set it for its narrow
+	// four-source scene after proving every pair contact. Other free-form scenes
+	// publish no exact bound anywhere.
 	//
 	// A free-form source reaches the planar map only as chords, so a curve with a lobe
 	// between two consecutive samples can cross another curve entirely between them
@@ -344,6 +343,8 @@ type arranger struct {
 	// its own deviation per source — a separate change to densify, not a wider estimate
 	// here.
 	exactAllowed bool
+	// specialHandled holds pairs certified by the bounded fit/circle scene proof.
+	specialHandled map[[2]int]struct{}
 
 	// Certified analytic tangency contacts (increment 3): the exact points where
 	// the rotation system must order coincident-tangent ports by curvature instead
@@ -743,8 +744,8 @@ func newArranger(curves []Curve, closed []ClosedCurve, cfg arrangeConfig) *arran
 		}
 		a.sources = append(a.sources, s)
 	}
-	// Decided once, over the whole scene, before anything is sampled or classified:
-	// a free-form (or unusable) source anywhere withholds exact bounds everywhere.
+	// Default whole-scene gate. A later narrow certificate can admit the
+	// four-source fit-spline/circle scene after sampling and pair checks.
 	a.exactAllowed = true
 	for i := range a.sources {
 		if !analyticKind(a.sources[i].kind) {
@@ -1500,6 +1501,7 @@ func (a *arranger) analyticPrepass() {
 			}
 		}
 	}
+	a.certifyFitCircleScene()
 }
 
 // sharedWall reports whether two collinear, overlapping LINE sources i and j are a
@@ -1534,6 +1536,9 @@ func (a *arranger) sharedWall(i, j int) bool {
 // instead of a per-pair set spares analyticPrepass a write for every pair it
 // visits, which on a many-sided outline dominated its cost.
 func (a *arranger) handled(i, j int) bool {
+	if _, ok := a.specialHandled[pairKey(i, j)]; ok {
+		return true
+	}
 	if !analyticKind(a.sources[i].kind) || !analyticKind(a.sources[j].kind) {
 		return false
 	}

@@ -139,11 +139,10 @@ type BoundaryEdge struct {
 	// elsewhere in the sketch cannot turn a bound this reports as inexact into an exact
 	// one — though it can still withhold exactness, by the whole-sketch gate below.
 	//
-	// FIRST, a WHOLE-SKETCH gate: exact bounds are published only when EVERY entity the
-	// profile pass sees is a *Line, *Circle or *Arc. One *Ellipse, *EllipticalArc,
-	// *Conic, *Spline, *ClosedSpline, *FitSpline or *NURBS anywhere in the sketch makes
-	// every BoundaryEdge of every profile report TExact = false — the lines, circles and
-	// arcs beside it included, however far apart they sit.
+	// FIRST, a WHOLE-SKETCH gate: exact bounds are published when every entity is
+	// a *Line, *Circle or *Arc, or when the four-source fit-spline/circle certificate
+	// covers the sketch. Other free-form scenes make every BoundaryEdge report
+	// TExact = false, including analytic edges beside the free-form source.
 	//
 	// The reason is that a free-form entity reaches the profile pass only as chords, and
 	// it bows away from them: it can cross another entity entirely between two samples.
@@ -153,8 +152,12 @@ type BoundaryEdge struct {
 	// upper bound on that departure and reports [Profile.Valid] = false where a hidden
 	// crossing cannot be ruled out, but a flag is a warning, not a certificate: where that
 	// guard stays silent it has certified nothing about the profile set. So exactness is
-	// gated on the entity kinds alone. Only this flag is withheld: the profiles, their
-	// areas and their ranges are unchanged.
+	// gated on the entity kinds or a proof for the whole four-source arrangement.
+	// That proof covers two *FitSpline flanks, their common tip *Arc and a root
+	// *Circle: each flank's radial distance increases across every cubic piece,
+	// the flanks stay in opposite half-planes, and their exact cuts preserve the
+	// sampled crossing incidence. Other scenes retain the kind gate. Only this
+	// flag is withheld: profiles, areas and ranges are unchanged.
 	//
 	// Within an all line/circle/arc sketch, a CUT bound is exact only when the
 	// closed-form kernel placed it, which it does for any pair of those three.
@@ -181,16 +184,16 @@ type BoundaryEdge struct {
 	// A WHOLE edge (Partial = false) is bounded by Entity's own domain ends, which are
 	// the entity's exact t=0/t=1 evaluation — so in an all line/circle/arc sketch a whole
 	// edge reports TExact = true and its [0,1] reconstructs the curve exactly. A whole
-	// edge of any entity in a sketch holding a free-form one reports TExact = false, by
-	// the gate above; a whole *EllipticalArc edge would anyway, since it pins its ends to
+	// edge in any other free-form sketch reports TExact = false, by the gate above;
+	// a whole *EllipticalArc edge would anyway, since it pins its ends to
 	// sketch Start/End points that lie on the parametric ellipse only within solver
 	// tolerance (eval(0)/eval(1) miss the emitted Polyline ends by that tolerance).
 	//
 	// A consumer that needs an exact trim can often avoid needing one: a whole edge has
 	// no trim to certify at all, whatever TExact says. Authoring the contact as a SHARED
 	// *Point rather than letting the curves cross leaves both edges whole — the supported
-	// way to place a free-form curve against another entity when a downstream consumer
-	// requires exactness. See the executable example Example_sketch_freeformSharedPoint
+	// general way to place a free-form curve against another entity when a
+	// downstream consumer requires exactness. See Example_sketch_freeformSharedPoint
 	// in examples/.
 	//
 	// The topology is still correct when this is false; only the parameter (and the

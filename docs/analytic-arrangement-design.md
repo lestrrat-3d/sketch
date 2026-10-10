@@ -9,9 +9,9 @@ via §7a's exact containment; osculation and line-involved merged tangency remai
 deferred. **Curve/curve transverse crossings are no longer deferred**: §7b is
 implemented, so a circle/arc × circle/arc crossing takes analytic authority
 whenever its own incidence certificate passes, and falls back to the sampled path
-otherwise. Exact parameter bounds are additionally gated on the WHOLE SCENE being
-line/circle/arc (§7b, "The all-analytic gate"), so a scene containing any
-free-form curve reports `TExact = false` everywhere. The rest is the roadmap
+otherwise. Exact parameter bounds require a whole-scene certificate: either all
+sources are line/circle/arc or §7b's four-source fit-spline/circle case passes.
+Other free-form scenes report `TExact = false` everywhere. The rest is the roadmap
 below. Resolves the "analytic (non-sampled) arrangement" open follow-up of the
 Profile/region engine (`docs/verification-roadmap.md`).
 
@@ -391,12 +391,11 @@ the sampled map does not carry withdraws exactness from every source of its
 connected component (`refuseExactOnFusedMap`), since a fused crossing moves the
 face boundaries of every cycle it takes part in.
 
-**The all-analytic gate** (`exactAllowed`). Exact bounds are published only when
-EVERY source in the arrangement is a line, circle or arc. One ellipse, elliptical
-arc, conic, spline, closed spline, fit spline or NURBS anywhere in the scene makes
-every bound of that arrangement report `TExact = false` — the lines, circles and
-arcs beside it included, however far apart they sit, and the free-form curve's own
-uncut whole edge included.
+**The whole-scene gate** (`exactAllowed`). Exact bounds are published when every
+source is a line, circle or arc, or when `certifyFitCircleScene` proves the entire
+four-source fit-spline/circle scene. An ellipse, elliptical arc, conic, spline,
+closed spline or NURBS makes every bound report `TExact = false`. A fit spline
+does so too unless that narrow certificate passes.
 
 The gate exists because a free-form source reaches the map only as chords. A curve
 with a lobe between two consecutive samples crosses another curve entirely between
@@ -408,30 +407,20 @@ Gating on the SOURCE KINDS answers that with no threshold; in an all-analytic sc
 there is no sampled-only pair at all, so only the refused-crossing reconciliation
 above remains, and its bound errs toward withdrawing exactness.
 
-The near-miss guard below now reports that fusion as `Degenerate`, but it does not
-lift this gate: it says where a crossing CANNOT be ruled out, not that the crossing
-set is right where it stays silent, and a free-form crossing's parameter is a
-sampled one whatever the topology.
+The near-miss guard below reports that fusion as `Degenerate`, but does not lift
+this gate: silence does not prove that the crossing set is right. The four-source
+certificate instead proves each flank's radial distance increases strictly on
+every cubic piece and each flank stays on its own side of the tip arc's radial
+bisector. Each therefore crosses the root circle once; the flanks cannot cross
+one another, and neither meets the tip arc before its endpoint. The exact cuts
+must also pass `analyticCrossingsCertified` against the sampled incidence.
 
-**The coverage cost is understood and accepted**: a scene containing any free-form
-curve loses exact bounds everywhere in that scene, so what is given up is exactness
-on the analytic sources sharing the scene with it. Topology, areas and the reported
-ranges are untouched. Lifting it needs a sampler that certifies its own per-source
-deviation (a change to `densify`), not a wider estimate at the point of use — a
-separate change, not planned here.
+Outside that certificate, a scene containing a free-form curve loses exact
+bounds everywhere. Topology, areas and reported ranges are unchanged.
 
-**A named customer for this gate.** fusion360-gear-generator's embedded-tooth branch
-authors its involute flanks as `CreateFitSpline` curves that cross the root circle
-transversally, so this gate withholds `TExact` from that branch and it is skipped
-when building the 3D solid. Because the gate keys on `analyticKind` over the WHOLE
-scene, a closed-form spline × circle kernel alone would not lift `TExact` there: the
-free-form kind would have to be admitted scene-wide, which is a claim about every
-pair a free-form curve can take part in (spline × spline, spline × ellipse,
-spline × NURBS), not just spline × circle. The branch is recordable today with no
-kernel change: trimming the flank at the root radius and sharing the junction
-`*Point` with the root arc removes the crossing, and a whole edge carries no trim to
-certify — see `profiles.go`'s `BoundaryEdge.TExact` doc and the executable example
-`Example_sketch_freeformSharedPoint` in `examples/`.
+The gallery's embedded tooth uses this four-source certificate for its two
+original involute fit splines, tip arc and root circle. An extra source disables
+the certificate for the whole scene; Sketch then withholds exact bounds.
 
 **The near-miss guard** (`geom/nearmiss.go`, `nearMissGuard`). The gate above
 withholds *exactness* from a scene whose map may be missing a crossing; this
@@ -799,8 +788,8 @@ hole, collinear-overlap degeneracy, spline self-intersection/fallback.
 
 - All existing profile/region/self-intersection/degenerate tests pass.
 - Supported pairs are analytic-authoritative; unsupported pairs stay sampled.
-- An exact parameter bound is published only when EVERY source in the arrangement is a
-  line, circle or arc; one free-form source withholds `TExact` scene-wide (§7b).
+- An exact parameter bound requires every source to be line/circle/arc or the
+  four-source fit-spline/circle certificate to pass (§7b).
 - Coarse vs fine sampling gives the same topology for analytically-covered pairs —
   or, where the coarse sampled map cannot host the exact crossings, the
   three-part consistency gate (incidence, resolution, explanation) makes it

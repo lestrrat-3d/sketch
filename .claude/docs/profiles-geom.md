@@ -69,15 +69,16 @@ the curve's own endpoint.
 ### The whole-sketch gate comes first
 
 **A WHOLE-SKETCH gate comes first**: exact bounds are
-published only when EVERY entity the profile pass sees is a line/circle/arc, so
-one ellipse/elliptical-arc/conic/spline/closed-spline/fit-spline/NURBS anywhere
+published when every entity is a line/circle/arc or the four-source
+fit-spline/circle certificate passes. Otherwise one free-form entity anywhere
 makes every `BoundaryEdge` of every profile read `TExact=false` — the lines,
 circles and arcs beside it included, however far apart they sit (`exactAllowed`,
 in the `geom` section: a free-form entity is only ever chords, so it can hide a
 crossing between two samples and leave the certified pairs publishing the fused
 profile set as exact — the near-miss guard now reports such a map `Degenerate`,
 but it certifies nothing where it stays silent, so exactness keeps the kind
-gate). Within an all line/circle/arc sketch the closed-form kernel runs on any
+gate). `docs/analytic-arrangement-design.md` §7b owns the four-source proof.
+Within an all line/circle/arc sketch the closed-form kernel runs on any
 pair of those three, so **every** contact involving an
 ellipse/elliptical-arc/conic/spline/NURBS — *even against a plain line, and even
 when it is a tangency* — is sampled and reports `TExact=false` on its own
@@ -1076,9 +1077,9 @@ reconciliation bound is deliberately the tight one.
 ### The whole-scene kind gate `exactAllowed`
 
 **A pair the kernel never classified is answered a level up, by the WHOLE-SCENE gate
-`exactAllowed`**: an exact bound is published only when EVERY source in the arrangement
-is a line, circle or arc, so one ellipse/elliptical-arc/conic/spline/closed-spline/
-fit-spline/NURBS anywhere makes every bound of that arrangement read `TExact=false` —
+`exactAllowed`**: an exact bound is published when every source is a line, circle
+or arc, or when `certifyFitCircleScene` proves its four-source fit-spline/circle
+case. Other free-form scenes make every bound read `TExact=false` —
 the analytic sources beside it included, however far apart they sit, and the free-form
 curve's own uncut whole edge included. The reason it is a KIND gate and not a distance
 or deviation test: a free-form source reaches the map only as chords, so a lobe between
@@ -1088,13 +1089,14 @@ deviation of `2.1e-05` against a true `4.7e-01` maximum on the same segment, wit
 resulting wrong-but-all-exact map surfacing through `Sketch.Profiles()` with no options
 at all. Any per-segment deviation ESTIMATE used as a reach is the same bug with a wider
 constant; the kind gate needs no threshold, and in an all-analytic scene there is no
-sampled-only pair for it to bite on. **`nearMissGuard` now reports that fused map as
+sampled-only pair for it to bite on. The narrow exception proves all free-form
+pair contacts with exact rational polynomial bounds before lifting the scene gate.
+**`nearMissGuard` now reports that fused map as
 `Degenerate`** (below), but it does not lift this gate — it says where a crossing cannot
 be RULED OUT, never that the crossing set is right where it stays silent, and a
-free-form crossing's parameter is a sampled one whatever the topology. The accepted cost
+other free-form crossings retain sampled parameters. The accepted cost
 is exactness on the analytic sources sharing a scene with a free-form one — topology,
-areas and the reported ranges are untouched — and lifting it needs a sampler that
-certifies its own per-source deviation, not a wider estimate at the point of use.
+areas and the reported ranges are untouched.
 
 ### Chord-deviation degeneracy bounds (`nearMissGuard`)
 
