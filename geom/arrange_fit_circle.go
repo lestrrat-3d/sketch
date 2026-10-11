@@ -516,18 +516,83 @@ func fitRadiusCrossing(pieces []exactFitPiece, cx, cy, root, tip, scale float64)
 	if new(big.Rat).Abs(tipEnd).Cmp(margin) > 0 {
 		return 0, false
 	}
-	lo, hi := rat(0), rat(1)
-	for range 80 {
-		mid := quo(add(lo, hi), rat(2))
-		if evalRatPoly(crossingPoly, mid).Sign() < 0 {
+	u, ok := fitRoundedRoot(crossingPoly)
+	if !ok {
+		lo, hi := rat(0), rat(1)
+		for range 80 {
+			mid := quo(add(lo, hi), rat(2))
+			if evalRatPoly(crossingPoly, mid).Sign() < 0 {
+				lo = mid
+			} else {
+				hi = mid
+			}
+		}
+		u, _ = quo(add(lo, hi), rat(2)).Float64()
+	}
+	t := crossing.t0 + u*(crossing.t1-crossing.t0)
+	return t, finiteVal(t) && t > crossing.t0 && t < crossing.t1
+}
+
+// fitRoundedRoot finds the same float64 that the fixed 80-step exact bisection
+// returns when a fast estimate can be certified away from both rounding ties.
+// The derivative was proven positive over this piece before the call.
+func fitRoundedRoot(f []*big.Rat) (float64, bool) {
+	coeff := make([]float64, len(f))
+	for i, c := range f {
+		coeff[i], _ = c.Float64()
+		if !finiteVal(coeff[i]) {
+			return 0, false
+		}
+	}
+	lo, hi := 0.0, 1.0
+	for range 64 {
+		mid := (lo + hi) / 2
+		if mid == lo || mid == hi {
+			break
+		}
+		v := coeff[len(coeff)-1]
+		for i := len(coeff) - 2; i >= 0; i-- {
+			v = v*mid + coeff[i]
+		}
+		if !finiteVal(v) {
+			return 0, false
+		}
+		if v < 0 {
 			lo = mid
 		} else {
 			hi = mid
 		}
 	}
-	u, _ := quo(add(lo, hi), rat(2)).Float64()
-	t := crossing.t0 + u*(crossing.t1-crossing.t0)
-	return t, finiteVal(t) && t > crossing.t0 && t < crossing.t1
+	u := (lo + hi) / 2
+	derivative := make([]*big.Rat, len(f)-1)
+	for i := 1; i < len(f); i++ {
+		derivative[i-1] = mul(f[i], rat(float64(i)))
+	}
+	for range 2 {
+		if !(u > 0 && u < 1) {
+			return 0, false
+		}
+		value, _ := evalRatPoly(f, rat(u)).Float64()
+		slope, _ := evalRatPoly(derivative, rat(u)).Float64()
+		if !finiteVal(value) || !finiteVal(slope) || slope <= 0 {
+			return 0, false
+		}
+		u -= value / slope
+	}
+	if !(u > 0 && u < 1) {
+		return 0, false
+	}
+	// After 80 exact bisections the enclosing interval is 2^-80 wide.
+	// Prove the true root is farther than that from both rounding boundaries.
+	below := math.Nextafter(u, math.Inf(-1))
+	above := math.Nextafter(u, math.Inf(1))
+	margin := rat(math.Ldexp(1, -80))
+	lower := add(quo(add(rat(below), rat(u)), rat(2)), margin)
+	upper := sub(quo(add(rat(u), rat(above)), rat(2)), margin)
+	if lower.Cmp(upper) >= 0 || evalRatPoly(f, lower).Sign() >= 0 || evalRatPoly(f, upper).Sign() <= 0 {
+		return 0, false
+	}
+	return u, true
 }
 
 func radialPoly(p *exactFitPiece, cx, cy, radius float64) []*big.Rat {
