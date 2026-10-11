@@ -495,6 +495,7 @@ func projectHom(cp [][3]float64) [][2]float64 {
 // separation is zero — is explained by the vertex that is already there rather
 // than flagged.
 func (a *arranger) nearMissGuard() {
+	var boxes []nearMissBox
 	for i := range a.sources {
 		ki := a.sources[i].kind
 		if ki == srcDegenerate {
@@ -509,7 +510,17 @@ func (a *arranger) nearMissGuard() {
 			if (analyticKind(ki) && analyticKind(kj)) || certifiedFitPair {
 				continue
 			}
-			if x, y, miss := a.pairNearMiss(i, j); miss {
+			if boxes == nil {
+				boxes = make([]nearMissBox, len(a.segs))
+				for k := range a.segs {
+					s := &a.segs[k]
+					boxes[k] = nearMissBox{
+						minX: math.Min(s.ax, s.bx), maxX: math.Max(s.ax, s.bx),
+						minY: math.Min(s.ay, s.by), maxY: math.Max(s.ay, s.by),
+					}
+				}
+			}
+			if x, y, miss := a.pairNearMiss(i, j, boxes); miss {
 				a.flagDegenerate(x, y, i, j)
 			}
 		}
@@ -518,10 +529,11 @@ func (a *arranger) nearMissGuard() {
 
 // pairNearMiss reports the first approach between the two sources' chords that
 // their deviation bounds cannot separate and no recorded contact explains.
-func (a *arranger) pairNearMiss(i, j int) (float64, float64, bool) {
+func (a *arranger) pairNearMiss(i, j int, boxes []nearMissBox) (float64, float64, bool) {
 	contacts := a.sampledContacts[pairKey(i, j)]
 	for _, ii := range a.sourceSegs[i] {
 		si := &a.segs[ii]
+		bi := &boxes[ii]
 		di := a.segDev[ii]
 		for _, jj := range a.sourceSegs[j] {
 			sj := &a.segs[jj]
@@ -529,7 +541,7 @@ func (a *arranger) pairNearMiss(i, j int) (float64, float64, bool) {
 			if !(band > 0) {
 				continue
 			}
-			if boxesApart(si, sj, band) {
+			if boxesApart(bi, &boxes[jj], band) {
 				continue
 			}
 			d, x, y := segSegDistance(si, sj)
@@ -568,14 +580,15 @@ func (a *arranger) pairNearMiss(i, j int) (float64, float64, bool) {
 	return 0, 0, false
 }
 
+// nearMissBox is a chord's raw bounding box, computed once for the guard.
+// The arrangement broad phase uses different boxes expanded by its own reach.
+type nearMissBox struct{ minX, minY, maxX, maxY float64 }
+
 // boxesApart is the cheap reject: the two chords' bounding boxes are separated by
 // more than band, so no point of one is within band of the other.
-func boxesApart(si, sj *tinySeg, band float64) bool {
-	iloX, ihiX := math.Min(si.ax, si.bx), math.Max(si.ax, si.bx)
-	iloY, ihiY := math.Min(si.ay, si.by), math.Max(si.ay, si.by)
-	jloX, jhiX := math.Min(sj.ax, sj.bx), math.Max(sj.ax, sj.bx)
-	jloY, jhiY := math.Min(sj.ay, sj.by), math.Max(sj.ay, sj.by)
-	return jloX-ihiX > band || iloX-jhiX > band || jloY-ihiY > band || iloY-jhiY > band
+func boxesApart(si, sj *nearMissBox, band float64) bool {
+	return sj.minX-si.maxX > band || si.minX-sj.maxX > band ||
+		sj.minY-si.maxY > band || si.minY-sj.maxY > band
 }
 
 // segSegDistance returns the minimum distance between two chords together with a
