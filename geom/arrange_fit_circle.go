@@ -480,8 +480,12 @@ func fitRadiusCrossing(pieces []exactFitPiece, cx, cy, root, tip, scale float64)
 	if margin == nil || margin.Sign() <= 0 {
 		return 0, false
 	}
+	// The two radius polynomials differ only in their constant term.
+	tipShift := sub(mul(rat(root), rat(root)), mul(rat(tip), rat(tip)))
+	negMargin := new(big.Rat).Neg(margin)
 	var crossing *exactFitPiece
 	var crossingPoly []*big.Rat
+	var firstRootStart, lastRootEnd, lastTipEnd *big.Rat
 	for i := range pieces {
 		piece := &pieces[i]
 		f := radialPoly(piece, cx, cy, root)
@@ -494,7 +498,15 @@ func fitRadiusCrossing(pieces []exactFitPiece, cx, cy, root, tip, scale float64)
 				return 0, false
 			}
 		}
-		lo, hi := f[0].Sign(), evalRatPoly(f, rat(1)).Sign()
+		rootEnd := evalRatPoly(f, rat(1))
+		tipEnd := add(rootEnd, tipShift)
+		if i == 0 {
+			firstRootStart = f[0]
+		}
+		if i+1 == len(pieces) {
+			lastRootEnd, lastTipEnd = rootEnd, tipEnd
+		}
+		lo, hi := f[0].Sign(), rootEnd.Sign()
 		if lo < 0 && hi > 0 {
 			if crossing != nil {
 				return 0, false
@@ -503,17 +515,14 @@ func fitRadiusCrossing(pieces []exactFitPiece, cx, cy, root, tip, scale float64)
 		} else if lo == 0 || hi == 0 || (lo > 0 && hi < 0) {
 			return 0, false
 		}
-		tipF := radialPoly(piece, cx, cy, tip)
-		if i+1 < len(pieces) && evalRatPoly(tipF, rat(1)).Cmp(new(big.Rat).Neg(margin)) >= 0 {
+		if i+1 < len(pieces) && tipEnd.Cmp(negMargin) >= 0 {
 			return 0, false
 		}
 	}
-	if crossing == nil || radialPoly(&pieces[0], cx, cy, root)[0].Sign() >= 0 ||
-		evalRatPoly(radialPoly(&pieces[len(pieces)-1], cx, cy, root), rat(1)).Sign() <= 0 {
+	if crossing == nil || firstRootStart.Sign() >= 0 || lastRootEnd.Sign() <= 0 {
 		return 0, false
 	}
-	tipEnd := evalRatPoly(radialPoly(&pieces[len(pieces)-1], cx, cy, tip), rat(1))
-	if new(big.Rat).Abs(tipEnd).Cmp(margin) > 0 {
+	if new(big.Rat).Abs(lastTipEnd).Cmp(margin) > 0 {
 		return 0, false
 	}
 	u, ok := fitRoundedRoot(crossingPoly)
