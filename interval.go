@@ -26,9 +26,37 @@ func (i Interval) Contains(v float64) bool { return i.Lo <= v && v <= i.Hi }
 // be within half an ulp, but keeping one rounding per operation keeps the
 // argument above literally true on every architecture.
 
-// down and up step one float toward −∞ and +∞.
-func down(x float64) float64 { return math.Nextafter(x, math.Inf(-1)) }
-func up(x float64) float64   { return math.Nextafter(x, math.Inf(1)) }
+// down and up step one float toward −∞ and +∞. The fixed directions let
+// these hot interval helpers skip Nextafter's general y and equality checks.
+func down(x float64) float64 {
+	switch {
+	case math.IsNaN(x):
+		return math.Nextafter(x, math.Inf(-1))
+	case x == math.Inf(-1):
+		return x
+	case x == 0:
+		return -math.SmallestNonzeroFloat64
+	case x < 0:
+		return math.Float64frombits(math.Float64bits(x) + 1)
+	default:
+		return math.Float64frombits(math.Float64bits(x) - 1)
+	}
+}
+
+func up(x float64) float64 {
+	switch {
+	case math.IsNaN(x):
+		return math.Nextafter(x, math.Inf(1))
+	case x == math.Inf(1):
+		return x
+	case x == 0:
+		return math.SmallestNonzeroFloat64
+	case x < 0:
+		return math.Float64frombits(math.Float64bits(x) - 1)
+	default:
+		return math.Float64frombits(math.Float64bits(x) + 1)
+	}
+}
 
 // pt is the degenerate interval holding exactly v.
 func pt(v float64) Interval { return Interval{v, v} }

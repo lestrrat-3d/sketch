@@ -280,6 +280,22 @@ func TestAtan2BoxAcrossTheCut(t *testing.T) {
 	require.False(t, ok, "a box around the origin has no direction")
 }
 
+func TestDirectedRoundingMatchesNextafter(t *testing.T) {
+	values := []float64{
+		math.Inf(-1), -math.MaxFloat64, -1, -math.SmallestNonzeroFloat64,
+		math.Copysign(0, -1), 0, math.SmallestNonzeroFloat64, 1,
+		math.MaxFloat64, math.Inf(1), math.NaN(),
+	}
+	rng := rand.New(rand.NewSource(17))
+	for range 1000 {
+		values = append(values, math.Float64frombits(rng.Uint64()))
+	}
+	for _, value := range values {
+		require.Equal(t, math.Float64bits(math.Nextafter(value, math.Inf(-1))), math.Float64bits(down(value)))
+		require.Equal(t, math.Float64bits(math.Nextafter(value, math.Inf(1))), math.Float64bits(up(value)))
+	}
+}
+
 func TestIntervalArithmeticEnclosesExactResults(t *testing.T) {
 	rng := rand.New(rand.NewSource(3))
 	draw := func() Interval {
