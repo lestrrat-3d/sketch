@@ -2122,7 +2122,20 @@ func (a *arranger) postCutPolyline(src int, ts []float64, pts [][2]float64) ([][
 //
 // Refusing costs the sampled fallback, which keeps the correct sampled topology and
 // reports TExact=false; accepting one of these publishes a fused map as exact.
+// polylineSegmentBox uses the same reach as the arrangement broad phase for
+// segParams and collinearOverlap. A cut changes a chord's length, so the box
+// is built from the two points those predicates actually read.
+func polylineSegmentBox(a, b [2]float64) segBox {
+	r := broadPhaseRel * math.Hypot(b[0]-a[0], b[1]-a[1])
+	return segBox{min(a[0], b[0]) - r, min(a[1], b[1]) - r,
+		max(a[0], b[0]) + r, max(a[1], b[1]) + r}
+}
+
 func polylinesMeetOnlyAtSharedVertices(pi [][2]float64, ci []int, iClosed bool, pj [][2]float64, cj []int, jClosed bool) bool {
+	boxesJ := make([]segBox, len(pj)-1)
+	for y := range boxesJ {
+		boxesJ[y] = polylineSegmentBox(pj[y], pj[y+1])
+	}
 	shared := func(x, y int) bool {
 		for k := range ci {
 			if segIncident(pi, iClosed, ci[k], x) && segIncident(pj, jClosed, cj[k], y) {
@@ -2133,7 +2146,11 @@ func polylinesMeetOnlyAtSharedVertices(pi [][2]float64, ci []int, iClosed bool, 
 	}
 	for x := 0; x+1 < len(pi); x++ {
 		si := tinySeg{ax: pi[x][0], ay: pi[x][1], bx: pi[x+1][0], by: pi[x+1][1]}
+		boxI := polylineSegmentBox(pi[x], pi[x+1])
 		for y := 0; y+1 < len(pj); y++ {
+			if !boxesOverlap(boxI, boxesJ[y]) {
+				continue
+			}
 			sj := tinySeg{ax: pj[y][0], ay: pj[y][1], bx: pj[y+1][0], by: pj[y+1][1]}
 			if _, _, ok := collinearOverlap(&si, &sj); ok {
 				return false
