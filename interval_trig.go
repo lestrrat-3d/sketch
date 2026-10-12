@@ -1,6 +1,7 @@
 package sketch
 
 import (
+	"fmt"
 	"math"
 	"math/big"
 	"sync/atomic"
@@ -417,4 +418,63 @@ func shiftNear(iv Interval, ref float64) Interval {
 		return iv
 	}
 	return isub(iv, twoPiTimes(int64(k)))
+}
+
+// certifiedArcSpanBounds follows geom.Arc's radius and counter-clockwise
+// angular branch. Point subtraction, direction angles, trigonometry and the
+// final coordinates all carry outward-rounded intervals.
+func certifiedArcSpanBounds(a *Arc, lo, hi float64) (x, y Interval, err error) {
+	if a == nil || a.s == nil || !a.s.ownsEntity(a) || a.Center == nil ||
+		a.Start == nil || a.End == nil || !a.s.owns(a.Center) ||
+		!a.s.owns(a.Start) || !a.s.owns(a.End) || a.IsStale() {
+		return Interval{}, Interval{}, fmt.Errorf("%w: arc is not current", ErrNotCertified)
+	}
+	if math.IsNaN(lo) || math.IsNaN(hi) || math.IsInf(lo, 0) || math.IsInf(hi, 0) ||
+		lo < 0 || hi > 1 || lo > hi {
+		return Interval{}, Interval{}, fmt.Errorf("%w: arc range [%g, %g] is invalid", ErrNotCertified, lo, hi)
+	}
+	cx, cy := a.Center.x(), a.Center.y()
+	sx, sy := a.Start.x(), a.Start.y()
+	ex, ey := a.End.x(), a.End.y()
+	for _, v := range [...]float64{cx, cy, sx, sy, ex, ey} {
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return Interval{}, Interval{}, fmt.Errorf("%w: arc has a non-finite point", ErrNonFiniteGeometry)
+		}
+	}
+	startX, startY := isub(pt(sx), pt(cx)), isub(pt(sy), pt(cy))
+	endX, endY := isub(pt(ex), pt(cx)), isub(pt(ey), pt(cy))
+	start, ok := atan2Box(startY, startX)
+	if !ok {
+		return Interval{}, Interval{}, fmt.Errorf("%w: arc start direction is undecidable", ErrNotCertified)
+	}
+	end, ok := atan2Box(endY, endX)
+	if !ok {
+		return Interval{}, Interval{}, fmt.Errorf("%w: arc end direction is undecidable", ErrNotCertified)
+	}
+	// The float sweep chooses a whole-turn shift only. The exact interval
+	// checks below decide whether that shift is the unique counter-clockwise
+	// branch short of a full turn.
+	shift := int64(math.Round((start.mid() + a.Sweep() - end.mid()) / (2 * math.Pi)))
+	if shift < -2 || shift > 2 {
+		return Interval{}, Interval{}, fmt.Errorf("%w: arc turn is undecidable", ErrNotCertified)
+	}
+	delta := isub(iadd(end, twoPiTimes(shift)), start)
+	if !delta.isFinite() || delta.Lo <= 0 || delta.Hi >= twoPiTimes(1).Lo {
+		return Interval{}, Interval{}, fmt.Errorf("%w: arc sweep is ambiguous or a full turn", ErrNotCertified)
+	}
+	radius := isqrtNonNeg(iadd(isqr(startX), isqr(startY)))
+	if !radius.isFinite() || radius.Lo <= 0 {
+		return Interval{}, Interval{}, fmt.Errorf("%w: arc radius is undecidable", ErrNotCertified)
+	}
+	angles := iadd(start, imul(Interval{lo, hi}, delta))
+	sin, cos, ok := sinCosRange(angles)
+	if !ok {
+		return Interval{}, Interval{}, fmt.Errorf("%w: arc angle range is undecidable", ErrNotCertified)
+	}
+	x = iadd(pt(cx), imul(radius, cos))
+	y = iadd(pt(cy), imul(radius, sin))
+	if !x.isFinite() || !y.isFinite() {
+		return Interval{}, Interval{}, fmt.Errorf("%w: arc coordinate range is undecidable", ErrNotCertified)
+	}
+	return x, y, nil
 }
