@@ -811,6 +811,16 @@ func (a *Arc) Sweep() float64 {
 	return d
 }
 
+// CertifiedSpanBounds encloses the arc's exact circular carrier over the
+// normalized counter-clockwise parameter interval [lo, hi]. The carrier uses
+// Center and Start for its radius and End for its final direction, matching
+// Geometry. It refuses an unreadable arc, a full turn, or an ambiguous sweep.
+// Every returned interval is outward rounded; the method does not certify
+// profile topology or a cut parameter.
+func (a *Arc) CertifiedSpanBounds(lo, hi float64) (x, y Interval, err error) {
+	return certifiedArcSpanBounds(a, lo, hi)
+}
+
 // CreateArc adds an arc swept counter-clockwise from start to end about center, and
 // the internal radius-consistency constraint. Returns its handle.
 func (s *Sketch) CreateArc(center, start, end *Point) *Arc {

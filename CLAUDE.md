@@ -17,6 +17,7 @@ stays cheap to load, not because it is optional.
 | Entities & grounding | Adding an entity type, touching `entityPoints`/`entityShapeVars`/`Entity.isNil`, grounding, or `Sketch.Revision` | `.claude/docs/sketch-core.md` |
 | Modification tools | Adding or changing a tool in `tools.go` (trim/extend/break/fillet/chamfer/mirror/pattern/offset) | `.claude/docs/sketch-core.md` |
 | Diagnostics & verification | Touching rank/DOF, conflict/redundancy analysis, `Verify`, `Check`/`Trustworthy`, the probe, the certified enclosure (`Enclose`), or the non-finite screen | `.claude/docs/diagnostics.md` |
+| Arc span bounds | Changing `Arc.CertifiedSpanBounds` or its interval trigonometry | `docs/arc-span-bounds-design.md` |
 | Profiles & geometry | Anything under `geom/`, `Sketch.Profiles`, `Sketch.Chains`, `BoundaryEdge`/`TExact`, or the arrangement engine | `.claude/docs/profiles-geom.md` |
 | Export & serialization | Changing an exporter, the JSON schema, a document version, or reference resolution | `.claude/docs/serialization.md` |
 | Constraints | Adding a constraint with auxiliary variables, or changing `AddConstraint`/`CheckConstraint`/introspection | `.claude/docs/constraints.md` |
