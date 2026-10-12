@@ -39,6 +39,31 @@ func TestCertifyConeCurveSideFit(t *testing.T) {
 	require.True(t, inside.IsStale())
 }
 
+func TestCertifyConeCurveSideLine(t *testing.T) {
+	s, cone := coneSectionSketch(t)
+	inside := s.CreateLine(s.CreatePoint(0.5, 0), s.CreatePoint(0.75, 0))
+	cert, err := s.CertifyConeCurveSide(inside, cone)
+	require.NoError(t, err)
+	require.Same(t, inside, cert.Entity())
+	require.Equal(t, sketch.ConeInside, cert.Side())
+	require.Positive(t, cert.ImplicitMargin().Sign())
+	outside := s.CreateLine(s.CreatePoint(1.5, 0), s.CreatePoint(2, 0))
+	cert, err = s.CertifyConeCurveSide(outside, cone)
+	require.NoError(t, err)
+	require.Equal(t, sketch.ConeOutside, cert.Side())
+	require.Positive(t, cert.ImplicitMargin().Sign())
+	outside.End.MoveTo(0.5, 0)
+	require.True(t, cert.IsStale())
+	require.Nil(t, cert.ImplicitMargin())
+	crossing := s.CreateLine(s.CreatePoint(0.5, 0), s.CreatePoint(1.5, 0))
+	_, err = s.CertifyConeCurveSide(crossing, cone)
+	require.ErrorIs(t, err, sketch.ErrConeCurveSide)
+	endpointsOutside := s.CreateLine(s.CreatePoint(-2, 0.5), s.CreatePoint(2, 0.5))
+	_, err = s.CertifyConeCurveSide(endpointsOutside, cone)
+	require.ErrorIs(t, err, sketch.ErrConeCurveSide,
+		"the quadratic minimum lies inside the cone despite both endpoints being outside")
+}
+
 func TestCertifyConeCurveSideRefusesContact(t *testing.T) {
 	s, cone := coneSectionSketch(t)
 	for name, points := range map[string][][2]float64{

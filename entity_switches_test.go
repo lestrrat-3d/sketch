@@ -48,9 +48,9 @@ var entitySwitchExempt = map[entitySwitchSite]string{
 	{"tools.go", "unsupportedSeed"}:          "an allow-list with a refusing default: only line/circle/arc can be copied by instantiate, and an entity type not named here is REFUSED by the pattern/mirror builders rather than dropped",
 	{"sketch.go", "entityShapeVars"}:         "intrinsic shape variables only; line/arc and the spline family own no scalar variable beyond their points",
 	{"constraint.go", "conicOf"}:             "adapts the sealed Circular/Elliptical operands only; the spline family and the conic entity are not conic-adaptable operands",
-	{"cone_side.go", "IsStale"}:              "the cone-side certificate is issued only for a whole FitSpline or Arc; every other entity is refused at certification",
-	{"cone_side.go", "ownsConeCurve"}:        "only whole FitSpline and Arc sources have implemented cone-side proofs; every other entity is refused",
-	{"cone_side.go", "CertifyConeCurveSide"}: "only whole FitSpline and Arc sources have implemented cone-side proofs; ownsConeCurve refuses every other entity first",
+	{"cone_side.go", "IsStale"}:              "the cone-side certificate is issued only for a whole Line, FitSpline, or Arc; every other entity is refused at certification",
+	{"cone_side.go", "ownsConeCurve"}:        "only whole Line, FitSpline, and Arc sources have implemented cone-side proofs; every other entity is refused",
+	{"cone_side.go", "CertifyConeCurveSide"}: "only whole Line, FitSpline, and Arc sources have implemented cone-side proofs; ownsConeCurve refuses every other entity first",
 }
 
 // TestEntityTypeSwitchesAreExhaustive audits every entity type switch in the

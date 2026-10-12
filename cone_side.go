@@ -20,8 +20,8 @@ const (
 // ErrConeCurveSide means the requested whole-curve side cannot be proved.
 var ErrConeCurveSide = errors.New("sketch: curve lacks one certified cone side")
 
-// ConeCurveSide certifies that one whole ideal FitSpline interpolant or bounded
-// Arc lies strictly on one side of the cone section. IsStale checks the source
+// ConeCurveSide certifies that one whole Line, ideal FitSpline interpolant, or
+// bounded Arc lies strictly on one side of the cone section. IsStale checks the source
 // point handles, sketch, and plane frame before the claim is used.
 type ConeCurveSide struct {
 	entity   Entity
@@ -79,6 +79,10 @@ func (c ConeCurveSide) IsStale() bool {
 			e.Start != c.points[1] || e.End != c.points[2] {
 			return true
 		}
+	case *Line:
+		if len(c.points) != 2 || e.Start != c.points[0] || e.End != c.points[1] {
+			return true
+		}
 	default:
 		return true
 	}
@@ -106,14 +110,17 @@ func (s *Sketch) ownsConeCurve(entity Entity) bool {
 		return e != nil && e.s == s && e.Center != nil && e.Start != nil && e.End != nil &&
 			e.Center.s == s && e.Start.s == s && e.End.s == s && !e.IsStale() &&
 			!e.IsConstruction()
+	case *Line:
+		return e != nil && e.s == s && e.Start != nil && e.End != nil &&
+			e.Start.s == s && e.End.s == s && !e.IsStale() && !e.IsConstruction()
 	}
 	return false
 }
 
-// CertifyConeCurveSide proves one whole fitted spline or narrow arc has a
+// CertifyConeCurveSide proves one whole line, fitted spline, or narrow arc has a
 // strict side of the positive cone section. It refuses any curve whose exact
 // enclosure touches the cone or spans both sides. The proof uses rational
-// Bezier hulls for fitted splines and a bounded circular sector for arcs.
+// Bezier hulls for fitted splines, a quadratic for lines, and a bounded circular sector for arcs.
 func (s *Sketch) CertifyConeCurveSide(entity Entity, cone ConeSection) (ConeCurveSide, error) {
 	if !s.ownsConeCurve(entity) ||
 		!coneFinite(cone.Apex.X, cone.Apex.Y, cone.Apex.Z,
@@ -140,6 +147,9 @@ func (s *Sketch) CertifyConeCurveSide(entity Entity, cone ConeSection) (ConeCurv
 	case *Arc:
 		side, margin = form.arcSide(curve)
 		points = []*Point{curve.Center, curve.Start, curve.End}
+	case *Line:
+		side, margin = form.lineSide(curve)
+		points = []*Point{curve.Start, curve.End}
 	}
 	if side == 0 || margin == nil || margin.Sign() <= 0 {
 		return ConeCurveSide{}, ErrConeCurveSide
@@ -304,23 +314,7 @@ func (f coneSideForm) fitSide(fi *geom.FitInterpolant) (ConeSide, *big.Rat) {
 		if h.Sign() <= 0 {
 			return 0, nil
 		}
-		h2 := coneMul(h, h)
-		var b coneBezier
-		for axis := range 2 {
-			p0, p1 := coneRat(fi.Points[i][axis]), coneRat(fi.Points[i+1][axis])
-			m0, m1 := coneRat(fi.SecondDerivs[i][axis]), coneRat(fi.SecondDerivs[i+1][axis])
-			c0 := p0
-			c1 := coneSub(coneSub(p1, p0), coneMul(h2,
-				coneMul(coneAdd(coneMul(coneRat(2), m0), m1), new(big.Rat).SetFrac64(1, 6))))
-			c2 := coneMul(h2, coneMul(m0, new(big.Rat).SetFrac64(1, 2)))
-			c3 := coneMul(h2, coneMul(coneSub(m1, m0), new(big.Rat).SetFrac64(1, 6)))
-			b.controls[0][axis] = c0
-			b.controls[1][axis] = coneAdd(c0, coneMul(c1, new(big.Rat).SetFrac64(1, 3)))
-			b.controls[2][axis] = coneAdd(coneAdd(c0,
-				coneMul(c1, new(big.Rat).SetFrac64(2, 3))),
-				coneMul(c2, new(big.Rat).SetFrac64(1, 3)))
-			b.controls[3][axis] = coneAdd(coneAdd(c0, c1), coneAdd(c2, c3))
-		}
+		b := coneFitBezier(fi, i)
 		side, margin := f.bezierSide(b, 12, &budget)
 		if side == 0 || result != 0 && result != side {
 			return 0, nil
@@ -331,6 +325,45 @@ func (f coneSideForm) fitSide(fi *geom.FitInterpolant) (ConeSide, *big.Rat) {
 		}
 	}
 	return result, minMargin
+}
+
+func (f coneSideForm) lineSide(line *Line) (ConeSide, *big.Rat) {
+	a, b := line.Start.Geometry(), line.End.Geometry()
+	if !coneFinite(a.X, a.Y, b.X, b.Y) || (a.X == b.X && a.Y == b.Y) {
+		return 0, nil
+	}
+	piece := coneFitResidual(coneFitPiece{xy: [2]coneFitPoly{
+		{coneRat(a.X), coneSub(coneRat(b.X), coneRat(a.X))},
+		{coneRat(a.Y), coneSub(coneRat(b.Y), coneRat(a.Y))},
+	}}, f)
+	zero, one := big.NewRat(0, 1), big.NewRat(1, 1)
+	hlo, _ := coneFitCoeffBounds(piece.h, zero, one)
+	if hlo.Sign() <= 0 {
+		return 0, nil
+	}
+	f0, f1 := coneFitPolyEval(piece.f, zero), coneFitPolyEval(piece.f, one)
+	lo, hi := coneIntervalOf(f0, f1).lo, coneIntervalOf(f0, f1).hi
+	// A quadratic has at most one interior extremum.
+	if piece.f[2].Sign() != 0 {
+		vertex := new(big.Rat).Quo(new(big.Rat).Neg(piece.f[1]),
+			coneMul(big.NewRat(2, 1), piece.f[2]))
+		if vertex.Sign() > 0 && vertex.Cmp(one) < 0 {
+			value := coneFitPolyEval(piece.f, vertex)
+			if value.Cmp(lo) < 0 {
+				lo = value
+			}
+			if value.Cmp(hi) > 0 {
+				hi = value
+			}
+		}
+	}
+	if lo.Sign() > 0 {
+		return ConeOutside, lo
+	}
+	if hi.Sign() < 0 {
+		return ConeInside, new(big.Rat).Neg(hi)
+	}
+	return 0, nil
 }
 
 // arcSide covers the real bevel-tooth arc class: a short CCW sweep from the
