@@ -53,7 +53,7 @@ const (
 
 // Each slot holds one completed point enclosure. Collisions only cause a
 // recomputation; the Taylor path still decides every result.
-const trigPointCacheSize = 4096
+const trigPointCacheSize = 16384
 
 type trigPointEntry struct {
 	key      uint64
