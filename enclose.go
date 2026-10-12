@@ -425,7 +425,7 @@ func setBase(db *dimBase, v float64) {
 	if db.kind == units.Angle {
 		u = units.Radian
 	}
-	db.target = units.New(v, u)
+	db.setTarget(units.New(v, u))
 }
 
 // encloseTargets validates the WithTargetRange requests and returns them in
