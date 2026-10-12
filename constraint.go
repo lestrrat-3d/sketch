@@ -2306,11 +2306,12 @@ func sharedPointLineEllipticalArc(l *Line, a *EllipticalArc) *Point {
 // target as a unit-carrying [units.Value] (or, when bound, the parameter
 // expression that produces it) and the kind of quantity the dimension measures.
 type dimBase struct {
-	kind   units.Kind
-	target units.Value
-	deflt  bool   // target's unit is a placeholder, replaced by the sketch default on add
-	expr   string // bound parameter expression; empty when the value is literal
-	driven bool   // reference dimension: measures the geometry instead of driving it
+	kind       units.Kind
+	target     units.Value
+	baseTarget float64 // target in base units, updated with target
+	deflt      bool    // target's unit is a placeholder, replaced by the sketch default on add
+	expr       string  // bound parameter expression; empty when the value is literal
+	driven     bool    // reference dimension: measures the geometry instead of driving it
 }
 
 // Kind reports whether the dimension measures a length or an angle.
@@ -2320,10 +2321,15 @@ func (d *dimBase) Kind() units.Kind { return d.kind }
 // value.
 func (d *dimBase) Target() units.Value { return d.target }
 
+func (d *dimBase) setTarget(v units.Value) {
+	d.target = v
+	d.baseTarget = v.Base()
+}
+
 // Set changes the driving magnitude, keeping the dimension's current unit, and
 // clears any parameter binding. Call [Sketch.Solve] again to apply it.
 func (d *dimBase) Set(v float64) {
-	d.target = units.New(v, d.target.Unit())
+	d.setTarget(units.New(v, d.target.Unit()))
 	d.expr = ""
 }
 
@@ -2335,7 +2341,7 @@ func (d *dimBase) SetValue(v units.Value) error {
 	if err := d.checkKind(v); err != nil {
 		return err
 	}
-	d.target = v
+	d.setTarget(v)
 	d.deflt = false
 	d.expr = ""
 	return nil
@@ -2365,26 +2371,26 @@ func (d *dimBase) Driven() bool { return d.driven }
 // the sketch's chosen unit; it is an assignment of intent, not a conversion.
 func (d *dimBase) resolveUnit(s *Sketch) {
 	if d.deflt {
-		d.target = units.New(d.target.Mag(), s.unitFor(d.kind))
+		d.setTarget(units.New(d.target.Mag(), s.unitFor(d.kind)))
 		d.deflt = false
 	}
 }
 
 // base returns the target in the kind's base unit (mm or rad) for the solver.
-func (d *dimBase) base() float64 { return d.target.Base() }
+func (d *dimBase) base() float64 { return d.baseTarget }
 
 // setResolved stores a value produced by evaluating a parameter binding. A
 // quantity keeps its own unit; a dimensionless result is taken to already be in
 // the dimension's current unit.
 func (d *dimBase) setResolved(v units.Value) error {
 	if v.Kind() == units.Dimensionless {
-		d.target = units.New(v.Mag(), d.target.Unit())
+		d.setTarget(units.New(v.Mag(), d.target.Unit()))
 		return nil
 	}
 	if err := d.checkKind(v); err != nil {
 		return err
 	}
-	d.target = v
+	d.setTarget(v)
 	return nil
 }
 
@@ -2394,18 +2400,22 @@ func (d *dimBase) setDriverExpr(e string) { d.expr = e }
 // restore sets the target verbatim from a deserialized magnitude and unit. It
 // reinstates saved state and does not convert.
 func (d *dimBase) restore(mag float64, u units.Unit) {
-	d.target = units.New(mag, u)
+	d.setTarget(units.New(mag, u))
 	d.deflt = false
 }
 
 // lengthDim and angleDim build a detached dimension whose unit is a placeholder
 // (the metric default) to be resolved to the sketch's default unit on add.
 func lengthDim(v float64) dimBase {
-	return dimBase{kind: units.Length, target: units.Millimeters(v), deflt: true}
+	d := dimBase{kind: units.Length, deflt: true}
+	d.setTarget(units.Millimeters(v))
+	return d
 }
 
 func angleDim(v float64) dimBase {
-	return dimBase{kind: units.Angle, target: units.Degrees(v), deflt: true}
+	d := dimBase{kind: units.Angle, deflt: true}
+	d.setTarget(units.Degrees(v))
+	return d
 }
 
 // Distance is an editable point-to-point distance dimension.
