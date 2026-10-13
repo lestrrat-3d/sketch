@@ -19,6 +19,10 @@ type attachment struct {
 	value    any
 }
 
+type attachmentValue[T any] struct {
+	value T
+}
+
 // Attach stores value on s until its geometry changes or it is unmarshaled in
 // place. It returns false for a nil key or Sketch. Attachments are not included
 // in Sketch JSON and do not change Sketch.Revision.
@@ -29,7 +33,7 @@ func (k *AttachmentKey[T]) Attach(s *Sketch, value T) bool {
 	if s.attachments == nil {
 		s.attachments = make(map[any]attachment)
 	}
-	s.attachments[k] = attachment{owner: s, revision: s.Revision(), value: value}
+	s.attachments[k] = attachment{owner: s, revision: s.Revision(), value: attachmentValue[T]{value: value}}
 	return true
 }
 
@@ -45,9 +49,9 @@ func (k *AttachmentKey[T]) Load(s *Sketch) (T, bool) {
 	if !ok || a.owner != s || a.revision != s.Revision() {
 		return zero, false
 	}
-	value, ok := a.value.(T)
+	boxed, ok := a.value.(attachmentValue[T])
 	if !ok {
 		return zero, false
 	}
-	return value, true
+	return boxed.value, true
 }

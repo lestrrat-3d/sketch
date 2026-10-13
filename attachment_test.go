@@ -62,3 +62,14 @@ func TestAttachmentClearsOnInPlaceJSONLoad(t *testing.T) {
 	_, ok := key.Load(s)
 	require.False(t, ok)
 }
+
+func TestAttachmentPreservesNilInterfaceValue(t *testing.T) {
+	w := sketch.NewWorld()
+	s, err := w.CreateSketch(w.XY())
+	require.NoError(t, err)
+	key := sketch.NewAttachmentKey[any]()
+	require.True(t, key.Attach(s, nil))
+	value, ok := key.Load(s)
+	require.True(t, ok)
+	require.Nil(t, value)
+}
