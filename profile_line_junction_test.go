@@ -76,20 +76,34 @@ func TestCertifyLineLineJunctionProperPair(t *testing.T) {
 
 func TestCertifyLineLineJunctionMergedContact(t *testing.T) {
 	s := newSketch(t)
-	s.CreateRectangle(-5, -5, 5, 5)
-	s.CreateRectangle(3, -2, 7, 2)
-	s.CreateLine(s.CreatePoint(4, 1), s.CreatePoint(6, 3))
-	var found bool
-	for _, pair := range junctions(s) {
-		end := pair[0].Polyline[len(pair[0].Polyline)-1]
-		if end != [2]float64{5, 2} {
-			continue
+	s.CreateLine(s.CreatePoint(0, 0), s.CreatePoint(2, 2))
+	s.CreateLine(s.CreatePoint(0, 2), s.CreatePoint(2, 0))
+	s.CreateLine(s.CreatePoint(0, 1), s.CreatePoint(2, 1))
+	var ends, starts []sketch.BoundaryEdge
+	for _, chain := range s.Chains() {
+		for _, edge := range chain.Edges {
+			if edge.Polyline[len(edge.Polyline)-1] == [2]float64{1, 1} {
+				ends = append(ends, edge)
+			}
+			if edge.Polyline[0] == [2]float64{1, 1} {
+				starts = append(starts, edge)
+			}
 		}
-		found = true
-		_, ok := s.CertifyLineLineJunction(pair[0], pair[1])
-		require.False(t, ok, "three sources at one graph vertex are ambiguous")
 	}
-	require.True(t, found)
+	require.NotEmpty(t, ends)
+	require.NotEmpty(t, starts)
+	var checked int
+	for _, left := range ends {
+		for _, right := range starts {
+			if left.Entity == right.Entity {
+				continue
+			}
+			_, ok := s.CertifyLineLineJunction(left, right)
+			require.False(t, ok, "three sources at one graph vertex are ambiguous")
+			checked++
+		}
+	}
+	require.Positive(t, checked)
 }
 
 func TestCertifyLineLineJunctionNonrepresentableRoot(t *testing.T) {
