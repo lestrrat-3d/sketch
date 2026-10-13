@@ -55,3 +55,14 @@ func (k *AttachmentKey[T]) Load(s *Sketch) (T, bool) {
 	}
 	return boxed.value, true
 }
+
+// Present reports whether s carries k, including after a revision change or
+// shallow copy. A consumer can use it to refuse stale source data rather than
+// silently interpreting the edited Sketch as ordinary geometry.
+func (k *AttachmentKey[T]) Present(s *Sketch) bool {
+	if k == nil || s == nil {
+		return false
+	}
+	_, ok := s.attachments[k]
+	return ok
+}

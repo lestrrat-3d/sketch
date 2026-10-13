@@ -176,6 +176,8 @@ its key private and calls `key.Attach(s, certificate)` after it constructs
 reference geometry. `key.Load(s)` returns that value only for the same
 `*Sketch` pointer and the same geometry revision. A shallow Sketch copy may
 share the attachment map, but its pointer differs, so lookup fails.
+`key.Present(s)` detects an attachment even after a revision change or shallow
+copy, so a consumer can refuse stale source data.
 
 Attachments are in-memory data. `Sketch.MarshalJSON` does not write them, and
 in-place `Sketch.UnmarshalJSON` clears them when it resets the Sketch. Reference
