@@ -15,6 +15,7 @@ const (
 // references the originating curve by its index in the Regions input slice, so
 // a caller can map the edge (or fragment) to its own entity.
 type BoundaryEdge struct {
+	crossStart, crossEnd *LineLineCrossing
 	// SourceIndex is the position of the originating curve in the Regions
 	// input — its index in curves, or len(curves)+k for the k-th closed curve.
 	//
@@ -163,6 +164,13 @@ type BoundaryEdge struct {
 	// "is this bound the curve's own end".
 	TExact bool
 }
+
+// LineLineCrossingAtStart identifies a certified two-line crossing at the
+// beginning of this directed boundary edge, if one survived the arrangement.
+func (e BoundaryEdge) LineLineCrossingAtStart() *LineLineCrossing { return e.crossStart }
+
+// LineLineCrossingAtEnd identifies the crossing at the walked edge end.
+func (e BoundaryEdge) LineLineCrossingAtEnd() *LineLineCrossing { return e.crossEnd }
 
 // Region is a minimal bounded area extracted from the arrangement: an outer
 // boundary walked counter-clockwise, zero or more holes (inner boundaries,

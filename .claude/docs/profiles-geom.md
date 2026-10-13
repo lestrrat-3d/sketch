@@ -7,6 +7,7 @@ Detail moved out of CLAUDE.md. Read before touching `Sketch.Profiles`, `Boundary
 | Your question | Section |
 |---|---|
 | When is a `BoundaryEdge` range exact? | The whole-sketch gate comes first |
+| Can two trimmed line edges share one exact crossing? | Certified line-line junctions |
 | Why did exactness disappear scene-wide? | The whole-scene kind gate `exactAllowed` |
 | When is a profile invalid or stale? | `Valid` is per-region / A profile is a snapshot |
 | How are adjacent profile regions joined? | `Sketch.UnionProfiles` |
@@ -81,6 +82,18 @@ entity's *natural* direction, so `TStart<TEnd` and `Reversed` alone carries walk
 order; never wrapping) plus **`TExact`**, which is the load-bearing half: it is
 true only when BOTH bounds come from the closed-form kernel, a sample vertex, or
 the curve's own endpoint.
+
+### Certified line-line junctions
+
+Use `s.CertifyLineLineJunction(left, right)` for the walked end of one
+`BoundaryEdge` and start of the next when a consumer needs an exact crossing
+point. It succeeds only for two distinct lines from one live arrangement whose
+four incident fragments all carry one analytic crossing event. It refuses a
+sampled contact, a third source at the vertex, a merged nearby event, a stale
+sketch revision, a changed public edge field, and a crossing whose exact rational
+coordinates cannot be represented in binary64. The method solves the intersection from the source
+endpoint float bits; `TExact` alone only certifies the reported parameter
+against the emitted polyline endpoint.
 
 ### The whole-sketch gate comes first
 

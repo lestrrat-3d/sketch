@@ -92,6 +92,12 @@ func (p *Profile) IsStale() bool {
 // BoundaryEdge is one directed edge of a region boundary: a whole sketch entity,
 // or a fragment of one produced by splitting at a bare crossing.
 type BoundaryEdge struct {
+	sketch               *Sketch
+	revision             uint64
+	sourceIndex          int
+	sourceEntity         Entity
+	crossStart, crossEnd *geom.LineLineCrossing
+	snapshot             *boundaryEdgeSnapshot
 	// Entity is the source sketch entity this edge lies on (*Line/*Arc/*Circle/
 	// *Ellipse).
 	//
@@ -398,7 +404,7 @@ func (s *Sketch) buildProfiles() sketchArrangement {
 		}
 		seen := map[Entity]struct{}{}
 		for _, ge := range r.Outer {
-			be := mapBoundaryEdge(ge, entityFor)
+			be := mapBoundaryEdge(ge, entityFor, s, rev)
 			p.Outer = append(p.Outer, be)
 			if _, ok := seen[be.Entity]; !ok {
 				seen[be.Entity] = struct{}{}
@@ -408,7 +414,7 @@ func (s *Sketch) buildProfiles() sketchArrangement {
 		for _, hole := range r.Holes {
 			var he []BoundaryEdge
 			for _, ge := range hole {
-				he = append(he, mapBoundaryEdge(ge, entityFor))
+				he = append(he, mapBoundaryEdge(ge, entityFor, s, rev))
 			}
 			p.Holes = append(p.Holes, he)
 		}
@@ -443,7 +449,7 @@ func (s *Sketch) buildProfiles() sketchArrangement {
 		}
 		seen := map[Entity]struct{}{}
 		for _, ge := range gc.Edges {
-			be := mapBoundaryEdge(ge, entityFor)
+			be := mapBoundaryEdge(ge, entityFor, s, rev)
 			c.Edges = append(c.Edges, be)
 			if _, ok := seen[be.Entity]; !ok {
 				seen[be.Entity] = struct{}{}
@@ -467,14 +473,28 @@ func (s *Sketch) buildProfiles() sketchArrangement {
 	}
 }
 
-func mapBoundaryEdge(ge geom.BoundaryEdge, entityFor func(int) Entity) BoundaryEdge {
-	return BoundaryEdge{
-		Entity:   entityFor(ge.SourceIndex),
-		Partial:  !ge.Whole,
-		Reversed: ge.Reversed,
-		Polyline: ge.Polyline,
-		TStart:   ge.TStart,
-		TEnd:     ge.TEnd,
-		TExact:   ge.TExact,
+func mapBoundaryEdge(ge geom.BoundaryEdge, entityFor func(int) Entity, s *Sketch, rev uint64) BoundaryEdge {
+	be := BoundaryEdge{
+		sketch:       s,
+		revision:     rev,
+		sourceIndex:  ge.SourceIndex,
+		sourceEntity: entityFor(ge.SourceIndex),
+		crossStart:   ge.LineLineCrossingAtStart(),
+		crossEnd:     ge.LineLineCrossingAtEnd(),
+		Entity:       entityFor(ge.SourceIndex),
+		Partial:      !ge.Whole,
+		Reversed:     ge.Reversed,
+		Polyline:     ge.Polyline,
+		TStart:       ge.TStart,
+		TEnd:         ge.TEnd,
+		TExact:       ge.TExact,
 	}
+	if be.crossStart != nil || be.crossEnd != nil {
+		be.snapshot = &boundaryEdgeSnapshot{
+			entity: be.Entity, partial: be.Partial, reversed: be.Reversed,
+			tStart: be.TStart, tEnd: be.TEnd, tExact: be.TExact,
+			polyline: append([][2]float64(nil), be.Polyline...),
+		}
+	}
+	return be
 }
