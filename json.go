@@ -690,6 +690,8 @@ func (s *Sketch) UnmarshalJSON(data []byte) error {
 	// FRESH. Continuing the counter upward makes the rebuilt sketch's revision
 	// differ and Profile.IsStale() report true, which is the honest answer.
 	nextEntID := s.nextEntID
+	// The reset also discards transient source attachments. A loaded reference
+	// Source marker cannot inherit a certificate for the previous geometry.
 	*s = Sketch{world: w, params: w.params, sys: units.Metric(), pl: plane, nextEntID: nextEntID}
 	s.initOrigin() // the reset cleared it; every construction path owes one
 	w.sketches = append(w.sketches, s)
