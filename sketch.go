@@ -43,12 +43,13 @@ type Sketch struct {
 	// selects them and the solver, rank analysis and conditioning never see it.
 	origin *Point
 
-	world    *World                // owning world (every sketch belongs to one)
-	params   *param.Table          // drives bound dimensions; shared with the world
-	sys      units.System          // default length/angle units
-	pl       *Plane                // placement; nil reads as the world XY datum
-	refSeals map[Entity][]*Point   // reference entity -> its construction-time defining points (topology seal)
-	conNames map[Constraint]string // optional constraint labels (see names.go); not on the constraint itself
+	world       *World                // owning world (every sketch belongs to one)
+	params      *param.Table          // drives bound dimensions; shared with the world
+	sys         units.System          // default length/angle units
+	pl          *Plane                // placement; nil reads as the world XY datum
+	refSeals    map[Entity][]*Point   // reference entity -> its construction-time defining points (topology seal)
+	conNames    map[Constraint]string // optional constraint labels (see names.go); not on the constraint itself
+	attachments map[any]attachment    // transient, revision-bound consumer data; never serialized
 
 	entUIDs   map[Entity]uint64 // entity -> its instance identity (see addEntity); in-memory only, never serialized
 	nextEntID uint64            // monotonically increasing uid source; never rewound, never reused
