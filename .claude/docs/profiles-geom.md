@@ -107,7 +107,9 @@ tangency, source-end contact, another source at the vertex, and a stale or
 changed edge return no certificate. `ctx.Err()` and
 `ErrJunctionWorkLimit` are errors; a provably over-width bracket is a normal
 miss. The exact width and arithmetic caps are in
-`profile_line_circle_junction.go`.
+`profile_line_circle_junction.go`. A proof checks at most 256 other source
+boxes, with cancellation checks during copying and each scan. A larger scene
+returns `ErrJunctionWorkLimit` before any source can be skipped.
 
 The returned rational brackets enclose the exact source crossing and both
 reported trim parameters. The witness does not change `TExact`, turn an

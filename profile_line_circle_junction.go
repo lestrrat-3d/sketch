@@ -5,6 +5,8 @@ import (
 	"errors"
 	"math"
 	"math/big"
+
+	"github.com/lestrrat-3d/sketch/geom"
 )
 
 // ErrJunctionWorkLimit reports that a Circle-only junction proof exhausted its
@@ -78,6 +80,10 @@ type junctionLimits struct {
 
 var standardJunctionLimits = junctionLimits{128, 128, 256, 8192}
 
+// A proof copies at most 256 unrelated source boxes (8 KiB of box values).
+// Larger scenes exhaust this proof's work budget before any source is skipped.
+const maxJunctionOtherSources = 256
+
 type junctionInput struct {
 	line                 [4]float64
 	circle               [3]float64
@@ -122,6 +128,13 @@ func (s *Sketch) CertifyLineCircleJunction(ctx context.Context, left, right Boun
 	if left.Polyline[len(left.Polyline)-1] != event || right.Polyline[0] != event {
 		return LineCircleJunction{}, false, nil
 	}
+	otherBounds, err := copyJunctionOtherBounds(ctx, cross, maxJunctionOtherSources)
+	if err != nil {
+		if errors.Is(err, errJunctionMiss) {
+			return LineCircleJunction{}, false, nil
+		}
+		return LineCircleJunction{}, false, err
+	}
 	lineEdge, circleEdge := left, right
 	if left.sourceIndex == pair[1] {
 		lineEdge, circleEdge = right, left
@@ -134,7 +147,7 @@ func (s *Sketch) CertifyLineCircleJunction(ctx context.Context, left, right Boun
 	in := junctionInput{
 		line:   [4]float64{line.Start.X(), line.Start.Y(), line.End.X(), line.End.Y()},
 		circle: [3]float64{circle.Center.X(), circle.Center.Y(), circle.R()},
-		event:  event, branch: cross.Branch(), otherBounds: cross.OtherSourceBounds(),
+		event:  event, branch: cross.Branch(), otherBounds: otherBounds,
 		lineTrim:   walkedJunctionParam(lineEdge, lineEdge.sourceIndex == left.sourceIndex),
 		circleTrim: walkedJunctionParam(circleEdge, circleEdge.sourceIndex == left.sourceIndex),
 	}
@@ -170,6 +183,40 @@ func (s *Sketch) CertifyLineCircleJunction(ctx context.Context, left, right Boun
 	return w, true, nil
 }
 
+func copyJunctionOtherBounds(ctx context.Context, cross *geom.LineCircleCrossing,
+	limit int) ([][4]float64, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	pair := cross.SourceIndices()
+	count := cross.SourceCount()
+	if count < 2 || pair[0] < 0 || pair[1] < 0 || pair[0] == pair[1] ||
+		pair[0] >= count || pair[1] >= count {
+		return nil, errJunctionMiss
+	}
+	if limit < 0 || count-2 > limit {
+		return nil, ErrJunctionWorkLimit
+	}
+	out := make([][4]float64, 0, count-2)
+	for i := 0; i < count; i++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if i == pair[0] || i == pair[1] {
+			continue
+		}
+		box, ok := cross.SourceBound(i)
+		if !ok {
+			return nil, errJunctionMiss
+		}
+		out = append(out, box)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func walkedJunctionParam(e BoundaryEdge, atEnd bool) float64 {
 	if atEnd != e.Reversed {
 		return e.TEnd
@@ -190,6 +237,9 @@ func (m junctionMath) check() error {
 }
 
 func (m junctionMath) finiteRat(v float64) (*big.Rat, error) {
+	if err := m.check(); err != nil {
+		return nil, err
+	}
 	if math.IsNaN(v) || math.IsInf(v, 0) {
 		return nil, errJunctionMiss
 	}
@@ -705,6 +755,12 @@ func certifyLineCircleProof(ctx context.Context, in junctionInput,
 	limits junctionLimits) ([2]RationalBracket, [2]RationalBracket, error) {
 	var emptyPoint, emptyParams [2]RationalBracket
 	m := junctionMath{ctx: ctx, limits: limits}
+	if err := m.check(); err != nil {
+		return emptyPoint, emptyParams, err
+	}
+	if len(in.otherBounds) > maxJunctionOtherSources {
+		return emptyPoint, emptyParams, ErrJunctionWorkLimit
+	}
 	if in.branch != -1 && in.branch != 1 {
 		return emptyPoint, emptyParams, errJunctionMiss
 	}
@@ -903,18 +959,8 @@ func (m junctionMath) certifyRoot(in junctionInput, r [7]*big.Rat, dx, dy *big.R
 	if err != nil {
 		return emptyPoint, emptyParams, err
 	}
-	for _, box := range in.otherBounds {
-		var bounds [4]*big.Rat
-		for i, v := range box {
-			bounds[i], err = m.finiteRat(v)
-			if err != nil {
-				return emptyPoint, emptyParams, err
-			}
-		}
-		if px.hi.Cmp(bounds[0]) >= 0 && px.lo.Cmp(bounds[2]) <= 0 &&
-			py.hi.Cmp(bounds[1]) >= 0 && py.lo.Cmp(bounds[3]) <= 0 {
-			return emptyPoint, emptyParams, errJunctionMiss
-		}
+	if err := m.checkOtherSources(px, py, in.otherBounds); err != nil {
+		return emptyPoint, emptyParams, err
 	}
 	otherX, err := m.affine(r[0], dx, other)
 	if err != nil {
@@ -947,4 +993,31 @@ func (m junctionMath) certifyRoot(in junctionInput, r [7]*big.Rat, dx, dy *big.R
 	}
 	return [2]RationalBracket{intervalBracket(px), intervalBracket(py)},
 		[2]RationalBracket{intervalBracket(lineParam), intervalBracket(circleParam)}, nil
+}
+
+func (m junctionMath) checkOtherSources(px, py junctionInterval, boxes [][4]float64) error {
+	if err := m.check(); err != nil {
+		return err
+	}
+	if len(boxes) > maxJunctionOtherSources {
+		return ErrJunctionWorkLimit
+	}
+	for _, box := range boxes {
+		if err := m.check(); err != nil {
+			return err
+		}
+		var bounds [4]*big.Rat
+		for i, v := range box {
+			var err error
+			bounds[i], err = m.finiteRat(v)
+			if err != nil {
+				return err
+			}
+		}
+		if px.hi.Cmp(bounds[0]) >= 0 && px.lo.Cmp(bounds[2]) <= 0 &&
+			py.hi.Cmp(bounds[1]) >= 0 && py.lo.Cmp(bounds[3]) <= 0 {
+			return errJunctionMiss
+		}
+	}
+	return m.check()
 }

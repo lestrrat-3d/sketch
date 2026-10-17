@@ -1,12 +1,58 @@
 package sketch_test
 
 import (
+	"context"
 	"math/big"
 	"testing"
 
 	"github.com/lestrrat-3d/sketch"
 	"github.com/stretchr/testify/require"
 )
+
+type cancelAfterJunctionChecks struct {
+	context.Context
+	cancel    context.CancelFunc
+	remaining int
+	checks    int
+}
+
+func (c *cancelAfterJunctionChecks) Err() error {
+	c.checks++
+	c.remaining--
+	if c.remaining == 0 {
+		c.cancel()
+	}
+	return c.Context.Err()
+}
+
+func TestCertifyLineCircleJunctionCancelsDuringSourceCopy(t *testing.T) {
+	s := newSketch(t)
+	s.CreateCircle(s.CreatePoint(0, 0), 10)
+	s.CreateRectangle(-12, -2, 12, 2)
+	for i := 0; i < 12; i++ {
+		y := float64(20 + i)
+		s.CreateLine(s.CreatePoint(20, y), s.CreatePoint(21, y))
+	}
+	var pair [2]sketch.BoundaryEdge
+	var found bool
+	for _, candidate := range junctions(s) {
+		_, ok, err := s.CertifyLineCircleJunction(t.Context(), candidate[0], candidate[1])
+		require.NoError(t, err)
+		if ok {
+			pair, found = candidate, true
+			break
+		}
+	}
+	require.True(t, found)
+	base, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	ctx := &cancelAfterJunctionChecks{Context: base, cancel: cancel, remaining: 6}
+	w, ok, err := s.CertifyLineCircleJunction(ctx, pair[0], pair[1])
+	require.ErrorIs(t, err, context.Canceled)
+	require.False(t, ok)
+	require.Equal(t, sketch.LineCircleJunction{}, w)
+	require.Equal(t, 6, ctx.checks)
+}
 
 func TestCertifyLineCircleJunctionRealProfiles(t *testing.T) {
 	s := newSketch(t)

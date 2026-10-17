@@ -20,16 +20,17 @@ func (c *LineCircleCrossing) Point() [2]float64 { return c.point }
 // Branch returns -1 for the low line root or +1 for the high line root.
 func (c *LineCircleCrossing) Branch() int8 { return c.branch }
 
-// OtherSourceBounds returns full-carrier boxes for the arrangement's other
-// sources. A caller can conservatively refuse a box overlapping its proof box.
-func (c *LineCircleCrossing) OtherSourceBounds() [][4]float64 {
-	out := make([][4]float64, 0, max(0, len(c.allBounds)-2))
-	for i, box := range c.allBounds {
-		if i != c.sources[0] && i != c.sources[1] {
-			out = append(out, box)
-		}
+// SourceCount returns the number of full-carrier boxes in this arrangement.
+// Callers bound and check cancellation during any traversal they perform.
+func (c *LineCircleCrossing) SourceCount() int { return len(c.allBounds) }
+
+// SourceBound returns one full-carrier box by value. It does not expose the
+// shared arrangement slice for mutation or copy an unbounded source list.
+func (c *LineCircleCrossing) SourceBound(index int) ([4]float64, bool) {
+	if index < 0 || index >= len(c.allBounds) {
+		return [4]float64{}, false
 	}
-	return out
+	return c.allBounds[index], true
 }
 
 func (a *arranger) lineCircleCrossing(i, j int, e xEvent) *LineCircleCrossing {
