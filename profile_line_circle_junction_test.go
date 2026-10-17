@@ -4,17 +4,25 @@ import (
 	"context"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/lestrrat-3d/sketch"
 	"github.com/stretchr/testify/require"
 )
 
 type cancelAfterJunctionChecks struct {
-	context.Context
+	deadline  func() (time.Time, bool)
+	done      <-chan struct{}
+	baseErr   func() error
+	value     func(any) any
 	cancel    context.CancelFunc
 	remaining int
 	checks    int
 }
+
+func (c *cancelAfterJunctionChecks) Deadline() (time.Time, bool) { return c.deadline() }
+func (c *cancelAfterJunctionChecks) Done() <-chan struct{}       { return c.done }
+func (c *cancelAfterJunctionChecks) Value(key any) any           { return c.value(key) }
 
 func (c *cancelAfterJunctionChecks) Err() error {
 	c.checks++
@@ -22,7 +30,7 @@ func (c *cancelAfterJunctionChecks) Err() error {
 	if c.remaining == 0 {
 		c.cancel()
 	}
-	return c.Context.Err()
+	return c.baseErr()
 }
 
 func TestCertifyLineCircleJunctionCancelsDuringSourceCopy(t *testing.T) {
@@ -46,7 +54,10 @@ func TestCertifyLineCircleJunctionCancelsDuringSourceCopy(t *testing.T) {
 	require.True(t, found)
 	base, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	ctx := &cancelAfterJunctionChecks{Context: base, cancel: cancel, remaining: 6}
+	ctx := &cancelAfterJunctionChecks{
+		deadline: base.Deadline, done: base.Done(), baseErr: base.Err,
+		value: base.Value, cancel: cancel, remaining: 6,
+	}
 	w, ok, err := s.CertifyLineCircleJunction(ctx, pair[0], pair[1])
 	require.ErrorIs(t, err, context.Canceled)
 	require.False(t, ok)
@@ -138,6 +149,7 @@ func TestCertifyLineCircleJunctionSnapshotAndContext(t *testing.T) {
 		}
 	}
 	require.True(t, found)
+	//lint:ignore SA1012 The nil argument verifies ErrInvalidJunctionContext.
 	_, ok, err := s.CertifyLineCircleJunction(nil, pair[0], pair[1])
 	require.False(t, ok)
 	require.ErrorIs(t, err, sketch.ErrInvalidJunctionContext)

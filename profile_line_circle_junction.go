@@ -225,12 +225,12 @@ func walkedJunctionParam(e BoundaryEdge, atEnd bool) float64 {
 }
 
 type junctionMath struct {
-	ctx    context.Context
-	limits junctionLimits
+	cancelErr func() error
+	limits    junctionLimits
 }
 
 func (m junctionMath) check() error {
-	if err := m.ctx.Err(); err != nil {
+	if err := m.cancelErr(); err != nil {
 		return err
 	}
 	return nil
@@ -541,7 +541,7 @@ func (m junctionMath) widthCheck(box junctionInterval, reported float64, limit *
 }
 
 func intervalBracket(i junctionInterval) RationalBracket {
-	return RationalBracket{lo: i.lo, hi: i.hi}
+	return RationalBracket(i)
 }
 
 func (m junctionMath) atanSeries(z *big.Rat) (junctionInterval, error) {
@@ -754,7 +754,7 @@ func (m junctionMath) angleParameter(point [2]junctionInterval, center [2]*big.R
 func certifyLineCircleProof(ctx context.Context, in junctionInput,
 	limits junctionLimits) ([2]RationalBracket, [2]RationalBracket, error) {
 	var emptyPoint, emptyParams [2]RationalBracket
-	m := junctionMath{ctx: ctx, limits: limits}
+	m := junctionMath{cancelErr: ctx.Err, limits: limits}
 	if err := m.check(); err != nil {
 		return emptyPoint, emptyParams, err
 	}

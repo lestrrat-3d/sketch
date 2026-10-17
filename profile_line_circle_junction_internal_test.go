@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/lestrrat-3d/sketch/geom"
 	"github.com/stretchr/testify/require"
@@ -72,11 +73,18 @@ func TestLineCircleJunctionProofOutcomeLimits(t *testing.T) {
 }
 
 type cancelDuringSourceScan struct {
-	context.Context
+	deadline  func() (time.Time, bool)
+	done      <-chan struct{}
+	baseErr   func() error
+	value     func(any) any
 	cancel    context.CancelFunc
 	remaining int
 	checks    int
 }
+
+func (c *cancelDuringSourceScan) Deadline() (time.Time, bool) { return c.deadline() }
+func (c *cancelDuringSourceScan) Done() <-chan struct{}       { return c.done }
+func (c *cancelDuringSourceScan) Value(key any) any           { return c.value(key) }
 
 func (c *cancelDuringSourceScan) Err() error {
 	c.checks++
@@ -84,7 +92,7 @@ func (c *cancelDuringSourceScan) Err() error {
 	if c.remaining == 0 {
 		c.cancel()
 	}
-	return c.Context.Err()
+	return c.baseErr()
 }
 
 func TestLineCircleJunctionOtherSourceScanBound(t *testing.T) {
@@ -96,12 +104,15 @@ func TestLineCircleJunctionOtherSourceScanBound(t *testing.T) {
 	py := junctionInterval{ratInt(-2), ratInt(-2)}
 	base, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	ctx := &cancelDuringSourceScan{Context: base, cancel: cancel, remaining: 8}
-	m := junctionMath{ctx: ctx, limits: standardJunctionLimits}
+	ctx := &cancelDuringSourceScan{
+		deadline: base.Deadline, done: base.Done(), baseErr: base.Err,
+		value: base.Value, cancel: cancel, remaining: 8,
+	}
+	m := junctionMath{cancelErr: ctx.Err, limits: standardJunctionLimits}
 	require.ErrorIs(t, m.checkOtherSources(px, py, boxes), context.Canceled)
 	require.Equal(t, 8, ctx.checks)
 
-	m.ctx = t.Context()
+	m.cancelErr = t.Context().Err
 	boxes[7] = [4]float64{9, -3, 10, -1}
 	require.ErrorIs(t, m.checkOtherSources(px, py, boxes), errJunctionMiss)
 	boxes = make([][4]float64, maxJunctionOtherSources+1)
@@ -135,6 +146,7 @@ func TestLineCircleJunctionSourceCopyBound(t *testing.T) {
 	box, ok := cross.SourceBound(0)
 	require.True(t, ok)
 	box[0] = 12345
+	require.Equal(t, 12345.0, box[0])
 	again, ok := cross.SourceBound(0)
 	require.True(t, ok)
 	require.NotEqual(t, 12345.0, again[0])
