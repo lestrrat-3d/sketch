@@ -149,7 +149,7 @@ func TestCertifyLineCircleJunctionSnapshotAndContext(t *testing.T) {
 		}
 	}
 	require.True(t, found)
-	//lint:ignore SA1012 The nil argument verifies ErrInvalidJunctionContext.
+	//nolint:staticcheck // The nil argument verifies ErrInvalidJunctionContext.
 	_, ok, err := s.CertifyLineCircleJunction(nil, pair[0], pair[1])
 	require.False(t, ok)
 	require.ErrorIs(t, err, sketch.ErrInvalidJunctionContext)
