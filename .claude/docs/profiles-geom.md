@@ -8,6 +8,7 @@ Detail moved out of CLAUDE.md. Read before touching `Sketch.Profiles`, `Boundary
 |---|---|
 | When is a `BoundaryEdge` range exact? | The whole-sketch gate comes first |
 | Can two trimmed line edges share one exact crossing? | Certified line-line junctions |
+| Can a line and a circle share one certified secant? | Certified line-circle junctions |
 | Why did exactness disappear scene-wide? | The whole-scene kind gate `exactAllowed` |
 | When is a profile invalid or stale? | `Valid` is per-region / A profile is a snapshot |
 | How are adjacent profile regions joined? | `Sketch.UnionProfiles` |
@@ -94,6 +95,27 @@ sketch revision, a changed public edge field, and a crossing whose exact rationa
 coordinates cannot be represented in binary64. The method solves the intersection from the source
 endpoint float bits; `TExact` alone only certifies the reported parameter
 against the emitted polyline endpoint.
+
+### Certified line-circle junctions
+
+Use `s.CertifyLineCircleJunction(ctx, left, right)` only for the walked end
+of one unchanged `BoundaryEdge` and start of the next from one current
+`Profiles` or `Chains` pass. A certificate requires two partial `TExact`
+edges from distinct live Line/Circle sources, one low/high secant token on
+both edges, and four unmerged incident fragments at its final vertex. Arc,
+tangency, source-end contact, another source at the vertex, and a stale or
+changed edge return no certificate. `ctx.Err()` and
+`ErrJunctionWorkLimit` are errors; a provably over-width bracket is a normal
+miss. The exact width and arithmetic caps are in
+`profile_line_circle_junction.go`. A proof checks at most 256 other source
+boxes, with cancellation checks during copying and each scan. A larger scene
+returns `ErrJunctionWorkLimit` before any source can be skipped.
+
+The returned rational brackets enclose the exact source crossing and both
+reported trim parameters. The witness does not change `TExact`, turn an
+irrational crossing into a binary64 point, or prove that an output loop can
+close. A downstream constructor must prove its own representable vertex,
+whole-fragment displacement, and charge before publishing geometry.
 
 ### The whole-sketch gate comes first
 

@@ -31,6 +31,9 @@ type xEvent struct {
 	x, y   float64
 	ti, tj float64
 	kind   eventKind
+	// circleBranch is -1/+1 for the low/high root of a line-circle secant,
+	// ordered on the line's natural parameter before any source-order swap.
+	circleBranch int8
 	// overlap carries both boundaries of a coincident-carrier evOverlap event this
 	// repository can RESOLVE (see coincident-carrier-resolution-design.md). nil for
 	// every other event, and for an evOverlap this design leaves out of scope (two
@@ -422,13 +425,17 @@ func lineCircleEvents(line, circ operand, scale float64) ([]xEvent, bool) {
 		fx, fy := footOnLine(line, circ.cx, circ.cy)
 		ux, uy := dx/dlen, dy/dlen
 		var out []xEvent
-		for _, s := range []float64{-half, half} {
+		for i, s := range []float64{-half, half} {
 			x, y := fx+s*ux, fy+s*uy
+			branch := int8(-1)
+			if i == 1 {
+				branch = 1
+			}
 			out = append(out, xEvent{
 				x: x, y: y,
 				ti:   line.lineParam(x, y),
 				tj:   circ.circleParam(x, y),
-				kind: evCross,
+				kind: evCross, circleBranch: branch,
 			})
 		}
 		return out, false

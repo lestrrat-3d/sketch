@@ -105,18 +105,21 @@ func (a *arranger) walkChain(cands []arrEdge, inc map[int][]int, deg map[int]int
 		exStart, exEnd := e.exactU, e.exactV
 		enStart, enEnd := e.endU, e.endV
 		crossStart, crossEnd := e.crossU, e.crossV
+		circleStart, circleEnd := e.circleU, e.circleV
 		to := e.v
 		if !forward {
 			pStart, pEnd = e.pv, e.pu
 			exStart, exEnd = e.exactV, e.exactU
 			enStart, enEnd = e.endV, e.endU
 			crossStart, crossEnd = crossEnd, crossStart
+			circleStart, circleEnd = circleEnd, circleStart
 			to = e.u
 		}
 		fx, fy := a.verts.coord(at)
 		tx, ty := a.verts.coord(to)
 		frags = appendBoundaryFrag(frags, e.src, pStart, pEnd, exStart, exEnd, enStart, enEnd,
 			crossStart, crossEnd,
+			circleStart, circleEnd,
 			[2]float64{fx, fy}, [2]float64{tx, ty})
 
 		at = to
@@ -254,6 +257,7 @@ func reverseChain(edges []BoundaryEdge) []BoundaryEdge {
 		e := edges[i]
 		e.Reversed = !e.Reversed
 		e.crossStart, e.crossEnd = e.crossEnd, e.crossStart
+		e.circleStart, e.circleEnd = e.circleEnd, e.circleStart
 		pl := make([][2]float64, len(e.Polyline))
 		for k, p := range e.Polyline {
 			pl[len(pl)-1-k] = p
