@@ -92,12 +92,15 @@ func (p *Profile) IsStale() bool {
 // BoundaryEdge is one directed edge of a region boundary: a whole sketch entity,
 // or a fragment of one produced by splitting at a bare crossing.
 type BoundaryEdge struct {
-	sketch               *Sketch
-	revision             uint64
-	sourceIndex          int
-	sourceEntity         Entity
-	crossStart, crossEnd *geom.LineLineCrossing
-	snapshot             *boundaryEdgeSnapshot
+	sketch                 *Sketch
+	revision               uint64
+	sourceIndex            int
+	sourceEntity           Entity
+	junctionWalk           *junctionWalk
+	junctionIndex          int
+	crossStart, crossEnd   *geom.LineLineCrossing
+	circleStart, circleEnd *geom.LineCircleCrossing
+	snapshot               *boundaryEdgeSnapshot
 	// Entity is the source sketch entity this edge lies on (*Line/*Arc/*Circle/
 	// *Ellipse).
 	//
@@ -411,11 +414,13 @@ func (s *Sketch) buildProfiles() sketchArrangement {
 				p.Entities = append(p.Entities, be.Entity)
 			}
 		}
+		stampJunctionWalk(p.Outer, true)
 		for _, hole := range r.Holes {
 			var he []BoundaryEdge
 			for _, ge := range hole {
 				he = append(he, mapBoundaryEdge(ge, entityFor, s, rev))
 			}
+			stampJunctionWalk(he, true)
 			p.Holes = append(p.Holes, he)
 		}
 		// Degeneracy is per REGION, not arrangement-wide: a region is invalid when an
@@ -456,6 +461,7 @@ func (s *Sketch) buildProfiles() sketchArrangement {
 				c.Entities = append(c.Entities, be.Entity)
 			}
 		}
+		stampJunctionWalk(c.Edges, false)
 		// Scoped exactly as a profile's validity is: a condition on curves this
 		// chain does not use leaves it valid, an unattributable one does not.
 		c.Valid = !gc.SelfIntersecting && !gc.Degenerate && gc.Length > 0
@@ -481,6 +487,8 @@ func mapBoundaryEdge(ge geom.BoundaryEdge, entityFor func(int) Entity, s *Sketch
 		sourceEntity: entityFor(ge.SourceIndex),
 		crossStart:   ge.LineLineCrossingAtStart(),
 		crossEnd:     ge.LineLineCrossingAtEnd(),
+		circleStart:  ge.LineCircleCrossingAtStart(),
+		circleEnd:    ge.LineCircleCrossingAtEnd(),
 		Entity:       entityFor(ge.SourceIndex),
 		Partial:      !ge.Whole,
 		Reversed:     ge.Reversed,
@@ -489,7 +497,8 @@ func mapBoundaryEdge(ge geom.BoundaryEdge, entityFor func(int) Entity, s *Sketch
 		TEnd:         ge.TEnd,
 		TExact:       ge.TExact,
 	}
-	if be.crossStart != nil || be.crossEnd != nil {
+	if be.crossStart != nil || be.crossEnd != nil ||
+		be.circleStart != nil || be.circleEnd != nil {
 		be.snapshot = &boundaryEdgeSnapshot{
 			entity: be.Entity, partial: be.Partial, reversed: be.Reversed,
 			tStart: be.TStart, tEnd: be.TEnd, tExact: be.TExact,
@@ -497,4 +506,20 @@ func mapBoundaryEdge(ge geom.BoundaryEdge, entityFor func(int) Entity, s *Sketch
 		}
 	}
 	return be
+}
+
+type junctionWalk struct {
+	length int
+	closed bool
+}
+
+func stampJunctionWalk(edges []BoundaryEdge, closed bool) {
+	if len(edges) == 0 {
+		return
+	}
+	walk := &junctionWalk{length: len(edges), closed: closed}
+	for i := range edges {
+		edges[i].junctionWalk = walk
+		edges[i].junctionIndex = i
+	}
 }

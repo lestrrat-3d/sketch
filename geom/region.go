@@ -15,7 +15,8 @@ const (
 // references the originating curve by its index in the Regions input slice, so
 // a caller can map the edge (or fragment) to its own entity.
 type BoundaryEdge struct {
-	crossStart, crossEnd *LineLineCrossing
+	crossStart, crossEnd   *LineLineCrossing
+	circleStart, circleEnd *LineCircleCrossing
 	// SourceIndex is the position of the originating curve in the Regions
 	// input — its index in curves, or len(curves)+k for the k-th closed curve.
 	//
@@ -171,6 +172,13 @@ func (e BoundaryEdge) LineLineCrossingAtStart() *LineLineCrossing { return e.cro
 
 // LineLineCrossingAtEnd identifies the crossing at the walked edge end.
 func (e BoundaryEdge) LineLineCrossingAtEnd() *LineLineCrossing { return e.crossEnd }
+
+// LineCircleCrossingAtStart identifies an unmerged line-circle secant at the
+// beginning of this directed edge, if one survived the final graph audit.
+func (e BoundaryEdge) LineCircleCrossingAtStart() *LineCircleCrossing { return e.circleStart }
+
+// LineCircleCrossingAtEnd identifies the same kind of secant at the walked end.
+func (e BoundaryEdge) LineCircleCrossingAtEnd() *LineCircleCrossing { return e.circleEnd }
 
 // Region is a minimal bounded area extracted from the arrangement: an outer
 // boundary walked counter-clockwise, zero or more holes (inner boundaries,

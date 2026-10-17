@@ -57,8 +57,10 @@ func Regions(curves []Curve, closed []ClosedCurve, opts ...Option) *Arrangement 
 	a.nearMissGuard()
 	a.split()
 	a.certifyLineLineCrossings()
+	a.certifyLineCircleCrossings()
 	a.prune()
 	a.certifyLineLineCrossings()
+	a.certifyLineCircleCrossings()
 	a.buildGraph()
 	return a.extract()
 }
@@ -226,9 +228,10 @@ type tinySeg struct {
 // two sources cut at the same event canonicalize to ONE vertex (chord
 // interpolation of two different sources' params would otherwise miss).
 type cut struct {
-	t      float64
-	px, py float64
-	cross  *LineLineCrossing
+	t           float64
+	px, py      float64
+	cross       *LineLineCrossing
+	circleCross *LineCircleCrossing
 	// exact is true when this cut came from the closed-form kernel (an analytic
 	// crossing), so t is the true source parameter and px,py the true intersection
 	// point. It is false for a SAMPLED cut, whose t is interpolated between two
@@ -290,6 +293,10 @@ type arranger struct {
 	// pairs are handled is not stored at all — see handled.
 	events     map[[2]int][]xEvent
 	sourceSegs [][]int
+	// Circle witnesses share one conservative full-carrier box per source;
+	// retaining a fresh copy on every secant would cost cubic space.
+	circleBounds                         [][4]float64
+	circleBoundsReady, circleBoundsValid bool
 
 	// segBoxes is every tiny segment's reach-expanded bounding box (see
 	// arrange_broadphase.go), computed once on first use and shared by
@@ -466,10 +473,11 @@ func (w angularWindow) contains(x, y float64) bool {
 // arrEdge is an undirected arrangement edge between two canonical vertices,
 // carrying its source and the natural param range along that source.
 type arrEdge struct {
-	u, v           int
-	src            int
-	pu, pv         float64
-	crossU, crossV *LineLineCrossing
+	u, v             int
+	src              int
+	pu, pv           float64
+	crossU, crossV   *LineLineCrossing
+	circleU, circleV *LineCircleCrossing
 	// exactU/exactV report whether the param at that end is the true source
 	// parameter (an analytic cut, a sample vertex, or the curve's own endpoint)
 	// rather than a sampled crossing's interpolated one. See cut.exact — and note
@@ -1458,11 +1466,14 @@ func (a *arranger) analyticPrepass() {
 					a.resolveCoincidentOverlap(i, j, e)
 				case evCross:
 					var crossing *LineLineCrossing
+					var circleCrossing *LineCircleCrossing
 					if si.kind == srcLine && sj.kind == srcLine && !ambiguous {
 						crossing = &LineLineCrossing{sources: [2]int{i, j}, point: [2]float64{e.x, e.y}}
+					} else if !ambiguous {
+						circleCrossing = a.lineCircleCrossing(i, j, e)
 					}
-					a.applyAnalyticCutCross(i, e.ti, e.x, e.y, crossing)
-					a.applyAnalyticCutCross(j, e.tj, e.x, e.y, crossing)
+					a.applyAnalyticCutCross(i, e.ti, e.x, e.y, crossing, circleCrossing)
+					a.applyAnalyticCutCross(j, e.tj, e.x, e.y, crossing, circleCrossing)
 					// Two sources meeting only at their endpoints is a normal join /
 					// corner, not a self-crossing. Replicate the sampled path, which
 					// skips endpoint-endpoint contacts: self-intersection needs at least
@@ -2346,15 +2357,18 @@ func segLocal(s *tinySeg, t float64) float64 {
 // source endpoint reuses the existing vertex and records nothing — the vertex is
 // already there, at the true parameter, so the fragment bounds it yields stay exact.
 func (a *arranger) applyAnalyticCut(src int, t, x, y float64) {
-	a.applyAnalyticCutCross(src, t, x, y, nil)
+	a.applyAnalyticCutCross(src, t, x, y, nil, nil)
 }
 
-func (a *arranger) applyAnalyticCutCross(src int, t, x, y float64, cross *LineLineCrossing) {
+func (a *arranger) applyAnalyticCutCross(src int, t, x, y float64,
+	cross *LineLineCrossing, circleCross *LineCircleCrossing) {
 	si, local, atVertex := a.cutSite(src, t)
 	if si < 0 || atVertex {
 		return
 	}
-	a.segs[si].cuts = append(a.segs[si].cuts, cut{t: local, px: x, py: y, exact: true, cross: cross})
+	a.segs[si].cuts = append(a.segs[si].cuts, cut{
+		t: local, px: x, py: y, exact: true, cross: cross, circleCross: circleCross,
+	})
 }
 
 // resolveCoincidentOverlap cuts both sources of a certified, single-window
@@ -2927,8 +2941,10 @@ func (a *arranger) split() {
 			pu: s.param(f.b0.t), pv: s.param(f.b1.t),
 			exactU: exactU, exactV: exactV,
 			endU: f.b0.srcEnd, endV: f.b1.srcEnd,
-			crossU: crossingAtVertex(f.b0, exactU, &a.verts, f.u),
-			crossV: crossingAtVertex(f.b1, exactV, &a.verts, f.v)})
+			crossU:  crossingAtVertex(f.b0, exactU, &a.verts, f.u),
+			crossV:  crossingAtVertex(f.b1, exactV, &a.verts, f.v),
+			circleU: circleCrossingAtVertex(f.b0, exactU, &a.verts, f.u),
+			circleV: circleCrossingAtVertex(f.b1, exactV, &a.verts, f.v)})
 	}
 }
 
@@ -3109,6 +3125,9 @@ func (a *arranger) segBoundaries(i int) []cut {
 		last.srcEnd = last.srcEnd && b.srcEnd
 		if last.cross != b.cross {
 			last.cross = nil
+		}
+		if last.circleCross != b.circleCross {
+			last.circleCross = nil
 		}
 	}
 	return uniq
@@ -4331,9 +4350,10 @@ type boundaryFrag struct {
 	// endStart/endEnd their source-end provenance. Only the fragment's two OUTER
 	// bounds matter: an interior boundary coalesced away is not reported, so
 	// neither its exactness nor its provenance is folded in.
-	exactStart, exactEnd bool
-	endStart, endEnd     bool
-	crossStart, crossEnd *LineLineCrossing
+	exactStart, exactEnd   bool
+	endStart, endEnd       bool
+	crossStart, crossEnd   *LineLineCrossing
+	circleStart, circleEnd *LineCircleCrossing
 }
 
 // appendBoundaryFrag extends frags by one traversed arrangement edge, from
@@ -4342,12 +4362,14 @@ type boundaryFrag struct {
 // coalesce into the previous fragment; anything else starts a new one.
 func appendBoundaryFrag(frags []boundaryFrag, src int, pStart, pEnd float64,
 	exStart, exEnd, enStart, enEnd bool, crossStart, crossEnd *LineLineCrossing,
+	circleStart, circleEnd *LineCircleCrossing,
 	from, to [2]float64) []boundaryFrag {
 	if n := len(frags); n > 0 && frags[n-1].src == src && approx(frags[n-1].pEnd, pStart, 1e-9) {
 		frags[n-1].pEnd = pEnd
 		frags[n-1].exactEnd = exEnd
 		frags[n-1].endEnd = enEnd
 		frags[n-1].crossEnd = crossEnd
+		frags[n-1].circleEnd = circleEnd
 		frags[n-1].dense = append(frags[n-1].dense, to)
 		return frags
 	}
@@ -4355,6 +4377,7 @@ func appendBoundaryFrag(frags []boundaryFrag, src int, pStart, pEnd float64,
 		exactStart: exStart, exactEnd: exEnd,
 		endStart: enStart, endEnd: enEnd,
 		crossStart: crossStart, crossEnd: crossEnd,
+		circleStart: circleStart, circleEnd: circleEnd,
 		dense: [][2]float64{from, to}})
 }
 
@@ -4397,6 +4420,7 @@ func boundaryEdgeOf(f boundaryFrag) BoundaryEdge {
 		SourceIndex: f.src, Whole: f.endStart && f.endEnd, Reversed: reversed,
 		Polyline: f.dense, TStart: tStart, TEnd: tEnd, TExact: exStart && exEnd,
 		crossStart: f.crossStart, crossEnd: f.crossEnd,
+		circleStart: f.circleStart, circleEnd: f.circleEnd,
 	}
 }
 
@@ -4424,6 +4448,7 @@ func (a *arranger) makeCycle(hs []int) cycle {
 		var exStart, exEnd bool
 		var enStart, enEnd bool
 		crossStart, crossEnd := e.crossU, e.crossV
+		circleStart, circleEnd := e.circleU, e.circleV
 		if h.forward {
 			pStart, pEnd = e.pu, e.pv
 			exStart, exEnd = e.exactU, e.exactV
@@ -4433,11 +4458,13 @@ func (a *arranger) makeCycle(hs []int) cycle {
 			exStart, exEnd = e.exactV, e.exactU
 			enStart, enEnd = e.endV, e.endU
 			crossStart, crossEnd = crossEnd, crossStart
+			circleStart, circleEnd = circleEnd, circleStart
 		}
 		fx, fy := a.verts.coord(h.from)
 		tx, ty := a.verts.coord(h.to)
 		frags = appendBoundaryFrag(frags, e.src, pStart, pEnd, exStart, exEnd, enStart, enEnd,
 			crossStart, crossEnd,
+			circleStart, circleEnd,
 			[2]float64{fx, fy}, [2]float64{tx, ty})
 		if cm := a.comp[e.src]; cm >= 0 {
 			if _, ok := a.selfXc[cm]; ok {
@@ -4451,6 +4478,7 @@ func (a *arranger) makeCycle(hs []int) cycle {
 		frags[n-1].exactEnd = frags[0].exactEnd
 		frags[n-1].endEnd = frags[0].endEnd
 		frags[n-1].crossEnd = frags[0].crossEnd
+		frags[n-1].circleEnd = frags[0].circleEnd
 		frags[n-1].dense = append(frags[n-1].dense, frags[0].dense[1:]...)
 		frags = frags[1:]
 	}
