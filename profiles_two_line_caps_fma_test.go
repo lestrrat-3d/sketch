@@ -2,6 +2,7 @@ package sketch_test
 
 import (
 	"math"
+	"math/big"
 	"testing"
 
 	"github.com/lestrrat-3d/sketch"
@@ -11,12 +12,24 @@ func fmaCapRectangle(x0, y0, x1, y1 float64) [][2]float64 {
 	return [][2]float64{{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}}
 }
 
+func fmaCapSeparate(a, b, c float64) float64 {
+	// Round the exact product before adding, even when the compiler can fuse
+	// a source expression into a single multiply-add instruction.
+	product := new(big.Rat).Mul(new(big.Rat).SetFloat64(a),
+		new(big.Rat).SetFloat64(b))
+	roundedProduct, _ := product.Float64()
+	sum := new(big.Rat).Add(new(big.Rat).SetFloat64(roundedProduct),
+		new(big.Rat).SetFloat64(c))
+	roundedSum, _ := sum.Float64()
+	return roundedSum
+}
+
 func TestProfilesTwoLineCapsBoundedFMAProducers(t *testing.T) {
 	eps := math.Ldexp(1, -52)
 	nearEnd := eps / (1 + 2*eps)
 	if math.FMA(3.0/5.0, 5, -3) == 0 ||
 		math.FMA(nearEnd, 1+2*eps, -eps) == 0 ||
-		-eps+nearEnd*(1+2*eps) != 0 {
+		fmaCapSeparate(nearEnd, 1+2*eps, -eps) != 0 {
 		t.Fatal("fixtures do not distinguish fused and separate endpoint evaluation")
 	}
 	cases := []struct {
