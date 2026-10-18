@@ -28,11 +28,12 @@ import (
 // the geometry does not justify. A closed run is published as no chain — see
 // [Chain].
 func (a *arranger) buildChains(used []bool) []*Chain {
-	cands := make([]arrEdge, 0, len(a.pruned))
-	cands = append(cands, a.pruned...)
+	cands := make([]arrEdge, 0, a.budget.preflight(len(a.pruned)))
+	cands = chargedAppend(a.budget, cands, a.pruned...)
 	for i, e := range a.edges {
+		a.budget.step(1)
 		if !used[i] {
-			cands = append(cands, e)
+			cands = chargedAppend(a.budget, cands, e)
 		}
 	}
 	if len(cands) == 0 {
@@ -44,17 +45,20 @@ func (a *arranger) buildChains(used []bool) []*Chain {
 	// here", which is the question the walk has to stop on.
 	deg := map[int]int{}
 	for _, e := range a.pruned {
+		a.budget.step(1)
 		deg[e.u]++
 		deg[e.v]++
 	}
 	for _, e := range a.edges {
+		a.budget.step(1)
 		deg[e.u]++
 		deg[e.v]++
 	}
 	inc := map[int][]int{} // vertex -> incident candidate edges, in candidate order
 	for i, e := range cands {
-		inc[e.u] = append(inc[e.u], i)
-		inc[e.v] = append(inc[e.v], i)
+		a.budget.step(1)
+		inc[e.u] = chargedAppend(a.budget, inc[e.u], i)
+		inc[e.v] = chargedAppend(a.budget, inc[e.v], i)
 	}
 	// Every maximal run starts at a vertex the walk cannot pass through, so those
 	// are the only starts worth trying. Which run an edge lands in does not depend
@@ -64,27 +68,38 @@ func (a *arranger) buildChains(used []bool) []*Chain {
 	// chainLess then overrides for every pair of chains their coordinates can tell
 	// apart (see chainLess for the pair it cannot). Edges reachable from no such
 	// vertex are a pure cycle, and are deliberately left unpublished.
-	starts := make([]int, 0, len(inc))
+	starts := make([]int, 0, a.budget.preflight(len(inc)))
 	for v, list := range inc {
+		a.budget.step(1)
 		if deg[v] != 2 || len(list) != 2 {
-			starts = append(starts, v)
+			starts = chargedAppend(a.budget, starts, v)
 		}
 	}
-	sort.Ints(starts)
+	a.budget.reserveSort(len(starts))
+	sort.Slice(starts, func(i, j int) bool {
+		a.budget.step(1)
+		return starts[i] < starts[j]
+	})
 
-	taken := make([]bool, len(cands))
+	taken := make([]bool, a.budget.preflight(len(cands)))
 	var chains []*Chain
 	for _, v := range starts {
+		a.budget.step(1)
 		for _, ei := range inc[v] {
+			a.budget.step(1)
 			if taken[ei] {
 				continue
 			}
 			if c := a.walkChain(cands, inc, deg, taken, v, ei); c != nil {
-				chains = append(chains, c)
+				chains = chargedAppend(a.budget, chains, c)
 			}
 		}
 	}
-	sort.SliceStable(chains, func(i, j int) bool { return chainLess(chains[i], chains[j]) })
+	a.budget.reserveSort(len(chains))
+	sort.SliceStable(chains, func(i, j int) bool {
+		a.budget.step(1)
+		return chainLess(chains[i], chains[j], a.budget)
+	})
 	return chains
 }
 
@@ -97,6 +112,7 @@ func (a *arranger) walkChain(cands []arrEdge, inc map[int][]int, deg map[int]int
 	srcs := map[int]struct{}{}
 	at := from
 	for {
+		a.budget.step(1)
 		taken[ei] = true
 		e := cands[ei]
 		srcs[e.src] = struct{}{}
@@ -120,7 +136,7 @@ func (a *arranger) walkChain(cands []arrEdge, inc map[int][]int, deg map[int]int
 		frags = appendBoundaryFrag(frags, e.src, pStart, pEnd, exStart, exEnd, enStart, enEnd,
 			crossStart, crossEnd,
 			circleStart, circleEnd,
-			[2]float64{fx, fy}, [2]float64{tx, ty})
+			[2]float64{fx, fy}, [2]float64{tx, ty}, a.budget)
 
 		at = to
 		list := inc[at]
@@ -142,9 +158,10 @@ func (a *arranger) walkChain(cands []arrEdge, inc map[int][]int, deg map[int]int
 		return nil // a closed run: a Chain is open by definition
 	}
 
-	c := &Chain{Edges: make([]BoundaryEdge, 0, len(frags))}
+	c := &Chain{Edges: make([]BoundaryEdge, 0, a.budget.preflight(len(frags)))}
 	for _, f := range frags {
-		c.Edges = append(c.Edges, boundaryEdgeOf(f))
+		a.budget.step(1)
+		c.Edges = chargedAppend(a.budget, c.Edges, boundaryEdgeOf(f))
 		c.Length += a.fragLength(f)
 	}
 	// Every sample behind these fragments is finite (densify screens them), so a
@@ -162,7 +179,7 @@ func (a *arranger) walkChain(cands []arrEdge, inc map[int][]int, deg map[int]int
 	if math.IsNaN(c.Length) || math.IsInf(c.Length, 0) {
 		a.flagDegenerate(0, 0)
 	}
-	c.Edges = canonicalChainDirection(c.Edges)
+	c.Edges = canonicalChainDirection(c.Edges, a.budget)
 	c.Degenerate = a.degenReaches(srcs)
 	c.SelfIntersecting = a.chainSelfIntersects(c.Edges)
 	return c
@@ -210,6 +227,7 @@ func (a *arranger) sampledFragLength(s *source, pStart, pEnd float64) float64 {
 	prev := s.at(lo)
 	var total float64
 	for _, t := range a.sampleParams(s) {
+		a.budget.step(1)
 		if t <= lo || t >= hi {
 			continue
 		}
@@ -228,20 +246,20 @@ func (a *arranger) sampledFragLength(s *source, pStart, pEnd float64) float64 {
 // so the tie-break below can only be reached by an exact coordinate coincidence
 // across two distinct vertices; it compares the whole walk, which is what
 // actually differs.
-func canonicalChainDirection(edges []BoundaryEdge) []BoundaryEdge {
+func canonicalChainDirection(edges []BoundaryEdge, budget *arrangeBudget) []BoundaryEdge {
 	if len(edges) == 0 {
 		return edges
 	}
-	fwd := chainDense(edges)
+	fwd := chainDense(edges, budget)
 	start, end := fwd[0], fwd[len(fwd)-1]
 	switch {
 	case ptLess(start, end):
 		return edges
 	case ptLess(end, start):
-		return reverseChain(edges)
+		return reverseChain(edges, budget)
 	}
-	rev := reverseChain(edges)
-	if polylineLess(chainDense(rev), fwd) {
+	rev := reverseChain(edges, budget)
+	if polylineLess(chainDense(rev, budget), fwd, budget) {
 		return rev
 	}
 	return edges
@@ -251,33 +269,48 @@ func canonicalChainDirection(edges []BoundaryEdge) []BoundaryEdge {
 // edge's Reversed flag flips and its polyline runs backwards. TStart/TEnd,
 // TExact and Whole are properties of the source's NATURAL direction, so they are
 // untouched — that is exactly what Reversed carries the walk order for.
-func reverseChain(edges []BoundaryEdge) []BoundaryEdge {
-	out := make([]BoundaryEdge, 0, len(edges))
+func reverseChain(edges []BoundaryEdge, budget *arrangeBudget) []BoundaryEdge {
+	budget.reserve(uint64(len(edges)))
+	out := make([]BoundaryEdge, 0, budget.preflight(len(edges)))
 	for i := len(edges) - 1; i >= 0; i-- {
+		budget.step(1)
 		e := edges[i]
 		e.Reversed = !e.Reversed
 		e.crossStart, e.crossEnd = e.crossEnd, e.crossStart
 		e.circleStart, e.circleEnd = e.circleEnd, e.circleStart
-		pl := make([][2]float64, len(e.Polyline))
+		pl := make([][2]float64, budget.preflight(len(e.Polyline)))
 		for k, p := range e.Polyline {
+			budget.step(1)
 			pl[len(pl)-1-k] = p
 		}
 		e.Polyline = pl
-		out = append(out, e)
+		out = chargedAppend(budget, out, e)
 	}
 	return out
 }
 
 // chainDense concatenates the walk's polylines into one, dropping the duplicated
 // joint between consecutive edges.
-func chainDense(edges []BoundaryEdge) [][2]float64 {
+func chainDense(edges []BoundaryEdge, budget *arrangeBudget) [][2]float64 {
 	var dense [][2]float64
 	for i, e := range edges {
-		if i > 0 && len(e.Polyline) > 0 {
-			dense = append(dense, e.Polyline[1:]...)
+		budget.step(1)
+		if budget != nil {
+			start := 0
+			if i > 0 && len(e.Polyline) > 0 {
+				start = 1
+			}
+			for _, p := range e.Polyline[start:] {
+				budget.step(1)
+				dense = chargedAppend(budget, dense, p)
+			}
 			continue
 		}
-		dense = append(dense, e.Polyline...)
+		if i > 0 && len(e.Polyline) > 0 {
+			dense = chargedAppend(budget, dense, e.Polyline[1:]...)
+			continue
+		}
+		dense = chargedAppend(budget, dense, e.Polyline...)
 	}
 	return dense
 }
@@ -289,8 +322,9 @@ func ptLess(a, b [2]float64) bool {
 	return a[1] < b[1]
 }
 
-func polylineLess(a, b [][2]float64) bool {
+func polylineLess(a, b [][2]float64, budget *arrangeBudget) bool {
 	for i := 0; i < len(a) && i < len(b); i++ {
+		budget.step(1)
 		if a[i] != b[i] {
 			return ptLess(a[i], b[i])
 		}
@@ -314,8 +348,8 @@ func polylineLess(a, b [][2]float64) bool {
 // carry identity beyond the coordinates handed in here, and which needs a total
 // order, settles that tie itself over the chains this returns;
 // sketch.Sketch.Chains does, on everything its own chains publish.
-func chainLess(x, y *Chain) bool {
-	xd, yd := chainDense(x.Edges), chainDense(y.Edges)
+func chainLess(x, y *Chain, budget *arrangeBudget) bool {
+	xd, yd := chainDense(x.Edges, budget), chainDense(y.Edges, budget)
 	if len(xd) == 0 || len(yd) == 0 {
 		return len(xd) < len(yd)
 	}
@@ -325,7 +359,7 @@ func chainLess(x, y *Chain) bool {
 	if xe, ye := xd[len(xd)-1], yd[len(yd)-1]; xe != ye {
 		return ptLess(xe, ye)
 	}
-	return polylineLess(xd, yd)
+	return polylineLess(xd, yd, budget)
 }
 
 // chainSelfIntersects reports whether the chain's own emitted polyline crosses
@@ -343,19 +377,22 @@ func chainLess(x, y *Chain) bool {
 // contact closer than that is one the map would have welded had it been between
 // two boundaries; a crossing is decided by orientation sign, with no tolerance.
 func (a *arranger) chainSelfIntersects(edges []BoundaryEdge) bool {
-	p := chainDense(edges)
+	p := chainDense(edges, a.budget)
 	// Consecutive segments always meet at their shared joint, so they are asked a
 	// narrower question: does the walk turn back ALONG the segment it arrived on?
 	// A hairpin that retraces its own path covers the same ground twice, which is
 	// the self-touch a sweep cannot use; an ordinary corner, however sharp, does
 	// not and is left alone.
 	for i := 0; i+2 < len(p); i++ {
+		a.budget.step(1)
 		if chordsRetrace(p[i], p[i+1], p[i+2]) {
 			return true
 		}
 	}
 	for i := 0; i+1 < len(p); i++ {
+		a.budget.step(1)
 		for j := i + 2; j+1 < len(p); j++ {
+			a.budget.step(1)
 			if !segBoxesTouch(p[i], p[i+1], p[j], p[j+1], a.merge) {
 				continue
 			}

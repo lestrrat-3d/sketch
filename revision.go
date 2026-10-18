@@ -46,6 +46,13 @@ import (
 // [Sketch.Profiles] on the same sketch, and observing a sketch never invalidates
 // a [Profile] built from it.
 func (s *Sketch) Revision() uint64 {
+	rev, _ := s.revisionWithCharge(nil)
+	return rev
+}
+
+// revisionWithCharge preserves Revision's byte stream while letting the
+// line-only profile entry check cancellation during its bounded state scan.
+func (s *Sketch) revisionWithCharge(take func(uint64) error) (uint64, error) {
 	h := fnv.New64a()
 	var buf [8]byte
 	write := func(u uint64) {
@@ -62,6 +69,11 @@ func (s *Sketch) Revision() uint64 {
 	// separately below, in entityStructuralState.
 	write(uint64(len(s.vars)))
 	for _, v := range s.vars {
+		if take != nil {
+			if err := take(1); err != nil {
+				return 0, err
+			}
+		}
 		write(math.Float64bits(v))
 	}
 
@@ -96,9 +108,19 @@ func (s *Sketch) Revision() uint64 {
 	// sketch's var vector or under a renumbered id. Hashing p.id alone made such a
 	// rewire invisible — the profiles changed while the revision did not, so a stale
 	// Profile read fresh.
+	if take != nil {
+		if err := take(uint64(len(s.points) + 1)); err != nil {
+			return 0, err
+		}
+	}
 	seq := make(map[*Point]uint64)
 	write(uint64(len(s.ents)))
 	for _, e := range s.ents {
+		if take != nil {
+			if err := take(1); err != nil {
+				return 0, err
+			}
+		}
 		// The entity's INSTANCE IDENTITY, not its positional id: a Profile hands
 		// out live entity handles (Profile.Entities, BoundaryEdge.Entity), so the
 		// revision must cover WHICH INSTANCES those handles are, not merely what
@@ -121,6 +143,11 @@ func (s *Sketch) Revision() uint64 {
 		pts := entityPoints(e)
 		write(uint64(len(pts)))
 		for _, p := range pts {
+			if take != nil {
+				if err := take(1); err != nil {
+					return 0, err
+				}
+			}
 			if p == nil || p.s == nil {
 				// buildProfiles is nil-safe here (the builders reject nil), so the
 				// fingerprint must be too; a distinct sentinel keeps a nil slot from
@@ -140,7 +167,7 @@ func (s *Sketch) Revision() uint64 {
 		}
 		entityStructuralState(e, write, writeFloats)
 	}
-	return h.Sum64()
+	return h.Sum64(), nil
 }
 
 // unstampedUID is hashed for an entity found in s.ents with no instance

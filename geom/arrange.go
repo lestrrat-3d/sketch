@@ -2,6 +2,7 @@ package geom
 
 import (
 	"cmp"
+	"context"
 	"math"
 	"slices"
 	"sort"
@@ -63,6 +64,51 @@ func Regions(curves []Curve, closed []ClosedCurve, opts ...Option) *Arrangement 
 	a.certifyLineCircleCrossings()
 	a.buildGraph()
 	return a.extract()
+}
+
+// RegionsLinesBounded arranges at most 64 finite line sources. The charge
+// callback accounts for work before it begins. A failed call returns no
+// arrangement; the callback's error is returned unchanged.
+func RegionsLinesBounded(ctx context.Context, curves []Curve, charge func(uint64) error) (out *Arrangement, err error) {
+	if ctx == nil || charge == nil {
+		return nil, ErrUnsupportedLineScene
+	}
+	if len(curves) > 64 {
+		return nil, ErrUnsupportedLineScene
+	}
+	b := &arrangeBudget{contextErr: ctx.Err, charge: charge}
+	defer func() {
+		if v := recover(); v != nil {
+			if abort, ok := v.(arrangeAbort); ok {
+				out, err = nil, abort.err
+				return
+			}
+			panic(v)
+		}
+	}()
+	for _, c := range curves {
+		b.step(1)
+		line, ok := c.(*Line)
+		if !ok || line == nil || line.Start == nil || line.End == nil ||
+			!finitePt([2]float64{line.Start.X, line.Start.Y}) ||
+			!finitePt([2]float64{line.End.X, line.End.Y}) {
+			return nil, ErrUnsupportedLineScene
+		}
+	}
+	a := newArrangerWithBudget(curves, nil, arrangeConfig{}, b)
+	a.densify()
+	a.intersect()
+	a.nearMissGuard()
+	a.split()
+	a.certifyLineLineCrossings()
+	a.certifyLineCircleCrossings()
+	a.prune()
+	a.certifyLineLineCrossings()
+	a.certifyLineCircleCrossings()
+	a.buildGraph()
+	out = a.extract()
+	b.step(1)
+	return out, nil
 }
 
 // Option configures Regions.
@@ -253,6 +299,7 @@ type cut struct {
 
 // arranger holds the working state of one Regions call.
 type arranger struct {
+	budget  *arrangeBudget
 	sources []source
 	segs    []tinySeg
 	// segDev is the PROVEN upper bound, per tiny segment, on how far its source
@@ -490,14 +537,19 @@ type arrEdge struct {
 }
 
 func newArranger(curves []Curve, closed []ClosedCurve, cfg arrangeConfig) *arranger {
-	a := &arranger{cfg: cfg, selfXc: map[int]struct{}{}}
-	a.sources = make([]source, 0, len(curves)+len(closed))
+	return newArrangerWithBudget(curves, closed, cfg, nil)
+}
+
+func newArrangerWithBudget(curves []Curve, closed []ClosedCurve, cfg arrangeConfig, budget *arrangeBudget) *arranger {
+	a := &arranger{cfg: cfg, selfXc: map[int]struct{}{}, budget: budget}
+	a.sources = make([]source, 0, a.budget.preflight(len(curves)+len(closed)))
 
 	// Safe endpoints per curve (handles a typed-nil Curve or nil endpoints
 	// without dereferencing). ok=false marks an unusable curve.
-	ends := make([][2]*Point, len(curves))
-	endsOK := make([]bool, len(curves))
+	ends := make([][2]*Point, a.budget.preflight(len(curves)))
+	endsOK := make([]bool, a.budget.preflight(len(curves)))
 	for i, c := range curves {
+		a.budget.step(1)
 		p, q, ok := safeEndpoints(c)
 		ends[i] = [2]*Point{p, q}
 		endsOK[i] = ok && p != nil && q != nil
@@ -507,13 +559,16 @@ func newArranger(curves []Curve, closed []ClosedCurve, cfg arrangeConfig) *arran
 	// degree-1 endpoint (dangling spurs and trees). Self-intersection and the
 	// simple-loop test are judged on this core, so a bowtie with a spur attached
 	// is still recognised as a self-crossing loop once the spur is pruned.
-	core := make([]bool, len(curves))
+	core := make([]bool, a.budget.preflight(len(curves)))
 	for i := range curves {
+		a.budget.step(1)
 		core[i] = endsOK[i]
 	}
 	for {
+		a.budget.step(1)
 		deg := map[*Point]int{}
 		for i := range curves {
+			a.budget.step(1)
 			if !core[i] {
 				continue
 			}
@@ -522,6 +577,7 @@ func newArranger(curves []Curve, closed []ClosedCurve, cfg arrangeConfig) *arran
 		}
 		changed := false
 		for i := range curves {
+			a.budget.step(1)
 			if core[i] && (deg[ends[i][0]] <= 1 || deg[ends[i][1]] <= 1) {
 				core[i] = false
 				changed = true
@@ -537,10 +593,12 @@ func newArranger(curves []Curve, closed []ClosedCurve, cfg arrangeConfig) *arran
 	coreDeg := map[*Point]int{}
 	endpoint := map[*Point]int{}
 	for i := range curves {
+		a.budget.step(1)
 		if !core[i] {
 			continue
 		}
 		for _, e := range ends[i] {
+			a.budget.step(1)
 			coreDeg[e]++
 			if j, ok := endpoint[e]; ok {
 				uf.union(i, j)
@@ -552,6 +610,7 @@ func newArranger(curves []Curve, closed []ClosedCurve, cfg arrangeConfig) *arran
 	// A core component is a simple loop unless one of its vertices has degree != 2.
 	notSimple := map[int]struct{}{}
 	for i := range curves {
+		a.budget.step(1)
 		if !core[i] {
 			continue
 		}
@@ -561,9 +620,10 @@ func newArranger(curves []Curve, closed []ClosedCurve, cfg arrangeConfig) *arran
 	}
 	a.notSimple = notSimple
 	total := len(curves) + len(closed)
-	a.core = make([]bool, total)
-	a.comp = make([]int, total)
+	a.core = make([]bool, a.budget.preflight(total))
+	a.comp = make([]int, a.budget.preflight(total))
 	for i := range curves {
+		a.budget.step(1)
 		a.core[i] = core[i]
 		if core[i] {
 			a.comp[i] = uf.find(i)
@@ -573,6 +633,7 @@ func newArranger(curves []Curve, closed []ClosedCurve, cfg arrangeConfig) *arran
 	}
 
 	for _, c := range curves {
+		a.budget.step(1)
 		s := source{}
 		switch t := c.(type) {
 		case *Line:
@@ -707,10 +768,11 @@ func newArranger(curves []Curve, closed []ClosedCurve, cfg arrangeConfig) *arran
 			a.flagDegenerate(0, 0) // unknown Curve implementation
 			s.kind = srcDegenerate
 		}
-		a.sources = append(a.sources, s)
+		a.sources = chargedAppend(a.budget, a.sources, s)
 	}
 	base := len(curves)
 	for k, cc := range closed {
+		a.budget.step(1)
 		s := source{closed: true}
 		a.core[base+k] = true
 		a.comp[base+k] = base + k // each closed curve is its own component
@@ -758,12 +820,13 @@ func newArranger(curves []Curve, closed []ClosedCurve, cfg arrangeConfig) *arran
 			a.flagDegenerate(0, 0) // unsupported ClosedCurve implementation
 			s.kind = srcDegenerate
 		}
-		a.sources = append(a.sources, s)
+		a.sources = chargedAppend(a.budget, a.sources, s)
 	}
 	// Default whole-scene gate. A later narrow certificate can admit the
 	// bounded fit-spline/circle scene after sampling and pair checks.
 	a.exactAllowed = true
 	for i := range a.sources {
+		a.budget.step(1)
 		if !analyticKind(a.sources[i].kind) {
 			a.exactAllowed = false
 			break
@@ -1006,7 +1069,7 @@ type degenRecord struct {
 // unusable input curve, contributing no edge at all) wants and nothing else does.
 func (a *arranger) flagDegenerate(x, y float64, srcs ...int) {
 	a.degenSet = true
-	a.degen = append(a.degen, degenRecord{x: x, y: y, srcs: srcs})
+	a.degen = chargedAppend(a.budget, a.degen, degenRecord{x: x, y: y, srcs: srcs})
 }
 
 // densify samples each source into tiny segments and computes the scene scale,
@@ -1024,6 +1087,7 @@ func (a *arranger) densify() {
 		sMinY, sMaxY = math.Min(sMinY, p[1]), math.Max(sMaxY, p[1])
 	}
 	for si := range a.sources {
+		a.budget.step(1)
 		s := &a.sources[si]
 		if s.kind == srcDegenerate {
 			continue
@@ -1055,9 +1119,10 @@ func (a *arranger) densify() {
 		// so it is the only place a stored-value check (a NaN interior knot, a NaN
 		// control point) cannot reach. A dropped source never reaches note(), so the
 		// scene bounding box below is accumulated from finite samples only.
-		pts := make([][2]float64, last+1)
+		pts := make([][2]float64, a.budget.preflight(last+1))
 		bad := false
 		for i := 0; i <= last; i++ {
+			a.budget.step(1)
 			pts[i] = atParam(i)
 			if !finitePt(pts[i]) {
 				bad = true
@@ -1075,9 +1140,10 @@ func (a *arranger) densify() {
 		prev := atParam(0)
 		note(prev)
 		for i := 1; i <= last; i++ {
+			a.budget.step(1)
 			cur := atParam(i)
 			note(cur)
-			a.segs = append(a.segs, tinySeg{
+			a.segs = chargedAppend(a.budget, a.segs, tinySeg{
 				src: si, pa: params[i-1], pb: params[i],
 				ax: prev[0], ay: prev[1], bx: cur[0], by: cur[1],
 			})
@@ -1085,7 +1151,7 @@ func (a *arranger) densify() {
 			if !ok {
 				dev = math.Inf(1)
 			}
-			a.segDev = append(a.segDev, dev)
+			a.segDev = chargedAppend(a.budget, a.segDev, dev)
 			prev = cur
 		}
 		s.extent = math.Max(sMaxX-sMinX, sMaxY-sMinY)
@@ -1114,6 +1180,7 @@ func (a *arranger) densify() {
 		a.merge = a.scale * 1e-7
 	}
 	a.verts = newVertexTable(a.merge)
+	a.verts.budget = a.budget
 }
 
 // sampleParams returns the natural parameters at which to sample a source.
@@ -1143,8 +1210,9 @@ func (a *arranger) sampleParams(s *source) []float64 {
 		if a.cfg.segsPerTurn > n {
 			n = a.cfg.segsPerTurn
 		}
-		out := make([]float64, n+1)
+		out := make([]float64, a.budget.preflight(n+1))
 		for i := 0; i <= n; i++ {
+			a.budget.step(1)
 			out[i] = float64(i) / float64(n)
 		}
 		return out
@@ -1164,8 +1232,9 @@ func (a *arranger) sampleParams(s *source) []float64 {
 		if n < 2 {
 			n = 2
 		}
-		out := make([]float64, n+1)
+		out := make([]float64, a.budget.preflight(n+1))
 		for i := 0; i <= n; i++ {
+			a.budget.step(1)
 			out[i] = float64(i) / float64(n)
 		}
 		return out
@@ -1185,7 +1254,9 @@ func (a *arranger) intersect() {
 	a.analyticPrepass()
 	cand := a.candidatePairs()
 	for i := range a.segs {
+		a.budget.step(1)
 		for _, j := range cand[i] {
+			a.budget.step(1)
 			si, sj := &a.segs[i], &a.segs[j]
 			if si.src != sj.src {
 				// The planar map canonicalizes vertices by DISTANCE (a.merge), while the
@@ -1272,12 +1343,12 @@ func (a *arranger) intersect() {
 			// no new cut record — the vertex already exists — but the boundary's
 			// parameter there must still read as sampled (see taintSampledVertex).
 			if interiorI {
-				si.cuts = append(si.cuts, cut{t: p.ti, px: p.x, py: p.y, exact: false})
+				si.cuts = chargedAppend(a.budget, si.cuts, cut{t: p.ti, px: p.x, py: p.y, exact: false})
 			} else {
 				a.taintSampledVertex(si.src, si.pa+p.ti*(si.pb-si.pa))
 			}
 			if interiorJ {
-				sj.cuts = append(sj.cuts, cut{t: p.tj, px: p.x, py: p.y, exact: false})
+				sj.cuts = chargedAppend(a.budget, sj.cuts, cut{t: p.tj, px: p.x, py: p.y, exact: false})
 			} else {
 				a.taintSampledVertex(sj.src, sj.pa+p.tj*(sj.pb-sj.pa))
 			}
@@ -1292,7 +1363,7 @@ func (a *arranger) intersect() {
 				ci, cj := a.comp[si0], a.comp[sj0]
 				if _, ns := a.notSimple[ci]; ci == cj && !ns {
 					a.selfXc[ci] = struct{}{}
-					a.selfX = append(a.selfX, [2]float64{p.x, p.y})
+					a.selfX = chargedAppend(a.budget, a.selfX, [2]float64{p.x, p.y})
 				}
 			}
 		}
@@ -1320,16 +1391,19 @@ func (a *arranger) analyticPrepass() {
 	a.events = make(map[[2]int][]xEvent)
 	a.deferredCross = make(map[[2]int][]xEvent)
 	a.sampledContacts = make(map[[2]int][][2]float64)
-	a.sourceSegs = make([][]int, len(a.sources))
+	a.sourceSegs = make([][]int, a.budget.preflight(len(a.sources)))
 	for i := range a.segs {
-		a.sourceSegs[a.segs[i].src] = append(a.sourceSegs[a.segs[i].src], i)
+		a.budget.step(1)
+		a.sourceSegs[a.segs[i].src] = chargedAppend(a.budget, a.sourceSegs[a.segs[i].src], i)
 	}
 	for i := 0; i < len(a.sources); i++ {
+		a.budget.step(1)
 		si := &a.sources[i]
 		if !analyticKind(si.kind) {
 			continue
 		}
 		for j := i + 1; j < len(a.sources); j++ {
+			a.budget.step(1)
 			sj := &a.sources[j]
 			if !analyticKind(sj.kind) {
 				continue
@@ -1340,6 +1414,7 @@ func (a *arranger) analyticPrepass() {
 			}
 			nCross, nTangent := 0, 0
 			for _, e := range events {
+				a.budget.step(1)
 				if e.kind == evCross {
 					nCross++
 				}
@@ -1389,8 +1464,9 @@ func (a *arranger) analyticPrepass() {
 				}
 				var crossings []xEvent
 				for _, e := range events {
+					a.budget.step(1)
 					if e.kind == evCross {
-						crossings = append(crossings, e)
+						crossings = chargedAppend(a.budget, crossings, e)
 					}
 				}
 				a.deferredCross[pairKey(i, j)] = crossings
@@ -1441,6 +1517,7 @@ func (a *arranger) analyticPrepass() {
 				a.flagDegenerate((rx+sx)/2, (ry+sy)/2, i, j)
 			}
 			for _, e := range events {
+				a.budget.step(1)
 				switch e.kind {
 				case evOverlap:
 					// A certified, single-window, at-least-one-arc coincidence, or a
@@ -1515,7 +1592,7 @@ func (a *arranger) analyticPrepass() {
 							// the loops separate (external → two disks; internal → the outer
 							// cycle and the inner cycle, which exact hole assignment nests
 							// into an annulus + inner disk).
-							a.exactPortVerts = append(a.exactPortVerts, [2]float64{e.x, e.y})
+							a.exactPortVerts = chargedAppend(a.budget, a.exactPortVerts, [2]float64{e.x, e.y})
 						default:
 							a.flagDegenerate(e.x, e.y, i, j)
 						}
@@ -1622,7 +1699,9 @@ func (a *arranger) sampledCrossingsExplained(i, j int, events []xEvent) bool {
 	}
 	boxes := a.segBoxCache()
 	for _, ii := range a.sourceSegs[i] {
+		a.budget.step(1)
 		for _, jj := range a.sourceSegs[j] {
+			a.budget.step(1)
 			if !boxesOverlap(boxes[ii], boxes[jj]) {
 				continue
 			}
@@ -1639,6 +1718,7 @@ func (a *arranger) sampledCrossingsExplained(i, j int, events []xEvent) bool {
 			}
 			explained := false
 			for _, e := range events {
+				a.budget.step(1)
 				if math.Hypot(e.x-p.x, e.y-p.y) <= tol {
 					explained = true
 					break
@@ -1677,11 +1757,13 @@ func (a *arranger) segLen(si int) float64 {
 // resolution.
 func (a *arranger) contactsResolved(i, j int, events []xEvent) bool {
 	for _, src := range [2]int{i, j} {
+		a.budget.step(1)
 		if !isCurvedKind(a.sources[src].kind) {
 			continue
 		}
 		seen := map[int]struct{}{}
 		for _, e := range events {
+			a.budget.step(1)
 			t := e.ti
 			if src == j {
 				t = e.tj
@@ -1729,6 +1811,7 @@ func (a *arranger) segsCrossInteriorAt(ii, jj int) (segHit, bool) {
 // segment wraps it.
 func (a *arranger) segContaining(src int, t float64) int {
 	for _, si := range a.sourceSegs[src] {
+		a.budget.step(1)
 		s := &a.segs[si]
 		lo, hi := s.pa, s.pb
 		if hi < lo {
@@ -1752,6 +1835,7 @@ func (a *arranger) segContaining(src int, t float64) int {
 // not themselves cross means the sampling is too coarse to host it.
 func (a *arranger) analyticCrossHosted(i, j int, events []xEvent) bool {
 	for _, e := range events {
+		a.budget.step(1)
 		if e.kind != evCross {
 			continue
 		}
@@ -1826,12 +1910,13 @@ func (a *arranger) analyticCrossingsCertified(i, j int, events []xEvent) bool {
 	var ti, tj []float64
 	var pts [][2]float64
 	for _, e := range events {
+		a.budget.step(1)
 		if e.kind != evCross {
 			continue
 		}
-		ti = append(ti, e.ti)
-		tj = append(tj, e.tj)
-		pts = append(pts, [2]float64{e.x, e.y})
+		ti = chargedAppend(a.budget, ti, e.ti)
+		tj = chargedAppend(a.budget, tj, e.tj)
+		pts = chargedAppend(a.budget, pts, [2]float64{e.x, e.y})
 	}
 	if len(pts) == 0 {
 		return true
@@ -1845,6 +1930,7 @@ func (a *arranger) analyticCrossingsCertified(i, j int, events []xEvent) bool {
 		return false
 	}
 	for k := range pts {
+		a.budget.step(1)
 		if !a.contactIsVertex(pi, ci[k], pts[k]) || !a.contactIsVertex(pj, cj[k], pts[k]) {
 			return false
 		}
@@ -1917,7 +2003,7 @@ func (a *arranger) noteSampledContact(i, j int, x, y float64) {
 		return
 	}
 	k := pairKey(i, j)
-	a.sampledContacts[k] = append(a.sampledContacts[k], [2]float64{x, y})
+	a.sampledContacts[k] = chargedAppend(a.budget, a.sampledContacts[k], [2]float64{x, y})
 }
 
 // refuseExactOnFusedMap withdraws exact authority from every source of a connected
@@ -1960,20 +2046,25 @@ func (a *arranger) refuseExactOnFusedMap() {
 	}
 	uf := newUnionFind(len(a.sources))
 	for k, evs := range a.events {
+		a.budget.step(1)
 		if len(evs) == 0 {
 			continue // classified and found not to meet — no contact, no component edge
 		}
 		uf.union(k[0], k[1])
 	}
 	for k := range a.deferredCross {
+		a.budget.step(1)
 		uf.union(k[0], k[1])
 	}
 	for k := range a.sampledContacts {
+		a.budget.step(1)
 		uf.union(k[0], k[1])
 	}
 	fused := map[int]struct{}{}
 	for k, evs := range a.deferredCross {
+		a.budget.step(1)
 		for _, e := range evs {
+			a.budget.step(1)
 			if a.sampledRepresents(k[0], k[1], e) {
 				continue
 			}
@@ -1984,8 +2075,9 @@ func (a *arranger) refuseExactOnFusedMap() {
 	if len(fused) == 0 {
 		return
 	}
-	a.exactRefused = make([]bool, len(a.sources))
+	a.exactRefused = make([]bool, a.budget.preflight(len(a.sources)))
 	for s := range a.sources {
+		a.budget.step(1)
 		if _, bad := fused[uf.find(s)]; bad {
 			a.exactRefused[s] = true
 		}
@@ -2011,6 +2103,7 @@ func (a *arranger) sampledRepresents(i, j int, e xEvent) bool {
 		tol = math.Max(tol, a.segLen(sj))
 	}
 	for _, p := range a.sampledContacts[pairKey(i, j)] {
+		a.budget.step(1)
 		if math.Hypot(p[0]-e.x, p[1]-e.y) <= tol {
 			return true
 		}
@@ -2043,46 +2136,53 @@ func (a *arranger) postCutPolyline(src int, ts []float64, pts [][2]float64) ([][
 		atVtx bool    // the sampled map already carries a vertex here
 		k     int     // index into the caller's contact list
 	}
-	pos := make(map[int]int, len(segs))
+	pos := make(map[int]int, a.budget.preflight(len(segs)))
 	for n, si := range segs {
+		a.budget.step(1)
 		pos[si] = n
 	}
-	sites := make([]site, 0, len(ts))
+	sites := make([]site, 0, a.budget.preflight(len(ts)))
 	for k, t := range ts {
+		a.budget.step(1)
 		seg, local, atVtx := a.cutSite(src, t)
 		n, ok := pos[seg]
 		if seg < 0 || !ok {
 			return nil, nil
 		}
-		sites = append(sites, site{seg: seg, pos: n, local: local, atVtx: atVtx, k: k})
+		sites = chargedAppend(a.budget, sites, site{seg: seg, pos: n, local: local, atVtx: atVtx, k: k})
 	}
+	a.budget.reserveSort(len(sites))
 	sort.Slice(sites, func(x, y int) bool {
+		a.budget.step(1)
 		if sites[x].pos != sites[y].pos {
 			return sites[x].pos < sites[y].pos
 		}
 		return sites[x].local < sites[y].local
 	})
-	out := make([][2]float64, 0, len(segs)+1+len(sites))
-	at := make([]int, len(ts))
-	segStart := make([]int, len(segs))
+	out := make([][2]float64, 0, a.budget.preflight(len(segs)+1+len(sites)))
+	at := make([]int, a.budget.preflight(len(ts)))
+	segStart := make([]int, a.budget.preflight(len(segs)))
 	for n, si := range segs {
+		a.budget.step(1)
 		s := &a.segs[si]
 		segStart[n] = len(out)
-		out = append(out, [2]float64{s.ax, s.ay})
+		out = chargedAppend(a.budget, out, [2]float64{s.ax, s.ay})
 		for _, c := range sites {
+			a.budget.step(1)
 			if c.pos == n && !c.atVtx {
-				out = append(out, pts[c.k])
+				out = chargedAppend(a.budget, out, pts[c.k])
 				at[c.k] = len(out) - 1
 			}
 		}
 	}
 	end := &a.segs[segs[len(segs)-1]]
 	lastIdx := len(out)
-	out = append(out, [2]float64{end.bx, end.by})
+	out = chargedAppend(a.budget, out, [2]float64{end.bx, end.by})
 	// A contact already carrying a vertex maps to it: the segment's own start when
 	// its local parameter sits at 0, else the vertex that begins the next segment
 	// (the last segment's end being the polyline's own end).
 	for _, c := range sites {
+		a.budget.step(1)
 		if !c.atVtx {
 			continue
 		}
@@ -2326,6 +2426,7 @@ func (a *arranger) cutSite(src int, t float64) (int, float64, bool) {
 		return si, segLocal(&a.segs[si], t), true
 	}
 	for _, si := range a.sourceSegs[src] {
+		a.budget.step(1)
 		s := &a.segs[si]
 		lo, hi := s.pa, s.pb
 		if hi < lo {
@@ -2366,7 +2467,7 @@ func (a *arranger) applyAnalyticCutCross(src int, t, x, y float64,
 	if si < 0 || atVertex {
 		return
 	}
-	a.segs[si].cuts = append(a.segs[si].cuts, cut{
+	a.segs[si].cuts = chargedAppend(a.budget, a.segs[si].cuts, cut{
 		t: local, px: x, py: y, exact: true, cross: cross, circleCross: circleCross,
 	})
 }
@@ -2404,8 +2505,8 @@ func (a *arranger) resolveCoincidentOverlap(i, j int, e xEvent) {
 	if a.sources[j].kind == srcLine {
 		win = paramWindow{lo: math.Min(ov.loTj, ov.hiTj), hi: math.Max(ov.loTj, ov.hiTj)}
 	}
-	a.suppressed[j] = append(a.suppressed[j], len(a.overlaps))
-	a.overlaps = append(a.overlaps, coincidentOverlap{
+	a.suppressed[j] = chargedAppend(a.budget, a.suppressed[j], len(a.overlaps))
+	a.overlaps = chargedAppend(a.budget, a.overlaps, coincidentOverlap{
 		named: i, losing: j,
 		loX: ov.loX, loY: ov.loY, hiX: ov.hiX, hiY: ov.hiY,
 		repX: e.x, repY: e.y,
@@ -2445,8 +2546,9 @@ func (a *arranger) certifySuppression(frags []splitFrag) {
 	if len(a.overlaps) == 0 {
 		return
 	}
-	bounds := make([]map[int]struct{}, len(a.sources))
+	bounds := make([]map[int]struct{}, a.budget.preflight(len(a.sources)))
 	for _, f := range frags {
+		a.budget.step(1)
 		src := a.segs[f.seg].src
 		if bounds[src] == nil {
 			bounds[src] = map[int]struct{}{}
@@ -2455,6 +2557,7 @@ func (a *arranger) certifySuppression(frags []splitFrag) {
 		bounds[src][f.v] = struct{}{}
 	}
 	for k := range a.overlaps {
+		a.budget.step(1)
 		o := &a.overlaps[k]
 		vLoN, okLoN := a.boundVertexAt(bounds[o.named], o.loX, o.loY)
 		vHiN, okHiN := a.boundVertexAt(bounds[o.named], o.hiX, o.hiY)
@@ -2485,6 +2588,7 @@ func (a *arranger) certifySuppression(frags []splitFrag) {
 func (a *arranger) boundVertexAt(verts map[int]struct{}, x, y float64) (int, bool) {
 	best, bestD := -1, math.Inf(1)
 	for v := range verts {
+		a.budget.step(1)
 		vx, vy := a.verts.coord(v)
 		d := math.Hypot(vx-x, vy-y)
 		if d > a.merge {
@@ -2516,6 +2620,7 @@ func (a *arranger) fragmentSuppressed(src int, p0, p1 float64) bool {
 	s := &a.sources[src]
 	mid := (p0 + p1) / 2
 	for _, k := range ks {
+		a.budget.step(1)
 		if !a.overlaps[k].refused && a.overlaps[k].win.covers(s, mid) {
 			return true
 		}
@@ -2607,7 +2712,9 @@ func (a *arranger) auditMergedEndpoints(si, sj *tinySeg) {
 // made exact, whenever an overlap boundary happened to weld onto a sample vertex.
 func (a *arranger) eventExplains(events []xEvent, m mergedEnd) bool {
 	for _, e := range events {
+		a.budget.step(1)
 		for _, p := range eventContacts(e) {
+			a.budget.step(1)
 			if math.Hypot(p[0]-m.xi, p[1]-m.yi) <= a.merge && math.Hypot(p[0]-m.xj, p[1]-m.yj) <= a.merge {
 				return true
 			}
@@ -2659,7 +2766,9 @@ func (a *arranger) forEachMergedEnd(si, sj *tinySeg, fn func(mergedEnd)) {
 	iEnds := [2]end{{si.ax, si.ay, si.pa}, {si.bx, si.by, si.pb}}
 	jEnds := [2]end{{sj.ax, sj.ay, sj.pa}, {sj.bx, sj.by, sj.pb}}
 	for _, ei := range iEnds {
+		a.budget.step(1)
 		for _, ej := range jEnds {
+			a.budget.step(1)
 			if math.Hypot(ei.x-ej.x, ei.y-ej.y) > a.merge {
 				continue
 			}
@@ -2719,6 +2828,7 @@ func (a *arranger) taintSampledVertex(src int, t float64) {
 // boundary.
 func (a *arranger) taintSegBoundary(src int, t float64) {
 	for _, si := range a.sourceSegs[src] {
+		a.budget.step(1)
 		s := &a.segs[si]
 		lo, hi := s.pa, s.pb
 		if hi < lo {
@@ -2729,9 +2839,9 @@ func (a *arranger) taintSegBoundary(src int, t float64) {
 		}
 		switch local := (t - s.pa) / (s.pb - s.pa); {
 		case local <= segEps:
-			s.cuts = append(s.cuts, cut{t: 0, px: s.ax, py: s.ay, exact: false})
+			s.cuts = chargedAppend(a.budget, s.cuts, cut{t: 0, px: s.ax, py: s.ay, exact: false})
 		case local >= 1-segEps:
-			s.cuts = append(s.cuts, cut{t: 1, px: s.bx, py: s.by, exact: false})
+			s.cuts = chargedAppend(a.budget, s.cuts, cut{t: 1, px: s.bx, py: s.by, exact: false})
 		}
 	}
 }
@@ -2764,7 +2874,7 @@ func (a *arranger) analyticSelfX(i, j int, x, y float64) {
 		return
 	}
 	a.selfXc[ci] = struct{}{}
-	a.selfX = append(a.selfX, [2]float64{x, y})
+	a.selfX = chargedAppend(a.budget, a.selfX, [2]float64{x, y})
 }
 
 // sourceHasVertexNear reports whether source src has a sampled vertex within the
@@ -2772,6 +2882,7 @@ func (a *arranger) analyticSelfX(i, j int, x, y float64) {
 // existing vertex of that source.
 func (a *arranger) sourceHasVertexNear(src int, x, y float64) bool {
 	for _, si := range a.sourceSegs[src] {
+		a.budget.step(1)
 		s := &a.segs[si]
 		if math.Hypot(s.ax-x, s.ay-y) <= a.merge || math.Hypot(s.bx-x, s.by-y) <= a.merge {
 			return true
@@ -2895,6 +3006,7 @@ func (a *arranger) split() {
 	frags := a.splitFragments()
 	a.certifySuppression(frags)
 	for _, f := range frags {
+		a.budget.step(1)
 		s := &a.segs[f.seg]
 		// A fragment inside a resolved coincident-carrier overlap's suppression
 		// window belongs to the LOSING source (see resolveCoincidentOverlap): the
@@ -2937,7 +3049,7 @@ func (a *arranger) split() {
 		}
 		exactU := !refused && f.b0.exact && a.vertexCertifies(&a.sources[s.src], f.u, f.b0.px, f.b0.py)
 		exactV := !refused && f.b1.exact && a.vertexCertifies(&a.sources[s.src], f.v, f.b1.px, f.b1.py)
-		a.edges = append(a.edges, arrEdge{u: f.u, v: f.v, src: s.src,
+		a.edges = chargedAppend(a.budget, a.edges, arrEdge{u: f.u, v: f.v, src: s.src,
 			pu: s.param(f.b0.t), pv: s.param(f.b1.t),
 			exactU: exactU, exactV: exactV,
 			endU: f.b0.srcEnd, endV: f.b1.srcEnd,
@@ -2982,12 +3094,14 @@ func (a *arranger) split() {
 // boundVertexAt's reject and eventExplains' argument both rest on that bound, and both
 // keep it verbatim.
 func (a *arranger) splitFragments() []splitFrag {
-	bounds := make([][]cut, len(a.segs))
+	bounds := make([][]cut, a.budget.preflight(len(a.segs)))
 	var pts [][2]float64
 	for i := range a.segs {
+		a.budget.step(1)
 		bounds[i] = a.segBoundaries(i)
 		for _, b := range bounds[i] {
-			pts = append(pts, [2]float64{b.px, b.py})
+			a.budget.step(1)
+			pts = chargedAppend(a.budget, pts, [2]float64{b.px, b.py})
 		}
 	}
 	// The sort algorithm is unstable, so anything this comparator leaves tied is
@@ -2995,22 +3109,29 @@ func (a *arranger) splitFragments() []splitFrag {
 	// order it was collected in — the authoring order the pre-pass exists to remove.
 	// The value compare alone does leave one pair tied, so the comparator falls
 	// through to the raw bit patterns (see canonPointCompare).
-	slices.SortFunc(pts, canonPointCompare)
+	a.budget.reserveSort(len(pts))
+	slices.SortFunc(pts, func(p, q [2]float64) int {
+		a.budget.step(1)
+		return canonPointCompare(p, q)
+	})
 	for _, p := range pts {
+		a.budget.step(1)
 		a.verts.canon(p[0], p[1])
 	}
 
 	var frags []splitFrag
 	for i := range a.segs {
+		a.budget.step(1)
 		uniq := bounds[i]
 		for k := 1; k < len(uniq); k++ {
+			a.budget.step(1)
 			b0, b1 := uniq[k-1], uniq[k]
 			u := a.verts.canon(b0.px, b0.py)
 			v := a.verts.canon(b1.px, b1.py)
 			if u == v {
 				continue // collapsed to a point
 			}
-			frags = append(frags, splitFrag{seg: i, b0: b0, b1: b1, u: u, v: v})
+			frags = chargedAppend(a.budget, frags, splitFrag{seg: i, b0: b0, b1: b1, u: u, v: v})
 		}
 	}
 	return frags
@@ -3099,14 +3220,18 @@ func (a *arranger) segBoundaries(i int) []cut {
 		{t: 0, px: s.ax, py: s.ay, exact: a.endpointReproduces(src, s.param(0), s.ax, s.ay), srcEnd: atDomainEnd(s.pa)},
 		{t: 1, px: s.bx, py: s.by, exact: a.endpointReproduces(src, s.param(1), s.bx, s.by), srcEnd: atDomainEnd(s.pb)},
 	}
-	bs = append(bs, s.cuts...)
+	bs = chargedAppend(a.budget, bs, s.cuts...)
 	// An uncut segment's two boundaries are already t=0 then t=1, in order — the
 	// sort would be a no-op, so skip it. Do not replace sort.Slice with a
 	// different algorithm for the cut case below: it is unstable, and the dedup
 	// keeps the FIRST of near-equal parameters, so a different order of equal ts
 	// changes which coordinates survive.
 	if len(s.cuts) > 0 {
-		sort.Slice(bs, func(i, j int) bool { return bs[i].t < bs[j].t })
+		a.budget.reserveSort(len(bs))
+		sort.Slice(bs, func(i, j int) bool {
+			a.budget.step(1)
+			return bs[i].t < bs[j].t
+		})
 	}
 	// dedup near-equal local params (keep the first, which for an analytic cut at
 	// a seg boundary keeps the endpoint's exact point). Exactness and source-end
@@ -3114,10 +3239,11 @@ func (a *arranger) segBoundaries(i int) []cut {
 	// cut is only as trustworthy as that cut, and a domain end a cut lands on is a
 	// cut — so the merge never launders inexact into exact, nor a cut into a
 	// curve's own end.
-	uniq := make([]cut, 0, len(bs))
+	uniq := make([]cut, 0, a.budget.preflight(len(bs)))
 	for _, b := range bs {
+		a.budget.step(1)
 		if len(uniq) == 0 || b.t-uniq[len(uniq)-1].t > segEps {
-			uniq = append(uniq, b)
+			uniq = chargedAppend(a.budget, uniq, b)
 			continue
 		}
 		last := &uniq[len(uniq)-1]
@@ -3237,20 +3363,23 @@ const weldIdentEps = 1e-12
 // using). Nothing else reads a.pruned, so the region pass is unaffected.
 func (a *arranger) prune() {
 	for {
+		a.budget.step(1)
 		deg := map[int]int{}
 		for _, e := range a.edges {
+			a.budget.step(1)
 			deg[e.u]++
 			deg[e.v]++
 		}
 		kept := a.edges[:0:0]
 		removed := false
 		for _, e := range a.edges {
+			a.budget.step(1)
 			if deg[e.u] <= 1 || deg[e.v] <= 1 {
 				removed = true
-				a.pruned = append(a.pruned, e)
+				a.pruned = chargedAppend(a.budget, a.pruned, e)
 				continue
 			}
-			kept = append(kept, e)
+			kept = chargedAppend(a.budget, kept, e)
 		}
 		a.edges = kept
 		if !removed {
@@ -3306,9 +3435,10 @@ const (
 // scaled curvature) is flagged degenerate.
 func (a *arranger) sortExactPorts(v int, ring []int) {
 	n := len(ring)
-	groupAng := make([]float64, n)
-	stamped := make([]bool, n)
+	groupAng := make([]float64, a.budget.preflight(n))
+	stamped := make([]bool, a.budget.preflight(n))
 	for i := 0; i < n; i++ {
+		a.budget.step(1)
 		if stamped[i] {
 			continue
 		}
@@ -3318,6 +3448,7 @@ func (a *arranger) sortExactPorts(v int, ring []int) {
 		stamped[i] = true
 		ni := math.Hypot(hi.tx, hi.ty)
 		for j := i + 1; j < n; j++ {
+			a.budget.step(1)
 			if stamped[j] {
 				continue
 			}
@@ -3330,11 +3461,14 @@ func (a *arranger) sortExactPorts(v int, ring []int) {
 			}
 		}
 	}
-	order := make([]int, n)
+	order := make([]int, a.budget.preflight(n))
 	for i := range order {
+		a.budget.step(1)
 		order[i] = i
 	}
+	a.budget.reserveSort(len(order))
 	sort.SliceStable(order, func(x, y int) bool {
+		a.budget.step(1)
 		px, py := order[x], order[y]
 		if groupAng[px] != groupAng[py] {
 			return groupAng[px] < groupAng[py]
@@ -3345,8 +3479,9 @@ func (a *arranger) sortExactPorts(v int, ring []int) {
 		}
 		return px < py
 	})
-	sorted := make([]int, n)
+	sorted := make([]int, a.budget.preflight(n))
 	for i, oi := range order {
+		a.budget.step(1)
 		sorted[i] = ring[oi]
 	}
 	// Detect osculation on the reordered ring. A genuine osculation has EXACTLY
@@ -3355,6 +3490,7 @@ func (a *arranger) sortExactPorts(v int, ring []int) {
 	// and flag when the scaled curvatures are indistinguishable. (A pair more than the
 	// parallel epsilon apart is not the same ray, hence not an osculation.)
 	for i := 0; i < n; i++ {
+		a.budget.step(1)
 		hi := &a.halfs[sorted[i]]
 		hj := &a.halfs[sorted[(i+1)%n]]
 		dot := hi.tx*hj.tx + hi.ty*hj.ty
@@ -3400,19 +3536,23 @@ func (a *arranger) sortExactPorts(v int, ring []int) {
 // polyline geometry the face walk traverses, so exact tangents must NOT be used.
 func (a *arranger) useExactPorts(v int, ring []int) bool {
 	for _, hi := range ring {
+		a.budget.step(1)
 		if !a.halfs[hi].exact {
 			return false
 		}
 	}
 	vx, vy := a.verts.coord(v)
 	for _, p := range a.exactPortVerts {
+		a.budget.step(1)
 		if math.Hypot(p[0]-vx, p[1]-vy) <= a.merge {
 			return true
 		}
 	}
 	for i := 0; i < len(ring); i++ {
+		a.budget.step(1)
 		hi := &a.halfs[ring[i]]
 		for j := i + 1; j < len(ring); j++ {
+			a.budget.step(1)
 			hj := &a.halfs[ring[j]]
 			if hi.angle != hj.angle {
 				continue
@@ -3498,6 +3638,7 @@ func (a *arranger) externalCurvedTangency(i, j int) bool {
 // tangent rather than a vertex-anchored ray.
 func (a *arranger) certifiedPortVertex(vx, vy float64) bool {
 	for _, p := range a.exactPortVerts {
+		a.budget.step(1)
 		if math.Hypot(p[0]-vx, p[1]-vy) <= a.merge {
 			return true
 		}
@@ -3597,6 +3738,7 @@ func (a *arranger) compareCoincidentStraightEdges(ei, ej arrEdge) int {
 
 	gi, gj := geometry(ei), geometry(ej)
 	for k := range gi {
+		a.budget.step(1)
 		if c := canonPointCompare(gi[k], gj[k]); c != 0 {
 			return -c
 		}
@@ -3630,6 +3772,7 @@ func (a *arranger) dedupCoincidentStraightEdges() *coincidentDedupPlan {
 	groups := map[vpair][]int{}
 	var keys []vpair
 	for i, e := range a.edges {
+		a.budget.step(1)
 		if a.sources[e.src].kind != srcLine {
 			continue
 		}
@@ -3639,9 +3782,9 @@ func (a *arranger) dedupCoincidentStraightEdges() *coincidentDedupPlan {
 		}
 		key := vpair{u, v}
 		if _, ok := groups[key]; !ok {
-			keys = append(keys, key)
+			keys = chargedAppend(a.budget, keys, key)
 		}
-		groups[key] = append(groups[key], i)
+		groups[key] = chargedAppend(a.budget, groups[key], i)
 	}
 	if len(groups) == 0 {
 		return nil
@@ -3654,10 +3797,14 @@ func (a *arranger) dedupCoincidentStraightEdges() *coincidentDedupPlan {
 	// load-bearing.
 	deg := map[int]int{}
 	for _, e := range a.edges {
+		a.budget.step(1)
 		deg[e.u]++
 		deg[e.v]++
 	}
+	a.budget.reserveSort(len(keys))
+	budget := a.budget
 	slices.SortFunc(keys, func(a, b vpair) int {
+		budget.step(1)
 		if c := cmp.Compare(a.u, b.u); c != 0 {
 			return c
 		}
@@ -3666,6 +3813,7 @@ func (a *arranger) dedupCoincidentStraightEdges() *coincidentDedupPlan {
 	var drop map[int]struct{}
 	var collapsed []coincidentStraightGroup
 	for _, k := range keys {
+		a.budget.step(1)
 		idxs := groups[k]
 		if len(idxs) < 2 {
 			continue
@@ -3686,6 +3834,7 @@ func (a *arranger) dedupCoincidentStraightEdges() *coincidentDedupPlan {
 		}
 		keep := idxs[0]
 		for _, i := range idxs[1:] {
+			a.budget.step(1)
 			if a.compareCoincidentStraightEdges(a.edges[i], a.edges[keep]) < 0 {
 				keep = i
 			}
@@ -3694,11 +3843,12 @@ func (a *arranger) dedupCoincidentStraightEdges() *coincidentDedupPlan {
 			drop = make(map[int]struct{})
 		}
 		for _, i := range idxs {
+			a.budget.step(1)
 			if i != keep {
 				drop[i] = struct{}{}
 			}
 		}
-		collapsed = append(collapsed, coincidentStraightGroup{
+		collapsed = chargedAppend(a.budget, collapsed, coincidentStraightGroup{
 			u: k.u, v: k.v, idxs: slices.Clone(idxs), keep: keep,
 		})
 	}
@@ -3710,12 +3860,13 @@ func (a *arranger) dedupCoincidentStraightEdges() *coincidentDedupPlan {
 		drop:     drop,
 		groups:   collapsed,
 	}
-	kept := make([]arrEdge, 0, len(a.edges)-len(drop))
+	kept := make([]arrEdge, 0, a.budget.preflight(len(a.edges)-len(drop)))
 	for i, e := range a.edges {
+		a.budget.step(1)
 		if _, ok := drop[i]; ok {
 			continue
 		}
-		kept = append(kept, e)
+		kept = chargedAppend(a.budget, kept, e)
 	}
 	a.edges = kept
 	return plan
@@ -3728,23 +3879,26 @@ func (a *arranger) dedupCoincidentStraightEdges() *coincidentDedupPlan {
 // rewired after that restoration. The unresolved group stays in the final graph and
 // is reported as degenerate.
 func (a *arranger) restoreCoincidentBridgeGroups(plan *coincidentDedupPlan) bool {
-	cycleOf := make([]int, len(a.halfs))
-	seen := make([]bool, len(a.halfs))
+	cycleOf := make([]int, a.budget.preflight(len(a.halfs)))
+	seen := make([]bool, a.budget.preflight(len(a.halfs)))
 	cycle := 0
 	for hi := range a.halfs {
+		a.budget.step(1)
 		if seen[hi] {
 			continue
 		}
 		for cur := hi; !seen[cur]; cur = a.halfs[cur].next {
+			a.budget.step(1)
 			seen[cur] = true
 			cycleOf[cur] = cycle
 		}
 		cycle++
 	}
 
-	oldToNew := make([]int, len(plan.original))
+	oldToNew := make([]int, a.budget.preflight(len(plan.original)))
 	next := 0
 	for i := range plan.original {
+		a.budget.step(1)
 		if _, dropped := plan.drop[i]; dropped {
 			oldToNew[i] = -1
 			continue
@@ -3754,8 +3908,10 @@ func (a *arranger) restoreCoincidentBridgeGroups(plan *coincidentDedupPlan) bool
 	}
 
 	for _, group := range plan.groups {
+		a.budget.step(1)
 		collapsed := false
 		for _, i := range group.idxs {
+			a.budget.step(1)
 			if _, dropped := plan.drop[i]; dropped {
 				collapsed = true
 				break
@@ -3768,21 +3924,23 @@ func (a *arranger) restoreCoincidentBridgeGroups(plan *coincidentDedupPlan) bool
 		if cycleOf[2*survivor] != cycleOf[2*survivor+1] {
 			continue
 		}
-		srcs := make([]int, 0, len(group.idxs))
+		srcs := make([]int, 0, a.budget.preflight(len(group.idxs)))
 		for _, i := range group.idxs {
+			a.budget.step(1)
 			delete(plan.drop, i)
-			srcs = append(srcs, plan.original[i].src)
+			srcs = chargedAppend(a.budget, srcs, plan.original[i].src)
 		}
 		ux, uy := a.verts.coord(group.u)
 		vx, vy := a.verts.coord(group.v)
 		a.flagDegenerate(midpointCoordinate(ux, vx), midpointCoordinate(uy, vy), srcs...)
 
-		a.edges = make([]arrEdge, 0, len(plan.original)-len(plan.drop))
+		a.edges = make([]arrEdge, 0, a.budget.preflight(len(plan.original)-len(plan.drop)))
 		for i, e := range plan.original {
+			a.budget.step(1)
 			if _, ok := plan.drop[i]; ok {
 				continue
 			}
-			a.edges = append(a.edges, e)
+			a.edges = chargedAppend(a.budget, a.edges, e)
 		}
 		return true
 	}
@@ -3795,6 +3953,7 @@ func (a *arranger) buildGraph() {
 	plan := a.dedupCoincidentStraightEdges()
 	a.wireGraph()
 	for plan != nil && a.restoreCoincidentBridgeGroups(plan) {
+		a.budget.step(1)
 		a.wireGraph()
 	}
 }
@@ -3810,28 +3969,36 @@ func (a *arranger) buildGraph() {
 // non-straight port keeps the position assigned by the angle sort, so this tie rule
 // does not change the existing mixed and sampled cases.
 func (a *arranger) sortChordPorts(ring []int) {
+	a.budget.reserveSort(len(ring))
 	sort.Slice(ring, func(i, j int) bool {
+		a.budget.step(1)
 		return a.halfs[ring[i]].angle < a.halfs[ring[j]].angle
 	})
 	for lo := 0; lo < len(ring); {
+		a.budget.step(1)
 		hi := lo + 1
 		for hi < len(ring) && a.halfs[ring[hi]].angle == a.halfs[ring[lo]].angle {
+			a.budget.step(1)
 			hi++
 		}
 		var positions []int
 		var straight []int
 		for pos := lo; pos < hi; pos++ {
+			a.budget.step(1)
 			half := &a.halfs[ring[pos]]
 			if a.sources[a.edges[half.edge].src].kind != srcLine {
 				continue
 			}
-			positions = append(positions, pos)
-			straight = append(straight, ring[pos])
+			positions = chargedAppend(a.budget, positions, pos)
+			straight = chargedAppend(a.budget, straight, ring[pos])
 		}
+		a.budget.reserveSort(len(straight))
 		slices.SortFunc(straight, func(i, j int) int {
+			a.budget.step(1)
 			return -a.compareCoincidentStraightEdges(a.edges[a.halfs[i].edge], a.edges[a.halfs[j].edge])
 		})
 		for i, pos := range positions {
+			a.budget.step(1)
 			ring[pos] = straight[i]
 		}
 		lo = hi
@@ -3839,8 +4006,9 @@ func (a *arranger) sortChordPorts(ring []int) {
 }
 
 func (a *arranger) wireGraph() {
-	a.halfs = make([]halfEdge, 0, len(a.edges)*2)
+	a.halfs = make([]halfEdge, 0, a.budget.preflight(len(a.edges)*2))
 	for ei, e := range a.edges {
+		a.budget.step(1)
 		ux, uy := a.verts.coord(e.u)
 		vx, vy := a.verts.coord(e.v)
 		// Forward leaves e.u at param e.pu (increasing); backward leaves e.v at
@@ -3883,8 +4051,8 @@ func (a *arranger) wireGraph() {
 				}
 			}
 		}
-		a.halfs = append(a.halfs, halfEdge{from: e.u, to: e.v, edge: ei, forward: true, angle: math.Atan2(vy-uy, vx-ux), tx: ftx, ty: fty, kappa: fka, exact: fok, next: -1})
-		a.halfs = append(a.halfs, halfEdge{from: e.v, to: e.u, edge: ei, forward: false, angle: math.Atan2(uy-vy, ux-vx), tx: btx, ty: bty, kappa: bka, exact: bok, next: -1})
+		a.halfs = chargedAppend(a.budget, a.halfs, halfEdge{from: e.u, to: e.v, edge: ei, forward: true, angle: math.Atan2(vy-uy, vx-ux), tx: ftx, ty: fty, kappa: fka, exact: fok, next: -1})
+		a.halfs = chargedAppend(a.budget, a.halfs, halfEdge{from: e.v, to: e.u, edge: ei, forward: false, angle: math.Atan2(uy-vy, ux-vx), tx: btx, ty: bty, kappa: bka, exact: bok, next: -1})
 	}
 	// Outgoing half-edges per vertex, sorted CCW by departure direction. When every
 	// incident half-edge is an exact (line/circle/arc) fragment, order by the exact
@@ -3893,9 +4061,11 @@ func (a *arranger) wireGraph() {
 	// A vertex with any sampled (ellipse/spline) fragment keeps the chord order.
 	out := map[int][]int{}
 	for hi := range a.halfs {
-		out[a.halfs[hi].from] = append(out[a.halfs[hi].from], hi)
+		a.budget.step(1)
+		out[a.halfs[hi].from] = chargedAppend(a.budget, out[a.halfs[hi].from], hi)
 	}
 	for v := range out {
+		a.budget.step(1)
 		list := out[v]
 		if a.useExactPorts(v, list) {
 			a.sortExactPorts(v, list)
@@ -3904,9 +4074,11 @@ func (a *arranger) wireGraph() {
 		}
 		out[v] = list
 	}
-	pos := make([]int, len(a.halfs)) // half-edge -> index within its origin's sorted ring
+	pos := make([]int, a.budget.preflight(len(a.halfs))) // half-edge -> index within its origin's sorted ring
 	for v := range out {
+		a.budget.step(1)
 		for idx, hi := range out[v] {
+			a.budget.step(1)
 			pos[hi] = idx
 		}
 	}
@@ -3919,6 +4091,7 @@ func (a *arranger) wireGraph() {
 	// next(e): at the head of e, take the outgoing edge immediately clockwise
 	// from e's twin, so the face stays on the left and bounded faces wind CCW.
 	for hi := range a.halfs {
+		a.budget.step(1)
 		w := a.halfs[hi].to
 		t := twin(hi)
 		ring := out[w]
@@ -3934,24 +4107,28 @@ func (a *arranger) extract() *Arrangement {
 	// cycleOf maps each half-edge to the cycle that walks it — one int per
 	// half-edge, which is what lets the chain pass ask "did a published region use
 	// this edge" without every cycle carrying an edge list of its own.
-	a.cycleOf = make([]int, len(a.halfs))
+	a.cycleOf = make([]int, a.budget.preflight(len(a.halfs)))
 	for hi := range a.halfs {
+		a.budget.step(1)
 		if a.halfs[hi].visited {
 			continue
 		}
 		var hs []int
 		for cur := hi; !a.halfs[cur].visited; cur = a.halfs[cur].next {
+			a.budget.step(1)
 			a.halfs[cur].visited = true
-			hs = append(hs, cur)
+			hs = chargedAppend(a.budget, hs, cur)
 		}
 		for _, part := range a.splitInternalTangentCycle(hs) {
+			a.budget.step(1)
 			id := len(cycles)
 			for _, edge := range part {
+				a.budget.step(1)
 				a.cycleOf[edge] = id
 			}
 			c := a.makeCycle(part)
 			c.id = id
-			cycles = append(cycles, c)
+			cycles = chargedAppend(a.budget, cycles, c)
 		}
 	}
 
@@ -3966,6 +4143,7 @@ func (a *arranger) extract() *Arrangement {
 	var holes []*cycle
 	flaggedCross := map[[2]int]struct{}{}
 	for i := range cycles {
+		a.budget.step(1)
 		c := &cycles[i]
 		c.areaFloor = a.cycleAreaFloor(c)
 		if math.IsInf(c.areaFloor, 1) {
@@ -3979,9 +4157,9 @@ func (a *arranger) extract() *Arrangement {
 		}
 		switch {
 		case c.area > c.areaFloor:
-			faces = append(faces, c)
+			faces = chargedAppend(a.budget, faces, c)
 		case c.area < -c.areaFloor:
-			holes = append(holes, c)
+			holes = chargedAppend(a.budget, holes, c)
 		default:
 			// A cycle enclosing exactly zero area bounds nothing, so the floor
 			// discarded no face and there is nothing to report. The lens this
@@ -4015,19 +4193,28 @@ func (a *arranger) extract() *Arrangement {
 			// publishes their degeneracy records in a stable order.
 			var srcs []int
 			for _, f := range c.frags {
+				a.budget.step(1)
 				if !slices.Contains(srcs, f.src) {
-					srcs = append(srcs, f.src)
+					srcs = chargedAppend(a.budget, srcs, f.src)
 				}
 			}
-			slices.Sort(srcs)
+			a.budget.reserveSort(len(srcs))
+			slices.SortFunc(srcs, func(x, y int) int {
+				a.budget.step(1)
+				return cmp.Compare(x, y)
+			})
 			for x := 0; x < len(srcs); x++ {
+				a.budget.step(1)
 				for y := x + 1; y < len(srcs); y++ {
+					a.budget.step(1)
 					pair := pairKey(srcs[x], srcs[y])
 					if _, flagged := flaggedCross[pair]; flagged {
 						continue
 					}
 					for _, events := range [2][]xEvent{a.events[pair], a.deferredCross[pair]} {
+						a.budget.step(1)
 						for _, e := range events {
+							a.budget.step(1)
 							if e.kind != evCross {
 								continue
 							}
@@ -4046,7 +4233,8 @@ func (a *arranger) extract() *Arrangement {
 
 	arr := &Arrangement{SelfIntersections: a.selfX, Degenerate: a.degenSet}
 	for _, d := range a.degen {
-		arr.Degeneracies = append(arr.Degeneracies, [2]float64{d.x, d.y})
+		a.budget.step(1)
+		arr.Degeneracies = chargedAppend(a.budget, arr.Degeneracies, [2]float64{d.x, d.y})
 	}
 	// stamped is how many conditions the arrangement and its regions are stamped
 	// with here; the chain walk below can still raise one (a non-finite Length),
@@ -4055,8 +4243,9 @@ func (a *arranger) extract() *Arrangement {
 	// Assign each hole to the smallest-area face that strictly contains it. The
 	// containment probe is a point guaranteed interior to the hole (not a
 	// boundary vertex), so a hole touching a face boundary still resolves.
-	holeOf := make([][]*cycle, len(faces))
+	holeOf := make([][]*cycle, a.budget.preflight(len(faces)))
 	for _, h := range holes {
+		a.budget.step(1)
 		probe, ok := a.cycleInteriorPoint(h)
 		if !ok {
 			continue
@@ -4064,6 +4253,7 @@ func (a *arranger) extract() *Arrangement {
 		exactProbe := a.perturbContainmentProbe(probe, h)
 		best := -1
 		for fi, f := range faces {
+			a.budget.step(1)
 			// A genuine hole is strictly smaller than the face that nests it
 			// (the face's area is the hole's area plus whatever remains once
 			// the hole is cut out, which must be positive), so a face no
@@ -4085,7 +4275,7 @@ func (a *arranger) extract() *Arrangement {
 			if f.area <= -h.area+math.Max(f.areaFloor, h.areaFloor) {
 				continue // not strictly larger than the hole
 			}
-			if cyclesShareEdge(f, h) {
+			if cyclesShareEdge(f, h, a.budget) {
 				continue // f and h are directly adjacent, not nested
 			}
 			if !a.exactPointInRegion(probe, exactProbe, f) {
@@ -4102,17 +4292,19 @@ func (a *arranger) extract() *Arrangement {
 			if contained, ok := a.holeLiesInFace(h, faces[best]); ok && !contained {
 				var srcs []int
 				for _, fr := range h.frags {
-					srcs = append(srcs, fr.src)
+					a.budget.step(1)
+					srcs = chargedAppend(a.budget, srcs, fr.src)
 				}
 				for _, fr := range faces[best].frags {
-					srcs = append(srcs, fr.src)
+					a.budget.step(1)
+					srcs = chargedAppend(a.budget, srcs, fr.src)
 				}
 				a.flagDegenerate(probe[0], probe[1], srcs...)
 				best = -1
 			}
 		}
 		if best >= 0 {
-			holeOf[best] = append(holeOf[best], h)
+			holeOf[best] = chargedAppend(a.budget, holeOf[best], h)
 		}
 	}
 
@@ -4122,12 +4314,14 @@ func (a *arranger) extract() *Arrangement {
 	// reported both as part of a region and as part of a chain. A cycle that is
 	// neither a face nor a hole, and a hole no face contains, are reported nowhere,
 	// so their edges stay available to the chain pass.
-	published := make([]bool, len(cycles))
+	published := make([]bool, a.budget.preflight(len(cycles)))
 	for fi, f := range faces {
+		a.budget.step(1)
 		reg := &Region{Outer: f.boundary, Area: f.area, SelfIntersecting: f.selfX}
 		published[f.id] = true
 		for _, h := range holeOf[fi] {
-			reg.Holes = append(reg.Holes, h.boundary)
+			a.budget.step(1)
+			reg.Holes = chargedAppend(a.budget, reg.Holes, h.boundary)
 			reg.Area -= -h.area // h.area is negative
 			if h.selfX {
 				reg.SelfIntersecting = true
@@ -4135,10 +4329,11 @@ func (a *arranger) extract() *Arrangement {
 			published[h.id] = true
 		}
 		reg.Degenerate = a.regionDegenerate(reg)
-		arr.Regions = append(arr.Regions, reg)
+		arr.Regions = chargedAppend(a.budget, arr.Regions, reg)
 	}
-	used := make([]bool, len(a.edges))
+	used := make([]bool, a.budget.preflight(len(a.edges)))
 	for hi := range a.halfs {
+		a.budget.step(1)
 		if published[a.cycleOf[hi]] {
 			used[a.halfs[hi].edge] = true
 		}
@@ -4152,12 +4347,15 @@ func (a *arranger) extract() *Arrangement {
 		arr.Degenerate = a.degenSet
 		arr.Degeneracies = arr.Degeneracies[:0]
 		for _, d := range a.degen {
-			arr.Degeneracies = append(arr.Degeneracies, [2]float64{d.x, d.y})
+			a.budget.step(1)
+			arr.Degeneracies = chargedAppend(a.budget, arr.Degeneracies, [2]float64{d.x, d.y})
 		}
 		for _, reg := range arr.Regions {
+			a.budget.step(1)
 			reg.Degenerate = a.regionDegenerate(reg)
 		}
 		for _, c := range arr.Chains {
+			a.budget.step(1)
 			c.Degenerate = a.chainDegenerate(c)
 		}
 	}
@@ -4174,10 +4372,11 @@ func (a *arranger) splitInternalTangentCycle(hs []int) [][]int {
 	}
 	var turns []int
 	for i := range hs {
+		a.budget.step(1)
 		prev := a.edges[a.halfs[hs[(i+len(hs)-1)%len(hs)]].edge].src
 		curr := a.edges[a.halfs[hs[i]].edge].src
 		if prev != curr {
-			turns = append(turns, i)
+			turns = chargedAppend(a.budget, turns, i)
 		}
 	}
 	if len(turns) != 2 {
@@ -4200,7 +4399,7 @@ func (a *arranger) splitInternalTangentCycle(hs []int) [][]int {
 	if !a.certifiedPortVertex(x, y) {
 		return [][]int{hs}
 	}
-	return [][]int{hs[i:j], append(append([]int(nil), hs[j:]...), hs[:i]...)}
+	return [][]int{hs[i:j], chargedAppend(a.budget, chargedAppend(a.budget, []int(nil), hs[j:]...), hs[:i]...)}
 }
 
 // chainDegenerate is regionDegenerate's twin for a published chain: whether any
@@ -4212,6 +4411,7 @@ func (a *arranger) chainDegenerate(c *Chain) bool {
 	}
 	srcs := map[int]struct{}{}
 	for _, e := range c.Edges {
+		a.budget.step(1)
 		srcs[e.SourceIndex] = struct{}{}
 	}
 	return a.degenReaches(srcs)
@@ -4238,10 +4438,13 @@ func (a *arranger) regionDegenerate(reg *Region) bool {
 	}
 	srcs := map[int]struct{}{}
 	for _, e := range reg.Outer {
+		a.budget.step(1)
 		srcs[e.SourceIndex] = struct{}{}
 	}
 	for _, h := range reg.Holes {
+		a.budget.step(1)
 		for _, e := range h {
+			a.budget.step(1)
 			srcs[e.SourceIndex] = struct{}{}
 		}
 	}
@@ -4255,10 +4458,12 @@ func (a *arranger) regionDegenerate(reg *Region) bool {
 // scoped exactly the way a region is.
 func (a *arranger) degenReaches(srcs map[int]struct{}) bool {
 	for _, d := range a.degen {
+		a.budget.step(1)
 		if len(d.srcs) == 0 {
 			return true // unattributable: every published boundary carries it
 		}
 		for _, s := range d.srcs {
+			a.budget.step(1)
 			if _, ok := srcs[s]; ok {
 				return true
 			}
@@ -4300,11 +4505,13 @@ func (a *arranger) cycleAreaFloor(c *cycle) float64 {
 	minX, maxX := c.dense[0][0], c.dense[0][0]
 	minY, maxY := c.dense[0][1], c.dense[0][1]
 	for _, p := range c.dense[1:] {
+		a.budget.step(1)
 		minX, maxX = math.Min(minX, p[0]), math.Max(maxX, p[0])
 		minY, maxY = math.Min(minY, p[1]), math.Max(maxY, p[1])
 	}
 	scale := math.Max(maxX-minX, maxY-minY)
 	for _, f := range c.frags {
+		a.budget.step(1)
 		s := &a.sources[f.src]
 		if s.kind != srcLine {
 			scale = math.Max(scale, s.extent)
@@ -4322,12 +4529,13 @@ func (a *arranger) cycleAreaFloor(c *cycle) float64 {
 // any cycle that otherwise borders a face directly) out of that face's hole
 // candidacy, structurally rather than by comparing magnitudes a vertex weld
 // can distort.
-func cyclesShareEdge(a, b *cycle) bool {
+func cyclesShareEdge(a, b *cycle, budget *arrangeBudget) bool {
 	small, big := a.rawEdges, b.rawEdges
 	if len(big) < len(small) {
 		small, big = big, small
 	}
 	for e := range small {
+		budget.step(1)
 		if _, ok := big[e]; ok {
 			return true
 		}
@@ -4363,17 +4571,17 @@ type boundaryFrag struct {
 func appendBoundaryFrag(frags []boundaryFrag, src int, pStart, pEnd float64,
 	exStart, exEnd, enStart, enEnd bool, crossStart, crossEnd *LineLineCrossing,
 	circleStart, circleEnd *LineCircleCrossing,
-	from, to [2]float64) []boundaryFrag {
+	from, to [2]float64, budget *arrangeBudget) []boundaryFrag {
 	if n := len(frags); n > 0 && frags[n-1].src == src && approx(frags[n-1].pEnd, pStart, 1e-9) {
 		frags[n-1].pEnd = pEnd
 		frags[n-1].exactEnd = exEnd
 		frags[n-1].endEnd = enEnd
 		frags[n-1].crossEnd = crossEnd
 		frags[n-1].circleEnd = circleEnd
-		frags[n-1].dense = append(frags[n-1].dense, to)
+		frags[n-1].dense = chargedAppend(budget, frags[n-1].dense, to)
 		return frags
 	}
-	return append(frags, boundaryFrag{src: src, pStart: pStart, pEnd: pEnd,
+	return chargedAppend(budget, frags, boundaryFrag{src: src, pStart: pStart, pEnd: pEnd,
 		exactStart: exStart, exactEnd: exEnd,
 		endStart: enStart, endEnd: enEnd,
 		crossStart: crossStart, crossEnd: crossEnd,
@@ -4437,10 +4645,11 @@ type cycFrag struct {
 // polygon, and computes the exact signed area.
 func (a *arranger) makeCycle(hs []int) cycle {
 	var c cycle
-	c.rawEdges = make(map[int]struct{}, len(hs))
+	c.rawEdges = make(map[int]struct{}, a.budget.preflight(len(hs)))
 	// Coalesce consecutive half-edges that share a source into one BoundaryEdge.
 	var frags []boundaryFrag
 	for _, hi := range hs {
+		a.budget.step(1)
 		h := a.halfs[hi]
 		c.rawEdges[h.edge] = struct{}{}
 		e := a.edges[h.edge]
@@ -4465,7 +4674,7 @@ func (a *arranger) makeCycle(hs []int) cycle {
 		frags = appendBoundaryFrag(frags, e.src, pStart, pEnd, exStart, exEnd, enStart, enEnd,
 			crossStart, crossEnd,
 			circleStart, circleEnd,
-			[2]float64{fx, fy}, [2]float64{tx, ty})
+			[2]float64{fx, fy}, [2]float64{tx, ty}, a.budget)
 		if cm := a.comp[e.src]; cm >= 0 {
 			if _, ok := a.selfXc[cm]; ok {
 				c.selfX = true
@@ -4479,15 +4688,16 @@ func (a *arranger) makeCycle(hs []int) cycle {
 		frags[n-1].endEnd = frags[0].endEnd
 		frags[n-1].crossEnd = frags[0].crossEnd
 		frags[n-1].circleEnd = frags[0].circleEnd
-		frags[n-1].dense = append(frags[n-1].dense, frags[0].dense[1:]...)
+		frags[n-1].dense = chargedAppend(a.budget, frags[n-1].dense, frags[0].dense[1:]...)
 		frags = frags[1:]
 	}
 
-	chord := make([][2]float64, 0, len(frags))
+	chord := make([][2]float64, 0, a.budget.preflight(len(frags)))
 	var truePath, heldPath [][2]float64
 	curved := false
 	analytic := true
 	for _, f := range frags {
+		a.budget.step(1)
 		kind := a.sources[f.src].kind
 		curved = curved || kind == srcArc || kind == srcCircle
 		analytic = analytic && (kind == srcLine || kind == srcArc || kind == srcCircle)
@@ -4497,9 +4707,12 @@ func (a *arranger) makeCycle(hs []int) cycle {
 		var distinct [3][2]float64
 		count := 0
 		for _, f := range frags {
+			a.budget.step(1)
 			for _, p := range f.dense[:len(f.dense)-1] {
+				a.budget.step(1)
 				seen := false
 				for _, q := range distinct[:count] {
+					a.budget.step(1)
 					seen = seen || p == q
 				}
 				if !seen {
@@ -4518,6 +4731,7 @@ func (a *arranger) makeCycle(hs []int) cycle {
 	}
 	var bulge float64
 	for _, f := range frags {
+		a.budget.step(1)
 		s := &a.sources[f.src]
 		if collapsed {
 			// Two comparison paths for the orientation check below. truePath always
@@ -4527,13 +4741,13 @@ func (a *arranger) makeCycle(hs []int) cycle {
 			// its original endpoint cannot say which side of it the emitted cycle
 			// bounds.
 			ts, te := s.at(f.pStart), s.at(f.pEnd)
-			truePath = append(truePath, ts, te)
+			truePath = chargedAppend(a.budget, truePath, ts, te)
 			if s.kind == srcLine && len(f.dense) > 1 &&
 				(!a.endpointReproduces(s, f.pStart, f.dense[0][0], f.dense[0][1]) ||
 					!a.endpointReproduces(s, f.pEnd, f.dense[len(f.dense)-1][0], f.dense[len(f.dense)-1][1])) {
-				heldPath = append(heldPath, f.dense[0], f.dense[len(f.dense)-1])
+				heldPath = chargedAppend(a.budget, heldPath, f.dense[0], f.dense[len(f.dense)-1])
 			} else {
-				heldPath = append(heldPath, ts, te)
+				heldPath = chargedAppend(a.budget, heldPath, ts, te)
 			}
 		}
 		// TStart/TEnd are reported in the source's NATURAL parameter direction, so
@@ -4541,10 +4755,10 @@ func (a *arranger) makeCycle(hs []int) cycle {
 		// backwards, and both bounds must be trustworthy for TExact. That publication
 		// — including how Whole is decided — is shared with the open-chain walk; see
 		// boundaryEdgeOf.
-		c.boundary = append(c.boundary, boundaryEdgeOf(f))
-		c.frags = append(c.frags, cycFrag{src: f.src, pStart: f.pStart, pEnd: f.pEnd})
-		c.dense = append(c.dense, f.dense[:len(f.dense)-1]...)
-		chord = append(chord, f.dense[0])
+		c.boundary = chargedAppend(a.budget, c.boundary, boundaryEdgeOf(f))
+		c.frags = chargedAppend(a.budget, c.frags, cycFrag{src: f.src, pStart: f.pStart, pEnd: f.pEnd})
+		c.dense = chargedAppend(a.budget, c.dense, f.dense[:len(f.dense)-1]...)
+		chord = chargedAppend(a.budget, chord, f.dense[0])
 		// Area between this fragment's true curve and its chord. Every curved
 		// source contributes an exact, sampling-independent correction: arc/circle
 		// and ellipse/elliptical-arc via the closed-form circular/elliptical
@@ -4579,7 +4793,7 @@ func (a *arranger) makeCycle(hs []int) cycle {
 			bulge += nurbsBulgeSpan(s.nurbs, f.pStart, f.pEnd, a0[0], a0[1], a1[0], a1[1])
 		}
 	}
-	c.area = signedPolyArea(chord) + bulge
+	c.area = signedPolyArea(chord, a.budget) + bulge
 	if collapsed {
 		// A weld can collapse the chord polygon and reverse a curved cycle's
 		// orientation. Use its true fragment endpoints and the short joins
@@ -4590,8 +4804,8 @@ func (a *arranger) makeCycle(hs []int) cycle {
 		// path is a SIGN test only — its magnitude describes a boundary that
 		// mixes emitted and true endpoints, so the substituted value is always
 		// the true-endpoint area.
-		trueArea := signedPolyArea(truePath) + bulge
-		heldArea := signedPolyArea(heldPath) + bulge
+		trueArea := signedPolyArea(truePath, a.budget) + bulge
+		heldArea := signedPolyArea(heldPath, a.budget) + bulge
 		if c.area*trueArea < 0 && c.area*heldArea < 0 {
 			c.area = trueArea
 		}
@@ -4603,11 +4817,12 @@ func (a *arranger) makeCycle(hs []int) cycle {
 // an analytic curved cycle tries points between fragment midpoints and chords,
 // then between pairs of fragment midpoints.
 func (a *arranger) cycleInteriorPoint(c *cycle) ([2]float64, bool) {
-	if q, ok := interiorPoint(c.dense); ok {
+	if q, ok := interiorPoint(c.dense, a.budget); ok {
 		return q, true
 	}
 	curved := false
 	for _, f := range c.frags {
+		a.budget.step(1)
 		switch a.sources[f.src].kind {
 		case srcLine:
 		case srcArc, srcCircle:
@@ -4621,9 +4836,10 @@ func (a *arranger) cycleInteriorPoint(c *cycle) ([2]float64, bool) {
 	}
 	var midpoints [][2]float64
 	for _, f := range c.frags {
+		a.budget.step(1)
 		s := &a.sources[f.src]
 		m := s.at((f.pStart + f.pEnd) / 2)
-		midpoints = append(midpoints, m)
+		midpoints = chargedAppend(a.budget, midpoints, m)
 		if s.kind == srcLine {
 			continue
 		}
@@ -4635,7 +4851,9 @@ func (a *arranger) cycleInteriorPoint(c *cycle) ([2]float64, bool) {
 		}
 	}
 	for i, m := range midpoints {
+		a.budget.step(1)
 		for _, n := range midpoints[:i] {
+			a.budget.step(1)
 			q := [2]float64{(m[0] + n[0]) / 2, (m[1] + n[1]) / 2}
 			if finitePt(q) && a.exactPointInRegion(q, q, c) {
 				return q, true
@@ -4653,6 +4871,7 @@ func (a *arranger) cycleInteriorPoint(c *cycle) ([2]float64, bool) {
 func (a *arranger) perturbContainmentProbe(q [2]float64, h *cycle) [2]float64 {
 	lo, hi := h.dense[0], h.dense[0]
 	for _, p := range h.dense[1:] {
+		a.budget.step(1)
 		lo[0], lo[1] = math.Min(lo[0], p[0]), math.Min(lo[1], p[1])
 		hi[0], hi[1] = math.Max(hi[0], p[0]), math.Max(hi[1], p[1])
 	}
@@ -4661,7 +4880,9 @@ func (a *arranger) perturbContainmentProbe(q [2]float64, h *cycle) [2]float64 {
 		return q
 	}
 	for range 32 {
+		a.budget.step(1)
 		for _, direction := range [2]float64{1, -1} {
+			a.budget.step(1)
 			candidate := [2]float64{
 				q[0] + direction*span*4.131e-9,
 				q[1] + direction*span*9.073e-9,
@@ -4669,7 +4890,7 @@ func (a *arranger) perturbContainmentProbe(q [2]float64, h *cycle) [2]float64 {
 			if candidate[1] == q[1] {
 				candidate[1] = math.Nextafter(q[1], math.Copysign(math.Inf(1), direction))
 			}
-			if finitePt(candidate) && pointInPolygon(candidate, h.dense) &&
+			if finitePt(candidate) && pointInPolygon(candidate, h.dense, a.budget) &&
 				a.exactPointInRegion(candidate, candidate, h) {
 				return candidate
 			}
@@ -4689,14 +4910,16 @@ func (a *arranger) perturbContainmentProbe(q [2]float64, h *cycle) [2]float64 {
 // perturbed probe used only for exact ray casting; the sampled fallback keeps q.
 func (a *arranger) exactPointInRegion(q, exactQ [2]float64, c *cycle) bool {
 	for _, f := range c.frags {
+		a.budget.step(1)
 		switch a.sources[f.src].kind {
 		case srcLine, srcCircle, srcArc:
 		default:
-			return pointInPolygon(q, c.dense)
+			return pointInPolygon(q, c.dense, a.budget)
 		}
 	}
 	crossings := 0
 	for _, f := range c.frags {
+		a.budget.step(1)
 		crossings += a.rayFragCrossings(exactQ, f)
 	}
 	return crossings%2 == 1
@@ -4723,6 +4946,7 @@ func (a *arranger) exactFragBounds(f cycFrag) ([2]float64, [2]float64, bool) {
 		return lo, hi, true
 	}
 	for _, ang := range [4]float64{0, math.Pi / 2, math.Pi, -math.Pi / 2} {
+		a.budget.step(1)
 		if !a.angInFragment(s, f, ang) {
 			continue
 		}
@@ -4740,6 +4964,7 @@ func (a *arranger) exactFragBounds(f cycFrag) ([2]float64, [2]float64, bool) {
 func (a *arranger) cycleBounds(c *cycle) ([2]float64, [2]float64, bool) {
 	var lo, hi [2]float64
 	for i, f := range c.frags {
+		a.budget.step(1)
 		flo, fhi, fok := a.exactFragBounds(f)
 		if !fok {
 			return lo, hi, false
@@ -4832,6 +5057,7 @@ const (
 func (a *arranger) cycleBoundsRoundoff(c *cycle) float64 {
 	worst := 0.0
 	for _, f := range c.frags {
+		a.budget.step(1)
 		s := &a.sources[f.src]
 		if s.kind == srcLine {
 			m := math.Max(math.Abs(s.ax), math.Max(math.Abs(s.ay),
@@ -4862,6 +5088,7 @@ func (a *arranger) holeExitsCircleFace(h, f *cycle) bool {
 	}
 	turn := 0.0
 	for _, ff := range f.frags {
+		a.budget.step(1)
 		s := &a.sources[ff.src]
 		if (s.kind != srcCircle && s.kind != srcArc) ||
 			s.cx != face.cx || s.cy != face.cy || s.r != face.r {
@@ -4877,6 +5104,7 @@ func (a *arranger) holeExitsCircleFace(h, f *cycle) bool {
 		return false
 	}
 	for _, hf := range h.frags {
+		a.budget.step(1)
 		s := &a.sources[hf.src]
 		var reach float64
 		var scale float64
@@ -4884,6 +5112,7 @@ func (a *arranger) holeExitsCircleFace(h, f *cycle) bool {
 		case srcLine:
 			dx, dy := s.bx-s.ax, s.by-s.ay
 			for _, t := range [...]float64{hf.pStart, hf.pEnd} {
+				a.budget.step(1)
 				x := (s.ax - face.cx) + t*dx
 				y := (s.ay - face.cy) + t*dy
 				reach = math.Max(reach, math.Hypot(x, y))
@@ -4894,6 +5123,7 @@ func (a *arranger) holeExitsCircleFace(h, f *cycle) bool {
 			dx, dy := s.cx-face.cx, s.cy-face.cy
 			centerDistance := math.Hypot(dx, dy)
 			for _, t := range [...]float64{hf.pStart, hf.pEnd} {
+				a.budget.step(1)
 				ang := s.phi0 + t*s.sweep
 				if s.kind == srcCircle {
 					ang = 2 * math.Pi * t
@@ -4988,10 +5218,12 @@ func (a *arranger) holeLiesInFace(h, f *cycle) (bool, bool) {
 	localScale = math.Max(localScale, math.Max(hhi[0]-hlo[0], hhi[1]-hlo[1]))
 	witnesses := 0
 	for _, hf := range h.frags {
+		a.budget.step(1)
 		hs := &a.sources[hf.src]
 		hfLo, hfHi, _ := a.exactFragBounds(hf)
 		cuts := []float64{hf.pStart, hf.pEnd}
 		for _, ff := range f.frags {
+			a.budget.step(1)
 			ffLo, ffHi, _ := a.exactFragBounds(ff)
 			// Same positive-difference form as the cycle-box comparison above,
 			// for the same reason.
@@ -5004,6 +5236,7 @@ func (a *arranger) holeLiesInFace(h, f *cycle) (bool, bool) {
 				return false, false
 			}
 			for _, e := range events {
+				a.budget.step(1)
 				if !eventWithinFrag(e.ti, hf) || !eventWithinFrag(e.tj, ff) {
 					continue
 				}
@@ -5011,16 +5244,26 @@ func (a *arranger) holeLiesInFace(h, f *cycle) (bool, bool) {
 					eventInsideFrag(e.ti, hf) && eventInsideFrag(e.tj, ff)) {
 					return false, true
 				}
-				cuts = append(cuts, math.Max(math.Min(e.ti, math.Max(hf.pStart, hf.pEnd)),
+				cuts = chargedAppend(a.budget, cuts, math.Max(math.Min(e.ti, math.Max(hf.pStart, hf.pEnd)),
 					math.Min(hf.pStart, hf.pEnd)))
 			}
 		}
-		sort.Float64s(cuts)
+		a.budget.reserveSort(len(cuts))
+		if a.budget == nil {
+			sort.Float64s(cuts)
+		} else {
+			slices.SortFunc(cuts, func(x, y float64) int {
+				a.budget.step(1)
+				return cmp.Compare(x, y)
+			})
+		}
 		for i := 1; i < len(cuts); i++ {
+			a.budget.step(1)
 			if cuts[i] <= cuts[i-1] {
 				continue
 			}
 			for _, fraction := range [...]float64{0.25, 0.5, 0.75} {
+				a.budget.step(1)
 				q := hs.at(cuts[i-1] + fraction*(cuts[i]-cuts[i-1]))
 				if a.pointOnCycle(q, f, tol) {
 					continue
@@ -5028,6 +5271,7 @@ func (a *arranger) holeLiesInFace(h, f *cycle) (bool, bool) {
 				witnesses++
 				crossings := 0
 				for _, ff := range f.frags {
+					a.budget.step(1)
 					crossings += a.rayFragCrossings(q, ff)
 				}
 				if crossings%2 == 0 {
@@ -5058,6 +5302,7 @@ func eventInsideFrag(t float64, f cycFrag) bool {
 // distance band comes only from the two candidate cycles' evaluation roundoff.
 func (a *arranger) pointOnCycle(q [2]float64, c *cycle, tol float64) bool {
 	for _, f := range c.frags {
+		a.budget.step(1)
 		s := &a.sources[f.src]
 		if s.kind == srcLine {
 			p, end := s.at(f.pStart), s.at(f.pEnd)
@@ -5100,6 +5345,7 @@ func (a *arranger) rayFragCrossings(q [2]float64, f cycFrag) int {
 	sq := math.Sqrt(disc)
 	count := 0
 	for _, x := range [2]float64{s.cx - sq, s.cx + sq} {
+		a.budget.step(1)
 		if x <= q[0] {
 			continue
 		}
@@ -5367,11 +5613,12 @@ func approx(a, b, eps float64) bool { return math.Abs(a-b) <= eps }
 // --- vertex table -----------------------------------------------------------
 
 type vertexTable struct {
-	merge float64
-	cell  float64
-	xs    []float64
-	ys    []float64
-	grid  map[[2]int][]int
+	budget *arrangeBudget
+	merge  float64
+	cell   float64
+	xs     []float64
+	ys     []float64
+	grid   map[[2]int][]int
 }
 
 func newVertexTable(merge float64) vertexTable {
@@ -5397,8 +5644,11 @@ func newVertexTable(merge float64) vertexTable {
 func (t *vertexTable) canon(x, y float64) int {
 	cx, cy := int(math.Floor(x/t.cell)), int(math.Floor(y/t.cell))
 	for dx := -1; dx <= 1; dx++ {
+		t.budget.step(1)
 		for dy := -1; dy <= 1; dy++ {
+			t.budget.step(1)
 			for _, id := range t.grid[[2]int{cx + dx, cy + dy}] {
+				t.budget.step(1)
 				if math.Hypot(t.xs[id]-x, t.ys[id]-y) <= t.merge {
 					return id
 				}
@@ -5406,9 +5656,9 @@ func (t *vertexTable) canon(x, y float64) int {
 		}
 	}
 	id := len(t.xs)
-	t.xs = append(t.xs, x)
-	t.ys = append(t.ys, y)
-	t.grid[[2]int{cx, cy}] = append(t.grid[[2]int{cx, cy}], id)
+	t.xs = chargedAppend(t.budget, t.xs, x)
+	t.ys = chargedAppend(t.budget, t.ys, y)
+	t.grid[[2]int{cx, cy}] = chargedAppend(t.budget, t.grid[[2]int{cx, cy}], id)
 	return id
 }
 

@@ -39,6 +39,7 @@ func (a *arranger) certifyLineLineCrossings() {
 	}
 	contacts := make(map[int]*vertexContact)
 	visit := func(v, src int, cross *LineLineCrossing) {
+		a.budget.step(1)
 		c := contacts[v]
 		if c == nil {
 			c = &vertexContact{cross: cross, valid: cross != nil}
@@ -59,15 +60,18 @@ func (a *arranger) certifyLineLineCrossings() {
 		}
 	}
 	for _, e := range a.edges {
+		a.budget.step(1)
 		visit(e.u, e.src, e.crossU)
 		visit(e.v, e.src, e.crossV)
 	}
 	for i := range a.edges {
+		a.budget.step(1)
 		e := &a.edges[i]
 		for _, end := range []struct {
 			v     int
 			cross **LineLineCrossing
 		}{{e.u, &e.crossU}, {e.v, &e.crossV}} {
+			a.budget.step(1)
 			c := contacts[end.v]
 			if !c.valid || c.seen != 4 || c.counts != [2]int{2, 2} {
 				*end.cross = nil

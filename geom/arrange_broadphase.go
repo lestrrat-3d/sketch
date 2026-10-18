@@ -1,6 +1,7 @@
 package geom
 
 import (
+	"cmp"
 	"slices"
 	"sort"
 )
@@ -63,8 +64,9 @@ func (a *arranger) segBoxOf(i int) segBox {
 // already has.
 func (a *arranger) segBoxCache() []segBox {
 	if a.segBoxes == nil && len(a.segs) > 0 {
-		a.segBoxes = make([]segBox, len(a.segs))
+		a.segBoxes = make([]segBox, a.budget.preflight(len(a.segs)))
 		for i := range a.segs {
+			a.budget.step(1)
 			a.segBoxes[i] = a.segBoxOf(i)
 		}
 	}
@@ -80,13 +82,15 @@ func (a *arranger) sourceBoxCache() []segBox {
 		return a.sourceBoxes
 	}
 	boxes := a.segBoxCache()
-	a.sourceBoxes = make([]segBox, len(a.sources))
+	a.sourceBoxes = make([]segBox, a.budget.preflight(len(a.sources)))
 	for src, segs := range a.sourceSegs {
+		a.budget.step(1)
 		if len(segs) == 0 {
 			continue
 		}
 		box := boxes[segs[0]]
 		for _, si := range segs[1:] {
+			a.budget.step(1)
 			b := boxes[si]
 			box.minX = min(box.minX, b.minX)
 			box.minY = min(box.minY, b.minY)
@@ -136,34 +140,40 @@ func boxesOverlap(a, b segBox) bool {
 // sort.Slice is unstable.
 func (a *arranger) candidatePairs() [][]int {
 	n := len(a.segs)
-	cand := make([][]int, n)
+	cand := make([][]int, a.budget.preflight(n))
 	if n == 0 {
 		return cand
 	}
 	boxes := a.segBoxCache()
-	order := make([]int, n)
+	order := make([]int, a.budget.preflight(n))
 	for i := 0; i < n; i++ {
+		a.budget.step(1)
 		order[i] = i
 	}
+	a.budget.reserveSort(len(order))
 	sort.Slice(order, func(x, y int) bool {
+		a.budget.step(1)
 		bx, by := boxes[order[x]], boxes[order[y]]
 		if bx.minX != by.minX {
 			return bx.minX < by.minX
 		}
 		return order[x] < order[y]
 	})
-	active := make([]int, 0, n)
+	active := make([]int, 0, a.budget.preflight(n))
 	for _, idx := range order {
+		a.budget.step(1)
 		b := boxes[idx]
 		kept := active[:0]
 		for _, t := range active {
+			a.budget.step(1)
 			if boxes[t].maxX < b.minX {
 				continue
 			}
-			kept = append(kept, t)
+			kept = chargedAppend(a.budget, kept, t)
 		}
 		active = kept
 		for _, t := range active {
+			a.budget.step(1)
 			if !boxesOverlap(b, boxes[t]) {
 				continue
 			}
@@ -171,12 +181,17 @@ func (a *arranger) candidatePairs() [][]int {
 			if lo > hi {
 				lo, hi = hi, lo
 			}
-			cand[lo] = append(cand[lo], hi)
+			cand[lo] = chargedAppend(a.budget, cand[lo], hi)
 		}
-		active = append(active, idx)
+		active = chargedAppend(a.budget, active, idx)
 	}
 	for i := range cand {
-		slices.Sort(cand[i])
+		a.budget.step(1)
+		a.budget.reserveSort(len(cand[i]))
+		slices.SortFunc(cand[i], func(x, y int) int {
+			a.budget.step(1)
+			return cmp.Compare(x, y)
+		})
 	}
 	return cand
 }
