@@ -101,10 +101,9 @@ func RegionsLinesBounded(ctx context.Context, curves []Curve, charge func(uint64
 	a.nearMissGuard()
 	a.split()
 	a.certifyLineLineCrossings()
-	a.certifyLineCircleCrossings()
+	// Only lines are admitted, so no line-circle token can exist here.
 	a.prune()
 	a.certifyLineLineCrossings()
-	a.certifyLineCircleCrossings()
 	a.buildGraph()
 	out = a.extract()
 	b.step(1)
