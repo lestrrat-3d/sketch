@@ -79,6 +79,38 @@ func TestProfilesLinesBoundedMatchesLineScenes(t *testing.T) {
 	}
 }
 
+func TestProfilesLinesBoundedCarriesLineJunctions(t *testing.T) {
+	s := lineScene(t, [][][2]float64{
+		{{-5, -5}, {5, -5}, {5, 5}, {-5, 5}},
+		{{3, -2}, {7, -2}, {7, 2}, {3, 2}},
+	}, nil)
+	bounded, err := s.ProfilesLinesBounded(t.Context(), func(uint64) error { return nil })
+	require.NoError(t, err)
+	count := func(profiles []*sketch.Profile) int {
+		certified := 0
+		for _, profile := range profiles {
+			if !profile.Valid {
+				continue
+			}
+			for _, loop := range append([][]sketch.BoundaryEdge{profile.Outer}, profile.Holes...) {
+				for i := range loop {
+					point, ok := s.CertifyLineLineJunction(loop[i], loop[(i+1)%len(loop)])
+					if !ok {
+						continue
+					}
+					require.Equal(t, 5.0, point[0])
+					require.Contains(t, []float64{-2, 2}, point[1])
+					certified++
+				}
+			}
+		}
+		return certified
+	}
+	got := count(bounded)
+	require.Positive(t, got)
+	require.Equal(t, count(s.Profiles()), got)
+}
+
 func TestProfilesLinesBoundedRefusesAndCancelsWithoutProfiles(t *testing.T) {
 	s := lineScene(t, [][][2]float64{{{0, 0}, {2, 0}, {2, 2}, {0, 2}}}, nil)
 	var total uint64

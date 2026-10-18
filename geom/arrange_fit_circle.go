@@ -26,6 +26,7 @@ func (a *arranger) certifyFitCircleScene() {
 	var arcs []int
 	circle := -1
 	for i := range a.sources {
+		a.budget.step(1)
 		switch a.sources[i].kind {
 		case srcFitSpline:
 			fits = append(fits, i)
