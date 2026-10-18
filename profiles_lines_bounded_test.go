@@ -159,7 +159,8 @@ func TestProfilesLinesBoundedRefusesAndCancelsWithoutProfiles(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	require.Nil(t, got)
 
-	got, err = s.ProfilesLinesBounded(nil, func(uint64) error { return nil })
+	var noContext context.Context // exercise the documented nil-context refusal
+	got, err = s.ProfilesLinesBounded(noContext, func(uint64) error { return nil })
 	require.ErrorIs(t, err, geom.ErrUnsupportedLineScene)
 	require.Nil(t, got)
 	got, err = s.ProfilesLinesBounded(t.Context(), nil)

@@ -76,7 +76,7 @@ func RegionsLinesBounded(ctx context.Context, curves []Curve, charge func(uint64
 	if len(curves) > 64 {
 		return nil, ErrUnsupportedLineScene
 	}
-	b := &arrangeBudget{ctx: ctx, charge: charge}
+	b := &arrangeBudget{contextErr: ctx.Err, charge: charge}
 	defer func() {
 		if v := recover(); v != nil {
 			if abort, ok := v.(arrangeAbort); ok {

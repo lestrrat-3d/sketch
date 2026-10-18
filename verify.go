@@ -784,7 +784,7 @@ func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *Verificat
 		}
 	}
 
-	arrangement := s.buildProfiles()
+	arrangement, _ := s.buildProfilesWith(ctx, nil)
 	rep.Profiles = arrangement.profiles
 	rep.ProfilesValid = !arrangement.degenerate
 	for _, p := range arrangement.profiles {

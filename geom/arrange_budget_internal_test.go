@@ -20,12 +20,12 @@ func TestWireGraphPreflightsHalfEdgePositions(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			refused := errors.New("position index work refused")
-			want := error(refused)
+			var want error = refused
 			if tc.cancel {
 				want = context.Canceled
 			}
 			var twoRecordCharges int
-			budget := &arrangeBudget{ctx: ctx, charge: func(n uint64) error {
+			budget := &arrangeBudget{contextErr: ctx.Err, charge: func(n uint64) error {
 				if n != 2 {
 					return nil
 				}

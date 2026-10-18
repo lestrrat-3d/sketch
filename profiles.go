@@ -351,7 +351,7 @@ type sketchArrangement struct {
 // Verify consumes the degeneracy signal; Profiles exposes only the regions and
 // Chains only the chains.
 func (s *Sketch) buildProfiles() sketchArrangement {
-	result, _ := s.buildProfilesWith(nil, nil)
+	result, _ := s.buildProfilesWith(context.Background(), nil)
 	return result
 }
 

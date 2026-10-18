@@ -1,19 +1,17 @@
 package geom
 
-import "context"
-
 // ErrUnsupportedLineScene reports that a bounded line arrangement cannot
 // account for the supplied scene. It never denotes an exhausted work budget.
-var ErrUnsupportedLineScene = errUnsupportedLineScene{}
+var ErrUnsupportedLineScene = unsupportedLineSceneError{}
 
-type errUnsupportedLineScene struct{}
+type unsupportedLineSceneError struct{}
 
-func (errUnsupportedLineScene) Error() string { return "unsupported bounded line scene" }
+func (unsupportedLineSceneError) Error() string { return "unsupported bounded line scene" }
 
 type arrangeBudget struct {
-	ctx    context.Context
-	charge func(uint64) error
-	spent  uint64
+	contextErr func() error
+	charge     func(uint64) error
+	spent      uint64
 }
 
 const maxLineArrangementWork = 1 << 20
@@ -25,7 +23,7 @@ func (b *arrangeBudget) step(n uint64) {
 	if b == nil {
 		return
 	}
-	if err := b.ctx.Err(); err != nil {
+	if err := b.contextErr(); err != nil {
 		panic(arrangeAbort{err})
 	}
 	if n == 0 {
