@@ -7,6 +7,8 @@ import (
 	"github.com/lestrrat-3d/sketch/geom"
 )
 
+type junctionPublication struct{ count int }
+
 // Profile is a closed planar region detected in a sketch. Its outer boundary is
 // an ordered loop of edges; each edge is a whole sketch entity or a fragment of
 // one (a curve split where it crosses another). A region may enclose holes. A
@@ -49,9 +51,11 @@ type Profile struct {
 	// sketch is the sketch this profile was built from, and revision that
 	// sketch's [Sketch.Revision] at build time. Together they let a consumer ask
 	// whether the profile still describes its sketch — see [Profile.IsStale].
-	sketch             *Sketch
-	revision           uint64
-	unionRegionIndices []int
+	sketch               *Sketch
+	revision             uint64
+	unionRegionIndices   []int
+	junctionPublication  *junctionPublication
+	junctionProfileIndex int
 }
 
 // UnionRegionIndices returns the positions in Sketch.Profiles used to build
@@ -105,6 +109,7 @@ type BoundaryEdge struct {
 	junctionIndex          int
 	crossStart, crossEnd   *geom.LineLineCrossing
 	circleStart, circleEnd *geom.LineCircleCrossing
+	arcStart, arcEnd       *geom.LineArcCrossing
 	snapshot               *boundaryEdgeSnapshot
 	// Entity is the source sketch entity this edge lies on (*Line/*Arc/*Circle/
 	// *Ellipse).
@@ -514,15 +519,18 @@ func (s *Sketch) buildProfilesWith(ctx context.Context, charge func(uint64) erro
 		return sketchArrangement{}, err
 	}
 	profiles := make([]*Profile, 0, len(arr.Regions))
+	publication := &junctionPublication{count: len(arr.Regions)}
 	for _, r := range arr.Regions {
 		if err := take(1); err != nil {
 			return sketchArrangement{}, err
 		}
 		p := &Profile{
-			Area:             r.Area,
-			SelfIntersecting: r.SelfIntersecting,
-			sketch:           s,
-			revision:         rev,
+			Area:                 r.Area,
+			SelfIntersecting:     r.SelfIntersecting,
+			sketch:               s,
+			revision:             rev,
+			junctionPublication:  publication,
+			junctionProfileIndex: len(profiles),
 		}
 		seen := map[Entity]struct{}{}
 		for _, ge := range r.Outer {
@@ -540,6 +548,10 @@ func (s *Sketch) buildProfilesWith(ctx context.Context, charge func(uint64) erro
 			return sketchArrangement{}, err
 		}
 		stampJunctionWalk(p.Outer, true)
+		if len(p.Outer) != 0 {
+			p.Outer[0].junctionWalk.owner = p
+			p.Outer[0].junctionWalk.loop = -1
+		}
 		for _, hole := range r.Holes {
 			if err := take(1); err != nil {
 				return sketchArrangement{}, err
@@ -555,6 +567,10 @@ func (s *Sketch) buildProfilesWith(ctx context.Context, charge func(uint64) erro
 				return sketchArrangement{}, err
 			}
 			stampJunctionWalk(he, true)
+			if len(he) != 0 {
+				he[0].junctionWalk.owner = p
+				he[0].junctionWalk.loop = len(p.Holes)
+			}
 			p.Holes = append(p.Holes, he)
 		}
 		// Degeneracy is per REGION, not arrangement-wide: a region is invalid when an
@@ -642,6 +658,8 @@ func mapBoundaryEdge(ge geom.BoundaryEdge, entityFor func(int) Entity, s *Sketch
 		crossEnd:     ge.LineLineCrossingAtEnd(),
 		circleStart:  ge.LineCircleCrossingAtStart(),
 		circleEnd:    ge.LineCircleCrossingAtEnd(),
+		arcStart:     ge.LineArcCrossingAtStart(),
+		arcEnd:       ge.LineArcCrossingAtEnd(),
 		Entity:       entityFor(ge.SourceIndex),
 		Partial:      !ge.Whole,
 		Reversed:     ge.Reversed,
@@ -651,7 +669,8 @@ func mapBoundaryEdge(ge geom.BoundaryEdge, entityFor func(int) Entity, s *Sketch
 		TExact:       ge.TExact,
 	}
 	if be.crossStart != nil || be.crossEnd != nil ||
-		be.circleStart != nil || be.circleEnd != nil {
+		be.circleStart != nil || be.circleEnd != nil ||
+		be.arcStart != nil || be.arcEnd != nil {
 		be.snapshot = &boundaryEdgeSnapshot{
 			entity: be.Entity, partial: be.Partial, reversed: be.Reversed,
 			tStart: be.TStart, tEnd: be.TEnd, tExact: be.TExact,
@@ -664,6 +683,8 @@ func mapBoundaryEdge(ge geom.BoundaryEdge, entityFor func(int) Entity, s *Sketch
 type junctionWalk struct {
 	length int
 	closed bool
+	owner  *Profile
+	loop   int
 }
 
 func stampJunctionWalk(edges []BoundaryEdge, closed bool) {

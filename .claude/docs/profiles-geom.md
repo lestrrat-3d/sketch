@@ -133,6 +133,25 @@ irrational crossing into a binary64 point, or prove that an output loop can
 close. A downstream constructor must prove its own representable vertex,
 whole-fragment displacement, and charge before publishing geometry.
 
+### Certified quarter Line/Arc junctions
+
+Use `s.CertifyQuarterArcJunctions(ctx, raw, work)` on the complete slice
+from one live `Sketch.Profiles()` call. Keep the raw profiles unchanged
+throughout the proof. `work` charges the two source categories described
+by `JunctionCharge`; the arithmetic and raw-publication caps are in
+`profile_line_arc_quarter_junction.go`.
+
+Check returned contact count and source roles before using a witness.
+`(empty, true, nil)` means no retained proper-secant Line/Arc token was
+certified; it does not prove that the scene has no other Arc contact.
+`Sources()` and `Parameters()` use the same walked order, including when
+the Arc is first. The returned point and parameters are rational brackets;
+they do not supply a representable output vertex.
+
+Do not count `Sketch.Profiles()` inside this API's work limit. Ordinary
+mixed Line/Arc profile construction has no cancellation context or charge
+callback; this certificate starts after its publication.
+
 ### The whole-sketch gate comes first
 
 **A WHOLE-SKETCH gate comes first**: exact bounds are
