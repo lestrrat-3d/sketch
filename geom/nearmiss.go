@@ -497,11 +497,13 @@ func projectHom(cp [][3]float64) [][2]float64 {
 func (a *arranger) nearMissGuard() {
 	var boxes []nearMissBox
 	for i := range a.sources {
+		a.budget.step(1)
 		ki := a.sources[i].kind
 		if ki == srcDegenerate {
 			continue
 		}
 		for j := i + 1; j < len(a.sources); j++ {
+			a.budget.step(1)
 			kj := a.sources[j].kind
 			if kj == srcDegenerate {
 				continue
@@ -532,10 +534,12 @@ func (a *arranger) nearMissGuard() {
 func (a *arranger) pairNearMiss(i, j int, boxes []nearMissBox) (float64, float64, bool) {
 	contacts := a.sampledContacts[pairKey(i, j)]
 	for _, ii := range a.sourceSegs[i] {
+		a.budget.step(1)
 		si := &a.segs[ii]
 		bi := &boxes[ii]
 		di := a.segDev[ii]
 		for _, jj := range a.sourceSegs[j] {
+			a.budget.step(1)
 			sj := &a.segs[jj]
 			band := di + a.segDev[jj]
 			if !(band > 0) {
@@ -567,6 +571,7 @@ func (a *arranger) pairNearMiss(i, j int, boxes []nearMissBox) (float64, float64
 			tol := math.Max(band, a.merge)
 			explained := false
 			for _, c := range contacts {
+				a.budget.step(1)
 				if math.Hypot(c[0]-x, c[1]-y) <= tol {
 					explained = true
 					break

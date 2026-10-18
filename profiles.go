@@ -1,6 +1,11 @@
 package sketch
 
-import "github.com/lestrrat-3d/sketch/geom"
+import (
+	"context"
+	"math"
+
+	"github.com/lestrrat-3d/sketch/geom"
+)
 
 // Profile is a closed planar region detected in a sketch. Its outer boundary is
 // an ordered loop of edges; each edge is a whole sketch entity or a fragment of
@@ -271,6 +276,64 @@ func (s *Sketch) Profiles() []*Profile {
 	return s.buildProfiles().profiles
 }
 
+// ProfilesLinesBounded builds profiles for a scene of at most 64 live lines.
+// charge authorizes work before it starts and may return a caller-owned budget
+// error. Cancellation and a refused charge return no profiles. Unsupported
+// input returns geom.ErrUnsupportedLineScene. The sketch is not safe to mutate
+// concurrently with this call.
+func (s *Sketch) ProfilesLinesBounded(ctx context.Context, charge func(uint64) error) ([]*Profile, error) {
+	if s == nil || ctx == nil || charge == nil {
+		return nil, geom.ErrUnsupportedLineScene
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if len(s.ents) > 64 || len(s.points) > 128 || len(s.vars) > 258 ||
+		len(s.fixed) != len(s.vars) || len(s.cons) != 0 || len(s.refSeals) != 0 ||
+		s.origin == nil {
+		return nil, geom.ErrUnsupportedLineScene
+	}
+	checkPoint := func(p *Point) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := charge(1); err != nil {
+			return err
+		}
+		if !s.owns(p) || p.xi < 0 || p.yi < 0 || p.xi >= len(s.vars) || p.yi >= len(s.vars) ||
+			math.IsNaN(p.x()) || math.IsInf(p.x(), 0) || math.IsNaN(p.y()) || math.IsInf(p.y(), 0) {
+			return geom.ErrUnsupportedLineScene
+		}
+		return nil
+	}
+	if err := checkPoint(s.origin); err != nil {
+		return nil, err
+	}
+	for _, p := range s.points {
+		if err := checkPoint(p); err != nil {
+			return nil, err
+		}
+	}
+	for _, ent := range s.ents {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if err := charge(1); err != nil {
+			return nil, err
+		}
+		line, ok := ent.(*Line)
+		if !ok || line == nil || !s.ownsEntity(line) || line.IsConstruction() || line.source != "" ||
+			!s.owns(line.Start) || !s.owns(line.End) {
+			return nil, geom.ErrUnsupportedLineScene
+		}
+	}
+	result, err := s.buildProfilesWith(ctx, charge)
+	if err != nil {
+		return nil, err
+	}
+	return result.profiles, nil
+}
+
 // sketchArrangement is what one arrangement pass publishes: the two edge
 // publications — the closed regions and the open chains, read off the same edge
 // set and never both reporting one edge — plus the arrangement-level degeneracy
@@ -288,6 +351,35 @@ type sketchArrangement struct {
 // Verify consumes the degeneracy signal; Profiles exposes only the regions and
 // Chains only the chains.
 func (s *Sketch) buildProfiles() sketchArrangement {
+	result, _ := s.buildProfilesWith(nil, nil)
+	return result
+}
+
+func (s *Sketch) buildProfilesWith(ctx context.Context, charge func(uint64) error) (sketchArrangement, error) {
+	var used uint64
+	take := func(n uint64) error {
+		if charge == nil {
+			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if n > 1<<16-used {
+			return geom.ErrUnsupportedLineScene
+		}
+		for n > 0 {
+			part := min(n, 256)
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := charge(part); err != nil {
+				return err
+			}
+			used += part
+			n -= part
+		}
+		return nil
+	}
 	var curves []geom.Curve
 	var closed []geom.ClosedCurve
 	var openEnts, closedEnts []Entity
@@ -306,6 +398,9 @@ func (s *Sketch) buildProfiles() sketchArrangement {
 	}
 
 	for _, e := range s.ents {
+		if err := take(3); err != nil {
+			return sketchArrangement{}, err
+		}
 		if e.IsConstruction() {
 			continue
 		}
@@ -393,12 +488,36 @@ func (s *Sketch) buildProfiles() sketchArrangement {
 		return closedEnts[srcIndex-len(openEnts)]
 	}
 
-	arr := geom.Regions(curves, closed)
+	var arr *geom.Arrangement
+	if charge == nil {
+		arr = geom.Regions(curves, closed)
+	} else {
+		var err error
+		arr, err = geom.RegionsLinesBounded(ctx, curves, charge)
+		if err != nil {
+			return sketchArrangement{}, err
+		}
+	}
 	// Stamp every profile with the state it was built from, so a later mutation
 	// makes it detectably stale (Profile.IsStale) instead of silently wrong.
-	rev := s.Revision()
+	var rev uint64
+	if charge == nil {
+		rev = s.Revision()
+	} else {
+		var err error
+		rev, err = s.revisionWithCharge(take)
+		if err != nil {
+			return sketchArrangement{}, err
+		}
+	}
+	if err := take(uint64(len(arr.Regions))); err != nil {
+		return sketchArrangement{}, err
+	}
 	profiles := make([]*Profile, 0, len(arr.Regions))
 	for _, r := range arr.Regions {
+		if err := take(1); err != nil {
+			return sketchArrangement{}, err
+		}
 		p := &Profile{
 			Area:             r.Area,
 			SelfIntersecting: r.SelfIntersecting,
@@ -407,6 +526,9 @@ func (s *Sketch) buildProfiles() sketchArrangement {
 		}
 		seen := map[Entity]struct{}{}
 		for _, ge := range r.Outer {
+			if err := take(1 + uint64(len(ge.Polyline))); err != nil {
+				return sketchArrangement{}, err
+			}
 			be := mapBoundaryEdge(ge, entityFor, s, rev)
 			p.Outer = append(p.Outer, be)
 			if _, ok := seen[be.Entity]; !ok {
@@ -414,11 +536,23 @@ func (s *Sketch) buildProfiles() sketchArrangement {
 				p.Entities = append(p.Entities, be.Entity)
 			}
 		}
+		if err := take(uint64(len(p.Outer))); err != nil {
+			return sketchArrangement{}, err
+		}
 		stampJunctionWalk(p.Outer, true)
 		for _, hole := range r.Holes {
+			if err := take(1); err != nil {
+				return sketchArrangement{}, err
+			}
 			var he []BoundaryEdge
 			for _, ge := range hole {
+				if err := take(1 + uint64(len(ge.Polyline))); err != nil {
+					return sketchArrangement{}, err
+				}
 				he = append(he, mapBoundaryEdge(ge, entityFor, s, rev))
+			}
+			if err := take(uint64(len(he))); err != nil {
+				return sketchArrangement{}, err
 			}
 			stampJunctionWalk(he, true)
 			p.Holes = append(p.Holes, he)
@@ -440,12 +574,28 @@ func (s *Sketch) buildProfiles() sketchArrangement {
 		p.Valid = !r.SelfIntersecting && !r.Degenerate
 		profiles = append(profiles, p)
 	}
+	if charge != nil {
+		if err := ctx.Err(); err != nil {
+			return sketchArrangement{}, err
+		}
+		return sketchArrangement{
+			profiles:     profiles,
+			degenerate:   arr.Degenerate,
+			degeneracies: arr.Degeneracies,
+		}, nil
+	}
 
 	// The open chains are the same arrangement's other publication: every edge no
 	// region boundary used. They are stamped with the same sketch and revision, so
 	// Chain.IsStale answers exactly as Profile.IsStale does.
+	if err := take(uint64(len(arr.Chains))); err != nil {
+		return sketchArrangement{}, err
+	}
 	chains := make([]*Chain, 0, len(arr.Chains))
 	for _, gc := range arr.Chains {
+		if err := take(1); err != nil {
+			return sketchArrangement{}, err
+		}
 		c := &Chain{
 			Length:           gc.Length,
 			SelfIntersecting: gc.SelfIntersecting,
@@ -454,6 +604,9 @@ func (s *Sketch) buildProfiles() sketchArrangement {
 		}
 		seen := map[Entity]struct{}{}
 		for _, ge := range gc.Edges {
+			if err := take(1); err != nil {
+				return sketchArrangement{}, err
+			}
 			be := mapBoundaryEdge(ge, entityFor, s, rev)
 			c.Edges = append(c.Edges, be)
 			if _, ok := seen[be.Entity]; !ok {
@@ -476,7 +629,7 @@ func (s *Sketch) buildProfiles() sketchArrangement {
 		chains:       chains,
 		degenerate:   arr.Degenerate,
 		degeneracies: arr.Degeneracies,
-	}
+	}, nil
 }
 
 func mapBoundaryEdge(ge geom.BoundaryEdge, entityFor func(int) Entity, s *Sketch, rev uint64) BoundaryEdge {

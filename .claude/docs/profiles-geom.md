@@ -16,6 +16,7 @@ Detail moved out of CLAUDE.md. Read before touching `Sketch.Profiles`, `Boundary
 | Why did my chain get cut in two? | Where a chain walk stops |
 | What decides the order chains come back in? | Direction, order, length and validity |
 | What does `geom.Regions` return? | The planar-arrangement / region engine |
+| How does a caller bound a line-only profile read? | Bounded line profiles |
 | Which crossings are analytic? | Analytic crossing detection |
 | Where is a pair's handled/events state stored? | Per-pair prepass state |
 | Why was a clean crossing refused? | Curve/curve transverse crossing authority |
@@ -39,6 +40,21 @@ bare-crossing subdivision, holes/nesting, net area, and per-region validity
 (self-intersecting/degenerate). `Profile` carries `Outer`/`Holes`
 (`BoundaryEdge`s, whole or fragment), `Area`, `Valid`, `SelfIntersecting`;
 construction excluded, reference geometry included.
+
+### Bounded line profiles
+
+Call `Sketch.ProfilesLinesBounded(ctx, charge)` for at most 64 live line
+entities, 128 authored points and 258 solver variables. It refuses constraints,
+construction entities, other curve kinds, reference seals, foreign handles and
+non-finite endpoints with `geom.ErrUnsupportedLineScene`. It does not change
+`Profiles()` or accept its curved scenes.
+
+The callback authorizes work before each bounded arrangement operation and may
+return the caller's budget error unchanged. A charge has at most 256 units.
+Cancellation and refusal return no profile slice; the call starts no worker.
+The bounded path also caps arrangement records and checks context through
+sorting, graph walks, containment and publication. A caller must budget its own
+work outside this method separately.
 
 ### `Valid` is per-region
 
