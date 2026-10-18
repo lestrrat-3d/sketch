@@ -334,8 +334,8 @@ func publishConvexLineCap(layout convexLineCap, take func(uint64) error) (*Arran
 		return nil, err
 	}
 	// Reserve the three region headers, at most 18 fragments, the source-use
-	// table, and two crossing tokens before publication.
-	if err := take(96); err != nil {
+	// table, the bounded endpoint cache, and two crossing tokens before publication.
+	if err := take(132); err != nil {
 		return nil, err
 	}
 	var paths [3][]convexCapFragment
@@ -371,6 +371,7 @@ func publishConvexLineCap(layout convexLineCap, take func(uint64) error) (*Arran
 		lo, hi uint64
 	}
 	uses := make(map[key][]bool, 12)
+	verifiedEndpoints := make(map[convexCapEndpointKey]struct{}, 36)
 	for _, path := range paths {
 		if err := take(uint64(len(path) + 1)); err != nil {
 			return nil, err
@@ -381,7 +382,8 @@ func publishConvexLineCap(layout convexLineCap, take func(uint64) error) (*Arran
 			if err := take(8); err != nil {
 				return nil, err
 			}
-			edge, err := convexCapEdge(layout.lines, fragment, layout.cuts, tokens, take)
+			edge, err := convexCapEdge(layout.lines, fragment, layout.cuts, tokens,
+				verifiedEndpoints, take)
 			if err != nil {
 				return nil, err
 			}
@@ -417,8 +419,147 @@ func publishConvexLineCap(layout convexLineCap, take func(uint64) error) (*Arran
 	return arr, nil
 }
 
+// convexCapEndpointReproduces checks the reported binary64 parameter against
+// the exact point on this source. The carrier and crossing are already proved
+// with rationals. A rounded parameter may evaluate a few ulps differently
+// when the compiler fuses multiply-add. Check the exact dyadic evaluation and
+// both IEEE evaluation paths against the same source-local identity band used
+// by ordinary arrangement TExact. The source is part of the scene, so its
+// extent is no larger than the scene extent and this also implies that band.
+func convexCapEndpointReproduces(a, b, point convexCapPoint, t float64,
+	take func(uint64) error) (bool, error) {
+	// Covers the local and per-axis roundoff bands, exact evaluation, both
+	// rounded evaluation paths, and their bounded comparisons.
+	if err := take(40); err != nil {
+		return false, err
+	}
+	tRat := capRat(t)
+	if tRat == nil || t < 0 || t > 1 {
+		return false, nil
+	}
+	var delta [2]*big.Rat
+	var roundBand [2]*big.Rat
+	extent := new(big.Rat)
+	for axis := range 2 {
+		if point.rat[axis] == nil || point.rat[axis].Cmp(capRat(point.xy[axis])) != 0 {
+			return false, nil
+		}
+		delta[axis] = capSub(b.rat[axis], a.rat[axis])
+		size := new(big.Rat).Abs(delta[axis])
+		if size.Cmp(extent) > 0 {
+			extent = size
+		}
+		scale := size
+		for _, coord := range [2]*big.Rat{a.rat[axis], b.rat[axis]} {
+			magnitude := new(big.Rat).Abs(coord)
+			if magnitude.Cmp(scale) > 0 {
+				scale = magnitude
+			}
+		}
+		roundBand[axis] = capMul(capRat(8*unitRoundoff), scale)
+	}
+	if extent.Sign() <= 0 {
+		return false, nil
+	}
+	band := capMul(capRat(weldIdentEps), extent)
+	bandSquared := capMul(band, band)
+	var exact, fused, separate [2]*big.Rat
+	for axis := range 2 {
+		exact[axis] = new(big.Rat).Add(a.rat[axis], capMul(tRat, delta[axis]))
+		av, bv := a.xy[axis], b.xy[axis]
+		roundedDelta := bv - av
+		fused[axis] = capRat(math.FMA(t, roundedDelta, av))
+		roundedProduct, _ := capMul(tRat, capRat(roundedDelta)).Float64()
+		roundedSum, _ := new(big.Rat).Add(capRat(av),
+			capRat(roundedProduct)).Float64()
+		separate[axis] = capRat(roundedSum)
+		if fused[axis] == nil || separate[axis] == nil {
+			return false, nil
+		}
+	}
+	for _, evaluated := range [3][2]*big.Rat{exact, fused, separate} {
+		var gap [2]*big.Rat
+		for axis := range 2 {
+			gap[axis] = new(big.Rat).Abs(capSub(evaluated[axis], point.rat[axis]))
+			if gap[axis].Cmp(roundBand[axis]) > 0 {
+				return false, nil
+			}
+		}
+		gapSquared := new(big.Rat).Add(capMul(gap[0], gap[0]),
+			capMul(gap[1], gap[1]))
+		if gapSquared.Cmp(bandSquared) > 0 {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+type convexCapEndpointKey struct {
+	source      int
+	endpoint    uint8 // 0=cut, 1=exact source start, 2=exact source end
+	param, x, y uint64
+}
+
+// A profile may walk the same source endpoint in two cells. Charge each lookup
+// and prove each unchanged (source, parameter, point) only once per cap.
+func convexCapCachedEndpoint(a, b, point convexCapPoint, exactT *big.Rat,
+	t float64, source int, verified map[convexCapEndpointKey]struct{},
+	take func(uint64) error) (bool, error) {
+	if err := take(1); err != nil {
+		return false, err
+	}
+	if exactT == nil {
+		return false, nil
+	}
+	wholeStart := exactT.Sign() == 0
+	wholeEnd := exactT.Cmp(big.NewRat(1, 1)) == 0
+	var endpoint uint8
+	if wholeStart {
+		endpoint = 1
+	} else if wholeEnd {
+		endpoint = 2
+	}
+	key := convexCapEndpointKey{source: source, endpoint: endpoint,
+		param: math.Float64bits(t), x: math.Float64bits(point.xy[0]),
+		y: math.Float64bits(point.xy[1])}
+	if _, ok := verified[key]; ok {
+		return true, nil
+	}
+	if key.endpoint != 0 {
+		// Exact source-domain identity: two parameter checks, two rational
+		// coordinate checks, two binary64 bit checks, and cache publication.
+		if err := take(8); err != nil {
+			return false, err
+		}
+		original := a
+		expectedT := float64(0)
+		if wholeEnd {
+			original, expectedT = b, 1
+		}
+		if math.Float64bits(t) != math.Float64bits(expectedT) {
+			return false, nil
+		}
+		for axis := range 2 {
+			if point.rat[axis] == nil || original.rat[axis] == nil ||
+				point.rat[axis].Cmp(original.rat[axis]) != 0 ||
+				math.Float64bits(point.xy[axis]) !=
+					math.Float64bits(original.xy[axis]) {
+				return false, nil
+			}
+		}
+	} else {
+		ok, err := convexCapEndpointReproduces(a, b, point, t, take)
+		if err != nil || !ok {
+			return ok, err
+		}
+	}
+	verified[key] = struct{}{}
+	return true, nil
+}
+
 func convexCapEdge(lines [8]*Line, fragment convexCapFragment,
 	cuts [2]convexCapPoint, tokens [2]*LineLineCrossing,
+	verified map[convexCapEndpointKey]struct{},
 	take func(uint64) error) (BoundaryEdge, error) {
 	var no BoundaryEdge
 	line := lines[fragment.source]
@@ -444,15 +585,25 @@ func convexCapEdge(lines [8]*Line, fragment convexCapFragment,
 	if !(start < end) {
 		return no, ErrUnsupportedLineScene
 	}
-	lo, hi := fragment.start.xy, fragment.end.xy
+	lo, hi := fragment.start, fragment.end
 	if reversed {
 		lo, hi = hi, lo
 	}
-	for axis, pair := range [][2]float64{{line.Start.X, line.End.X}, {line.Start.Y, line.End.Y}} {
-		if pair[0]+start*(pair[1]-pair[0]) != lo[axis] ||
-			pair[0]+end*(pair[1]-pair[0]) != hi[axis] {
-			return no, ErrUnsupportedLineScene
-		}
+	reproduced, err := convexCapCachedEndpoint(a, b, lo, t0, start,
+		fragment.source, verified, take)
+	if err != nil {
+		return no, err
+	}
+	if !reproduced {
+		return no, ErrUnsupportedLineScene
+	}
+	reproduced, err = convexCapCachedEndpoint(a, b, hi, t1, end,
+		fragment.source, verified, take)
+	if err != nil {
+		return no, err
+	}
+	if !reproduced {
+		return no, ErrUnsupportedLineScene
 	}
 	// Charge the two-point polyline before allocation. The exact rational
 	// source parameters and both stored endpoints were checked above.
