@@ -4074,7 +4074,7 @@ func (a *arranger) wireGraph() {
 		}
 		out[v] = list
 	}
-	pos := make([]int, len(a.halfs)) // half-edge -> index within its origin's sorted ring
+	pos := make([]int, a.budget.preflight(len(a.halfs))) // half-edge -> index within its origin's sorted ring
 	for v := range out {
 		a.budget.step(1)
 		for idx, hi := range out[v] {
