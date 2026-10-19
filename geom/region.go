@@ -175,10 +175,36 @@ func (e BoundaryEdge) LineLineCrossingAtEnd() *LineLineCrossing { return e.cross
 
 // LineCircleCrossingAtStart identifies an unmerged line-circle secant at the
 // beginning of this directed edge, if one survived the final graph audit.
-func (e BoundaryEdge) LineCircleCrossingAtStart() *LineCircleCrossing { return e.circleStart }
+func (e BoundaryEdge) LineCircleCrossingAtStart() *LineCircleCrossing {
+	if e.circleStart != nil && e.circleStart.arc == nil {
+		return e.circleStart
+	}
+	return nil
+}
 
 // LineCircleCrossingAtEnd identifies the same kind of secant at the walked end.
-func (e BoundaryEdge) LineCircleCrossingAtEnd() *LineCircleCrossing { return e.circleEnd }
+func (e BoundaryEdge) LineCircleCrossingAtEnd() *LineCircleCrossing {
+	if e.circleEnd != nil && e.circleEnd.arc == nil {
+		return e.circleEnd
+	}
+	return nil
+}
+
+// LineArcCrossingAtStart returns a certified line/arc token at the walked start.
+func (e BoundaryEdge) LineArcCrossingAtStart() *LineArcCrossing {
+	if e.circleStart == nil {
+		return nil
+	}
+	return e.circleStart.arc
+}
+
+// LineArcCrossingAtEnd returns a certified line/arc token at the walked end.
+func (e BoundaryEdge) LineArcCrossingAtEnd() *LineArcCrossing {
+	if e.circleEnd == nil {
+		return nil
+	}
+	return e.circleEnd.arc
+}
 
 // Region is a minimal bounded area extracted from the arrangement: an outer
 // boundary walked counter-clockwise, zero or more holes (inner boundaries,

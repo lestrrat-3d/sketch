@@ -9,6 +9,19 @@ type LineCircleCrossing struct {
 	point     [2]float64
 	branch    int8 // -1 low, +1 high on the line's natural parameter
 	allBounds [][4]float64
+	arc       *LineArcCrossing
+}
+
+// LineArcCrossing identifies one unmerged analytic line/arc secant. The
+// arrangement retains one shared private token across every incident fragment.
+type LineArcCrossing struct{ core *LineCircleCrossing }
+
+func (c *LineArcCrossing) SourceIndices() [2]int { return c.core.SourceIndices() }
+func (c *LineArcCrossing) Point() [2]float64     { return c.core.Point() }
+func (c *LineArcCrossing) Branch() int8          { return c.core.Branch() }
+func (c *LineArcCrossing) SourceCount() int      { return c.core.SourceCount() }
+func (c *LineArcCrossing) SourceBound(index int) ([4]float64, bool) {
+	return c.core.SourceBound(index)
 }
 
 // SourceIndices returns the line and circle input positions, in that order.
@@ -41,7 +54,8 @@ func (a *arranger) lineCircleCrossing(i, j int, e xEvent) *LineCircleCrossing {
 	if a.sources[j].kind == srcLine {
 		line, circle = j, i
 	}
-	if a.sources[line].kind != srcLine || a.sources[circle].kind != srcCircle {
+	if a.sources[line].kind != srcLine ||
+		(a.sources[circle].kind != srcCircle && a.sources[circle].kind != srcArc) {
 		return nil
 	}
 	if !a.circleBoundsReady {
@@ -62,6 +76,9 @@ func (a *arranger) lineCircleCrossing(i, j int, e xEvent) *LineCircleCrossing {
 	c := &LineCircleCrossing{
 		sources: [2]int{line, circle}, point: [2]float64{e.x, e.y},
 		branch: e.circleBranch, allBounds: a.circleBounds,
+	}
+	if a.sources[circle].kind == srcArc {
+		c.arc = &LineArcCrossing{core: c}
 	}
 	return c
 }

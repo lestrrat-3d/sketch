@@ -39,6 +39,8 @@ const (
 	JunctionLine JunctionSourceKind = iota + 1
 	// JunctionCircle identifies a complete circle source.
 	JunctionCircle
+	// JunctionArc identifies a first-quadrant quarter-arc source.
+	JunctionArc
 )
 
 // JunctionSource records one authenticated source and its directed edge range.

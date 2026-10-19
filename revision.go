@@ -2,10 +2,13 @@ package sketch
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"math"
 )
+
+var errRevisionChanged = errors.New("sketch changed during charged revision")
 
 // Revision returns a fingerprint of the sketch state that [Sketch.Profiles]
 // depends on: every solver variable, plus the entity set, each entity's INSTANCE
@@ -53,6 +56,13 @@ func (s *Sketch) Revision() uint64 {
 // revisionWithCharge preserves Revision's byte stream while letting the
 // line-only profile entry check cancellation during its bounded state scan.
 func (s *Sketch) revisionWithCharge(take func(uint64) error) (uint64, error) {
+	return s.revisionWithChargeGuard(take, nil)
+}
+
+// revisionWithChargeGuard checks each entity after the charged callback and
+// before reading its potentially variable-length structural state.
+func (s *Sketch) revisionWithChargeGuard(take func(uint64) error,
+	guard func(Entity) error) (uint64, error) {
 	h := fnv.New64a()
 	var buf [8]byte
 	write := func(u uint64) {
@@ -114,10 +124,16 @@ func (s *Sketch) revisionWithCharge(take func(uint64) error) (uint64, error) {
 		}
 	}
 	seq := make(map[*Point]uint64)
-	write(uint64(len(s.ents)))
+	entityCount := len(s.ents)
+	write(uint64(entityCount))
 	for _, e := range s.ents {
 		if take != nil {
 			if err := take(1); err != nil {
+				return 0, err
+			}
+		}
+		if guard != nil {
+			if err := guard(e); err != nil {
 				return 0, err
 			}
 		}
@@ -166,6 +182,9 @@ func (s *Sketch) revisionWithCharge(take func(uint64) error) (uint64, error) {
 			write(math.Float64bits(p.y()))
 		}
 		entityStructuralState(e, write, writeFloats)
+	}
+	if guard != nil && len(s.ents) != entityCount {
+		return 0, errRevisionChanged
 	}
 	return h.Sum64(), nil
 }
