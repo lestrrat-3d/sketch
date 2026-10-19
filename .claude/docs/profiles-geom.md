@@ -148,6 +148,9 @@ certified; it does not prove that the scene has no other Arc contact.
 the Arc is first. The returned point and parameters are rational brackets;
 they do not supply a representable output vertex.
 
+The certificate refuses a sketch containing NURBS before revision hashing.
+The existing revision charge does not cover NURBS knot and weight scans.
+
 Do not count `Sketch.Profiles()` inside this API's work limit. Ordinary
 mixed Line/Arc profile construction has no cancellation context or charge
 callback; this certificate starts after its publication.

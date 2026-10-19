@@ -152,6 +152,24 @@ func TestQuarterArcJunctionChargesRevisionScan(t *testing.T) {
 	require.Equal(t, work.limit+1, work.used)
 }
 
+func TestQuarterArcJunctionRefusesUnchargedNURBSRevision(t *testing.T) {
+	s, _ := quarterJunctionRealProfiles(t)
+	control := []*sketch.Point{
+		s.CreatePoint(20, 20), s.CreatePoint(21, 22), s.CreatePoint(22, 20),
+	}
+	_, err := s.CreateNURBS(2, control, nil, sketch.ClampedUniformKnots(3, 2))
+	require.NoError(t, err)
+	profiles := s.Profiles()
+	require.NotEmpty(t, profiles)
+	work := &quarterJunctionTestWork{cancelErr: t.Context().Err, limit: 4096}
+	junctions, ok, err := s.CertifyQuarterArcJunctions(t.Context(), profiles, work)
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.Empty(t, junctions)
+	require.Equal(t, "sketch.nurbs", work.decline.Predicate)
+	require.LessOrEqual(t, work.used, work.limit)
+}
+
 func TestQuarterArcJunctionEmptyForUnsupportedArc(t *testing.T) {
 	s := newSketch(t)
 	center := s.CreatePoint(0, 0)

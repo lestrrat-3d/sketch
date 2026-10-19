@@ -90,6 +90,8 @@ type quarterCandidate struct {
 // source. Callers must check the number and roles of contacts they require.
 // The caller must keep raw profiles unchanged during this call.
 // This work limit starts after Profiles has built the publication.
+// A sketch containing NURBS declines because its revision has variable-length
+// knot and weight scans that the current revision charge cannot bound.
 func (s *Sketch) CertifyQuarterArcJunctions(ctx context.Context, raw []*Profile,
 	work JunctionWork) ([]QuarterArcJunction, bool, error) {
 	if ctx == nil || work == nil {
@@ -119,7 +121,22 @@ func (s *Sketch) CertifyQuarterArcJunctions(ctx context.Context, raw []*Profile,
 		}
 		return nil
 	}
-	revision, err := s.revisionWithCharge(chargeRaw)
+	boundedRevision := func() (uint64, error) {
+		for _, entity := range s.ents {
+			if err := chargeRaw(1); err != nil {
+				return 0, err
+			}
+			if _, ok := entity.(*NURBS); ok {
+				return 0, errJunctionMiss
+			}
+		}
+		return s.revisionWithCharge(chargeRaw)
+	}
+	revision, err := boundedRevision()
+	if errors.Is(err, errJunctionMiss) {
+		return quarterDecline(work, "sketch.nurbs", -1, -1, -1,
+			BoundaryEdge{}, BoundaryEdge{})
+	}
 	if err != nil {
 		return nil, false, err
 	}
@@ -345,7 +362,11 @@ func (s *Sketch) CertifyQuarterArcJunctions(ctx context.Context, raw []*Profile,
 	if err := work.Err(); err != nil {
 		return nil, false, err
 	}
-	current, err := s.revisionWithCharge(chargeRaw)
+	current, err := boundedRevision()
+	if errors.Is(err, errJunctionMiss) {
+		return quarterDecline(work, "sketch.nurbs", -1, -1, -1,
+			BoundaryEdge{}, BoundaryEdge{})
+	}
 	if err != nil {
 		return nil, false, err
 	}
