@@ -389,6 +389,24 @@ func (s *Sketch) CertifyQuarterArcJunctions(ctx context.Context, raw []*Profile,
 	if err == nil {
 		err = chargeRaw(cost)
 	}
+	if err == nil {
+		err = ctx.Err()
+	}
+	if err == nil {
+		err = work.Err()
+	}
+	if err == nil && len(s.ents) != entityCount {
+		err = errRevisionChanged
+	}
+	if err == nil {
+		err = chargeRaw(uint64(entityCount))
+	}
+	if err == nil {
+		err = ctx.Err()
+	}
+	if err == nil {
+		err = work.Err()
+	}
 	if err == nil && len(s.ents) != entityCount {
 		err = errRevisionChanged
 	}

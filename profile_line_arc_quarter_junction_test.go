@@ -13,6 +13,7 @@ import (
 type quarterJunctionTestWork struct {
 	cancelErr func() error
 	used      int
+	raw       int
 	limit     int
 	onStep    func(sketch.JunctionCharge)
 	decline   sketch.JunctionDecline
@@ -23,6 +24,9 @@ func (w *quarterJunctionTestWork) Step(kind sketch.JunctionCharge) error {
 		return err
 	}
 	w.used++
+	if kind == sketch.JunctionRawVisit {
+		w.raw++
+	}
 	if w.used > w.limit {
 		return sketch.ErrJunctionWorkLimit
 	}
@@ -205,6 +209,12 @@ func TestQuarterArcJunctionChecksFinalRevisionCancellation(t *testing.T) {
 	work.onStep = func(sketch.JunctionCharge) {
 		if work.used == baseline.used {
 			canceled = true
+			control := []*sketch.Point{
+				s.CreatePoint(20, 20), s.CreatePoint(21, 22), s.CreatePoint(22, 20),
+			}
+			_, createErr := s.CreateNURBS(2, control, nil,
+				sketch.ClampedUniformKnots(3, 2))
+			require.NoError(t, createErr)
 			cancel()
 		}
 	}
@@ -213,6 +223,17 @@ func TestQuarterArcJunctionChecksFinalRevisionCancellation(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	require.False(t, ok)
 	require.Empty(t, junctions)
+	require.Equal(t, baseline.used, work.used)
+}
+
+func TestQuarterArcJunctionChargesFinalEntityScans(t *testing.T) {
+	s, profiles := quarterJunctionRealProfiles(t)
+	work := &quarterJunctionTestWork{cancelErr: t.Context().Err, limit: 4096}
+	_, ok, err := s.CertifyQuarterArcJunctions(t.Context(), profiles, work)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Len(t, s.Entities(), 7)
+	require.Equal(t, 247, work.raw)
 }
 
 func TestQuarterArcJunctionChargesRevisionScan(t *testing.T) {
