@@ -408,6 +408,18 @@ reachable from another public method. The public `Sketch.DOF`, `Sketch.Diagnose`
 matrix on every call — only the `verifyCore` path's internal use is shared, and
 only for the duration of that one call.
 
+
+### `Verify` skips two O(n³) passes when it can
+
+**`Verify` runs the Gram–Schmidt dependency pass only when the rank analysis
+found a dependent row**: `conflictAnalysisOn(cj, fullRowRank)` returns no
+flagged constraint when `rank == cj.m`, because independent rows cannot be
+dependent. `CheckConstraint`/`conflictAnalysis` pass `false` and always run the
+pass. **`WithoutConditioning` skips the singular-value pass** that fills
+`Conditioning`; the report then holds NaN there, sets `conditioningSkipped`, and
+`Check` reports `ErrConditioningUnmeasured` instead of reading the NaN as a
+near-singular system. Status, DOF, redundancy and conflicts are unchanged.
+
 ### The trust verdict has one definition and two shapes
 
 **The trust verdict has ONE

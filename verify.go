@@ -147,6 +147,9 @@ type VerificationReport struct {
 	// condGate is the tolerance-derived threshold Conditioning was gated against
 	// (see [conditioningGate]); read by Trustworthy.
 	condGate float64
+	// conditioningSkipped records that the caller asked Verify not to measure
+	// Conditioning, which then holds NaN and fails the trust gate.
+	conditioningSkipped bool
 	// analysisSkipped records that Verify stopped after the reference-integrity
 	// and non-finite-geometry scans, so every field the residual/rank/profile/
 	// parameter passes fill holds an unevaluated zero value. Check reads it to
@@ -345,6 +348,10 @@ var (
 	// this report rather than passed, which is why the verdict fails: repair the
 	// handles the accompanying reasons name and verify again.
 	ErrVerificationIncomplete = errors.New("sketch: verification incomplete")
+	// ErrConditioningUnmeasured: the caller passed [WithoutConditioning], so the
+	// near-singularity check was not run and its verdict is unknown rather than
+	// passed.
+	ErrConditioningUnmeasured = errors.New("sketch: conditioning not measured")
 	// ErrInvalidProfile: the region set cannot be trusted as extrudable profiles —
 	// see [VerificationReport.InvalidProfiles], which can be empty when the
 	// arrangement was unresolvable without producing a region.
@@ -487,7 +494,9 @@ func (r *VerificationReport) Check() Reasons {
 	if !r.ParametersValid {
 		add(fmt.Errorf("%w: %d dimensions", ErrInvalidParameter, len(r.ParameterErrors)))
 	}
-	if !(r.Conditioning >= r.condGate) { // NaN fails closed
+	if r.conditioningSkipped {
+		add(ErrConditioningUnmeasured)
+	} else if !(r.Conditioning >= r.condGate) { // NaN fails closed
 		// Printing condGate here exposes nothing: the threshold is already public
 		// information, stated verbatim as max(1e-6, 4·√tolerance) in the Conditioning
 		// field's own doc above, and it is a function of the tolerance THIS CALLER
@@ -567,6 +576,18 @@ type verifyOption struct{ option.Interface }
 func (verifyOption) verifyOption() {}
 
 type identProbe struct{}
+
+type identSkipConditioning struct{}
+
+// WithoutConditioning skips the singular-value pass that measures
+// [VerificationReport.Conditioning]. That pass costs O(n³) in the number of
+// free variables and dominates Verify on large sketches. The status, DOF,
+// redundancy and conflict results are unaffected. The report then fails
+// [VerificationReport.Check] with [ErrConditioningUnmeasured], because the
+// near-singularity condition was not tested; read Status and DOF instead.
+func WithoutConditioning() VerifyOption {
+	return verifyOption{option.New(identSkipConditioning{}, true)}
+}
 
 // WithProbe enables the discrete-ambiguity probe ([Sketch.ProbeConfigurations])
 // as part of verification, populating [VerificationReport.Probe]. The probe is
@@ -700,7 +721,7 @@ func (s *Sketch) verifyCore(rep *VerificationReport, tolerance float64) (committ
 	rep.DOF = dof(cj, ra)
 	rep.RankMargin = margin(cj, ra) // advisory; does not gate Trustworthy (scale-dependent)
 
-	flagged, conflicts := s.conflictAnalysisOn(cj)
+	flagged, conflicts := s.conflictAnalysisOn(cj, cj.m > 0 && ra.rank == cj.m)
 	rep.Conflicts = conflicts
 	if len(conflicts) < len(flagged) {
 		bad := make(map[Constraint]struct{}, len(conflicts))
@@ -733,7 +754,7 @@ func (s *Sketch) verifyCore(rep *VerificationReport, tolerance float64) (committ
 // potentially expensive, re-solving work Verify performs); pass
 // context.Background() when no bound is needed.
 func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *VerificationReport {
-	var probe bool
+	var probe, skipConditioning bool
 	var probeOpts []ProbeOption
 	tolerance := defaultSolveConfig().tolerance
 	for _, opt := range options {
@@ -743,6 +764,8 @@ func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *Verificat
 			probeOpts = option.MustGet[[]ProbeOption](opt)
 		case identTolerance:
 			tolerance = option.MustGet[float64](opt)
+		case identSkipConditioning:
+			skipConditioning = true
 		}
 	}
 
@@ -759,7 +782,10 @@ func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *Verificat
 	// [VerificationReport.Trustworthy], never [classifyStatus]: the status badge
 	// has no use for it and should not pay a full singular-value pass to render
 	// a number it does not show.
-	if rep.DOF == 0 {
+	if skipConditioning {
+		rep.conditioningSkipped = true
+		rep.Conditioning = math.NaN()
+	} else if rep.DOF == 0 {
 		rep.Conditioning = s.conditioningOn(cj)
 	}
 
