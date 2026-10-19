@@ -160,7 +160,7 @@ func (s *Sketch) conflictAnalysis() ([]Constraint, []ConflictSet, bool) {
 	if !ok {
 		return nil, nil, false
 	}
-	flagged, conflicts := s.conflictAnalysisOn(cj)
+	flagged, conflicts := s.conflictAnalysisOn(cj, false)
 	return flagged, conflicts, true
 }
 
@@ -172,7 +172,15 @@ func (s *Sketch) conflictAnalysis() ([]Constraint, []ConflictSet, bool) {
 // row to its owning constraint and to read the violation each one carries),
 // since a committedJacobian carries only the Jacobian, not those raw residual
 // values or the owner mapping.
-func (s *Sketch) conflictAnalysisOn(cj committedJacobian) ([]Constraint, []ConflictSet) {
+//
+// fullRowRank is true when the caller's rank analysis found every residual row
+// independent (rank equals the row count). No row can then be dependent, so the
+// quadratic Gram–Schmidt pass is skipped and nothing is flagged. Pass false to
+// run the pass unconditionally.
+func (s *Sketch) conflictAnalysisOn(cj committedJacobian, fullRowRank bool) ([]Constraint, []ConflictSet) {
+	if fullRowRank && cj.m > 0 {
+		return nil, nil
+	}
 	// Map each residual row to the constraint that produced it, mirroring the
 	// iteration (and therefore row) order of residuals().
 	var owners []Constraint
