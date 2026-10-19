@@ -122,19 +122,20 @@ func (s *Sketch) CertifyQuarterArcJunctions(ctx context.Context, raw []*Profile,
 		return nil
 	}
 	boundedRevision := func() (uint64, error) {
-		for _, entity := range s.ents {
-			if err := chargeRaw(1); err != nil {
-				return 0, err
-			}
+		return s.revisionWithChargeGuard(chargeRaw, func(entity Entity) error {
 			if _, ok := entity.(*NURBS); ok {
-				return 0, errJunctionMiss
+				return errJunctionMiss
 			}
-		}
-		return s.revisionWithCharge(chargeRaw)
+			return nil
+		})
 	}
 	revision, err := boundedRevision()
 	if errors.Is(err, errJunctionMiss) {
 		return quarterDecline(work, "sketch.nurbs", -1, -1, -1,
+			BoundaryEdge{}, BoundaryEdge{})
+	}
+	if errors.Is(err, errRevisionChanged) {
+		return quarterDecline(work, "publication.stale", -1, -1, -1,
 			BoundaryEdge{}, BoundaryEdge{})
 	}
 	if err != nil {
@@ -362,9 +363,57 @@ func (s *Sketch) CertifyQuarterArcJunctions(ctx context.Context, raw []*Profile,
 	if err := work.Err(); err != nil {
 		return nil, false, err
 	}
-	current, err := boundedRevision()
+	// Charge the complete final read before it starts. Work callbacks may edit
+	// the sketch, so a scan that calls Step while hashing cannot seal success:
+	// its last callback can change state that the scan has already read.
+	entityCount := len(s.ents)
+	if err := chargeRaw(uint64(entityCount)); err != nil {
+		return nil, false, err
+	}
+	if len(s.ents) != entityCount {
+		return quarterDecline(work, "publication.stale", -1, -1, -1,
+			BoundaryEdge{}, BoundaryEdge{})
+	}
+	revisionCost := func() (uint64, error) {
+		cost := uint64(len(s.vars)) + uint64(len(s.points)) +
+			1 + uint64(len(s.ents))
+		for _, entity := range s.ents {
+			if _, ok := entity.(*NURBS); ok {
+				return 0, errJunctionMiss
+			}
+			cost += uint64(len(entityPoints(entity)))
+		}
+		return cost, nil
+	}
+	cost, err := revisionCost()
+	if err == nil {
+		err = chargeRaw(cost)
+	}
+	if err == nil && len(s.ents) != entityCount {
+		err = errRevisionChanged
+	}
+	if err == nil {
+		var after uint64
+		after, err = revisionCost()
+		if err == nil && after > cost {
+			err = errRevisionChanged
+		}
+	}
+	var current uint64
+	if err == nil {
+		current, err = s.revisionWithChargeGuard(nil, func(entity Entity) error {
+			if _, ok := entity.(*NURBS); ok {
+				return errJunctionMiss
+			}
+			return nil
+		})
+	}
 	if errors.Is(err, errJunctionMiss) {
 		return quarterDecline(work, "sketch.nurbs", -1, -1, -1,
+			BoundaryEdge{}, BoundaryEdge{})
+	}
+	if errors.Is(err, errRevisionChanged) {
+		return quarterDecline(work, "publication.stale", -1, -1, -1,
 			BoundaryEdge{}, BoundaryEdge{})
 	}
 	if err != nil {
@@ -373,6 +422,12 @@ func (s *Sketch) CertifyQuarterArcJunctions(ctx context.Context, raw []*Profile,
 	if current != revision {
 		return quarterDecline(work, "publication.stale", -1, -1, -1,
 			BoundaryEdge{}, BoundaryEdge{})
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
+	if err := work.Err(); err != nil {
+		return nil, false, err
 	}
 	return result, true, nil
 }

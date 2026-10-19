@@ -142,6 +142,79 @@ func TestQuarterArcJunctionRejectsSketchMutationDuringProof(t *testing.T) {
 	require.Equal(t, "publication.stale", work.decline.Predicate)
 }
 
+func TestQuarterArcJunctionRejectsFinalRevisionCallbackMutation(t *testing.T) {
+	s, profiles := quarterJunctionRealProfiles(t)
+	baseline := &quarterJunctionTestWork{cancelErr: t.Context().Err, limit: 4096}
+	_, ok, err := s.CertifyQuarterArcJunctions(t.Context(), profiles, baseline)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	first := s.Entities()[0].(*sketch.Line)
+	changed := false
+	work := &quarterJunctionTestWork{cancelErr: t.Context().Err, limit: 4096}
+	work.onStep = func(sketch.JunctionCharge) {
+		if work.used == baseline.used {
+			changed = true
+			s.CreateLine(first.Start, first.End)
+		}
+	}
+	junctions, ok, err := s.CertifyQuarterArcJunctions(t.Context(), profiles, work)
+	require.True(t, changed)
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.Empty(t, junctions)
+	require.Equal(t, "publication.stale", work.decline.Predicate)
+}
+
+func TestQuarterArcJunctionRejectsFinalRevisionSameCountMutation(t *testing.T) {
+	s, profiles := quarterJunctionRealProfiles(t)
+	baseline := &quarterJunctionTestWork{cancelErr: t.Context().Err, limit: 4096}
+	_, ok, err := s.CertifyQuarterArcJunctions(t.Context(), profiles, baseline)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	first := s.Entities()[0].(*sketch.Line)
+	changed := false
+	work := &quarterJunctionTestWork{cancelErr: t.Context().Err, limit: 4096}
+	work.onStep = func(sketch.JunctionCharge) {
+		if work.used == baseline.used {
+			changed = true
+			require.True(t, s.RemoveEntity(first))
+			s.CreateLine(first.Start, first.End)
+		}
+	}
+	junctions, ok, err := s.CertifyQuarterArcJunctions(t.Context(), profiles, work)
+	require.True(t, changed)
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.Empty(t, junctions)
+	require.Equal(t, "publication.stale", work.decline.Predicate)
+}
+
+func TestQuarterArcJunctionChecksFinalRevisionCancellation(t *testing.T) {
+	s, profiles := quarterJunctionRealProfiles(t)
+	baseline := &quarterJunctionTestWork{cancelErr: t.Context().Err, limit: 4096}
+	_, ok, err := s.CertifyQuarterArcJunctions(t.Context(), profiles, baseline)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	canceled := false
+	work := &quarterJunctionTestWork{cancelErr: ctx.Err, limit: 4096}
+	work.onStep = func(sketch.JunctionCharge) {
+		if work.used == baseline.used {
+			canceled = true
+			cancel()
+		}
+	}
+	junctions, ok, err := s.CertifyQuarterArcJunctions(ctx, profiles, work)
+	require.True(t, canceled)
+	require.ErrorIs(t, err, context.Canceled)
+	require.False(t, ok)
+	require.Empty(t, junctions)
+}
+
 func TestQuarterArcJunctionChargesRevisionScan(t *testing.T) {
 	s, profiles := quarterJunctionRealProfiles(t)
 	work := &quarterJunctionTestWork{cancelErr: t.Context().Err, limit: 10}
@@ -168,6 +241,29 @@ func TestQuarterArcJunctionRefusesUnchargedNURBSRevision(t *testing.T) {
 	require.Empty(t, junctions)
 	require.Equal(t, "sketch.nurbs", work.decline.Predicate)
 	require.LessOrEqual(t, work.used, work.limit)
+}
+
+func TestQuarterArcJunctionRefusesNURBSAddedByWorkCallback(t *testing.T) {
+	s, profiles := quarterJunctionRealProfiles(t)
+	added := false
+	work := &quarterJunctionTestWork{cancelErr: t.Context().Err, limit: 4096}
+	work.onStep = func(sketch.JunctionCharge) {
+		if added {
+			return
+		}
+		added = true
+		control := []*sketch.Point{
+			s.CreatePoint(20, 20), s.CreatePoint(21, 22), s.CreatePoint(22, 20),
+		}
+		_, err := s.CreateNURBS(2, control, nil, sketch.ClampedUniformKnots(3, 2))
+		require.NoError(t, err)
+	}
+	junctions, ok, err := s.CertifyQuarterArcJunctions(t.Context(), profiles, work)
+	require.True(t, added)
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.Empty(t, junctions)
+	require.Equal(t, "sketch.nurbs", work.decline.Predicate)
 }
 
 func TestQuarterArcJunctionEmptyForUnsupportedArc(t *testing.T) {
