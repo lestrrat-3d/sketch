@@ -73,12 +73,21 @@ func TestLineCircleTokenRequiresFourUnmergedArms(t *testing.T) {
 	}
 }
 
-func TestLineCircleTokenRejectsArcSource(t *testing.T) {
+func TestLineArcTokenUsesDistinctAccessors(t *testing.T) {
 	a := &arranger{
 		sources:      []source{*lineSrc(-12, -2, 12, -2), *arcSrc(0, 0, 10, 0, 3)},
 		exactAllowed: true,
 	}
-	require.Nil(t, a.lineCircleCrossing(0, 1, xEvent{
+	token := a.lineCircleCrossing(0, 1, xEvent{
 		x: 9, y: -2, kind: evCross, circleBranch: 1,
-	}))
+	})
+	require.NotNil(t, token)
+	require.NotNil(t, token.arc)
+	require.Same(t, token, token.arc.core)
+	require.Equal(t, [2]int{0, 1}, token.arc.SourceIndices())
+	edge := BoundaryEdge{circleStart: token, circleEnd: token}
+	require.Nil(t, edge.LineCircleCrossingAtStart())
+	require.Nil(t, edge.LineCircleCrossingAtEnd())
+	require.Same(t, token.arc, edge.LineArcCrossingAtStart())
+	require.Same(t, token.arc, edge.LineArcCrossingAtEnd())
 }
