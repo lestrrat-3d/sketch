@@ -1252,6 +1252,24 @@ many-sided outlines.
   outcome that hands a pair back to the sampled path → record it in
   `a.deferredCross` (or extend `handled`) so the derivation stays exact.
 
+### Fit-circle certification memo
+
+**`certifyFitCircleScene` reads its expensive pure results through `fitMemo`
+caches** (`arrange_fit_circle_memo.go`): exact pieces, root crossing, cut check,
+hulls, side and hull separation. Each key is the exact float64 bits of every
+input, so a hit returns what a fresh computation would and any differing bit
+misses. A repeat of one scene (every `Profiles`, `Chains`, `UnionProfiles` and
+`Verify` call re-arranges it) then costs a lookup.
+
+- Cached values are shared across callers and goroutines. NEVER assign into a
+  cached `*big.Rat`, piece or hull; build new values. Reading is safe.
+- A new input to a memoized function → add its bits to that function's key. A key
+  that omits an input returns a stale result silently.
+- Each cache holds at most `fitMemoCap` entries and empties when full. NEVER add
+  eviction state that makes results depend on call order.
+- `TestFitSplineCircleSceneIsStableAcrossRepeatsAndGoroutines` pins repeat and
+  concurrent runs equal to the first; run it under `-race`.
+
 ### Regression tests
 
 Regressions: `TestAnalyticCurveCrossingNeverBlessedWrong` (blessed ⇒ correct over the

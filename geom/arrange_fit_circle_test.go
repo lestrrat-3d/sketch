@@ -2,6 +2,7 @@ package geom_test
 
 import (
 	"math"
+	"sync"
 	"testing"
 
 	"github.com/lestrrat-3d/sketch/geom"
@@ -137,5 +138,78 @@ func TestFitSplineCircleCrossingCertifiesCompleteGear(t *testing.T) {
 				require.True(t, innerInexact, "the inner flank contacts must not gain exact bounds")
 			}
 		})
+	}
+}
+
+// TestFitSplineCircleSceneIsStableAcrossRepeatsAndGoroutines arranges one gear
+// scene many times, concurrently, and requires every run to publish exactly what
+// the first did. The certification memoizes its exact results across arrangements,
+// so a repeat reads shared values; this pins that a hit changes nothing and that
+// concurrent readers are safe (run under -race).
+func TestFitSplineCircleSceneIsStableAcrossRepeatsAndGoroutines(t *testing.T) {
+	const teeth, steps = 30, 5
+	const module, pressure = 0.5, math.Pi / 6
+	pitch := module * teeth / 2
+	base := pitch * math.Cos(pressure)
+	root := (module*teeth - 2.5*module) / 2
+	tip := (module*teeth + 2*module) / 2
+	flank := func(radius float64) (float64, float64) {
+		a := math.Acos(base / radius)
+		v := math.Tan(a)
+		return base * (math.Cos(v) + v*math.Sin(v)), base * (math.Sin(v) - v*math.Cos(v))
+	}
+	px, py := flank(pitch)
+	rotation := math.Pi/(2*teeth) - math.Atan2(-py, px)
+	center := geom.NewPoint(0, 0)
+	var curves []geom.Curve
+	for tooth := 0; tooth < teeth; tooth++ {
+		angle := 2 * math.Pi * float64(tooth) / teeth
+		left, right := make([]*geom.Point, steps), make([]*geom.Point, steps)
+		for i := range left {
+			radius := base + (tip-base)*float64(i)/float64(steps-1)
+			x, y := flank(radius)
+			xl, yl := x*math.Cos(rotation)+y*math.Sin(rotation), x*math.Sin(rotation)-y*math.Cos(rotation)
+			left[i] = geom.NewPoint(xl*math.Cos(angle)-yl*math.Sin(angle), xl*math.Sin(angle)+yl*math.Cos(angle))
+			right[i] = geom.NewPoint(xl*math.Cos(angle)+yl*math.Sin(angle), xl*math.Sin(angle)-yl*math.Cos(angle))
+		}
+		rightFit, err := geom.NewFitSpline(right...)
+		require.NoError(t, err)
+		leftFit, err := geom.NewFitSpline(left...)
+		require.NoError(t, err)
+		curves = append(curves, rightFit, geom.NewArc(center, right[steps-1], left[steps-1]), leftFit)
+	}
+	closed := []geom.ClosedCurve{geom.NewCircle(center, root)}
+
+	type edgeSummary struct {
+		source       int
+		tStart, tEnd float64
+		exact        bool
+	}
+	summarize := func() []edgeSummary {
+		arr := geom.Regions(curves, closed)
+		var out []edgeSummary
+		for _, region := range arr.Regions {
+			for _, edge := range region.Outer {
+				out = append(out, edgeSummary{edge.SourceIndex, edge.TStart, edge.TEnd, edge.TExact})
+			}
+		}
+		return out
+	}
+	want := summarize()
+	require.NotEmpty(t, want)
+
+	const workers = 6
+	got := make([][]edgeSummary, workers)
+	var wg sync.WaitGroup
+	for w := range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			got[w] = summarize()
+		}()
+	}
+	wg.Wait()
+	for w := range got {
+		require.Equal(t, want, got[w], "worker %d", w)
 	}
 }
