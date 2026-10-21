@@ -500,7 +500,7 @@ func cloneMatrix(A [][]float64) [][]float64 {
 // nondimensionalize with the same length scale, row kinds and column scales.
 func (s *Sketch) committedScaledJacobian(free []int) [][]float64 {
 	L := s.lengthScale()
-	return s.scaledJacobian(free, s.residuals, s.residualRowKinds(), s.condVarScales(L), L)
+	return s.scaledJacobianMode(localJacobian, free, s.residuals, s.residualRowKinds(), s.condVarScales(L), L)
 }
 
 // scaledJacobian builds the physically nondimensional Jacobian A = Drow·J·Dcol of
@@ -516,6 +516,16 @@ func (s *Sketch) committedScaledJacobian(free []int) [][]float64 {
 // so the call does not mutate the sketch. rowKinds MUST have one entry per row eval
 // produces; colScale MUST be indexed by variable index.
 func (s *Sketch) scaledJacobian(free []int, eval func([]float64) []float64, rowKinds []rowKind, colScale []float64, L float64, extraPos ...[2]int) [][]float64 {
+	return s.scaledJacobianMode(denseJacobian, free, eval, rowKinds, colScale, L, extraPos...)
+}
+
+// scaledJacobianMode is [Sketch.scaledJacobian] with an explicit [jacobianMode].
+// localJacobian may be passed ONLY when eval is [Sketch.residuals] itself (the
+// committed rows), exactly as for [Sketch.lm]; it reevaluates only the
+// constraints each perturbed variable reaches and returns the bit-identical
+// matrix (see [Sketch.scaledJacobianLocal]), falling back to the dense pass
+// wherever that equality is not provable.
+func (s *Sketch) scaledJacobianMode(mode jacobianMode, free []int, eval func([]float64) []float64, rowKinds []rowKind, colScale []float64, L float64, extraPos ...[2]int) [][]float64 {
 	m := len(rowKinds)
 	rowScale := make([]float64, m)
 	for i, k := range rowKinds {
@@ -547,6 +557,9 @@ func (s *Sketch) scaledJacobian(free []int, eval func([]float64) []float64, rowK
 	A := make([][]float64, m)
 	for i := range A {
 		A[i] = make([]float64, len(free))
+	}
+	if mode == localJacobian && len(extraPos) == 0 && s.scaledJacobianLocal(A, free, eval, rowScale, colScale) {
+		return A
 	}
 	rp := make([]float64, 0, m)
 	rm := make([]float64, 0, m)

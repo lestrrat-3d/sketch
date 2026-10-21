@@ -663,3 +663,26 @@ func TestProbeMatchesDenseProbe(t *testing.T) {
 		})
 	}
 }
+
+// TestScaledJacobianLocalIsBitIdentical pins the nondimensional matrix every
+// Verify analysis shares: the local builder must reproduce the dense one bit
+// for bit on every fixture the residual plan is tested on.
+func TestScaledJacobianLocalIsBitIdentical(t *testing.T) {
+	for _, fx := range jacFixtures() {
+		t.Run(fx.name, func(t *testing.T) {
+			s := fx.build(t)
+			free := s.freeVars()
+			L := s.lengthScale()
+			kinds, scales := s.residualRowKinds(), s.condVarScales(L)
+			dense := s.scaledJacobianMode(denseJacobian, free, s.residuals, kinds, scales, L)
+			local := s.scaledJacobianMode(localJacobian, free, s.residuals, kinds, scales, L)
+			require.Len(t, local, len(dense))
+			for i := range dense {
+				for j := range dense[i] {
+					require.Equal(t, math.Float64bits(dense[i][j]), math.Float64bits(local[i][j]),
+						"entry (%d,%d)", i, j)
+				}
+			}
+		})
+	}
+}
