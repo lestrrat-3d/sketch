@@ -3361,15 +3361,24 @@ const weldIdentEps = 1e-12
 // are assembled from exactly these (plus the surviving edges no region ends up
 // using). Nothing else reads a.pruned, so the region pass is unaffected.
 func (a *arranger) prune() {
+	var deg []int
 	for {
 		a.budget.step(1)
-		deg := map[int]int{}
+		// Vertex ids are non-negative indices into the vertex table, so the degree
+		// count is a slice sized by the largest id an edge names, reused across
+		// passes. A map keyed by id costs a hash per edge end on every pass.
+		top := 0
+		for _, e := range a.edges {
+			top = max(top, e.u, e.v)
+		}
+		deg = slices.Grow(deg[:0], top+1)[:top+1]
+		clear(deg)
 		for _, e := range a.edges {
 			a.budget.step(1)
 			deg[e.u]++
 			deg[e.v]++
 		}
-		kept := a.edges[:0:0]
+		kept := make([]arrEdge, 0, len(a.edges))
 		removed := false
 		for _, e := range a.edges {
 			a.budget.step(1)
