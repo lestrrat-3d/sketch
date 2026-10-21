@@ -653,6 +653,9 @@ func singularValueExtremes(A [][]float64) (float64, float64, bool) {
 	if n == 0 {
 		return 0, 0, false
 	}
+	if smax, smin, ok := bandedSingularValueExtremes(A); ok {
+		return smax, smin, true
+	}
 	// W is a TALL (rows ≥ cols) row-major working copy — A itself when m ≥ n,
 	// Aᵀ otherwise; the two share their nonzero singular values — backed by one
 	// contiguous allocation so the reflector loops below stream through memory.
