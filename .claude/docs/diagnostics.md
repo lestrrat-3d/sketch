@@ -420,6 +420,27 @@ pass. **`WithoutConditioning` skips the singular-value pass** that fills
 `Check` reports `ErrConditioningUnmeasured` instead of reading the NaN as a
 near-singular system. Status, DOF, redundancy and conflicts are unchanged.
 
+### `singularValueExtremes` takes a banded path on narrow sparse matrices
+
+**`singularValueExtremes` tries `bandedSingularValueExtremes`
+(`conditioning_banded.go`) first and falls back to the dense Householder
+kernel when it declines.** The banded path reorders columns by reverse
+Cuthill–McKee, Givens-triangularizes into a banded R, bulge-chases to bidiagonal
+form, then ends in the same `bidiagonalExtremes` bisection. Cost is
+O(m·β² + n²·β) for bandwidth β instead of O(m·n²), which is what lets a
+ring-shaped sketch (thousands of variables) verify in seconds.
+
+- It declines → dense kernel answers: n < `bandedMinCols`, m < n, a non-finite
+  entry, a row over `bandedMaxRowNNZ` nonzeros, fewer nonzero rows than columns,
+  or (β+1)·`bandedWidthDiv` > n. NEVER make it answer those cases → small
+  sketches keep dense results bit for bit, and the NaN path stays in one place.
+- Results agree with the dense kernel to the orthogonal-transform rounding level,
+  not bit for bit. `conditioning_banded_internal_test.go` pins the agreement.
+- Determinism holds: ordering ties break by index, rows sort stably, no maps in
+  the numeric path.
+- The rank elimination (`rankAnalysisOfMatrix`) and `movableVarsOn` are still
+  dense; they cost seconds, not minutes, at ~1800 points.
+
 ### The trust verdict has one definition and two shapes
 
 **The trust verdict has ONE
