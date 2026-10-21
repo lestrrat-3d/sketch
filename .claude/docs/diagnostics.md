@@ -137,6 +137,17 @@ anchored against `constraint.go`'s constructor list, and — the load-bearing ha
 — pins that perturbing any variable a kind does NOT name leaves its residual
 rows bit-identical.
 
+### `scaledJacobianMode` applies the same plan to the committed matrix
+
+**`committedScaledJacobian` passes `localJacobian` to `scaledJacobianMode`**, so
+the shared Verify matrix reevaluates only the constraints each variable reaches.
+`scaledJacobianLocal` (`jacobian.go`) is bit-identical to the dense pass and
+refuses to the dense pass on a non-finite base residual, a non-finite row scale,
+a column scale or step that is not finite and positive, a row count that moved,
+or any `extraPos` (the `CheckConstraint` candidate path stays dense). NEVER pass
+`localJacobian` with an `eval` other than `Sketch.residuals`.
+`TestScaledJacobianLocalIsBitIdentical` pins the equality over `jacFixtures`.
+
 ### The mode is passed by the call site, never inferred
 
 A plan describes `residuals()` and nothing else, so `Sketch.lm` takes an

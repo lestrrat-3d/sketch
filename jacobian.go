@@ -329,3 +329,69 @@ func (s *Sketch) jacobianLocalInto(J [][]float64, free []int, m int, pl *residua
 	}
 	return true
 }
+
+// scaledJacobianLocal fills the nondimensional matrix A of
+// [Sketch.scaledJacobianMode] by reevaluating, per free variable, only the
+// constraints that variable reaches, and reports whether it did. On false A may
+// hold partial values and the caller MUST run the dense pass, which overwrites
+// every entry. It is called with the geometry already shifted to the centroid,
+// and eval MUST be [Sketch.residuals].
+//
+// The result is bit-identical to the dense pass for the reason
+// [Sketch.jacobianLocalInto] gives: an unaffected row is computed from identical
+// inputs at both perturbations, so rp−rm is +0, and +0 scaled by the row scale,
+// 1/(2h) and the column scale is +0. That needs every factor finite and
+// positive, so the call refuses when the base residuals are non-finite, when a
+// free column's scale is not a finite positive number, or when 1/(2h) is not
+// finite. A plan whose measured row count differs from len(rowScale) is refused
+// too, as is a constraint whose row count moves under perturbation.
+func (s *Sketch) scaledJacobianLocal(A [][]float64, free []int, eval func([]float64) []float64, rowScale, colScale []float64) bool {
+	m := len(rowScale)
+	pl, ok := s.newResidualPlan(m)
+	if !ok || pl.m != m {
+		return false
+	}
+	for _, v := range rowScale {
+		if nonFinite(v) {
+			return false
+		}
+	}
+	for _, v := range eval(nil) {
+		if nonFinite(v) {
+			return false
+		}
+	}
+	for i := range A {
+		clear(A[i])
+	}
+	for j, vi := range free {
+		cs := colScale[vi]
+		h := condFDStep * cs
+		inv := 1.0 / (2 * h)
+		if !(cs > 0) || nonFinite(cs) || !(h > 0) || nonFinite(inv) {
+			return false
+		}
+		ks := pl.consFor(vi)
+		if len(ks) == 0 {
+			continue
+		}
+		orig := s.vars[vi]
+		s.vars[vi] = orig + h
+		okp := pl.evalRows(pl.rp, ks)
+		if okp {
+			s.vars[vi] = orig - h
+			okp = pl.evalRows(pl.rm, ks)
+		}
+		s.vars[vi] = orig
+		if !okp {
+			return false
+		}
+		for _, k := range ks {
+			off, cnt := pl.offset[k], pl.count[k]
+			for i := off; i < off+cnt; i++ {
+				A[i][j] = rowScale[i] * (pl.rp[i] - pl.rm[i]) * inv * cs
+			}
+		}
+	}
+	return true
+}
