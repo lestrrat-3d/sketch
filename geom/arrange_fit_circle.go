@@ -64,6 +64,9 @@ func (a *arranger) certifyFitCircleScene() {
 	}
 	type fitCertificate struct {
 		index, arc  int
+		pieceKey    string
+		hullKey     string
+		outerKey    string
 		arcEnd      float64
 		end         [2]float64
 		root        xEvent
@@ -81,7 +84,11 @@ func (a *arranger) certifyFitCircleScene() {
 			return
 		}
 		fi := src.fitEval.interpolant()
-		pieces, ok := exactFitPieces(fi)
+		if fi == nil {
+			return
+		}
+		pieceKey := fitInterpolantKey(fi)
+		pieces, ok := memoFitPieces(pieceKey, fi)
 		if !ok {
 			return
 		}
@@ -112,7 +119,7 @@ func (a *arranger) certifyFitCircleScene() {
 				return
 			}
 		}
-		t, ok := fitRadiusCrossing(pieces, c.cx, c.cy, c.r, tipRadius, a.scale)
+		t, ok := memoFitRadiusCrossing(pieceKey, pieces, c.cx, c.cy, c.r, tipRadius, a.scale)
 		if !ok {
 			return
 		}
@@ -133,12 +140,13 @@ func (a *arranger) certifyFitCircleScene() {
 			return
 		}
 		outerCut := math.Max(0, t-1e-7)
-		if !fitCutBelowRoot(pieces, outerCut, c.cx, c.cy, c.r, a.scale) {
+		if !memoFitCutBelowRoot(pieceKey, pieces, outerCut, c.cx, c.cy, c.r, a.scale) {
 			return
 		}
-		hulls := exactFitHulls(pieces)
-		outerHulls := exactFitHullsAfter(pieces, outerCut)
+		hulls := memoFitHulls(pieceKey, pieces)
+		outerHulls := memoFitHullsAfter(pieceKey, pieces, outerCut)
 		certs[k] = fitCertificate{index: index, arc: matchedArc, arcEnd: float64(matchedEnd),
+			pieceKey: pieceKey, hullKey: fitHullsKey(pieceKey), outerKey: fitHullsAfterKey(pieceKey, outerCut),
 			end: end, root: root, pieces: pieces, hulls: hulls, outerHulls: outerHulls,
 			bounds: exactFitHullBounds(hulls), outerBounds: exactFitHullBounds(outerHulls)}
 		arcPair := arcEnds[matchedArc]
@@ -159,8 +167,8 @@ func (a *arranger) certifyFitCircleScene() {
 		if !finiteVal(axisX) || !finiteVal(axisY) || math.Hypot(axisX, axisY) <= c.r {
 			return
 		}
-		s0 := fitSide(first.pieces, c.cx, c.cy, axisX, axisY, a.scale)
-		s1 := fitSide(second.pieces, c.cx, c.cy, axisX, axisY, a.scale)
+		s0 := memoFitSide(first.pieceKey, first.pieces, c.cx, c.cy, axisX, axisY, a.scale)
+		s1 := memoFitSide(second.pieceKey, second.pieces, c.cx, c.cy, axisX, axisY, a.scale)
 		if s0 == 0 || s1 == 0 || s0 == s1 {
 			return
 		}
@@ -172,12 +180,12 @@ func (a *arranger) certifyFitCircleScene() {
 			pair := pairKey(certs[i].index, certs[j].index)
 			if certs[i].arc == certs[j].arc ||
 				exactFitBoundsSeparate(certs[i].bounds, certs[j].bounds, margin) ||
-				exactFitHullsSeparate(certs[i].hulls, certs[j].hulls, a.scale) {
+				memoFitHullsSeparate(certs[i].hullKey, certs[i].hulls, certs[j].hullKey, certs[j].hulls, a.scale) {
 				fullySeparated[pair] = struct{}{}
 				continue
 			}
 			if !exactFitBoundsSeparate(certs[i].outerBounds, certs[j].outerBounds, margin) &&
-				!exactFitHullsSeparate(certs[i].outerHulls, certs[j].outerHulls, a.scale) {
+				!memoFitHullsSeparate(certs[i].outerKey, certs[i].outerHulls, certs[j].outerKey, certs[j].outerHulls, a.scale) {
 				return
 			}
 		}
