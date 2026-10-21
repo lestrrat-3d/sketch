@@ -619,17 +619,49 @@ func radialPoly(p *exactFitPiece, cx, cy, radius float64) []*big.Rat {
 	return f
 }
 
+// polyMul multiplies two exact polynomials. Every coefficient is a float64, or
+// a float64 divided by a small integer, so each polynomial has a small common
+// denominator. The product is formed over integers and normalized once per
+// coefficient, where summing Rat products would normalize once per product. The
+// result equals the term-by-term Rat sum exactly: a Rat is stored in lowest
+// terms, so equal values are equal Rats.
 func polyMul(a, b []*big.Rat) []*big.Rat {
-	out := make([]*big.Rat, len(a)+len(b)-1)
-	for i := range out {
-		out[i] = rat(0)
+	ai, da := scaleToInts(a)
+	bi, db := scaleToInts(b)
+	acc := make([]*big.Int, len(a)+len(b)-1)
+	for i := range acc {
+		acc[i] = new(big.Int)
 	}
-	for i, x := range a {
-		for j, y := range b {
-			out[i+j] = add(out[i+j], mul(x, y))
+	var term big.Int
+	for i, x := range ai {
+		for j, y := range bi {
+			acc[i+j].Add(acc[i+j], term.Mul(x, y))
 		}
 	}
+	den := new(big.Int).Mul(da, db)
+	out := make([]*big.Rat, len(acc))
+	for k, v := range acc {
+		out[k] = new(big.Rat).SetFrac(v, den)
+	}
 	return out
+}
+
+// scaleToInts returns the least common multiple of the denominators of vs and
+// each value as an integer numerator over it.
+func scaleToInts(vs []*big.Rat) ([]*big.Int, *big.Int) {
+	den := big.NewInt(1)
+	var g big.Int
+	for _, v := range vs {
+		d := v.Denom()
+		g.GCD(nil, nil, den, d)
+		den.Mul(den, new(big.Int).Quo(d, &g))
+	}
+	out := make([]*big.Int, len(vs))
+	for i, v := range vs {
+		n := new(big.Int).Quo(den, v.Denom())
+		out[i] = n.Mul(n, v.Num())
+	}
+	return out, den
 }
 
 func evalRatPoly(p []*big.Rat, x *big.Rat) *big.Rat {
@@ -641,16 +673,30 @@ func evalRatPoly(p []*big.Rat, x *big.Rat) *big.Rat {
 }
 
 // bernstein converts power coefficients to same-degree Bernstein coefficients.
-// Their convex hull contains every value of the polynomial on [0,1].
+// Their convex hull contains every value of the polynomial on [0,1]. Each
+// coefficient is the sum of p[i]·C(k,i)/C(n,i); it is formed over the common
+// denominator of p and of every C(n,i), then normalized once.
 func bernstein(p []*big.Rat) []*big.Rat {
 	n := len(p) - 1
+	lcm := big.NewInt(1)
+	var g big.Int
+	for i := 0; i <= n; i++ {
+		c := big.NewInt(binomial(n, i))
+		g.GCD(nil, nil, lcm, c)
+		lcm.Mul(lcm, c.Quo(c, &g))
+	}
+	pi, dp := scaleToInts(p)
+	den := new(big.Int).Mul(dp, lcm)
 	out := make([]*big.Rat, len(p))
+	var term, weight big.Int
 	for k := range out {
-		out[k] = rat(0)
+		sum := new(big.Int)
 		for i := 0; i <= k; i++ {
-			factor := new(big.Rat).SetFrac(big.NewInt(binomial(k, i)), big.NewInt(binomial(n, i)))
-			out[k] = add(out[k], mul(p[i], factor))
+			weight.Quo(lcm, big.NewInt(binomial(n, i)))
+			weight.Mul(&weight, big.NewInt(binomial(k, i)))
+			sum.Add(sum, term.Mul(pi[i], &weight))
 		}
+		out[k] = new(big.Rat).SetFrac(sum, den)
 	}
 	return out
 }
