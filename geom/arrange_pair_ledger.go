@@ -74,6 +74,7 @@ type ledgerFit struct {
 	pieces []exactFitPiece
 	hulls  []exactFitHull
 	bounds exactFitBounds
+	fbox   floatBox
 	p0, p1 [2]float64
 }
 
@@ -89,8 +90,9 @@ type ledgerTarget struct {
 	wedge *ratWedge
 	// fit spline.
 	fit *ledgerFit
-	// bounds of the whole target.
+	// bounds of the whole target, and the float box that holds them.
 	bounds exactFitBounds
+	fbox   floatBox
 }
 
 type pairLedger struct {
@@ -177,6 +179,7 @@ func (l *pairLedger) fit(i int) *ledgerFit {
 	}
 	hulls := memoFitHulls(fitInterpolantKey(fi), pieces)
 	f := &ledgerFit{pieces: pieces, hulls: hulls, bounds: exactFitHullBounds(hulls), p0: src.at(0), p1: src.at(1)}
+	f.fbox = outwardBox(f.bounds)
 	if f.bounds.min[0] == nil || !finitePt(f.p0) || !finitePt(f.p1) {
 		return nil
 	}
@@ -215,12 +218,16 @@ func (l *pairLedger) target(j int) *ledgerTarget {
 	default:
 		return nil
 	}
+	t.fbox = outwardBox(t.bounds)
 	return t
 }
 
 // farFromBox reports whether the target provably misses the whole box. The box
 // stands for the spline's bounds, so a miss there is a miss for every piece.
-func (t *ledgerTarget) farFromBox(b exactFitBounds) bool {
+func (t *ledgerTarget) farFromBox(b exactFitBounds, fb floatBox) bool {
+	if ledgerFloatPrefilter && fb.apart(t.fbox) {
+		return true
+	}
 	if boundsDisjoint(b, t.bounds) {
 		return true
 	}
@@ -280,7 +287,7 @@ func (l *pairLedger) judge(i int, f *ledgerFit, j int) pairEntry {
 		return pairEntry{reason: reasonEndMismatch}
 	}
 	if len(ends) == 0 {
-		if t.farFromBox(f.bounds) {
+		if t.farFromBox(f.bounds, f.fbox) {
 			return pairEntry{verdict: verdictDisjoint}
 		}
 		// A circle has no end, and the exact root count settles every pair with it
@@ -328,7 +335,7 @@ func (l *pairLedger) targetAt(j int) *ledgerTarget {
 	var t *ledgerTarget
 	if l.a.sources[j].kind == srcFitSpline {
 		if f := l.fits[j]; f != nil {
-			t = &ledgerTarget{kind: srcFitSpline, fit: f, bounds: f.bounds}
+			t = &ledgerTarget{kind: srcFitSpline, fit: f, bounds: f.bounds, fbox: f.fbox}
 		}
 	} else {
 		t = l.target(j)
@@ -390,6 +397,9 @@ func (l *pairLedger) avoids(h exactFitHull, t *ledgerTarget, depth int, m *workM
 		}
 		return sepOK
 	}
+	if ledgerFloatPrefilter && h.fl.ok && h.fl.box().apart(t.fbox) {
+		return sepOK
+	}
 	hb := hullBounds(&h)
 	if boundsDisjoint(hb, t.bounds) {
 		return sepOK
@@ -411,7 +421,7 @@ func (l *pairLedger) avoids(h exactFitHull, t *ledgerTarget, depth int, m *workM
 	if depth >= ledgerMaxDepth {
 		return sepFail
 	}
-	left, right := splitHull(h, half)
+	left, right := splitHullHalf(h)
 	if s := l.avoids(left, t, depth+1, m); s != sepOK {
 		return s
 	}
@@ -420,6 +430,9 @@ func (l *pairLedger) avoids(h exactFitHull, t *ledgerTarget, depth int, m *workM
 
 // hullsApart proves that two spline pieces do not meet, splitting both on failure.
 func (l *pairLedger) hullsApart(a, b exactFitHull, depth int, m *workMeter) sepStatus {
+	if ledgerFloatPrefilter && a.fl.ok && b.fl.ok && a.fl.box().apart(b.fl.box()) {
+		return sepOK
+	}
 	ba, bb := hullBounds(&a), hullBounds(&b)
 	if boundsDisjoint(ba, bb) {
 		return sepOK
@@ -433,8 +446,8 @@ func (l *pairLedger) hullsApart(a, b exactFitHull, depth int, m *workMeter) sepS
 	if depth >= ledgerMaxDepth {
 		return sepFail
 	}
-	al, ar := splitHull(a, half)
-	bl, br := splitHull(b, half)
+	al, ar := splitHullHalf(a)
+	bl, br := splitHullHalf(b)
 	for _, pair := range [4][2]exactFitHull{{al, bl}, {al, br}, {ar, bl}, {ar, br}} {
 		if s := l.hullsApart(pair[0], pair[1], depth+1, m); s != sepOK {
 			return s
@@ -482,7 +495,7 @@ func (l *pairLedger) endpointOnly(f *ledgerFit, t *ledgerTarget, ends []sharedEn
 		}
 		if t.fit != nil {
 			farB, _ := cutEnds(t.fit.hulls, cutB, u0)
-			aTarget := &ledgerTarget{kind: srcFitSpline, fit: f, bounds: f.bounds}
+			aTarget := &ledgerTarget{kind: srcFitSpline, fit: f, bounds: f.bounds, fbox: f.fbox}
 			if s := l.avoidsAll(farB, aTarget, m); s != sepOK {
 				return unprovenFrom(s)
 			}
