@@ -3,6 +3,7 @@ package sketch
 import (
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 
 	"github.com/lestrrat-3d/sketch/geom"
@@ -22,6 +23,9 @@ var (
 	ErrLoopForeignEntity = fmt.Errorf("%w: entity not in this sketch", ErrInvalidLoop)
 	// ErrLoopDuplicateEntity: an entity is named twice in one loop.
 	ErrLoopDuplicateEntity = fmt.Errorf("%w: entity named twice", ErrInvalidLoop)
+	// ErrLoopSpanRange: a span of DeclareLoopSpans has a parameter that is not a number
+	// in [0, 1], or its two parameters are equal.
+	ErrLoopSpanRange = fmt.Errorf("%w: span parameters out of range", ErrInvalidLoop)
 )
 
 // Loop is a declared closed chain of entities of one [Sketch]. It is a handle: declare
@@ -29,9 +33,48 @@ var (
 // [Profile.Containment]. Loops are transient state of the sketch. They are not
 // serialized and are not part of [Sketch.Revision].
 type Loop struct {
-	sketch   *Sketch
+	sketch *Sketch
+	// entities lists the entity of every element, in declaration order. An entity
+	// repeats when the loop holds several spans of it.
 	entities []Entity
+	elems    []loopElem
 	removed  bool
+}
+
+// loopElem is one element of a loop: a whole entity, or the part of it between two
+// of its parameters (lo < hi, in the entity's natural parameter).
+type loopElem struct {
+	entity Entity
+	span   bool
+	lo, hi float64
+}
+
+// LoopSpan is one element of a loop declared with [Sketch.DeclareLoopSpans]: the part
+// of Entity between the parameters TStart and TEnd. The parameters are the ones
+// [BoundaryEdge.TStart] and [BoundaryEdge.TEnd] report for a fragment of the entity.
+// They may be given in either order; the span is the same.
+//
+// A span with parameters 0 and 1 is the whole entity.
+type LoopSpan struct {
+	Entity       Entity
+	TStart, TEnd float64
+}
+
+// Spans returns the loop's elements as spans, in the order they were declared. A whole
+// entity reads as the span from 0 to 1. A span given in reverse order reads in natural
+// order.
+func (l *Loop) Spans() []LoopSpan {
+	if l == nil {
+		return nil
+	}
+	out := make([]LoopSpan, len(l.elems))
+	for i, el := range l.elems {
+		out[i] = LoopSpan{Entity: el.entity, TStart: el.lo, TEnd: el.hi}
+		if !el.span {
+			out[i].TStart, out[i].TEnd = 0, 1
+		}
+	}
+	return out
 }
 
 // Entities returns the loop's entities in the order they were declared.
@@ -89,6 +132,11 @@ const (
 	ReasonInvalid
 	// ReasonStale: the profile no longer describes its sketch.
 	ReasonStale
+	// ReasonSpanBound: an end of a span is not an exact bound of the arrangement edges
+	// of its entity, or the span holds no edge. The scene's bounds may be inexact, the
+	// span may start inside an edge, or its parameters may not come from a fragment of
+	// this sketch.
+	ReasonSpanBound
 )
 
 // Containment is the verdict for one (profile, loop) pair.
@@ -132,7 +180,69 @@ func (s *Sketch) DeclareLoop(entities ...Entity) (*Loop, error) {
 		}
 		seen[e] = struct{}{}
 	}
-	l := &Loop{sketch: s, entities: slices.Clone(entities)}
+	elems := make([]loopElem, len(entities))
+	for i, e := range entities {
+		elems[i] = loopElem{entity: e}
+	}
+	l := &Loop{sketch: s, entities: slices.Clone(entities), elems: elems}
+	s.loops = append(s.loops, l)
+	return l, nil
+}
+
+// DeclareLoopSpans declares a closed loop whose elements are parts of entities, so a
+// loop can follow a fragment of a circle, or the part of a fit spline beyond a crossing.
+// It is the sub-range form of [Sketch.DeclareLoop] and the sketch holds both kinds of
+// loop together. Pass the parameters of a fragment as [BoundaryEdge] reports them for a
+// profile of this sketch, or of a sketch that holds the same entities.
+//
+// It returns an error wrapping [ErrInvalidLoop] for an empty list ([ErrLoopEmpty]), a nil
+// entity ([ErrLoopNilEntity]), an entity that is not in this sketch ([ErrLoopForeignEntity]),
+// the same span twice ([ErrLoopDuplicateEntity]), or a parameter that is not a number in
+// [0, 1] or two equal parameters ([ErrLoopSpanRange]). A span may be given with TStart
+// above TEnd. A span from 0 to 1 is the whole entity.
+//
+// The verdict of a loop with a span follows the arrangement, not coordinates. The two
+// ends of every span must be exact bounds of arrangement edges of the span's entity, and the
+// edges between them must run without a break. The elements together must cover edges
+// that form one cycle, joined at arrangement vertices; the order the spans are given in
+// does not change the verdict. Otherwise every profile reads [ContainmentUnproven] with
+// [ReasonSpanBound] (an end is not an exact bound) or [ReasonGap] (a break, or more than
+// one cycle). A span covers only the edges its own entity draws: a stretch that another
+// entity draws in its place, as the lower-indexed one of two coincident curves does, is
+// not covered.
+func (s *Sketch) DeclareLoopSpans(spans ...LoopSpan) (*Loop, error) {
+	if len(spans) == 0 {
+		return nil, ErrLoopEmpty
+	}
+	type key struct {
+		e      Entity
+		lo, hi float64
+	}
+	seen := map[key]struct{}{}
+	elems := make([]loopElem, 0, len(spans))
+	entities := make([]Entity, 0, len(spans))
+	for _, sp := range spans {
+		if sp.Entity == nil {
+			return nil, ErrLoopNilEntity
+		}
+		if !s.ownsEntity(sp.Entity) {
+			return nil, ErrLoopForeignEntity
+		}
+		lo, hi := sp.TStart, sp.TEnd
+		if hi < lo {
+			lo, hi = hi, lo
+		}
+		if math.IsNaN(lo) || math.IsNaN(hi) || lo < 0 || hi > 1 || lo == hi {
+			return nil, ErrLoopSpanRange
+		}
+		if _, dup := seen[key{sp.Entity, lo, hi}]; dup {
+			return nil, ErrLoopDuplicateEntity
+		}
+		seen[key{sp.Entity, lo, hi}] = struct{}{}
+		elems = append(elems, loopElem{entity: sp.Entity, span: !(lo == 0 && hi == 1), lo: lo, hi: hi})
+		entities = append(entities, sp.Entity)
+	}
+	l := &Loop{sketch: s, entities: entities, elems: elems}
 	s.loops = append(s.loops, l)
 	return l, nil
 }
@@ -271,35 +381,40 @@ func (s *Sketch) containmentFor(arr *geom.Arrangement, profiles []*Profile, srcO
 		return
 	}
 	type prepared struct {
-		reason  ContainmentReason
-		sources []int
+		reason ContainmentReason
 	}
 	prep := make([]prepared, len(loops))
-	var judged [][]int
+	var judged [][]geom.LoopElement
 	var judgedAt []int
 	for k, l := range loops {
 		ok := true
-		for _, e := range l.entities {
-			if !loopKindOK(e) {
+		hasSpan := false
+		var elems []geom.LoopElement
+		for _, el := range l.elems {
+			if !loopKindOK(el.entity) {
 				prep[k].reason, ok = ReasonKind, false
 				break
 			}
-			if src, drawn := srcOf[e]; drawn {
-				prep[k].sources = append(prep[k].sources, src)
-			} else {
+			src, drawn := srcOf[el.entity]
+			if !drawn {
 				prep[k].reason, ok = ReasonKind, false
 				break
 			}
+			hasSpan = hasSpan || el.span
+			elems = append(elems, geom.LoopElement{Source: src, Span: el.span, Lo: el.lo, Hi: el.hi})
 		}
-		if ok && !loopClosed(l.entities) {
+		// A span ends where the arrangement cut its entity, so its neighbour's end
+		// coordinate need not be bit-identical. The walk judges such a loop by its
+		// vertices.
+		if ok && !hasSpan && !loopClosed(l.entities) {
 			prep[k].reason, ok = ReasonGap, false
 		}
 		if ok {
-			judged = append(judged, prep[k].sources)
+			judged = append(judged, elems)
 			judgedAt = append(judgedAt, k)
 		}
 	}
-	walks := arr.FaceGraph.WalkLoops(judged)
+	walks := arr.FaceGraph.WalkLoopElements(judged)
 	walkOf := map[int]geom.LoopWalk{}
 	for i, k := range judgedAt {
 		walkOf[k] = walks[i]
@@ -331,6 +446,8 @@ func walkDefectReason(d geom.LoopDefect, degenerate bool) ContainmentReason {
 	switch d {
 	case geom.LoopDefectGap:
 		return ReasonGap
+	case geom.LoopDefectSpanBound:
+		return ReasonSpanBound
 	case geom.LoopDefectSelfCrossing:
 		if degenerate {
 			return ReasonCoincident

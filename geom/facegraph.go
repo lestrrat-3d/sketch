@@ -56,6 +56,14 @@ type FaceEdge struct {
 	// by a resolved coincident-carrier overlap, and every duplicate line merged into
 	// it.
 	Covers []int
+	// Src is the source the edge is emitted from, and PU and PV are that source's
+	// natural parameters at U and V. They may run either way along the edge. ExactU
+	// and ExactV report whether each parameter is the TRUE parameter of its vertex
+	// (the same meaning as [BoundaryEdge.TExact], per bound). A sub-range loop element
+	// is matched against these.
+	Src            int
+	PU, PV         float64
+	ExactU, ExactV bool
 }
 
 // buildFaceGraph reads the arrangement state extract has just finished. cycleFace
@@ -82,6 +90,7 @@ func (a *arranger) buildFaceGraph(arr *Arrangement, cycleFace []int) *FaceGraph 
 		g.Edges[ei] = FaceEdge{
 			A: cycleFace[a.cycleOf[2*ei]], B: cycleFace[a.cycleOf[2*ei+1]],
 			U: e.u, V: e.v, Covers: covers,
+			Src: e.src, PU: e.pu, PV: e.pv, ExactU: e.exactU, ExactV: e.exactV,
 		}
 	}
 	seen := map[int]struct{}{}
@@ -200,30 +209,79 @@ const (
 	LoopDefectSelfCrossing
 	// LoopDefectInconsistent: the parity of the loop's edges around some cycle is odd.
 	LoopDefectInconsistent
+	// LoopDefectSpanBound: a span end of the loop is not an exact bound of an
+	// arrangement edge of its source, or the span holds no edge.
+	LoopDefectSpanBound
 )
 
+// LoopElement is one element of a loop: the whole of a source, or the part of it
+// between two of its natural parameters.
+type LoopElement struct {
+	// Source is the arrangement source index.
+	Source int
+	// Span is false for the whole source. When true, Lo < Hi bound the element in the
+	// source's natural parameter (the one [BoundaryEdge.TStart] is in).
+	Span   bool
+	Lo, Hi float64
+}
+
 // WalkLoops runs the parity walk of docs/loop-containment-design.md. loops[k]
-// lists the sources of loop k. The unbounded face is outside every loop, and
-// crossing an edge covered by loop k changes the side of k. The walk does not enter
-// an unfaithful face or an unknown side. A loop whose edges do not agree around some
-// cycle, or whose edges the map prunes or draws twice, gets a Defect and no sides.
+// lists the sources of loop k, each taken whole. See [FaceGraph.WalkLoopElements].
 func (g *FaceGraph) WalkLoops(loops [][]int) []LoopWalk {
+	elems := make([][]LoopElement, len(loops))
+	for k, srcs := range loops {
+		for _, s := range srcs {
+			elems[k] = append(elems[k], LoopElement{Source: s})
+		}
+	}
+	return g.WalkLoopElements(elems)
+}
+
+// WalkLoopElements runs the parity walk for loops given as elements. The unbounded
+// face is outside every loop, and crossing an edge covered by loop k changes the side
+// of k. The walk does not enter an unfaithful face or an unknown side. A loop whose
+// edges do not agree around some cycle, or whose edges the map prunes or draws twice,
+// gets a Defect and no sides.
+//
+// A whole element covers every edge its source draws (see [FaceEdge.Covers]). A span
+// covers the edges its source emits whose parameters lie inside the span. Its two
+// ends must be exact bounds of edges, the edges must run without a break from one
+// end to the other, and a loop with a span must form one cycle.
+func (g *FaceGraph) WalkLoopElements(loops [][]LoopElement) []LoopWalk {
 	n := len(g.Faces)
 	out := make([]LoopWalk, len(loops))
-	for k, srcs := range loops {
-		out[k] = g.walkLoop(srcs, n)
+	for k, elems := range loops {
+		out[k] = g.walkLoop(elems, n)
 	}
 	return out
 }
 
-func (g *FaceGraph) walkLoop(srcs []int, n int) LoopWalk {
+func (g *FaceGraph) walkLoop(elems []LoopElement, n int) LoopWalk {
 	w := LoopWalk{Side: make([]int8, n)}
 	for i := range w.Side {
 		w.Side[i] = -1
 	}
-	for _, s := range srcs {
-		if _, found := slices.BinarySearch(g.Pruned, s); found {
+	var srcs []int
+	hasSpan := false
+	for _, el := range elems {
+		if el.Span {
+			hasSpan = true
+			continue
+		}
+		srcs = append(srcs, el.Source)
+		if _, found := slices.BinarySearch(g.Pruned, el.Source); found {
 			w.Defect = LoopDefectGap
+			return w
+		}
+	}
+	spanEdges := make([]int, len(g.Edges))
+	for _, el := range elems {
+		if !el.Span {
+			continue
+		}
+		defect := g.coverSpan(el, spanEdges)
+		if defect != LoopDefectNone {
+			w.Defect = defect
 			return w
 		}
 	}
@@ -231,7 +289,7 @@ func (g *FaceGraph) walkLoop(srcs []int, n int) LoopWalk {
 	covered := make([]bool, len(g.Edges))
 	degree := map[int]int{}
 	for i, e := range g.Edges {
-		count := 0
+		count := spanEdges[i]
 		for _, s := range e.Covers {
 			if in(s) {
 				count++
@@ -252,6 +310,10 @@ func (g *FaceGraph) walkLoop(srcs []int, n int) LoopWalk {
 			w.Defect = LoopDefectSelfCrossing
 			return w
 		}
+	}
+	if hasSpan && !g.oneCycle(covered) {
+		w.Defect = LoopDefectGap
+		return w
 	}
 	// Breadth-first from the unbounded face. side is the parity so far.
 	side := make([]int8, n)

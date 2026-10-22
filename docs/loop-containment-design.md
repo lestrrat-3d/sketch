@@ -30,7 +30,7 @@ Non-goals:
 - Serializing loops. They are not part of the JSON schema (see "Lifetime").
 - A containment query for an arbitrary point. This is face-versus-loop only.
 - Loops of ellipses, conics, NURBS or control-point splines. They are refused with a reason.
-- A loop element that is a sub-range of an entity. See "Room for sub-range elements".
+- Serializing a span loop, or taking the spans of a union profile automatically. The consumer passes the parameters.
 
 ## Public API
 
@@ -84,6 +84,7 @@ face standing in the hole of another face is a different profile, and reads `Ins
 | `ReasonInconsistent` | The parity check found a contradiction around a cycle with no `Degenerate` condition to explain it. |
 | `ReasonInvalid` | The profile itself is not valid (`Profile.Valid` is false). |
 | `ReasonStale` | The profile no longer describes its sketch. |
+| `ReasonSpanBound` | An end of a span is not an exact bound of an arrangement edge of its entity, or the span holds no edge. |
 
 When several apply, the profile's own state wins first (`ReasonStale`, then `ReasonInvalid`), then the loop's
 (`ReasonKind` or `ReasonGap` from the closure check, then the walk's defects), then `ReasonComponent`.
@@ -98,13 +99,55 @@ profile built before the declaration reads `Undeclared` for that loop.
 **No loops, no change.** `Profiles()` asks the arrangement for its face graph only when at least one live loop is
 declared. A sketch with none does the same work and returns the same values as before.
 
-### Room for sub-range elements
+### Sub-range elements
 
-A loop may later need an element that is a parameter range of an entity (a trimmed segment of a profile that was itself
-a union or a trim). `DeclareLoop(entities ...Entity)` takes whole entities and stays as it is. A later
-`DeclareLoopSpans` can take a slice of `{Entity, TStart, TEnd}` elements and share the machinery below: the walk already
-works on edges, so a span would cover only the arrangement edges whose parameter range it contains. Nothing in the
-present types prevents it.
+`DeclareLoopSpans` declares a loop whose elements are parts of entities. A consumer that recorded the outline of an
+earlier union (circle fragments between flanks, and the part of each flank above a crossing) can hand it back as one
+loop in a scene that holds the full entities.
+
+```go
+type LoopSpan struct {
+	Entity       Entity
+	TStart, TEnd float64
+}
+
+func (s *Sketch) DeclareLoopSpans(spans ...LoopSpan) (*Loop, error)
+func (l *Loop) Spans() []LoopSpan
+```
+
+`TStart` and `TEnd` are the parameters `BoundaryEdge` reports for a fragment of the entity. They may come in either
+order, because a consumer that records a clockwise circle fragment walks `TStart` above `TEnd`; the loop keeps them in
+natural order. A span from 0 to 1 is the whole entity, with the meaning `DeclareLoop` gives it. Errors wrap
+`ErrInvalidLoop`: the four sentinels of `DeclareLoop`, plus `ErrLoopSpanRange` for a parameter that is not a number in
+[0, 1] or two equal parameters. `ErrLoopDuplicateEntity` now also means the same span twice; two different spans of one
+entity are allowed. A loop may hold spans and whole entities together, and the order of the elements does not change
+the verdict.
+
+**What a span covers.** A span covers the arrangement edges that its own entity emits and whose two parameters lie
+inside the range. A stretch another entity draws in place of it (the lower-indexed one of two coincident curves, or a
+merged duplicate line) is not covered, because the walk has no parameter of the losing entity there. The span then has
+a break and reads as a gap.
+
+**What a span needs.**
+
+| Check | Failure |
+|---|---|
+| Each end equals, bit for bit, a parameter of an arrangement edge bound of the entity, and that bound is exact (`FaceEdge.ExactU`/`ExactV`, the same meaning as `BoundaryEdge.TExact` per bound). | `ReasonSpanBound` |
+| The covered edges run from one end to the other, consecutive edges sharing a vertex id. | `ReasonGap` |
+| Every vertex the loop touches has exactly two loop edges, and no edge is covered twice. | `ReasonSelfCrossing` |
+| The covered edges form one connected cycle. | `ReasonGap` |
+
+A parameter that is only close to a bound is not an end. A scene whose bounds are inexact therefore gives
+`ReasonSpanBound` for every profile, which is the same refusal `UnionProfiles` makes for an inexact `Partial` edge.
+
+**Closure by vertices.** An all-whole loop is checked by coordinates (`loopClosed`), bit for bit. A loop with a span
+is not, because the two entities that meet at a crossing do not evaluate to the same float there. Their shared vertex in
+the arrangement is the join. Parity and vertex degree then decide the rest.
+
+**The parameter of an entity.** `FaceEdge.Src`, `PU` and `PV` are the emitting source and its natural parameters at the
+edge's two vertices, the values `BoundaryEdge.TStart` and `TEnd` come from. `geom.LoopElement` holds `Source`, `Span`,
+`Lo` and `Hi`, and `FaceGraph.WalkLoopElements` takes loops of elements. `WalkLoops` is `WalkLoopElements` with whole
+sources.
 
 ## The certificate
 
@@ -226,6 +269,24 @@ already pays it.
 Three deliberately broken steps each fail at least one test: the starting side of the unbounded face, the covering set,
 and the faithfulness skip. (The parity consistency check has no failing test, as stated above.)
 
+### Span loops
+
+`loops_spans_test.go` (package `sketch_test`) and `geom/facegraph_spans_test.go` (package `geom_test`). The scenes need
+the spline/circle crossing certificate (`docs/pair-certificate-design.md`, Stage 2a).
+
+| Scene | Checked |
+|---|---|
+| The outline of the union of a disc and three lobes in a smaller scene, handed as spans of the circle and of each flank to a scene with a fourth lobe; 4 and 15 fit points | Eight faces `Inside`, the fourth lobe's cap `Outside`. `UnionProfiles` of all nine succeeds with `4n` outer edges and every `Partial` edge `TExact`. |
+| The same spans with `TStart` above `TEnd` | The same verdicts. `Loop.Spans` reads natural order. |
+| A start or an end moved one unit in the last place; a span left out; the circle added whole beside the outline | `ReasonSpanBound`; `Unproven`; `Unproven`. |
+| A line ending on a flank interior, which leaves the component inexact | `ReasonSpanBound` for every valid profile. |
+| Declaration errors | `ErrLoopEmpty`, `ErrLoopNilEntity`, `ErrLoopForeignEntity`, `ErrLoopSpanRange` for six inputs, `ErrLoopDuplicateEntity` for one span in either order; two spans of one entity are allowed. |
+| A span from 1 to 0 of the root circle, against the circle declared whole | Identical verdicts. |
+| A hand-built face graph of four edges: one span, two spans, an edge stored against its parameter, half the cycle, an end inside an edge, an inexact end, an inexact inner bound, an unknown source, a missing edge, the same stretch twice, a span with the whole source, two cycles | `None`; `None`; `None`; `SelfCrossing`; `SpanBound`; `SpanBound`; `None`; `SpanBound`; `Gap`; `SelfCrossing`; `SelfCrossing`; `Gap`. |
+
+Each of four broken steps fails at least one test: the exactness check of the two ends, the contiguity check, the
+one-cycle check and the upper bound of the covered range.
+
 ### Spline loops and refused overlaps
 
 `loops_spline_test.go`:
@@ -245,5 +306,5 @@ and the faithfulness skip. (The parity consistency check has no failing test, as
 
 - **Not serialized.** Loops are call-time state. If a consumer wants them saved with the document, the schema needs a
   version change.
-- **Sub-range elements.** See "Room for sub-range elements".
+- **Sub-range elements.** Implemented as `DeclareLoopSpans`; a circle fragment that crosses the seam is two spans.
 - **Loops over 64.** The walk uses a pass per loop, so there is no mask-width limit.

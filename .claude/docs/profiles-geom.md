@@ -1273,7 +1273,12 @@ are transient: not serialized, not in `Revision`; `RemoveEntity` removes the loo
 - `FaceGraph.WalkLoops` runs the parity walk from the unbounded face and never enters an unfaithful face. A loop with a
   pruned source is a gap; a loop with a vertex of other than two loop edges, or an edge covered by two of its sources,
   is self-crossing; a loop whose edges disagree around a cycle is inconsistent.
-- `loopClosed` (in `loops.go`) checks the chain from current coordinates, bit-for-bit.
+- `loopClosed` (in `loops.go`) checks the chain from current coordinates, bit-for-bit. A loop with a span skips it.
+- `Sketch.DeclareLoopSpans(LoopSpan{Entity, TStart, TEnd}...)` declares sub-range elements (`geom.LoopElement`,
+  `FaceGraph.WalkLoopElements`, `geom/facegraph_spans.go`). A span covers the edges its own source emits with both
+  parameters inside the range (`FaceEdge.Src`, `PU`, `PV`); NEVER widen it to `Covers`. Its ends must be exact bounds
+  (`ExactU`, `ExactV`) and the loop must form one cycle by vertex ids, never by coordinates. Span from 0 to 1 is the
+  whole entity. Design: "Sub-range elements" in `docs/loop-containment-design.md`.
 
 ### Chord-deviation degeneracy bounds (`nearMissGuard`)
 
