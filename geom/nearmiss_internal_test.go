@@ -141,8 +141,8 @@ func guardPairs(curves []Curve, closed []ClosedCurve, reference bool) map[[2]int
 	return out
 }
 
-// allPairsNearMissGuard is nearMissGuard without the source-level reject: every
-// qualifying pair of sources goes to pairNearMiss.
+// allPairsNearMissGuard is nearMissGuard without the source-level reject or the chord
+// filter: every qualifying pair of sources goes to referencePairNearMiss.
 func allPairsNearMissGuard(a *arranger) {
 	boxes := make([]nearMissBox, len(a.segs))
 	for k := range a.segs {
@@ -166,11 +166,48 @@ func allPairsNearMissGuard(a *arranger) {
 			if (analyticKind(ki) && analyticKind(kj)) || certifiedFitPair {
 				continue
 			}
-			if x, y, miss := a.pairNearMiss(i, j, boxes); miss {
+			if x, y, miss := referencePairNearMiss(a, i, j, boxes); miss {
 				a.flagDegenerate(x, y, i, j)
 			}
 		}
 	}
+}
+
+// referencePairNearMiss is pairNearMiss over every chord pair of the two sources, with
+// no pre-filtering of chords.
+func referencePairNearMiss(a *arranger, i, j int, boxes []nearMissBox) (float64, float64, bool) {
+	contacts := a.sampledContacts[pairKey(i, j)]
+	for _, ii := range a.sourceSegs[i] {
+		si := &a.segs[ii]
+		bi := &boxes[ii]
+		di := a.segDev[ii]
+		for _, jj := range a.sourceSegs[j] {
+			sj := &a.segs[jj]
+			band := di + a.segDev[jj]
+			if !(band > 0) {
+				continue
+			}
+			if boxesApart(bi, &boxes[jj], band) {
+				continue
+			}
+			d, x, y := segSegDistance(si, sj)
+			if d > band {
+				continue
+			}
+			tol := math.Max(band, a.merge)
+			explained := false
+			for _, c := range contacts {
+				if math.Hypot(c[0]-x, c[1]-y) <= tol {
+					explained = true
+					break
+				}
+			}
+			if !explained {
+				return x, y, true
+			}
+		}
+	}
+	return 0, 0, false
 }
 
 // TestNearMissGuardSourceRejectKeepsEveryVerdict checks the guard against the same

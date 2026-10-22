@@ -107,6 +107,9 @@ func (l *pairLedger) circleCrossings(f *ledgerFit, t *ledgerTarget, m *workMeter
 	var ts []float64
 	for k := range f.pieces {
 		piece := &f.pieces[k]
+		if ledgerFloatPrefilter && f.hulls[k].fl.ok && f.hulls[k].fl.clearOfCircle(t.fcx, t.fcy, t.fr) {
+			continue // the piece keeps one strict sign, so it has no root
+		}
 		poly := radialPolyRat(piece, t.cx, t.cy, t.r2)
 		var brackets []ratBracket
 		if !isolateRoots(bernstein(poly), rat(0), rat(1), 0, m, &brackets) {

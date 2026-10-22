@@ -90,6 +90,9 @@ type ledgerTarget struct {
 	wedge *ratWedge
 	// fit spline.
 	fit *ledgerFit
+	// fcx, fcy and fr are the centre and radius of a circle or arc as the float64
+	// values the exact ones were read from.
+	fcx, fcy, fr float64
 	// bounds of the whole target, and the float box that holds them.
 	bounds exactFitBounds
 	fbox   floatBox
@@ -203,6 +206,7 @@ func (l *pairLedger) target(j int) *ledgerTarget {
 			return nil
 		}
 		t.cx, t.cy, t.r2 = cx, cy, mul(r, r)
+		t.fcx, t.fcy, t.fr = src.cx, src.cy, src.r
 		if src.kind == srcArc {
 			t.wedge = arcWedge(src, cx, cy)
 		}
@@ -575,6 +579,9 @@ func cutEnds(hulls []exactFitHull, cut [2]bool, u0 *big.Rat) ([]exactFitHull, [2
 // advances strictly along one fixed direction cannot meet itself, because the
 // coordinate along that direction is strictly increasing.
 func (l *pairLedger) self(f *ledgerFit) pairEntry {
+	if ledgerFloatPrefilter && advancesAlongChord(f) {
+		return pairEntry{verdict: verdictSimple}
+	}
 	dirs := [][2]*big.Rat{{sub(rat(f.p1[0]), rat(f.p0[0])), sub(rat(f.p1[1]), rat(f.p0[1]))}}
 	if dirs[0][0] == nil || dirs[0][1] == nil {
 		return pairEntry{reason: reasonDegenerate}

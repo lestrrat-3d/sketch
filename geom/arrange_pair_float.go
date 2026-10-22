@@ -158,3 +158,58 @@ func splitHullHalf(h exactFitHull) (exactFitHull, exactFitHull) {
 	}
 	return left, right
 }
+
+// clearOfCircle reports whether the cubic with control polygon f lies wholly outside
+// or wholly inside the circle, by a margin far above the rounding of the float
+// arithmetic here, so that |P(u) - c|^2 - r^2 keeps one strict sign on the cubic. The
+// cubic lies in the box of its control polygon, so a box wholly outside or inside the
+// circle holds the cubic outside or inside it.
+func (f *floatHull) clearOfCircle(cx, cy, r float64) bool {
+	box := f.box()
+	if !box.ok {
+		return false
+	}
+	scale := math.Abs(cx) + math.Abs(cy) + r
+	for axis := range 2 {
+		scale += math.Max(math.Abs(box.min[axis]), math.Abs(box.max[axis]))
+	}
+	margin := 1e-9 * scale
+	// Nearest and farthest points of the box from the centre.
+	var near, far float64
+	for axis, c := range [2]float64{cx, cy} {
+		lo, hi := box.min[axis]-c, box.max[axis]-c
+		gap := math.Max(math.Max(lo, -hi), 0)
+		reach := math.Max(math.Abs(lo), math.Abs(hi))
+		near += gap * gap
+		far += reach * reach
+	}
+	return math.Sqrt(near) > r+margin || math.Sqrt(far) < r-margin
+}
+
+// advancesAlongChord reports whether every Bézier control vector of the spline has a
+// dot product with the chord that is positive by a margin far above the rounding of the
+// float arithmetic here. It answers yes only when the exact test of self would, so the
+// exact test runs for every spline it does not settle.
+func advancesAlongChord(f *ledgerFit) bool {
+	d := [2]float64{f.p1[0] - f.p0[0], f.p1[1] - f.p0[1]}
+	dn := math.Abs(d[0]) + math.Abs(d[1])
+	ud := ulpOf(math.Max(math.Max(math.Abs(f.p0[0]), math.Abs(f.p0[1])), math.Max(math.Abs(f.p1[0]), math.Abs(f.p1[1]))))
+	if !(dn > 0) || math.IsInf(dn, 0) || math.IsNaN(dn) {
+		return false
+	}
+	for k := range f.hulls {
+		h := &f.hulls[k].fl
+		if !h.ok {
+			return false
+		}
+		for c := range 3 {
+			v := [2]float64{h.p[c+1][0] - h.p[c][0], h.p[c+1][1] - h.p[c][1]}
+			vn := math.Abs(v[0]) + math.Abs(v[1])
+			margin := 1e-9*vn*dn + 64*h.e*dn + 64*ud*vn
+			if !(v[0]*d[0]+v[1]*d[1] > margin) {
+				return false
+			}
+		}
+	}
+	return true
+}
