@@ -1211,6 +1211,10 @@ includes a fit spline and one self entry per spline, then sets `exactAllowed`.
   crossings isolated by Bernstein subdivision, injected as analytic events; see
   `geom/arrange_pair_crossing.go` and "Stage 2a" in `docs/pair-certificate-design.md`)
   and `verdictUnproven` with a `pairReason`.
+- **Float boxes.** `avoids`, `hullsApart` and `farFromBox` try an outward-rounded float64 box first
+  (`arrange_pair_float.go`, `ledgerFloatPrefilter`): disjoint float boxes decide exactly as the exact box test would.
+  NEVER make a float result decide anything the exact test could answer differently; see "Float boxes" in
+  `docs/pair-certificate-design.md`.
 - **Exact forms.** A spline is its exact rational Bézier pieces (`memoFitPieces`,
   `memoFitHulls`). A line is a segment, a circle or arc the circle with its exact
   float64 centre and radius. An arc of less than a half turn also has a wedge from its
