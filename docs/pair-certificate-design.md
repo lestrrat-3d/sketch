@@ -157,6 +157,20 @@ by any other split has no float form and takes the exact test. Measured without 
 15-point flanks: 0.88 s to 0.60 s for the non-crossing scene and 1.67 s to 1.03 s for the scene whose flanks cross
 the root circle.
 
+Two more places take a float-first test that answers only when its margin is far above the float rounding, and
+leave every other case to the exact code:
+
+- `circleCrossings` skips a piece whose float control-polygon box lies wholly outside or wholly inside the circle
+  (`floatHull.clearOfCircle`): the cubic stays on one side, so the radial polynomial has no root on it.
+- `self` returns `verdictSimple` when every control vector's dot product with the chord is positive by a margin
+  (`advancesAlongChord`). A spline that fails the float test still goes through the exact one.
+
+The near-miss guard (`docs/analytic-arrangement-design.md`) filters the chords of each source pair before the double
+loop (`nearChords`): a chord whose box is further from the other source's whole box than its own deviation plus the
+other source's largest cannot have a partner. The chords that stay keep their order, so the first approach reported
+is unchanged. Measured without the race detector on 128 regions, 15-point flanks, from 0.61 s to 0.46 s for the
+non-crossing scene and from 1.08 s to 0.65 s for the scene whose flanks cross the root circle.
+
 Tests: `TestLedgerFloatPrefilterKeepsEveryVerdict` compares every ledger entry (verdict, reason, shared ends,
 crossing parameters) of random scenes with the prefilter off and on, and `TestFloatHullBoxHoldsExactHull` splits
 random cubics to depth 30 and requires the float box to hold the exact bounds at every level. Broken versions of the

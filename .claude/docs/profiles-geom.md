@@ -1309,7 +1309,9 @@ with a wrong region count). Scoped to pairs with at least one free-form source, 
 all-analytic scene is untouched and pays nothing. A pair of sources is rejected before any chord is compared when the
 boxes of their chords (`sourceReach`) are further apart than the sum of the two sources' largest deviation bounds: no
 chord pair can then pass the band test, so the verdicts are those of the all-pairs loop
-(`TestNearMissGuardSourceRejectKeepsEveryVerdict`). **The guard sets a FLAG and nothing
+(`TestNearMissGuardSourceRejectKeepsEveryVerdict`). Inside a pair the chords of each source that lie further from
+the other source's box than their band are dropped first (`nearChords`), in order, so the first approach reported is
+the all-pairs loop's. **The guard sets a FLAG and nothing
 else** — region counts, areas and every reported parameter range are byte-identical to
 what the same geometry produced before it (measured across 900 mixed-family scenes).
 That flag-only PROPERTY is enforced by
