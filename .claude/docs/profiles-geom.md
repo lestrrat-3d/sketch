@@ -1244,6 +1244,13 @@ includes a fit spline and one self entry per spline, then sets `exactAllowed`.
   `TExact` flags end to end. `profile_union_spline_sections_test.go` pins the
   `UnionProfiles` scene a downstream consumer builds.
 
+### Exact fit-spline spans (`FitInterpolant.ExactSpans`)
+
+Design in `docs/fit-exact-spans-design.md`. `ExactSpans` returns `exactFitPieces`' output
+as public `ExactFitSpan` values (power-basis `big.Rat` coefficients in the span's local
+`u`). NEVER build a second exact form of a fit span elsewhere. A change to the exact
+piece formula changes the public coefficients and the pair-ledger certificates together.
+
 ### Loop containment (`loops.go`, `geom/facegraph.go`)
 
 Design, reasons and the test table are in `docs/loop-containment-design.md`. Read it before changing either file.

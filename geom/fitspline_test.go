@@ -2,6 +2,7 @@ package geom_test
 
 import (
 	"math"
+	"math/big"
 	"strconv"
 	"testing"
 
@@ -643,4 +644,65 @@ func TestFitInterpolantValueOutsideFloatingPointReadsInfinite(t *testing.T) {
 		require.True(t, math.IsNaN(dx))
 		require.True(t, math.IsNaN(dy))
 	})
+}
+
+func TestFitInterpolantExactSpansMatchDefinition(t *testing.T) {
+	fit := []*geom.Point{geom.NewPoint(0, 0), geom.NewPoint(1, 2), geom.NewPoint(3, -1), geom.NewPoint(5, 1), geom.NewPoint(6, 0)}
+	sp, err := geom.NewFitSpline(fit...)
+	require.NoError(t, err)
+	fi, err := sp.Interpolant()
+	require.NoError(t, err)
+	exact, err := fi.ExactSpans()
+	require.NoError(t, err)
+	spans := fi.Spans()
+	require.Len(t, exact, len(spans))
+
+	r := func(v float64) *big.Rat { return new(big.Rat).SetFloat64(v) }
+	for i, e := range exact {
+		require.Equal(t, spans[i].TStart, e.TStart)
+		require.Equal(t, spans[i].TEnd, e.TEnd)
+		h := new(big.Rat).Sub(r(fi.Params[i+1]), r(fi.Params[i]))
+		h2 := new(big.Rat).Mul(h, h)
+		for axis, got := range [2][4]*big.Rat{e.X, e.Y} {
+			v0, v1 := r(fi.Points[i][axis]), r(fi.Points[i+1][axis])
+			m0, m1 := r(fi.SecondDerivs[i][axis]), r(fi.SecondDerivs[i+1][axis])
+			// The textbook natural-cubic span, written independently of the production code.
+			want := [4]*big.Rat{
+				v0,
+				new(big.Rat).Sub(new(big.Rat).Sub(v1, v0), new(big.Rat).Quo(new(big.Rat).Mul(h2, new(big.Rat).Add(new(big.Rat).Mul(big.NewRat(2, 1), m0), m1)), big.NewRat(6, 1))),
+				new(big.Rat).Quo(new(big.Rat).Mul(h2, m0), big.NewRat(2, 1)),
+				new(big.Rat).Quo(new(big.Rat).Mul(h2, new(big.Rat).Sub(m1, m0)), big.NewRat(6, 1)),
+			}
+			float := [2][4]float64{spans[i].X, spans[i].Y}[axis]
+			for k := range want {
+				require.Zero(t, want[k].Cmp(got[k]), "span %d axis %d coefficient %d is exact", i, axis, k)
+				f, _ := got[k].Float64()
+				require.InDelta(t, float[k], f, 1e-12*(1+math.Abs(f)), "span %d axis %d coefficient %d agrees with FitSpan", i, axis, k)
+			}
+		}
+	}
+}
+
+func TestFitInterpolantExactSpansOwnedByCaller(t *testing.T) {
+	fi, err := geom.NewFitInterpolant([][2]float64{{0, 0}, {1, 2}, {3, -1}})
+	require.NoError(t, err)
+	first, err := fi.ExactSpans()
+	require.NoError(t, err)
+	want := new(big.Rat).Set(first[0].X[1])
+	first[0].X[1].SetInt64(99)
+	second, err := fi.ExactSpans()
+	require.NoError(t, err)
+	require.Zero(t, want.Cmp(second[0].X[1]), "mutating one result leaves the next call untouched")
+}
+
+func TestFitInterpolantExactSpansDegenerate(t *testing.T) {
+	fi, err := geom.NewFitInterpolant([][2]float64{{4, 5}, {4, 5}})
+	require.NoError(t, err)
+	spans, err := fi.ExactSpans()
+	require.NoError(t, err)
+	require.Empty(t, spans, "a single point spans nothing")
+
+	spans, err = (&geom.FitInterpolant{}).ExactSpans()
+	require.NoError(t, err)
+	require.Empty(t, spans)
 }

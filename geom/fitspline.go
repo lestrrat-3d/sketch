@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"slices"
 	"sort"
 )
@@ -278,6 +279,49 @@ func (fi *FitInterpolant) Spans() []FitSpan {
 		})
 	}
 	return spans
+}
+
+// ExactFitSpan is one cubic piece of a [FitInterpolant] with EXACT rational
+// coefficients. It describes the same curve as [FitSpan], in the same form: with u
+// running over [0, 1] across the span,
+//
+//	x(u) = X[0] + u·(X[1] + u·(X[2] + u·X[3]))
+//	y(u) = Y[0] + u·(Y[1] + u·(Y[2] + u·Y[3]))
+//
+// and TStart/TEnd the span's bounds in the interpolant's normalized [0, 1] parameter.
+// Each coefficient is the exact value of the cubic's formula over the interpolant's
+// float64 Params, Points and SecondDerivs read as exact rationals, so nothing is rounded:
+// [FitSpan] sums the same formula in float64 and agrees with these to rounding. It is the
+// definition the geometry engine's exactness certificates reason over. The big.Rat values
+// belong to the caller.
+type ExactFitSpan struct {
+	TStart, TEnd float64
+	X, Y         [4]*big.Rat
+}
+
+// ExactSpans returns the interpolant's cubic pieces with exact rational coefficients,
+// one per interval between consecutive [FitInterpolant.Points], in order, over the same
+// coherent prefix [FitInterpolant.Spans] reads. A degenerate interpolant (fewer than two
+// coherent points) has no spans and returns nil with no error. It returns
+// [ErrNonFiniteFitInterpolant] when a span's width, point or second derivative is not
+// finite or the widths are not positive, which the constructors never produce.
+//
+// The pieces come from the same code the arrangement engine certifies fit splines
+// with, so a consumer bounding the curve against ExactSpans bounds the curve those
+// certificates reason about.
+func (fi *FitInterpolant) ExactSpans() ([]ExactFitSpan, error) {
+	if fi.size() < 2 {
+		return nil, nil
+	}
+	pieces, ok := exactFitPieces(fi)
+	if !ok {
+		return nil, ErrNonFiniteFitInterpolant
+	}
+	spans := make([]ExactFitSpan, len(pieces))
+	for i, piece := range pieces {
+		spans[i] = ExactFitSpan{TStart: piece.t0, TEnd: piece.t1, X: piece.x, Y: piece.y}
+	}
+	return spans, nil
 }
 
 // cubicSpanCoeffs converts one natural-cubic span from second-derivative form to
