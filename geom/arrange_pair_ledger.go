@@ -91,8 +91,9 @@ type ledgerTarget struct {
 	// fit spline.
 	fit *ledgerFit
 	// fcx, fcy and fr are the centre and radius of a circle or arc as the float64
-	// values the exact ones were read from.
+	// values the exact ones were read from; fline holds a line's end points.
 	fcx, fcy, fr float64
+	fline        [2][2]float64
 	// bounds of the whole target, and the float box that holds them.
 	bounds exactFitBounds
 	fbox   floatBox
@@ -199,6 +200,7 @@ func (l *pairLedger) target(j int) *ledgerTarget {
 			return nil
 		}
 		t.seg = exactFitHull{points: [4][2]*big.Rat{{ax, ay}, {bx, by}, {ax, ay}, {bx, by}}}
+		t.fline = [2][2]float64{{src.ax, src.ay}, {src.bx, src.by}}
 		t.bounds = hullBounds(&t.seg)
 	case srcCircle, srcArc:
 		cx, cy, r := rat(src.cx), rat(src.cy), rat(src.r)
@@ -537,7 +539,13 @@ func (l *pairLedger) localOK(cutsA [2]*exactFitHull, cutA [2]bool, t *ledgerTarg
 		if e == 1 {
 			apex = 3
 		}
-		if cutsA[e] == nil || !localCarrierOK(cutsA[e], apex, t, l.merge) {
+		if cutsA[e] == nil {
+			return false
+		}
+		if ledgerFloatPrefilter && localCarrierFloatOK(cutsA[e], apex, t, l.a.merge) {
+			continue
+		}
+		if !localCarrierOK(cutsA[e], apex, t, l.merge) {
 			return false
 		}
 	}
@@ -556,13 +564,13 @@ func cutEnds(hulls []exactFitHull, cut [2]bool, u0 *big.Rat) ([]exactFitHull, [2
 	for i, h := range hulls {
 		lo, hi := zero, one
 		if i == 0 && cut[0] {
-			c := subHull(h, zero, u0)
+			c := subHullFloat(h, zero, u0)
 			cuts[0] = &c
 			lo = u0
 		}
 		if i == last && cut[1] {
 			from := sub(one, u0)
-			c := subHull(h, from, one)
+			c := subHullFloat(h, from, one)
 			cuts[1] = &c
 			hi = from
 		}
@@ -570,7 +578,7 @@ func cutEnds(hulls []exactFitHull, cut [2]bool, u0 *big.Rat) ([]exactFitHull, [2
 			far = append(far, h)
 			continue
 		}
-		far = append(far, subHull(h, lo, hi))
+		far = append(far, subHullFloat(h, lo, hi))
 	}
 	return far, cuts
 }
