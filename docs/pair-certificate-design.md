@@ -171,6 +171,14 @@ other source's largest cannot have a partner. The chords that stay keep their or
 is unchanged. Measured without the race detector on 128 regions, 15-point flanks, from 0.61 s to 0.46 s for the
 non-crossing scene and from 1.08 s to 0.65 s for the scene whose flanks cross the root circle.
 
+The endpoint-only proof (`localOK`) tries `localCarrierFloatOK` before `localCarrierOK`. It computes the carrier
+function's Bernstein coefficients along the cut sub-curve in float64 with an error bound, and passes only when the
+differences have one sign, the smallest step exceeds twice the error, and the reach bound `3 speed (|c_apex| + err)`
+is under half of `merge * degree * minStep`. Any other outcome runs the exact test. The cut sub-curve carries a float
+form (`subHullFloat`, `floatHull.sub`) whose error bound grows by sixteen spacings per split. On 128 regions the
+shared-end proofs all pass at the first cut, so the exact test now runs only when the float one is unsure.
+Measured on the same scenes: 0.46 s to 0.40 s non-crossing, 0.66 s to 0.60 s crossing.
+
 Tests: `TestLedgerFloatPrefilterKeepsEveryVerdict` compares every ledger entry (verdict, reason, shared ends,
 crossing parameters) of random scenes with the prefilter off and on, and `TestFloatHullBoxHoldsExactHull` splits
 random cubics to depth 30 and requires the float box to hold the exact bounds at every level. Broken versions of the
