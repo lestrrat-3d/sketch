@@ -226,11 +226,20 @@ already pays it.
 Three deliberately broken steps each fail at least one test: the starting side of the unbounded face, the covering set,
 and the faithfulness skip. (The parity consistency check has no failing test, as stated above.)
 
-### Not yet tested
+### Spline loops and refused overlaps
 
-- Two arcs overlapping in two windows (a refused coincident overlap).
-- A spline tangent to a line of another loop.
-- Fit-spline loops in the random oracle.
+`loops_spline_test.go`:
+
+- 40 random scenes mixing closed loops of two fit splines (a blob: two splines that leave the same two points and bulge to
+  opposite sides, three to five fit points each) with circles, rotated rectangles and triangles: 37 scenes held a spline
+  loop, 111 verdicts were judged and none disagreed with an oracle built from dense polylines of the splines. 595 pairs
+  were `Unproven`, because splines that cross each other or a line belong to the crossing stage of the pair ledger.
+- A rectangle whose bottom side sits at the top of a fit-spline arch, with the gap from 0.5 down to 1e-9, 0 and -0.5. At 0.5
+  every face is certified and matches the oracle. From 1e-3 down, including the exactly touching gap of 0, the faces are `Unproven`, because the chord-deviation
+  guard cannot rule out a hidden crossing that close; overlaps are `Unproven` because the pair ledger does not prove
+  crossings. No position gives a wrong verdict.
+- Two arcs of one circle that share two separate spans: no profile reads `Inside` or `Outside` for either loop, and a
+  rectangle far away keeps its verdict.
 
 ## Open decisions
 
