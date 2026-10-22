@@ -530,7 +530,7 @@ func (a *arranger) nearMissGuard() {
 			if boxesApart(&reach[i].box, &reach[j].box, reach[i].dev+reach[j].dev) {
 				continue
 			}
-			if x, y, miss := a.pairNearMiss(i, j, boxes); miss {
+			if x, y, miss := a.pairNearMiss(i, j, boxes, reach); miss {
 				a.flagDegenerate(x, y, i, j)
 			}
 		}
@@ -539,14 +539,21 @@ func (a *arranger) nearMissGuard() {
 
 // pairNearMiss reports the first approach between the two sources' chords that
 // their deviation bounds cannot separate and no recorded contact explains.
-func (a *arranger) pairNearMiss(i, j int, boxes []nearMissBox) (float64, float64, bool) {
+func (a *arranger) pairNearMiss(i, j int, boxes []nearMissBox, reach []nearMissReach) (float64, float64, bool) {
 	contacts := a.sampledContacts[pairKey(i, j)]
-	for _, ii := range a.sourceSegs[i] {
+	// A chord only reaches chords of the other source that lie within its band, and a
+	// band is at most the chord's own deviation plus the other source's largest. A
+	// chord whose box is further than that from the other source's whole box has no
+	// partner, so it and its work leave the double loop; the chords that stay keep
+	// their order, so the first approach reported is the one the full loop reports.
+	segsI := a.nearChords(a.sourceSegs[i], boxes, &reach[j])
+	segsJ := a.nearChords(a.sourceSegs[j], boxes, &reach[i])
+	for _, ii := range segsI {
 		a.budget.step(1)
 		si := &a.segs[ii]
 		bi := &boxes[ii]
 		di := a.segDev[ii]
-		for _, jj := range a.sourceSegs[j] {
+		for _, jj := range segsJ {
 			a.budget.step(1)
 			sj := &a.segs[jj]
 			band := di + a.segDev[jj]
@@ -591,6 +598,20 @@ func (a *arranger) pairNearMiss(i, j int, boxes []nearMissBox) (float64, float64
 		}
 	}
 	return 0, 0, false
+}
+
+// nearChords returns, in order, the chords of segs whose box is within their own
+// deviation plus the other source's largest deviation of the other source's box.
+func (a *arranger) nearChords(segs []int, boxes []nearMissBox, other *nearMissReach) []int {
+	out := make([]int, 0, len(segs))
+	for _, k := range segs {
+		a.budget.step(1)
+		if boxesApart(&boxes[k], &other.box, a.segDev[k]+other.dev) {
+			continue
+		}
+		out = append(out, k)
+	}
+	return out
 }
 
 // nearMissReach is the bounding box of all of a source's chords and the largest
