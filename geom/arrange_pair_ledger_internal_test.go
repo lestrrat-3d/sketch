@@ -566,3 +566,47 @@ func maxY(pieces []exactFitPiece) *big.Float {
 	}
 	return best
 }
+
+// TestArcBoundsHoldTheArc samples random arcs (sweeps below a half turn, either
+// direction, any quadrant) and requires every sample, and both end points, inside the
+// box arcBounds returns. A box that misses part of the arc would make the pair ledger
+// call a spline that touches the arc disjoint from it.
+func TestArcBoundsHoldTheArc(t *testing.T) {
+	rng := rand.New(rand.NewSource(20261024))
+	tested := 0
+	for trial := 0; trial < 500; trial++ {
+		c := NewPoint(rng.Float64()*40-20, rng.Float64()*40-20)
+		r := 0.01 + rng.Float64()*30
+		start := rng.Float64() * 2 * math.Pi
+		sweep := (rng.Float64()*0.99 + 0.005) * math.Pi
+		if rng.Intn(2) == 0 {
+			sweep = -sweep
+		}
+		s := NewPoint(c.X+r*math.Cos(start), c.Y+r*math.Sin(start))
+		e := NewPoint(c.X+r*math.Cos(start+sweep), c.Y+r*math.Sin(start+sweep))
+		a := newArranger([]Curve{NewArc(c, s, e)}, nil, arrangeConfig{})
+		a.densify()
+		src := &a.sources[0]
+		b, ok := arcBounds(src)
+		if math.Abs(src.sweep) >= math.Pi {
+			require.Falsef(t, ok, "trial %d: a sweep of a half turn or more has no box", trial)
+			continue
+		}
+		tested++
+		require.Truef(t, ok, "trial %d: sweep %v", trial, src.sweep)
+		inside := func(p [2]float64) bool {
+			for axis := range 2 {
+				v := new(big.Rat).SetFloat64(p[axis])
+				if v.Cmp(b.min[axis]) < 0 || v.Cmp(b.max[axis]) > 0 {
+					return false
+				}
+			}
+			return true
+		}
+		for k := 0; k <= 2000; k++ {
+			p := src.at(float64(k) / 2000)
+			require.Truef(t, inside(p), "trial %d: arc point %d %v outside the box", trial, k, p)
+		}
+	}
+	require.Greater(t, tested, 100, "the generator must produce arcs below a half turn")
+}

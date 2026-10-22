@@ -420,3 +420,56 @@ func TestDeclaringLoopsChangesNoProfile(t *testing.T) {
 		}
 	}
 }
+
+// TestContainmentsMatchesContainmentPerLoop pins that Containments, which asks once
+// whether the profile is stale, answers exactly what Containment answers loop by loop:
+// before and after a change to the sketch, and with a loop declared later, a loop
+// removed, and a loop from another sketch.
+func TestContainmentsMatchesContainmentPerLoop(t *testing.T) {
+	s := newTestSketch(t)
+	first, err := s.DeclareLoop(rectLoop(s, 0, 0, 4, 4)...)
+	require.NoError(t, err)
+	_, err = s.DeclareLoop(rectLoop(s, 2, 2, 6, 6)...)
+	require.NoError(t, err)
+	solved(t, s)
+	profiles := s.Profiles()
+	require.NotEmpty(t, profiles)
+
+	perLoop := func(p *sketch.Profile) []sketch.Containment {
+		var out []sketch.Containment
+		for _, l := range s.Loops() {
+			out = append(out, p.Containment(l))
+		}
+		return out
+	}
+	check := func(label string) {
+		t.Helper()
+		for i, p := range profiles {
+			require.Equalf(t, perLoop(p), p.Containments(), "%s: profile %d", label, i)
+		}
+	}
+	check("fresh")
+	for _, p := range profiles {
+		require.NotEqual(t, sketch.ContainmentUndeclared, p.Containments()[0].State)
+	}
+
+	_, err = s.DeclareLoop(rectLoop(s, 10, 10, 12, 12)...)
+	require.NoError(t, err)
+	check("a loop declared after the profiles")
+	for _, p := range profiles {
+		require.Equal(t, sketch.ContainmentUndeclared, p.Containments()[2].State)
+	}
+
+	require.True(t, s.RemoveLoop(first))
+	check("a loop removed")
+	require.Len(t, profiles[0].Containments(), 2)
+	require.Equal(t, sketch.ContainmentUndeclared, profiles[0].Containment(first).State)
+
+	s.CreatePoint(20, 20)
+	check("stale")
+	for _, p := range profiles {
+		c := p.Containments()
+		require.Equal(t, sketch.Containment{State: sketch.ContainmentUnproven, Reason: sketch.ReasonStale}, c[0])
+		require.Equal(t, sketch.ContainmentUndeclared, c[1].State, "the third loop has no verdict on these profiles")
+	}
+}

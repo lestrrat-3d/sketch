@@ -283,11 +283,8 @@ func (s *Sketch) dropLoopsNaming(e Entity) {
 // before the loop was declared, one from another sketch, a removed or nil loop, and a
 // profile made by [Sketch.UnionProfiles] all read [ContainmentUndeclared].
 func (p *Profile) Containment(l *Loop) Containment {
-	if p == nil || l == nil || p.containment == nil {
-		return Containment{}
-	}
-	c, ok := p.containment[l]
-	if !ok || l.removed {
+	c, ok := p.recordedContainment(l)
+	if !ok {
 		return Containment{}
 	}
 	if p.IsStale() {
@@ -297,16 +294,44 @@ func (p *Profile) Containment(l *Loop) Containment {
 }
 
 // Containments returns the verdict against every live loop of the sketch, in the order
-// [Sketch.Loops] returns them now. It is Containment called once per loop.
+// [Sketch.Loops] returns them now. It is Containment called once per loop, except that
+// it asks once whether the profile is stale: that check recomputes [Sketch.Revision],
+// which reads the whole sketch, so a sketch with many loops would otherwise pay for it
+// once per loop.
 func (p *Profile) Containments() []Containment {
 	if p == nil || p.sketch == nil {
 		return nil
 	}
 	out := make([]Containment, len(p.sketch.loops))
+	stale, checked := false, false
 	for i, l := range p.sketch.loops {
-		out[i] = p.Containment(l)
+		c, ok := p.recordedContainment(l)
+		if !ok {
+			continue
+		}
+		if !checked {
+			stale, checked = p.IsStale(), true
+		}
+		if stale {
+			c = unproven(ReasonStale)
+		}
+		out[i] = c
 	}
 	return out
+}
+
+// recordedContainment returns the verdict recorded for a live loop when the profile
+// was built, and false when there is none: a nil profile or loop, a profile without
+// verdicts, a loop declared later, from another sketch, or removed.
+func (p *Profile) recordedContainment(l *Loop) (Containment, bool) {
+	if p == nil || l == nil || p.containment == nil {
+		return Containment{}, false
+	}
+	c, ok := p.containment[l]
+	if !ok || l.removed {
+		return Containment{}, false
+	}
+	return c, true
 }
 
 // loopEnds returns the two end coordinates of an entity a loop may chain, and false for

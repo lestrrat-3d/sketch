@@ -1,10 +1,8 @@
 package sketch
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"math"
 )
 
@@ -63,12 +61,8 @@ func (s *Sketch) revisionWithCharge(take func(uint64) error) (uint64, error) {
 // before reading its potentially variable-length structural state.
 func (s *Sketch) revisionWithChargeGuard(take func(uint64) error,
 	guard func(Entity) error) (uint64, error) {
-	h := fnv.New64a()
-	var buf [8]byte
-	write := func(u uint64) {
-		binary.LittleEndian.PutUint64(buf[:], u)
-		_, _ = h.Write(buf[:])
-	}
+	h := &fnv64a{sum: fnvOffset64}
+	write := h.word
 
 	// The flat var vector: every unknown the solver owns, including the aux vars
 	// constraints allocate. It is hashed for what it is — a cheap catch-all over
@@ -123,7 +117,7 @@ func (s *Sketch) revisionWithChargeGuard(take func(uint64) error,
 			return 0, err
 		}
 	}
-	seq := make(map[*Point]uint64)
+	seq := make(map[*Point]uint64, len(s.points))
 	entityCount := len(s.ents)
 	write(uint64(entityCount))
 	for _, e := range s.ents {
@@ -188,6 +182,42 @@ func (s *Sketch) revisionWithChargeGuard(take func(uint64) error,
 	}
 	return h.Sum64(), nil
 }
+
+const (
+	fnvOffset64 = 14695981039346656037
+	fnvPrime64  = 1099511628211
+)
+
+// fnv64a is the 64-bit FNV-1a hash of hash/fnv, held as a plain value so that
+// hashing a word is a loop over its eight bytes and not eight interface calls. It
+// produces the same sums as hash/fnv.New64a over the same bytes, which
+// TestRevisionFingerprintValue pins.
+type fnv64a struct{ sum uint64 }
+
+// Write hashes the bytes of p. It never fails.
+func (h *fnv64a) Write(p []byte) (int, error) {
+	sum := h.sum
+	for _, b := range p {
+		sum ^= uint64(b)
+		sum *= fnvPrime64
+	}
+	h.sum = sum
+	return len(p), nil
+}
+
+// word hashes u as eight little-endian bytes.
+func (h *fnv64a) word(u uint64) {
+	sum := h.sum
+	for range 8 {
+		sum ^= u & 0xff
+		sum *= fnvPrime64
+		u >>= 8
+	}
+	h.sum = sum
+}
+
+// Sum64 returns the hash of everything written so far.
+func (h *fnv64a) Sum64() uint64 { return h.sum }
 
 // unstampedUID is hashed for an entity found in s.ents with no instance
 // identity. Real uids come from a counter that starts at 1 and only increments

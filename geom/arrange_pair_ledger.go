@@ -207,6 +207,11 @@ func (l *pairLedger) target(j int) *ledgerTarget {
 			min: [2]*big.Rat{sub(cx, r), sub(cy, r)},
 			max: [2]*big.Rat{add(cx, r), add(cy, r)},
 		}
+		if t.wedge != nil {
+			if b, ok := arcBounds(src); ok {
+				t.bounds = b
+			}
+		}
 	default:
 		return nil
 	}
