@@ -10,6 +10,7 @@ Detail moved out of CLAUDE.md. Read before touching `Sketch.Profiles`, `Boundary
 | Can two trimmed line edges share one exact crossing? | Certified line-line junctions |
 | Can a line and a circle share one certified secant? | Certified line-circle junctions |
 | Why did exactness disappear scene-wide? | The whole-scene kind gate `exactAllowed` |
+| Why does a scene with a fit spline keep (or lose) exact bounds? | The pair ledger |
 | When is a profile invalid or stale? | `Valid` is per-region / A profile is a snapshot |
 | How are adjacent profile regions joined? | `Sketch.UnionProfiles` |
 | Where does OPEN geometry go? | `chains.go` — open boundary chains |
@@ -158,15 +159,18 @@ callback; this certificate starts after its publication.
 ### The whole-sketch gate comes first
 
 **A WHOLE-SKETCH gate comes first**: exact bounds are
-published when every entity is a line/circle/arc or the bounded
-fit-spline/circle certificate passes. Otherwise one free-form entity anywhere
+published when every entity is a line/circle/arc, when the bounded
+fit-spline/circle certificate passes, or when the pair ledger proves every
+relation of every fit spline to the other entities (below). Otherwise one
+free-form entity anywhere
 makes every `BoundaryEdge` of every profile read `TExact=false` — the lines,
 circles and arcs beside it included, however far apart they sit (`exactAllowed`,
 in the `geom` section: a free-form entity is only ever chords, so it can hide a
 crossing between two samples and leave the certified pairs publishing the fused
 profile set as exact — the near-miss guard now reports such a map `Degenerate`,
 but it certifies nothing where it stays silent, so exactness keeps the kind
-gate). `docs/analytic-arrangement-design.md` §7b owns the bounded proof. Fit
+gate). `docs/analytic-arrangement-design.md` §7b owns the bounded proof and
+`docs/pair-certificate-design.md` the pair ledger. Fit
 fragments below the root circle stay inexact where neighbouring teeth can meet.
 Within an all line/circle/arc sketch the closed-form kernel runs on any
 pair of those three, so **every** contact involving an
@@ -1168,8 +1172,9 @@ reconciliation bound is deliberately the tight one.
 
 **A pair the kernel never classified is answered a level up, by the WHOLE-SCENE gate
 `exactAllowed`**: an exact bound is published when every source is a line, circle
-or arc, or when `certifyFitCircleScene` proves its bounded fit-spline/circle
-case. Other free-form scenes make every bound read `TExact=false` —
+or arc, when `certifyFitCircleScene` proves its bounded fit-spline/circle
+case, or when the pair ledger proves every relation of every fit spline. Any other
+scene with a free-form source makes every bound read `TExact=false` —
 the analytic sources beside it included, however far apart they sit, and the free-form
 curve's own uncut whole edge included. The reason it is a KIND gate and not a distance
 or deviation test: a free-form source reaches the map only as chords, so a lobe between
@@ -1179,15 +1184,64 @@ deviation of `2.1e-05` against a true `4.7e-01` maximum on the same segment, wit
 resulting wrong-but-all-exact map surfacing through `Sketch.Profiles()` with no options
 at all. Any per-segment deviation ESTIMATE used as a reach is the same bug with a wider
 constant; the kind gate needs no threshold, and in an all-analytic scene there is no
-sampled-only pair for it to bite on. The narrow exception proves all exterior
+sampled-only pair for it to bite on. The narrow certificate proves all exterior
 free-form pair contacts with exact rational polynomial bounds before lifting the
 scene gate, and leaves inner fit fragments inexact.
-**`nearMissGuard` now reports that fused map as
+**`nearMissGuard` reports that fused map as
 `Degenerate`** (below), but it does not lift this gate — it says where a crossing cannot
-be RULED OUT, never that the crossing set is right where it stays silent, and a
-other free-form crossings retain sampled parameters. The accepted cost
-is exactness on the analytic sources sharing a scene with a free-form one — topology,
-areas and the reported ranges are untouched.
+be RULED OUT, never that the crossing set is right where it stays silent. Topology,
+areas and the reported ranges are the same with the gate open or closed.
+
+### The pair ledger (`geom/arrange_pair_ledger.go`, `arrange_pair_geometry.go`)
+
+Design, stages and the test plan are in `docs/pair-certificate-design.md`. Read it
+before changing either file.
+
+`buildPairLedger` runs at the end of `analyticPrepass`, after `certifyFitCircleScene`.
+It does nothing when `exactAllowed` is already true, when `exactVeto` is set (a dropped
+source or an overflowing scene), or when the scene holds a source that is not a line,
+circle, arc or fit spline. Otherwise it fills `a.ledger` with one entry per pair that
+includes a fit spline and one self entry per spline, then sets `exactAllowed`.
+
+- **Verdicts.** `verdictDisjoint` (no common point), `verdictEndpointOnly` (only the
+  listed shared ends), `verdictSimple` (the self entry: every Bézier control vector of
+  the spline has a positive dot product with the chord, so the coordinate along the
+  chord strictly increases) and `verdictUnproven` with a `pairReason`.
+- **Exact forms.** A spline is its exact rational Bézier pieces (`memoFitPieces`,
+  `memoFitHulls`). A line is a segment, a circle or arc the circle with its exact
+  float64 centre and radius. An arc of less than a half turn also has a wedge from its
+  centre, widened on both sides by `arcWedgeSlack` (2^-40, far above the
+  `math.Cos`/`math.Sin` error). A hull that lies wholly outside the wedge misses the arc
+  even where the circle carries it.
+- **Disjoint proof.** `judge` tries, cheapest first: the spline's bounding box against the
+  target (`farFromBox`), then each piece box, then separating axes (`hullsDisjoint`) or,
+  for a circle or arc, the box-versus-circle test, the wedge test and the sign of the
+  Bernstein coefficients of `|P-c|²-r²`. A hull that still overlaps is split at `1/2`
+  (`splitHull`), up to `ledgerMaxDepth` (52) levels. A spline against a spline splits both.
+- **Endpoint-only proof.** A shared end is an end of the spline within
+  `weldIdentEps*scale` of an end of the other source (bit-identical for two splines, else
+  `reasonEndMismatch`). `endpointOnly` cuts the spline at `2^-k` of each shared end for
+  the smallest `k` whose near-end part passes `localOK`, then proves the remaining part
+  disjoint from the whole other source. The near-end part passes against a line, circle
+  or arc when its carrier function is monotone (all Bernstein differences one strict
+  sign) and a root lies within the vertex-merge distance of the end
+  (`localCarrierOK`); against a spline when the two cones from the shared apex are
+  angularly apart (`conesApart`).
+- **Work limit.** Each pair has a `workMeter` of `4*52*pieces` units, one per exact
+  separation test. Reaching it gives `reasonBudget`; nothing panics and no error
+  returns, because `Profiles` and `UnionProfiles` return none for exactness.
+- **Audit and withdrawal.** `refuseExactOnFusedMap` calls `auditPairLedger` first. A
+  disjoint pair with any sampled contact, or an endpoint-only pair with a sampled
+  contact farther than `a.merge` from every shared end, becomes `reasonAudit`. Every
+  unproven pair then joins its two sources into one component of the contact graph, and
+  `exactRefused` is set for the whole component. A component that holds no unproven pair
+  keeps its exact bounds.
+- **Tests.** `arrange_pair_ledger_internal_test.go` stops before the audit
+  (`proveOnly`), so it tests the proof itself: constructed relations, a dense-sampling
+  oracle over random scenes (a certified pair must have no crossing), and unit tests of
+  the cone and split primitives. `arrange_pair_ledger_test.go` tests the published
+  `TExact` flags end to end. `profile_union_spline_sections_test.go` pins the
+  `UnionProfiles` scene a downstream consumer builds.
 
 ### Chord-deviation degeneracy bounds (`nearMissGuard`)
 
