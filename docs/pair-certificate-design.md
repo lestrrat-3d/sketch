@@ -137,6 +137,8 @@ continues.
 
 All arithmetic is exact (`math/big` rationals). No test uses a margin.
 
+For a circle target (not an arc) steps 2 and 3 do not run: Stage 2a settles the pair by exact root counting.
+
 ### EndpointOnly proof
 
 A **shared end** is an end of the spline that lies within `weldIdentEps * scale` of an end of the other source. The
@@ -210,8 +212,11 @@ them without looking at a piece.
 
 ## Stage 2a — spline × circle `Crossing` (implemented)
 
-Pair kinds: fit spline × circle. `crossCircle` runs in `judge` only after the avoidance proof failed, so every pair
-Stage 1 certified keeps its verdict.
+Pair kinds: fit spline × circle. For a circle target `judge` runs `crossCircle` right after the whole-spline box
+test, in place of the Stage 1 avoidance proof. The exact root count settles every pair that is not a touch with one
+test per piece, where the avoidance proof halves a hull to `ledgerMaxDepth` around each crossing. On a scene of 48
+regions with 15-point flanks, every flank crossing the circle once, this took `Profiles()` from 2.40 s to 1.19 s. A
+circle has no end, so there is no `EndpointOnly` case to lose. Lines, arcs and splines keep the avoidance proof.
 
 ### Root isolation
 
@@ -264,7 +269,7 @@ end.
 
 ### Tests
 
-- `TestPairLedgerCrossingAgreesWithA256BitOracle`: 300 random scenes of a spline and a circle centred near the
+- `TestPairLedgerCrossingAgreesWithA256BitOracle`: 120 random scenes of a spline and a circle centred near the
   curve. Every `Crossing` verdict must have as many crossings as the sign changes of the circle's carrier function
   along the exact pieces in 256-bit arithmetic, each reported parameter inside its sign change's sample interval,
   and each evaluated point on the circle.
@@ -274,7 +279,7 @@ end.
 - `TestSplineCrossingCircleOncePerFlankIsExact` and `TestSplineCrossingCircleTwiceIsExact` (`geom.Regions`): n = 3,
   8 and 24 rotated copies of a region whose two 4- or 15-point flanks cross the circle (a fit point of the 15-point
   flank lies within rounding of the circle), and an arch cut twice by one circle. Every edge is `TExact`.
-- `TestUnionProfilesCertifiesEmbeddedSplineSections` (`UnionProfiles`): the same scene for n = 3 to 128. The union
+- `TestUnionProfilesCertifiesEmbeddedSplineSections` (`UnionProfiles`): the same scene for n = 3 to 32. The union
   has `4n` outer edges, `3n` of them `Partial` and all `TExact`. The profile areas sum to the union area, and the
   `n` rotated copies of each face have one area to 1e-9.
 - A mutation check: each of four broken proof steps (the monotone test always true, the cell check always true,

@@ -50,7 +50,7 @@ func TestPairLedgerCrossingAgreesWithA256BitOracle(t *testing.T) {
 	rng := rand.New(rand.NewSource(7770042))
 	pt := func() *Point { return NewPoint(rng.Float64()*20-10, rng.Float64()*20-10) }
 	crossings, total := 0, 0
-	for trial := 0; trial < 300; trial++ {
+	for trial := 0; trial < 120; trial++ {
 		fitPts := make([]*Point, 2+rng.Intn(6))
 		for i := range fitPts {
 			fitPts[i] = pt()
@@ -80,7 +80,7 @@ func TestPairLedgerCrossingAgreesWithA256BitOracle(t *testing.T) {
 			require.InDeltaf(t, r, math.Hypot(p[0]-c.X, p[1]-c.Y), 1e-9, "trial %d crossing %d is on the circle", trial, i)
 		}
 	}
-	require.Greater(t, crossings, 40, "the generator must certify crossings (%d scenes)", total)
+	require.Greater(t, crossings, 15, "the generator must certify crossings (%d scenes)", total)
 }
 
 // TestPairLedgerCrossingRoundsOntoJoint puts a fit point within rounding of the

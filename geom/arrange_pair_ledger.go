@@ -278,14 +278,18 @@ func (l *pairLedger) judge(i int, f *ledgerFit, j int) pairEntry {
 		if t.farFromBox(f.bounds) {
 			return pairEntry{verdict: verdictDisjoint}
 		}
+		// A circle has no end, and the exact root count settles every pair with it
+		// that is not a touch: no root is disjoint, transversal roots are crossings.
+		// It costs one test per piece where the avoidance proof halves a hull to the
+		// depth limit around every crossing.
+		if t.kind == srcCircle {
+			return l.crossCircle(i, f, j, t, pieces)
+		}
 		switch l.avoidsAll(f.hulls, t, meter) {
 		case sepOK:
 			return pairEntry{verdict: verdictDisjoint}
 		case sepBudget:
 			return pairEntry{reason: reasonBudget}
-		}
-		if t.kind == srcCircle {
-			return l.crossCircle(i, f, j, t, pieces)
 		}
 		return pairEntry{reason: reasonResolution}
 	}

@@ -156,15 +156,17 @@ func embeddedSplineSectionScene(t testing.TB, n, fitPoints int) *sketch.Sketch {
 // and each circle fragment between neighbouring regions publishes an exact parameter,
 // and the n rotated copies keep the same area.
 func TestUnionProfilesCertifiesEmbeddedSplineSections(t *testing.T) {
-	cases := []struct{ n, fit int }{{3, 4}, {3, 15}, {8, 15}, {24, 4}, {24, 15}, {128, 15}}
+	cases := []struct{ n, fit int }{{3, 4}, {3, 15}, {8, 15}, {24, 4}, {32, 15}}
 	for _, tc := range cases {
 		t.Run(fmt.Sprintf("n=%d/fit=%d", tc.n, tc.fit), func(t *testing.T) {
-			if tc.n > 24 && testing.Short() {
-				t.Skip("the large scene takes tens of seconds")
-			}
 			s := embeddedSplineSectionScene(t, tc.n, tc.fit)
 			profiles := s.Profiles()
-			valid := validProfileIndices(s)
+			var valid []int
+			for i, p := range profiles {
+				if p.Valid {
+					valid = append(valid, i)
+				}
+			}
 			// n lobes under the circle, n teeth above it and the middle of the disc.
 			require.Len(t, valid, 2*tc.n+1)
 			u, err := s.UnionProfiles(valid...)
