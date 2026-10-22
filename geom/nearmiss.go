@@ -496,6 +496,7 @@ func projectHom(cp [][3]float64) [][2]float64 {
 // than flagged.
 func (a *arranger) nearMissGuard() {
 	var boxes []nearMissBox
+	var reach []nearMissReach
 	for i := range a.sources {
 		a.budget.step(1)
 		ki := a.sources[i].kind
@@ -521,6 +522,13 @@ func (a *arranger) nearMissGuard() {
 						minY: math.Min(s.ay, s.by), maxY: math.Max(s.ay, s.by),
 					}
 				}
+				reach = a.sourceReach(boxes)
+			}
+			// Every chord pair's band is at most the sum of the two sources' largest
+			// deviations, so two sources whose boxes are further apart than that sum
+			// have no chord pair the loop in pairNearMiss would not reject itself.
+			if boxesApart(&reach[i].box, &reach[j].box, reach[i].dev+reach[j].dev) {
+				continue
 			}
 			if x, y, miss := a.pairNearMiss(i, j, boxes); miss {
 				a.flagDegenerate(x, y, i, j)
@@ -583,6 +591,36 @@ func (a *arranger) pairNearMiss(i, j int, boxes []nearMissBox) (float64, float64
 		}
 	}
 	return 0, 0, false
+}
+
+// nearMissReach is the bounding box of all of a source's chords and the largest
+// chord-deviation bound among them.
+type nearMissReach struct {
+	box nearMissBox
+	dev float64
+}
+
+// sourceReach folds the chord boxes of each source into one box and one deviation.
+// A deviation that is not a number is left out: the chord pair it belongs to has no
+// band (see pairNearMiss) and is skipped there.
+func (a *arranger) sourceReach(boxes []nearMissBox) []nearMissReach {
+	out := make([]nearMissReach, len(a.sources))
+	for i := range out {
+		a.budget.step(1)
+		r := nearMissReach{box: nearMissBox{
+			minX: math.Inf(1), minY: math.Inf(1), maxX: math.Inf(-1), maxY: math.Inf(-1),
+		}}
+		for _, k := range a.sourceSegs[i] {
+			b := &boxes[k]
+			r.box.minX, r.box.maxX = math.Min(r.box.minX, b.minX), math.Max(r.box.maxX, b.maxX)
+			r.box.minY, r.box.maxY = math.Min(r.box.minY, b.minY), math.Max(r.box.maxY, b.maxY)
+			if d := a.segDev[k]; d > r.dev {
+				r.dev = d
+			}
+		}
+		out[i] = r
+	}
+	return out
 }
 
 // nearMissBox is a chord's raw bounding box, computed once for the guard.

@@ -2,6 +2,7 @@ package geom
 
 import (
 	"math"
+	"math/rand"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -116,4 +117,125 @@ func TestChordDeviationBoundsHold(t *testing.T) {
 			require.LessOrEqual(t, maxBound, tc.maxOver*maxTruth+eps, "the bound is too loose to be useful")
 		})
 	}
+}
+
+// guardPairs runs the near-miss guard on a fresh arranger of the scene and returns the
+// source pairs it flags, with the point it reports for each.
+func guardPairs(curves []Curve, closed []ClosedCurve, reference bool) map[[2]int][2]float64 {
+	a := newArranger(curves, closed, arrangeConfig{segsPerTurn: 48})
+	a.densify()
+	a.intersect()
+	a.degen = nil
+	a.degenSet = false
+	if reference {
+		allPairsNearMissGuard(a)
+	} else {
+		a.nearMissGuard()
+	}
+	out := map[[2]int][2]float64{}
+	for _, d := range a.degen {
+		if len(d.srcs) == 2 {
+			out[pairKey(d.srcs[0], d.srcs[1])] = [2]float64{d.x, d.y}
+		}
+	}
+	return out
+}
+
+// allPairsNearMissGuard is nearMissGuard without the source-level reject: every
+// qualifying pair of sources goes to pairNearMiss.
+func allPairsNearMissGuard(a *arranger) {
+	boxes := make([]nearMissBox, len(a.segs))
+	for k := range a.segs {
+		s := &a.segs[k]
+		boxes[k] = nearMissBox{
+			minX: math.Min(s.ax, s.bx), maxX: math.Max(s.ax, s.bx),
+			minY: math.Min(s.ay, s.by), maxY: math.Max(s.ay, s.by),
+		}
+	}
+	for i := range a.sources {
+		ki := a.sources[i].kind
+		if ki == srcDegenerate {
+			continue
+		}
+		for j := i + 1; j < len(a.sources); j++ {
+			kj := a.sources[j].kind
+			if kj == srcDegenerate {
+				continue
+			}
+			_, certifiedFitPair := a.specialHandled[pairKey(i, j)]
+			if (analyticKind(ki) && analyticKind(kj)) || certifiedFitPair {
+				continue
+			}
+			if x, y, miss := a.pairNearMiss(i, j, boxes); miss {
+				a.flagDegenerate(x, y, i, j)
+			}
+		}
+	}
+}
+
+// TestNearMissGuardSourceRejectKeepsEveryVerdict checks the guard against the same
+// guard run over every pair of sources, on random scenes with near misses built in: a
+// circle whose radius falls a hair short of, or past, a point of a spline, and a
+// second spline laid a hair beside the first.
+func TestNearMissGuardSourceRejectKeepsEveryVerdict(t *testing.T) {
+	rng := rand.New(rand.NewSource(20261023))
+	pt := func() *Point { return NewPoint(rng.Float64()*20-10, rng.Float64()*20-10) }
+	gaps := []float64{1e-3, 1e-4, 1e-5, 1e-7, 1e-9, 0}
+	flagged := 0
+	for trial := 0; trial < 150; trial++ {
+		var curves []Curve
+		var closed []ClosedCurve
+		for range 1 + rng.Intn(3) {
+			fitPts := make([]*Point, 3+rng.Intn(3))
+			for i := range fitPts {
+				fitPts[i] = pt()
+			}
+			fit, err := NewFitSpline(fitPts...)
+			require.NoError(t, err)
+			curves = append(curves, fit)
+			gap := gaps[rng.Intn(len(gaps))] * float64(1-2*rng.Intn(2))
+			switch rng.Intn(4) {
+			case 3:
+				// A circle standing on the spline's highest point, its bottom a hair
+				// above it (or below it): the two bounding boxes are apart by about the
+				// gap, which is inside the band of the pair.
+				top := [2]float64{0, math.Inf(-1)}
+				for k := 0; k <= 800; k++ {
+					x, y := fit.Eval(float64(k) / 800)
+					if y > top[1] {
+						top = [2]float64{x, y}
+					}
+				}
+				r := 0.5 + rng.Float64()*3
+				closed = append(closed, NewCircle(NewPoint(top[0], top[1]+r+math.Abs(gap)*float64(1-2*rng.Intn(2))), r))
+			case 0:
+				on := fitPts[rng.Intn(len(fitPts))]
+				c := pt()
+				closed = append(closed, NewCircle(c, math.Hypot(on.X-c.X, on.Y-c.Y)+gap))
+			case 1:
+				beside := make([]*Point, len(fitPts))
+				for i, p := range fitPts {
+					beside[i] = NewPoint(p.X, p.Y+gap)
+				}
+				other, err := NewFitSpline(beside...)
+				require.NoError(t, err)
+				curves = append(curves, other)
+			default:
+				curves = append(curves, NewLine(pt(), pt()), NewArc(pt(), pt(), pt()))
+			}
+		}
+		// An ellipse far from the rest keeps the pair ledger out of the scene, so the
+		// test measures the guard and not the exact avoidance proof.
+		closed = append(closed, NewEllipse(NewPoint(500, 500), 1, 2, 0.3))
+		got := guardPairs(curves, closed, false)
+		want := guardPairs(curves, closed, true)
+		require.Equalf(t, len(want), len(got), "trial %d: flagged pairs", trial)
+		for k, w := range want {
+			g, ok := got[k]
+			require.Truef(t, ok, "trial %d: pair %v flagged by the all-pairs guard only", trial, k)
+			require.Equalf(t, w, g, "trial %d: pair %v witness", trial, k)
+		}
+		flagged += len(want)
+	}
+	require.Greater(t, flagged, 3, "the generator must produce flagged pairs")
 }
