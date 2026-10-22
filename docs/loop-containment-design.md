@@ -67,7 +67,11 @@ judged each time `Profiles()` runs, from current coordinates. A single circle is
 `ContainmentState` is `ContainmentUndeclared`, so a loop that was not declared when the profile was built, a loop from
 another sketch, a removed loop, a nil loop, and a profile made by `UnionProfiles` all read `Undeclared` and can never be
 mistaken for `Outside`. A stale profile (`Profile.IsStale`) reads `Unproven` with `ReasonStale`.
-`Containments` returns the same answers for all live loops in the order `Loops()` returns them at that moment.
+`Containments` returns the same answers for all live loops in the order `Loops()` returns them at that moment. It asks
+once whether the profile is stale, where `Containment` asks on every call. The staleness check recomputes
+`Sketch.Revision`, which reads every variable, entity and point of the sketch. On a scene of 128 regions and 129 loops,
+`Containments` over all 129 profiles took 6.7 s when it checked per loop (16 641 revisions of 0.4 ms) and 0.05 s when it
+checks per profile.
 
 **A region with holes.** `Containment` describes the whole face of the profile: its outer boundary minus its holes. A
 face standing in the hole of another face is a different profile, and reads `Inside` only the loops that contain it.

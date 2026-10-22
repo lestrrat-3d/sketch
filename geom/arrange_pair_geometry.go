@@ -337,6 +337,46 @@ func arcWedge(src *source, cx, cy *big.Rat) *ratWedge {
 	return &ratWedge{apex: ratVec{cx, cy}, lo: lo, hi: hi}
 }
 
+// arcBounds returns a box that holds every point of an arc whose wedge exists (a sweep
+// of less than a half turn): the box of its two end points and the axis extremes the
+// sweep passes, over the sweep widened by twice the wedge slack, then padded outward by
+// 2^-36 of the radius plus the rounding of the coordinates it was computed from. The
+// full carrier circle's box is a superset too, but it overlaps every source that lies
+// inside the circle's box, and each overlap costs an exact wedge test.
+func arcBounds(src *source) (exactFitBounds, bool) {
+	sweep := src.sweep
+	if !(math.Abs(sweep) > 0 && math.Abs(sweep) < math.Pi) || !finiteVal(src.phi0) ||
+		!finiteVal(src.cx) || !finiteVal(src.cy) || !(src.r > 0) || !finiteVal(src.r) {
+		return exactFitBounds{}, false
+	}
+	a0, a1 := src.phi0, src.phi0+sweep
+	if sweep < 0 {
+		a0, a1 = a1, a0
+	}
+	const widen = 0x1p-39
+	a0, a1 = a0-widen, a1+widen
+	angles := []float64{a0, a1}
+	for k := math.Ceil(a0 / (math.Pi / 2)); k*(math.Pi/2) < a1; k++ {
+		angles = append(angles, k*(math.Pi/2))
+	}
+	lo, hi := [2]float64{math.Inf(1), math.Inf(1)}, [2]float64{math.Inf(-1), math.Inf(-1)}
+	for _, a := range angles {
+		x, y := src.cx+src.r*math.Cos(a), src.cy+src.r*math.Sin(a)
+		lo[0], hi[0] = math.Min(lo[0], x), math.Max(hi[0], x)
+		lo[1], hi[1] = math.Min(lo[1], y), math.Max(hi[1], y)
+	}
+	pad := src.r*0x1p-36 + 8*math.Abs(math.Nextafter(math.Abs(src.cx)+src.r, math.Inf(1))-(math.Abs(src.cx)+src.r)) +
+		8*math.Abs(math.Nextafter(math.Abs(src.cy)+src.r, math.Inf(1))-(math.Abs(src.cy)+src.r))
+	b := exactFitBounds{
+		min: [2]*big.Rat{rat(lo[0] - pad), rat(lo[1] - pad)},
+		max: [2]*big.Rat{rat(hi[0] + pad), rat(hi[1] + pad)},
+	}
+	if b.min[0] == nil || b.min[1] == nil || b.max[0] == nil || b.max[1] == nil {
+		return exactFitBounds{}, false
+	}
+	return b, true
+}
+
 // excludes reports whether every control point of the cubic lies strictly outside
 // the wedge on the same side of one of its two bounding rays, so the cubic holds no
 // point of the wedge. A nil wedge excludes nothing.

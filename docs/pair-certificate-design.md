@@ -125,7 +125,11 @@ continues.
 
 1. The spline's bounding box against the target (`farFromBox`). For a line it is a separating-axis test of the box
    corners against the segment. For a circle or arc it is the box-against-circle test (box wholly outside or wholly
-   inside) and the wedge test on the corners. For a spline target it is a box test.
+   inside) and the wedge test on the corners. For a spline target it is a box test. An arc with a wedge is first tested
+   against its own box (`arcBounds`: the box of its end points and the axis extremes its sweep passes, over the sweep
+   widened by twice the wedge slack, padded by 2^-36 of the radius), not the box of its whole circle. The circle's box
+   overlaps every source inside it and each overlap costs exact wedge arithmetic: on 128 regions with root arcs this
+   took `Profiles()` from 1.40 s to 0.85 s.
 2. Per piece, the piece box against the target box, then the hull against the target: separating axes (the two
    coordinate axes and the normal of every pair of control points) for a line or a spline hull; for a circle or arc, the
    box-against-circle test, the wedge test, and the sign of the degree-6 Bernstein coefficients of
