@@ -53,6 +53,7 @@ type Profile struct {
 	// whether the profile still describes its sketch — see [Profile.IsStale].
 	sketch               *Sketch
 	revision             uint64
+	containment          map[*Loop]Containment
 	unionRegionIndices   []int
 	junctionPublication  *junctionPublication
 	junctionProfileIndex int
@@ -495,7 +496,11 @@ func (s *Sketch) buildProfilesWith(ctx context.Context, charge func(uint64) erro
 
 	var arr *geom.Arrangement
 	if charge == nil {
-		arr = geom.Regions(curves, closed)
+		if len(s.loops) > 0 {
+			arr = geom.Regions(curves, closed, geom.WithFaceGraph())
+		} else {
+			arr = geom.Regions(curves, closed)
+		}
 	} else {
 		var err error
 		arr, err = geom.RegionsLinesBounded(ctx, curves, charge)
@@ -589,6 +594,16 @@ func (s *Sketch) buildProfilesWith(ctx context.Context, charge func(uint64) erro
 		// a net Area below the floor and still read Valid.
 		p.Valid = !r.SelfIntersecting && !r.Degenerate
 		profiles = append(profiles, p)
+	}
+	if len(s.loops) > 0 {
+		srcOf := make(map[Entity]int, len(openEnts)+len(closedEnts))
+		for i, e := range openEnts {
+			srcOf[e] = i
+		}
+		for i, e := range closedEnts {
+			srcOf[e] = len(openEnts) + i
+		}
+		s.containmentFor(arr, profiles, srcOf)
 	}
 	if charge != nil {
 		if err := ctx.Err(); err != nil {
