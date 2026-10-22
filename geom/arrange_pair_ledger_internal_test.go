@@ -346,3 +346,211 @@ func TestSplitAndSubHullAgreeWithEvaluation(t *testing.T) {
 		require.InDelta(t, want[1], got[1], 1e-12)
 	}
 }
+
+// exactPiecesOf returns the exact power-basis pieces of source i, a fit spline.
+func exactPiecesOf(t *testing.T, a *arranger, i int) []exactFitPiece {
+	t.Helper()
+	fi := a.sources[i].fitEval.interpolant()
+	pieces, ok := exactFitPieces(fi)
+	require.True(t, ok)
+	return pieces
+}
+
+const oraclePrec = 256
+
+// piecePoint evaluates a piece at u in 256-bit arithmetic.
+func piecePoint(p *exactFitPiece, u *big.Float) (*big.Float, *big.Float) {
+	eval := func(c [4]*big.Rat) *big.Float {
+		acc := new(big.Float).SetPrec(oraclePrec)
+		for k := 3; k >= 0; k-- {
+			acc.Mul(acc, u)
+			acc.Add(acc, new(big.Float).SetPrec(oraclePrec).SetRat(c[k]))
+		}
+		return acc
+	}
+	return eval(p.x), eval(p.y)
+}
+
+func oracleU(k, n int) *big.Float {
+	return new(big.Float).SetPrec(oraclePrec).Quo(big.NewFloat(float64(k)), big.NewFloat(float64(n)))
+}
+
+// oracleContacts walks every piece of the spline at n+1 parameters per piece in
+// 256-bit arithmetic and counts where f changes sign between neighbouring samples
+// while the point lies within keep of nowhere in ends. f is the signed carrier
+// function of the target and extent says whether a sample is inside the target.
+func oracleContacts(pieces []exactFitPiece, n int, f func(x, y *big.Float) *big.Float,
+	extent func(x, y *big.Float) bool, ends [][2]float64, keep float64) int {
+	near := func(x, y *big.Float) bool {
+		fx, _ := x.Float64()
+		fy, _ := y.Float64()
+		for _, e := range ends {
+			if math.Hypot(fx-e[0], fy-e[1]) <= keep {
+				return true
+			}
+		}
+		return false
+	}
+	count := 0
+	for pi := range pieces {
+		var px, py, pf *big.Float
+		for k := 0; k <= n; k++ {
+			x, y := piecePoint(&pieces[pi], oracleU(k, n))
+			v := f(x, y)
+			if px != nil && extent(x, y) && !near(x, y) && v.Sign()*pf.Sign() <= 0 {
+				count++
+			}
+			px, py, pf = x, y, v
+		}
+		_, _ = px, py
+	}
+	return count
+}
+
+// TestPairLedgerAgreesWithA256BitContactOracle checks every certified pair of the
+// random scenes against an oracle that evaluates the exact pieces in 256-bit
+// arithmetic and looks for a sign change of the target's carrier function.
+func TestPairLedgerAgreesWithA256BitContactOracle(t *testing.T) {
+	rng := rand.New(rand.NewSource(7770001))
+	pt := func() *Point { return NewPoint(rng.Float64()*20-10, rng.Float64()*20-10) }
+	certified := 0
+	for trial := 0; trial < 150; trial++ {
+		fitPts := make([]*Point, 2+rng.Intn(5))
+		for i := range fitPts {
+			fitPts[i] = pt()
+		}
+		fit, err := NewFitSpline(fitPts...)
+		require.NoError(t, err)
+		start := pt()
+		if rng.Intn(3) == 0 {
+			start = fitPts[len(fitPts)-1]
+		}
+		var curves []Curve
+		var closed []ClosedCurve
+		curves = append(curves, fit)
+		var carrier func(x, y *big.Float) *big.Float
+		var extent func(x, y *big.Float) bool
+		if rng.Intn(2) == 0 {
+			end := pt()
+			curves = append(curves, NewLine(start, end))
+			dx, dy := end.X-start.X, end.Y-start.Y
+			carrier = func(x, y *big.Float) *big.Float {
+				a := new(big.Float).SetPrec(oraclePrec).Sub(y, big.NewFloat(start.Y))
+				b := new(big.Float).SetPrec(oraclePrec).Sub(x, big.NewFloat(start.X))
+				a.Mul(a, big.NewFloat(dx))
+				b.Mul(b, big.NewFloat(dy))
+				return a.Sub(a, b)
+			}
+			extent = func(x, y *big.Float) bool {
+				fx, _ := x.Float64()
+				fy, _ := y.Float64()
+				s := ((fx-start.X)*dx + (fy-start.Y)*dy) / (dx*dx + dy*dy)
+				return s >= 0 && s <= 1
+			}
+		} else {
+			c := pt()
+			r := 0.5 + rng.Float64()*8
+			closed = append(closed, NewCircle(c, r))
+			carrier = func(x, y *big.Float) *big.Float {
+				a := new(big.Float).SetPrec(oraclePrec).Sub(x, big.NewFloat(c.X))
+				b := new(big.Float).SetPrec(oraclePrec).Sub(y, big.NewFloat(c.Y))
+				a.Mul(a, a)
+				b.Mul(b, b)
+				a.Add(a, b)
+				return a.Sub(a, new(big.Float).SetPrec(oraclePrec).Mul(big.NewFloat(r), big.NewFloat(r)))
+			}
+			extent = func(x, y *big.Float) bool { return true }
+		}
+		a := proveOnly(curves, closed)
+		if a.ledger == nil {
+			continue
+		}
+		e := a.ledger[pairKey(0, 1)]
+		if e.verdict != verdictDisjoint && e.verdict != verdictEndpointOnly {
+			continue
+		}
+		certified++
+		got := oracleContacts(exactPiecesOf(t, a, 0), 400, carrier, extent, e.ends, 1e-3*a.scale)
+		require.Zerof(t, got, "trial %d verdict %d: the 256-bit oracle finds %d sign changes", trial, e.verdict, got)
+	}
+	require.Greater(t, certified, 20, "the generator must certify pairs")
+}
+
+// TestPairLedgerAtOneUlpFromTouching puts a horizontal line one unit in the last
+// place on each side of the exact maximum of a spline. A line at or below the
+// maximum meets the curve, so the proof must not call it disjoint.
+func TestPairLedgerAtOneUlpFromTouching(t *testing.T) {
+	rng := rand.New(rand.NewSource(424242))
+	disjointAbove := 0
+	for trial := 0; trial < 20; trial++ {
+		n := 3 + rng.Intn(4)
+		pts := make([]*Point, n)
+		for i := range pts {
+			x := -6 + 12*float64(i)/float64(n-1)
+			pts[i] = NewPoint(x, 2+rng.Float64()*3)
+		}
+		fit, err := NewFitSpline(pts...)
+		require.NoError(t, err)
+		probe := proveOnly([]Curve{fit, NewLine(NewPoint(-1, 100), NewPoint(1, 100))}, nil)
+		pieces := exactPiecesOf(t, probe, 0)
+		top := maxY(pieces)
+		topF, _ := top.Float64()
+		for step := -3; step <= 3; step++ {
+			c := topF
+			for range max(step, -step) {
+				if step < 0 {
+					c = math.Nextafter(c, math.Inf(-1))
+				} else {
+					c = math.Nextafter(c, math.Inf(1))
+				}
+			}
+			a := proveOnly([]Curve{fit, NewLine(NewPoint(-6.5, c), NewPoint(6.5, c))}, nil)
+			e := a.ledger[pairKey(0, 1)]
+			meets := new(big.Float).SetPrec(oraclePrec).SetFloat64(c).Cmp(top) <= 0
+			if meets {
+				require.NotEqualf(t, verdictDisjoint, e.verdict, "trial %d step %d: the line is not above the maximum", trial, step)
+				require.NotEqual(t, verdictEndpointOnly, e.verdict)
+			} else if e.verdict == verdictDisjoint {
+				disjointAbove++
+			}
+		}
+	}
+	t.Logf("lines strictly above the maximum certified disjoint: %d", disjointAbove)
+}
+
+// maxY finds the largest y of the pieces in 256-bit arithmetic.
+func maxY(pieces []exactFitPiece) *big.Float {
+	best := new(big.Float).SetPrec(oraclePrec).SetInf(true)
+	for pi := range pieces {
+		bu := 0
+		bestPiece := new(big.Float).SetPrec(oraclePrec).SetInf(true)
+		const grid = 300
+		for k := 0; k <= grid; k++ {
+			_, y := piecePoint(&pieces[pi], oracleU(k, grid))
+			if y.Cmp(bestPiece) > 0 {
+				bestPiece, bu = y, k
+			}
+		}
+		lo, hi := oracleU(max(bu-1, 0), grid), oracleU(min(bu+1, grid), grid)
+		for range 200 {
+			third := new(big.Float).SetPrec(oraclePrec).Quo(new(big.Float).Sub(hi, lo), big.NewFloat(3))
+			m1 := new(big.Float).SetPrec(oraclePrec).Add(lo, third)
+			m2 := new(big.Float).SetPrec(oraclePrec).Sub(hi, third)
+			_, y1 := piecePoint(&pieces[pi], m1)
+			_, y2 := piecePoint(&pieces[pi], m2)
+			if y1.Cmp(y2) < 0 {
+				lo = m1
+			} else {
+				hi = m2
+			}
+		}
+		_, y := piecePoint(&pieces[pi], lo)
+		if y.Cmp(bestPiece) > 0 {
+			bestPiece = y
+		}
+		if bestPiece.Cmp(best) > 0 {
+			best = bestPiece
+		}
+	}
+	return best
+}

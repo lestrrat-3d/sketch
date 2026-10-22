@@ -278,6 +278,13 @@ constructed classes below.
 - `TestPairLedgerNeverCertifiesAMeetingPair`: 400 random scenes of a fit spline against a line, circle, arc or second
   spline, a third of them sharing an end. When a pair is certified, a dense polyline oracle (400 segments per curve and
   a segment-crossing test, sharing no code with the certificate) must find no crossing outside the shared ends.
+- `TestPairLedgerAgreesWithA256BitContactOracle`: 150 random scenes of a spline against a line or circle. Every
+  certified pair is checked by evaluating the exact pieces in 256-bit `big.Float` arithmetic at 401 parameters per
+  piece and looking for a sign change of the target's carrier function (signed distance, or `|P-c|²-r²`) outside the
+  shared ends. This is a second oracle in a different form from the dense polyline one.
+- `TestPairLedgerAtOneUlpFromTouching`: 20 splines, each with a horizontal line placed from three units in the last
+  place below the exact maximum (found in 256-bit arithmetic) to three above. A line at or below the maximum meets the
+  curve and must never be certified `Disjoint` or `EndpointOnly`. Lines above it may be certified; the test logs how many were.
 - `TestConesApart` and `TestSplitAndSubHullAgreeWithEvaluation`: the cone and subdivision primitives.
 - `arrange_pair_ledger_test.go`: end to end through `geom.Regions`. A fit arch closed by a chord is exact; a parked
   spline keeps the circles beside it exact; an unproven crossing withholds exactness from its component and leaves a
@@ -285,22 +292,19 @@ constructed classes below.
   authoring order.
 - `TestUnionProfilesCertifiesSplineSections`: the downstream consumer's scene, 16 variants.
 
-A mutation check supports the property test: each of five deliberately broken proof steps (separating axes always
+A mutation check supports the property tests: each of five deliberately broken proof steps (separating axes always
 true, the carrier test always true, the wedge test always true, the box-against-circle test always outside, the cone
 test always apart) makes at least one of these tests fail.
 
 ### Not yet implemented
 
-- A 256-bit `big.Float` contact finder as a second oracle for constructed pairs.
 - An arrangement oracle: the same scene at a very high `WithSegmentsPerTurn`, comparing region count, areas and
   `Degenerate` wherever the certificate publishes an exact bound.
-- A one-ulp test: move one fit point by one unit in the last place and check that no verdict flips from `Unproven` to a
-  certified one.
 - Random placement (rotation, translation, scale) and several shuffles of authoring order over the random scenes.
 - Non-tooth scene families through `UnionProfiles` (a spiral of splines, nested loops, a comb of lines against
   splines).
 
-Each belongs to the corpus that must pass before Stage 2 retires `certifyFitCircleScene`.
+Each belongs to the corpus that must pass before Stage 2.
 
 ### Failure output
 
