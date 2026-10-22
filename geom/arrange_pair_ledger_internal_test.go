@@ -610,3 +610,123 @@ func TestArcBoundsHoldTheArc(t *testing.T) {
 	}
 	require.Greater(t, tested, 100, "the generator must produce arcs below a half turn")
 }
+
+// ledgerOf runs the pair proofs of the scene and returns every ledger entry.
+func ledgerOf(curves []Curve, closed []ClosedCurve) map[[2]int]pairEntry {
+	a := proveOnly(curves, closed)
+	return a.ledger
+}
+
+// TestLedgerFloatPrefilterKeepsEveryVerdict runs the pair proofs of random scenes with
+// and without the float boxes and requires identical entries: verdict, reason, shared
+// ends and crossing parameters. The float box only decides a pair the exact box test
+// would decide the same way, so no entry may differ. The scenes put splines near
+// lines, circles, arcs and other splines, some touching and some a hair apart, since
+// those are the pairs on which a box test and the proofs behind it disagree most easily.
+func TestLedgerFloatPrefilterKeepsEveryVerdict(t *testing.T) {
+	defer func(v bool) { ledgerFloatPrefilter = v }(ledgerFloatPrefilter)
+	rng := rand.New(rand.NewSource(20261025))
+	pt := func() *Point { return NewPoint(rng.Float64()*20-10, rng.Float64()*20-10) }
+	gaps := []float64{0.2, 0.05, 1e-2, 1e-3, 0}
+	pairs, verdicts := 0, map[pairVerdict]int{}
+	for trial := 0; trial < 20; trial++ {
+		var curves []Curve
+		var closed []ClosedCurve
+		for range 1 + rng.Intn(3) {
+			fitPts := make([]*Point, 2+rng.Intn(5))
+			for i := range fitPts {
+				fitPts[i] = pt()
+			}
+			fit, err := NewFitSpline(fitPts...)
+			require.NoError(t, err)
+			curves = append(curves, fit)
+			gap := gaps[rng.Intn(len(gaps))] * float64(1-2*rng.Intn(2))
+			switch rng.Intn(5) {
+			case 0:
+				on := fitPts[rng.Intn(len(fitPts))]
+				c := pt()
+				closed = append(closed, NewCircle(c, math.Hypot(on.X-c.X, on.Y-c.Y)+gap))
+			case 1:
+				beside := make([]*Point, len(fitPts))
+				for i, p := range fitPts {
+					beside[i] = NewPoint(p.X+gap, p.Y+3*gap)
+				}
+				other, err := NewFitSpline(beside...)
+				require.NoError(t, err)
+				curves = append(curves, other)
+			case 2:
+				// A line starting on the spline's end, and one a hair off it.
+				last := fitPts[len(fitPts)-1]
+				curves = append(curves, NewLine(last, pt()), NewLine(NewPoint(last.X+gap, last.Y), pt()))
+			case 3:
+				c := pt()
+				r := 0.5 + rng.Float64()*8
+				a0 := rng.Float64() * 2 * math.Pi
+				curves = append(curves, NewArc(c,
+					NewPoint(c.X+r*math.Cos(a0), c.Y+r*math.Sin(a0)),
+					NewPoint(c.X+r*math.Cos(a0+1+rng.Float64()), c.Y+r*math.Sin(a0+1+rng.Float64()))))
+			default:
+				curves = append(curves, NewLine(pt(), pt()))
+			}
+		}
+		ledgerFloatPrefilter = true
+		with := ledgerOf(curves, closed)
+		ledgerFloatPrefilter = false
+		without := ledgerOf(curves, closed)
+		require.Equalf(t, len(without), len(with), "trial %d: ledger size", trial)
+		for k, w := range without {
+			g, ok := with[k]
+			require.Truef(t, ok, "trial %d: pair %v missing", trial, k)
+			require.Equalf(t, w.verdict, g.verdict, "trial %d: pair %v verdict", trial, k)
+			require.Equalf(t, w.reason, g.reason, "trial %d: pair %v reason", trial, k)
+			require.Equalf(t, w.ends, g.ends, "trial %d: pair %v ends", trial, k)
+			require.Equalf(t, w.crossings, g.crossings, "trial %d: pair %v crossings", trial, k)
+			verdicts[w.verdict]++
+			pairs++
+		}
+	}
+	require.Greater(t, pairs, 30)
+	require.Greater(t, verdicts[verdictDisjoint], 8, "the scenes must contain separated pairs")
+	require.Greater(t, verdicts[verdictUnproven]+verdicts[verdictEndpointOnly]+verdicts[verdictCrossing], 3,
+		"the scenes must contain pairs the box test cannot settle")
+}
+
+// TestFloatHullBoxHoldsExactHull splits random cubics to depth 30 in exact and in float
+// arithmetic and requires every float box to hold the exact bounds of the same piece.
+func TestFloatHullBoxHoldsExactHull(t *testing.T) {
+	rng := rand.New(rand.NewSource(20261026))
+	for trial := 0; trial < 60; trial++ {
+		scale := math.Pow(10, float64(rng.Intn(9)-4))
+		var h exactFitHull
+		for i := range h.points {
+			for axis := range 2 {
+				h.points[i][axis] = rat((rng.Float64()*2 - 1) * scale)
+			}
+		}
+		h.fl = floatHullOf(&h)
+		require.True(t, h.fl.ok)
+		var check func(h exactFitHull, depth int)
+		check = func(h exactFitHull, depth int) {
+			box := h.fl.box()
+			require.True(t, box.ok)
+			exact := hullBounds(&h)
+			for axis := range 2 {
+				lo, _ := exact.min[axis].Float64()
+				hi, _ := exact.max[axis].Float64()
+				require.LessOrEqualf(t, box.min[axis], lo, "trial %d depth %d axis %d", trial, depth, axis)
+				require.GreaterOrEqualf(t, box.max[axis], hi, "trial %d depth %d axis %d", trial, depth, axis)
+			}
+			if depth == 30 {
+				return
+			}
+			l, r := splitHullHalf(h)
+			// Follow one random child per level, so the cost stays linear in depth.
+			if rng.Intn(2) == 0 {
+				check(l, depth+1)
+			} else {
+				check(r, depth+1)
+			}
+		}
+		check(h, 0)
+	}
+}

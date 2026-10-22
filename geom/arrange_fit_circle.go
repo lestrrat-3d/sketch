@@ -253,6 +253,9 @@ type exactFitPiece struct {
 // curve lies in the hull of these exact Bernstein control points.
 type exactFitHull struct {
 	points [4][2]*big.Rat
+	// fl is the float64 form of points, when the pair ledger needs one. See
+	// arrange_pair_float.go.
+	fl floatHull
 }
 
 // exactFitBounds encloses every Bezier hull in a fit. A gap between these
@@ -303,6 +306,7 @@ func exactFitHulls(pieces []exactFitPiece) []exactFitHull {
 			h.points[2][axis] = add(add(coeff[0], mul(coeff[1], twoThirds)), mul(coeff[2], third))
 			h.points[3][axis] = add(add(coeff[0], coeff[1]), add(coeff[2], coeff[3]))
 		}
+		h.fl = floatHullOf(h)
 	}
 	return hulls
 }

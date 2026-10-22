@@ -143,6 +143,25 @@ All arithmetic is exact (`math/big` rationals). No test uses a margin.
 
 For a circle target (not an arc) steps 2 and 3 do not run: Stage 2a settles the pair by exact root counting.
 
+### Float boxes
+
+The box tests of steps 1 and 3 run on exact rationals, and `big.Rat` comparisons and normalization were about a
+third of `Profiles()` on a scene of 128 regions. `arrange_pair_float.go` keeps an outward-rounded float64 box beside
+each exact bound (`ledgerFit`, `ledgerTarget`) and each hull (`exactFitHull.fl`). A box that holds the exact box
+and does not touch the other float box proves the exact boxes do not touch, and the pair then takes the branch the
+exact test would have taken: `sepOK` in `avoids` and `hullsApart`, a disjoint verdict in `farFromBox`. When the
+float boxes touch, the exact test runs as before. The prefilter therefore changes the cost of a verdict and never
+the verdict. A half split carries the float control points by de Casteljau in float64 and grows an absolute error
+bound by two spacings at the largest coordinate per split, which each averaging step cannot exceed; a hull produced
+by any other split has no float form and takes the exact test. Measured without the race detector on 128 regions,
+15-point flanks: 0.88 s to 0.60 s for the non-crossing scene and 1.67 s to 1.03 s for the scene whose flanks cross
+the root circle.
+
+Tests: `TestLedgerFloatPrefilterKeepsEveryVerdict` compares every ledger entry (verdict, reason, shared ends,
+crossing parameters) of random scenes with the prefilter off and on, and `TestFloatHullBoxHoldsExactHull` splits
+random cubics to depth 30 and requires the float box to hold the exact bounds at every level. Broken versions of the
+box comparison, the outward rounding and the error growth each fail one of them.
+
 ### EndpointOnly proof
 
 A **shared end** is an end of the spline that lies within `weldIdentEps * scale` of an end of the other source. The
