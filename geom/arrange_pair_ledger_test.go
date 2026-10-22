@@ -39,12 +39,12 @@ func TestPairLedgerParkedFitSplineKeepsCirclesExact(t *testing.T) {
 }
 
 func TestPairLedgerCrossingWithholdsItsComponentOnly(t *testing.T) {
-	// A spline arch that a circle crosses is not certified, so the pair's component
+	// A circle touching the arch's apex is not certified, so the pair's component
 	// publishes no exact bound. An ordinary circle crossing 100 units away keeps its own.
 	arch := mustFitSpline(t, geom.NewPoint(-4, 0), geom.NewPoint(0, 3), geom.NewPoint(4, 0))
 	curves := []geom.Curve{arch, geom.NewLine(geom.NewPoint(4, 0), geom.NewPoint(-4, 0))}
 	closed := []geom.ClosedCurve{
-		geom.NewCircle(geom.NewPoint(0, 3), 1.5),
+		geom.NewCircle(geom.NewPoint(0, 4.5), 1.5),
 		geom.NewCircle(geom.NewPoint(100, 0), 5),
 		geom.NewCircle(geom.NewPoint(106, 0), 5),
 	}

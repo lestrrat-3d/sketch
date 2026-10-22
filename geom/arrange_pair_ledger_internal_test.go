@@ -105,6 +105,18 @@ func TestPairLedgerConstructedRelations(t *testing.T) {
 			name:   "circle crossing the spline",
 			closed: []ClosedCurve{NewCircle(NewPoint(0, 3), 1)},
 			curves: []Curve{arch()},
+			want:   verdictCrossing,
+		},
+		{
+			name:   "circle touching the spline at its apex",
+			closed: []ClosedCurve{NewCircle(NewPoint(0, 4.5), 1.5)},
+			curves: []Curve{arch()},
+			want:   verdictUnproven,
+		},
+		{
+			name:   "circle through a fit point of the spline",
+			closed: []ClosedCurve{NewCircle(NewPoint(1, 3), 1)},
+			curves: []Curve{arch()},
 			want:   verdictUnproven,
 		},
 		{

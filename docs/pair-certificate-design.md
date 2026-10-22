@@ -1,7 +1,8 @@
 # Pair Certificate — Design
 
-Status: **Stage 1 implemented** (`geom/arrange_pair_ledger.go`, `geom/arrange_pair_geometry.go`). Stage 2 is
-proposed and needs its own go-ahead. This document extends the whole-scene exactness gate described in
+Status: **Stage 1 implemented** (`geom/arrange_pair_ledger.go`, `geom/arrange_pair_geometry.go`). **Stage 2a
+(spline × circle crossings) implemented** (`geom/arrange_pair_crossing.go`). The rest of Stage 2 is proposed and
+needs its own go-ahead. This document extends the whole-scene exactness gate described in
 `docs/analytic-arrangement-design.md` (§7b, "The whole-scene gate") so that fit splines can sit in a scene with lines,
 arcs and circles and still publish `TExact = true` on the fragments whose parameters are proven.
 
@@ -61,7 +62,7 @@ A **pair verdict** is the proven relation between two sources:
 | `EndpointOnly` | The sources share exactly the listed end points. Each end is the source's own parameter 0 or 1. |
 | `Simple` | Self entry only. The spline never meets itself. |
 | `Unproven` | The certificate could not decide. The reason is recorded. |
-| `Crossing` | Stage 2. The sources cross transversally at exactly the listed points, each with a rational bracket. |
+| `Crossing` | The sources cross transversally at exactly the listed spline parameters. Implemented for a spline against a circle (Stage 2a). |
 
 `Disjoint`, `EndpointOnly`, `Simple` and `Crossing` are facts about the exact curves. A verdict is **audited** when
 the sampled polylines of the pair agree with it (see "Audit against the sampled map").
@@ -136,6 +137,8 @@ continues.
 
 All arithmetic is exact (`math/big` rationals). No test uses a margin.
 
+For a circle target (not an arc) steps 2 and 3 do not run: Stage 2a settles the pair by exact root counting.
+
 ### EndpointOnly proof
 
 A **shared end** is an end of the spline that lies within `weldIdentEps * scale` of an end of the other source. The
@@ -207,20 +210,95 @@ square of the source count. The spline-involved pairs of this scene number 5 832
 against 97 other sources, 1 128 spline pairs, and 48 self entries). The source-level box tests resolve nearly all of
 them without looking at a piece.
 
-## Stage 2 — `Crossing` (proposed)
+## Stage 2a — spline × circle `Crossing` (implemented)
+
+Pair kinds: fit spline × circle. For a circle target `judge` runs `crossCircle` right after the whole-spline box
+test, in place of the Stage 1 avoidance proof. The exact root count settles every pair that is not a touch with one
+test per piece, where the avoidance proof halves a hull to `ledgerMaxDepth` around each crossing. On a scene of 48
+regions with 15-point flanks, every flank crossing the circle once, this took `Profiles()` from 2.40 s to 1.19 s. A
+circle has no end, so there is no `EndpointOnly` case to lose. Lines, arcs and splines keep the avoidance proof.
+
+### Root isolation
+
+For each exact piece, `|P(u) - c|^2 - r^2` is a degree-6 polynomial in `u`. `circleCrossings` converts it to
+Bernstein form and runs `isolateRoots` on `[0, 1]`:
+
+1. All coefficients of one strict sign: no root on the interval.
+2. Otherwise the consecutive coefficient differences are the Bernstein coefficients of the derivative up to a
+   positive factor. When they are all of one strict sign, the polynomial is strictly monotone, so the interval holds
+   at most one root. The coefficient sequence is then monotone and not of one sign, so its two end values differ in
+   sign and the root exists. An end value of exactly zero is a root on the interval boundary, which the routine
+   refuses. The interval becomes a `ratBracket`.
+3. Otherwise the interval is split at 1/2 by de Casteljau, to depth `ledgerMaxDepth`. A pair that needs more depth
+   is `Unproven`.
+
+A strictly monotone bracket means the crossing is transversal. A touch, a double root and two roots closer than one
+part in 2^52 never isolate, so they stay `Unproven` with reason `resolution`. An empty root list proves the pair
+`Disjoint`.
+
+### The reported parameter
+
+`roundedBracketRoot` returns the binary64 `u` nearest to the root and a proof that it is the nearest. A float
+bisection proposes `u`; two exact evaluations at the midpoints to the neighbouring floats must have opposite
+signs, and both midpoints must lie inside the bracket. When the proposal fails (a root within rounding of a
+bracket end), `bisectedRoot` halves the bracket with exact evaluations, up to 1100 times, until the bracket lies
+inside one rounding cell. The global parameter is `t0 + u*(t1 - t0)`, the same formula `fitRadiusCrossing` uses.
+
+A root within rounding of a piece joint rounds onto the joint's own parameter (`u` = 0 or 1). That is a valid
+cut: the evaluated point is the joint, within `weldIdentEps` of the circle. Two roots that round to one global
+parameter make the pair `Unproven`.
+
+### Injection
+
+`injectCrossings` evaluates each parameter, requires the point to lie within `weldIdentEps * scale` of the
+circle, builds `evCross` events and asks `analyticCrossingsCertified` whether the sampled polylines have the same
+crossing incidence. On success it records the events in `a.events`, marks the pair `specialHandled` (so the
+sampled loop adds no crossing of its own and `nearMissGuard` skips it), and cuts both sources at the crossing
+points. On failure nothing is changed and the pair is `Unproven`. The verdict is `Crossing` only after the
+injection.
+
+The audit has nothing to compare for a `Crossing` pair, because the sampled loop never records a contact for a
+handled pair. A `Crossing` pair joins its component through its events, like any handled pair with events, and
+does not withdraw exactness from it.
+
+### Work limit
+
+`crossCircle` takes a new `workMeter` of the same size as the pair's avoidance meter. The exact bisections of
+`bisectedRoot` are not metered: each runs at most 1100 halvings and only for a root within rounding of a bracket
+end.
+
+### Tests
+
+- `TestPairLedgerCrossingAgreesWithA256BitOracle`: 120 random scenes of a spline and a circle centred near the
+  curve. Every `Crossing` verdict must have as many crossings as the sign changes of the circle's carrier function
+  along the exact pieces in 256-bit arithmetic, each reported parameter inside its sign change's sample interval,
+  and each evaluated point on the circle.
+- `TestPairLedgerConstructedRelations`: a circle crossing the arch (`Crossing`), a circle touching the apex and a
+  circle through a fit point (`Unproven`).
+- `TestPairLedgerCrossingRoundsOntoJoint`: a circle through a fit point up to one rounding.
+- `TestSplineCrossingCircleOncePerFlankIsExact` and `TestSplineCrossingCircleTwiceIsExact` (`geom.Regions`): n = 3,
+  8 and 24 rotated copies of a region whose two 4- or 15-point flanks cross the circle (a fit point of the 15-point
+  flank lies within rounding of the circle), and an arch cut twice by one circle. Every edge is `TExact`.
+- `TestUnionProfilesCertifiesEmbeddedSplineSections` (`UnionProfiles`): the same scene for n = 3 to 32. The union
+  has `4n` outer edges, `3n` of them `Partial` and all `TExact`. The profile areas sum to the union area, and the
+  `n` rotated copies of each face have one area to 1e-9.
+- A mutation check: each of four broken proof steps (the monotone test always true, the cell check always true,
+  the confirmation of the estimate skipped, the rootless test never taken) makes at least one test fail.
+
+## Stage 2b — the rest of `Crossing` (proposed)
 
 Pair kinds: the same as Stage 1.
 
-A transversal crossing needs a proof that the pair meets at exactly one point inside a sub-box, and a root bracket.
+Stage 2a covers the circle case. A transversal crossing of the remaining pair kinds needs a proof that the pair
+meets at exactly one point inside a sub-box, and a root bracket.
 The method is Bernstein subdivision of the overlapping pieces until each surviving piece pair satisfies a uniqueness
 test:
 
 - Spline piece × line: the signed distance to the line, as a cubic in `u`, has a derivative whose Bernstein
   coefficients are of one sign, so the piece crosses the carrier at most once, and the crossing is a sign change of
   the endpoint values.
-- Spline piece × circle or arc: the squared-radius polynomial has a derivative of one sign on the piece. This is the
-  monotone condition `fitRadiusCrossing` already requires, checked per piece after subdivision rather than assumed
-  from the shape of a gear flank. A piece that fails keeps subdividing until depth 52, then is `Unproven`.
+- Spline piece × arc: the circle case above, with each root accepted only when it lies inside the arc's sweep and
+  clear of the arc's ends.
 - Spline piece × spline piece: the tangent direction ranges of the two sub-pieces, as angular intervals from their
   derivative control points, share no direction. Then the Jacobian of the intersection system has one sign, the system
   has at most one root in the box, and a sign change of the endpoint residuals shows it has exactly one.
@@ -319,7 +397,7 @@ else: topology, areas, `Degenerate` and the reported `TStart`/`TEnd` are unchang
 
 | Reason | Case |
 |---|---|
-| `resolution` | The hulls still overlap at depth 52: the pair touches, crosses, overlaps, or comes closer than binary64 resolves. Includes a spline end resting on the interior of another source. |
+| `resolution` | The hulls still overlap at depth 52: the pair touches, crosses, overlaps, or comes closer than binary64 resolves. Includes a spline end resting on the interior of another source. A spline and a circle with a touch, a root on a piece joint, or a crossing the sampled map does not confirm also read `resolution`; a spline against a line, arc or spline that crosses reads it until Stage 2b. |
 | `tangent` | A shared end whose near-end part could not be separated: the two leave the end in the same direction. |
 | `end-mismatch` | Two splines share an end whose coordinates are not bit-identical. |
 | `audit` | The sampled map recorded a contact the proof does not allow, for example a chord crossing where the exact curves are closer than the chord deviation. A higher sampling density usually lifts it. |

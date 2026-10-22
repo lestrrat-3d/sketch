@@ -1207,7 +1207,10 @@ includes a fit spline and one self entry per spline, then sets `exactAllowed`.
 - **Verdicts.** `verdictDisjoint` (no common point), `verdictEndpointOnly` (only the
   listed shared ends), `verdictSimple` (the self entry: every Bézier control vector of
   the spline has a positive dot product with the chord, so the coordinate along the
-  chord strictly increases) and `verdictUnproven` with a `pairReason`.
+  chord strictly increases), `verdictCrossing` (a spline against a circle: transversal
+  crossings isolated by Bernstein subdivision, injected as analytic events; see
+  `geom/arrange_pair_crossing.go` and "Stage 2a" in `docs/pair-certificate-design.md`)
+  and `verdictUnproven` with a `pairReason`.
 - **Exact forms.** A spline is its exact rational Bézier pieces (`memoFitPieces`,
   `memoFitHulls`). A line is a segment, a circle or arc the circle with its exact
   float64 centre and radius. An arc of less than a half turn also has a wedge from its

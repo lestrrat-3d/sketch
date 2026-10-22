@@ -33,6 +33,10 @@ const (
 	verdictEndpointOnly
 	// verdictSimple is the self entry of a spline that provably never meets itself.
 	verdictSimple
+	// verdictCrossing means the curves cross transversally at exactly the listed
+	// spline parameters, and nowhere else. The crossings are already injected into
+	// the arrangement as analytic events.
+	verdictCrossing
 )
 
 type pairReason uint8
@@ -61,10 +65,13 @@ type pairEntry struct {
 	reason  pairReason
 	// ends are the shared end points of an endpoint-only verdict.
 	ends [][2]float64
+	// crossings are the spline parameters of a crossing verdict.
+	crossings []float64
 }
 
 // ledgerFit is the exact form of one fit spline.
 type ledgerFit struct {
+	pieces []exactFitPiece
 	hulls  []exactFitHull
 	bounds exactFitBounds
 	p0, p1 [2]float64
@@ -169,7 +176,7 @@ func (l *pairLedger) fit(i int) *ledgerFit {
 		return nil
 	}
 	hulls := memoFitHulls(fitInterpolantKey(fi), pieces)
-	f := &ledgerFit{hulls: hulls, bounds: exactFitHullBounds(hulls), p0: src.at(0), p1: src.at(1)}
+	f := &ledgerFit{pieces: pieces, hulls: hulls, bounds: exactFitHullBounds(hulls), p0: src.at(0), p1: src.at(1)}
 	if f.bounds.min[0] == nil || !finitePt(f.p0) || !finitePt(f.p1) {
 		return nil
 	}
@@ -271,6 +278,13 @@ func (l *pairLedger) judge(i int, f *ledgerFit, j int) pairEntry {
 		if t.farFromBox(f.bounds) {
 			return pairEntry{verdict: verdictDisjoint}
 		}
+		// A circle has no end, and the exact root count settles every pair with it
+		// that is not a touch: no root is disjoint, transversal roots are crossings.
+		// It costs one test per piece where the avoidance proof halves a hull to the
+		// depth limit around every crossing.
+		if t.kind == srcCircle {
+			return l.crossCircle(i, f, j, t, pieces)
+		}
 		switch l.avoidsAll(f.hulls, t, meter) {
 		case sepOK:
 			return pairEntry{verdict: verdictDisjoint}
@@ -280,6 +294,26 @@ func (l *pairLedger) judge(i int, f *ledgerFit, j int) pairEntry {
 		return pairEntry{reason: reasonResolution}
 	}
 	return l.endpointOnly(f, t, ends, meter)
+}
+
+// crossCircle judges a spline whose hulls the avoidance proof could not separate from
+// circle j. An exact root count settles it: no root is a disjoint pair, and a set of
+// transversal crossings the sampled map confirms is a crossing pair. Anything else is
+// unproven with the reason the avoidance proof already found.
+func (l *pairLedger) crossCircle(i int, f *ledgerFit, j int, t *ledgerTarget, pieces int) pairEntry {
+	meter := &workMeter{a: l.a, left: 4 * ledgerMaxDepth * pieces}
+	ts, ok := l.circleCrossings(f, t, meter)
+	switch {
+	case meter.out:
+		return pairEntry{reason: reasonBudget}
+	case !ok:
+		return pairEntry{reason: reasonResolution}
+	case len(ts) == 0:
+		return pairEntry{verdict: verdictDisjoint}
+	case !l.a.injectCrossings(i, j, ts):
+		return pairEntry{reason: reasonResolution}
+	}
+	return pairEntry{verdict: verdictCrossing, crossings: ts}
 }
 
 func (l *pairLedger) targetAt(j int) *ledgerTarget {

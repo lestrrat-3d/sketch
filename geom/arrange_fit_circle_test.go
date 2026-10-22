@@ -60,12 +60,15 @@ func TestFitSplineCircleCrossingCertifiesOriginalFlanks(t *testing.T) {
 	}
 	require.Equal(t, 2, flanks)
 
-	// An extra source falls outside the four-source certificate.
+	// An extra source falls outside the four-source certificate. The pair ledger
+	// certifies the same scene pair by pair: the spline crosses the circle and meets
+	// nothing else, and the distant line meets nothing.
 	extra := append(append([]geom.Curve{}, curves...), geom.NewLine(geom.NewPoint(20, 20), geom.NewPoint(21, 20)))
-	uncertified := geom.Regions(extra, closed)
-	for _, region := range uncertified.Regions {
+	byLedger := geom.Regions(extra, closed)
+	requireExactBoundsReproduce(t, extra, closed, byLedger)
+	for _, region := range byLedger.Regions {
 		for _, edge := range region.Outer {
-			require.False(t, edge.TExact)
+			require.True(t, edge.TExact)
 		}
 	}
 }
