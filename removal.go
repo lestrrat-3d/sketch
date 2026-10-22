@@ -100,6 +100,7 @@ func (s *Sketch) RemoveEntity(e Entity) bool {
 		return false
 	}
 	s.removeConstraintsReferencing(nil, e)
+	s.dropLoopsNaming(e)
 	delete(s.refSeals, e) // drop any reference topology seal
 	// Drop the entity's instance identity. The uid counter is NOT rewound, so a
 	// re-created identical entity lands at the same position and id but gets a

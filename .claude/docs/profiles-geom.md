@@ -11,6 +11,7 @@ Detail moved out of CLAUDE.md. Read before touching `Sketch.Profiles`, `Boundary
 | Can a line and a circle share one certified secant? | Certified line-circle junctions |
 | Why did exactness disappear scene-wide? | The whole-scene kind gate `exactAllowed` |
 | Why does a scene with a fit spline keep (or lose) exact bounds? | The pair ledger |
+| Which declared loops contain a region? | Loop containment |
 | When is a profile invalid or stale? | `Valid` is per-region / A profile is a snapshot |
 | How are adjacent profile regions joined? | `Sketch.UnionProfiles` |
 | Where does OPEN geometry go? | `chains.go` — open boundary chains |
@@ -1242,6 +1243,27 @@ includes a fit spline and one self entry per spline, then sets `exactAllowed`.
   the cone and split primitives. `arrange_pair_ledger_test.go` tests the published
   `TExact` flags end to end. `profile_union_spline_sections_test.go` pins the
   `UnionProfiles` scene a downstream consumer builds.
+
+### Loop containment (`loops.go`, `geom/facegraph.go`)
+
+Design, reasons and the test table are in `docs/loop-containment-design.md`. Read it before changing either file.
+
+`Sketch.DeclareLoop(entities...)` declares a closed chain; `Profile.Containment(loop)` and `Profile.Containments()` read the
+verdict `Inside`, `Outside` or `Unproven` with a `ContainmentReason`. The zero state is `ContainmentUndeclared`. Loops
+are transient: not serialized, not in `Revision`; `RemoveEntity` removes the loops that name the entity.
+
+- `buildProfilesWith` asks `geom.Regions` for `geom.WithFaceGraph()` only when a live loop exists. Without the option
+  `Arrangement.FaceGraph` is nil and nothing else changes.
+- `FaceGraph` holds, per region, `Faithful` (exactness gate open, no `exactRefused` source on the boundary, region not
+  degenerate); per surviving arrangement edge, the two faces beside it (`FaceOuter`, `FaceUnknown` or a region index),
+  its vertices and `Covers`; and `Pruned`, the sources that lost an edge to pruning.
+- `Covers` of an edge is its emitting source, the sources a resolved coincident-carrier overlap suppressed in its favour
+  over a window holding the edge (`losingCovers`), and the duplicate lines `dedupCoincidentStraightEdges` merged into it
+  (`a.dedupPlan`).
+- `FaceGraph.WalkLoops` runs the parity walk from the unbounded face and never enters an unfaithful face. A loop with a
+  pruned source is a gap; a loop with a vertex of other than two loop edges, or an edge covered by two of its sources,
+  is self-crossing; a loop whose edges disagree around a cycle is inconsistent.
+- `loopClosed` (in `loops.go`) checks the chain from current coordinates, bit-for-bit.
 
 ### Chord-deviation degeneracy bounds (`nearMissGuard`)
 

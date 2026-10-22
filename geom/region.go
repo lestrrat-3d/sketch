@@ -330,6 +330,9 @@ type Arrangement struct {
 	Degenerate bool
 	// Degeneracies lists representative points of the degenerate conditions.
 	Degeneracies [][2]float64
+	// FaceGraph is the adjacency of the faces, present only when [Regions] was
+	// called with [WithFaceGraph].
+	FaceGraph *FaceGraph
 }
 
 // ClosedCurve is a closed primitive (circle, ellipse, or closed spline) admitted

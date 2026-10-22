@@ -116,6 +116,7 @@ type Option func(*arrangeConfig)
 type arrangeConfig struct {
 	vertexMerge float64 // 0 => derived from the scene scale
 	segsPerTurn int     // 0 => adaptive from the scene scale
+	faceGraph   bool    // publish Arrangement.FaceGraph
 }
 
 // WithVertexMerge overrides the distance below which two arrangement points are
@@ -317,7 +318,10 @@ type arranger struct {
 	// the open runs Chains publishes, so they are kept rather than discarded. See
 	// buildChains.
 	pruned []arrEdge
-	halfs  []halfEdge // directed half-edges (two per edge)
+	// dedupPlan is the coincident-line collapse buildGraph applied, kept for the face
+	// graph's covering sets. Nothing else reads it.
+	dedupPlan *coincidentDedupPlan
+	halfs     []halfEdge // directed half-edges (two per edge)
 	// cycleOf maps a half-edge to the face-walk cycle that traverses it, filled by
 	// extract. Only the chain pass reads it.
 	cycleOf []int
@@ -3988,6 +3992,7 @@ func (a *arranger) restoreCoincidentBridgeGroups(plan *coincidentDedupPlan) bool
 // rotation system at each vertex, and the next pointers (face on the left).
 func (a *arranger) buildGraph() {
 	plan := a.dedupCoincidentStraightEdges()
+	a.dedupPlan = plan
 	a.wireGraph()
 	for plan != nil && a.restoreCoincidentBridgeGroups(plan) {
 		a.budget.step(1)
@@ -4281,6 +4286,13 @@ func (a *arranger) extract() *Arrangement {
 	// containment probe is a point guaranteed interior to the hole (not a
 	// boundary vertex), so a hole touching a face boundary still resolves.
 	holeOf := make([][]*cycle, a.budget.preflight(len(faces)))
+	var cycleFace []int
+	if a.cfg.faceGraph {
+		cycleFace = make([]int, len(cycles))
+		for i := range cycleFace {
+			cycleFace[i] = FaceUnknown
+		}
+	}
 	for _, h := range holes {
 		a.budget.step(1)
 		probe, ok := a.cycleInteriorPoint(h)
@@ -4337,11 +4349,15 @@ func (a *arranger) extract() *Arrangement {
 					srcs = chargedAppend(a.budget, srcs, fr.src)
 				}
 				a.flagDegenerate(probe[0], probe[1], srcs...)
-				best = -1
+				continue
 			}
 		}
 		if best >= 0 {
 			holeOf[best] = chargedAppend(a.budget, holeOf[best], h)
+		} else if cycleFace != nil {
+			// No face holds this hole: it is the outer boundary of a component that
+			// stands in the unbounded face.
+			cycleFace[h.id] = FaceOuter
 		}
 	}
 
@@ -4356,8 +4372,14 @@ func (a *arranger) extract() *Arrangement {
 		a.budget.step(1)
 		reg := &Region{Outer: f.boundary, Area: f.area, SelfIntersecting: f.selfX}
 		published[f.id] = true
+		if cycleFace != nil {
+			cycleFace[f.id] = fi
+		}
 		for _, h := range holeOf[fi] {
 			a.budget.step(1)
+			if cycleFace != nil {
+				cycleFace[h.id] = fi
+			}
 			reg.Holes = chargedAppend(a.budget, reg.Holes, h.boundary)
 			reg.Area -= -h.area // h.area is negative
 			if h.selfX {
@@ -4376,6 +4398,9 @@ func (a *arranger) extract() *Arrangement {
 		}
 	}
 	arr.Chains = a.buildChains(used)
+	if cycleFace != nil {
+		defer func() { arr.FaceGraph = a.buildFaceGraph(arr, cycleFace) }()
+	}
 	if len(a.degen) > stamped {
 		// The chain walk raised a condition after the arrangement and every region
 		// were stamped, and the chains walked before it were stamped without it

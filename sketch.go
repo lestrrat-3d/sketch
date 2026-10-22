@@ -36,6 +36,10 @@ type Sketch struct {
 	ents   []Entity
 	cons   []Constraint
 
+	// loops are the declared closed chains (see [Sketch.DeclareLoop]). They are
+	// transient: not serialized and not part of Revision.
+	loops []*Loop
+
 	// origin is the sketch's own origin point (see [Sketch.Origin]). It is
 	// deliberately NOT in points: keeping it out leaves that slice the authored
 	// id space it has always been, so no existing id, document or point count
