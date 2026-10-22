@@ -239,10 +239,11 @@ part in 2^52 never isolate, so they stay `Unproven` with reason `resolution`. An
 ### The reported parameter
 
 `roundedBracketRoot` returns the binary64 `u` nearest to the root and a proof that it is the nearest. A float
-bisection proposes `u`; two exact evaluations at the midpoints to the neighbouring floats must have opposite
-signs, and both midpoints must lie inside the bracket. When the proposal fails (a root within rounding of a
-bracket end), `bisectedRoot` halves the bracket with exact evaluations, up to 1100 times, until the bracket lies
-inside one rounding cell. The global parameter is `t0 + u*(t1 - t0)`, the same formula `fitRadiusCrossing` uses.
+bisection followed by three Newton steps proposes `u`. For `u` and each of its two neighbouring floats, two exact
+evaluations at the midpoints to the neighbouring floats must have opposite signs, and both midpoints must lie inside
+the bracket (`confirmedRoot`). When no candidate is confirmed, `bisectedRoot` halves the bracket with exact
+evaluations, up to 1100 times, until the bracket lies inside one rounding cell. The Newton steps matter for a root a
+hair from a piece joint, where the bisection cannot reach the relative accuracy a cell needs. The global parameter is `t0 + u*(t1 - t0)`, the same formula `fitRadiusCrossing` uses.
 
 A root within rounding of a piece joint rounds onto the joint's own parameter (`u` = 0 or 1). That is a valid
 cut: the evaluated point is the joint, within `weldIdentEps` of the circle. Two roots that round to one global

@@ -1297,7 +1297,10 @@ one chord — a chord window is what `sampledCrossingsExplained`/`sampledReprese
 to locate a contact the kernel already found, and used here it forgives a grazing lens
 narrower than one chord (measured: 30 of 45 hider × partner combinations left unflagged
 with a wrong region count). Scoped to pairs with at least one free-form source, so an
-all-analytic scene is untouched and pays nothing. **The guard sets a FLAG and nothing
+all-analytic scene is untouched and pays nothing. A pair of sources is rejected before any chord is compared when the
+boxes of their chords (`sourceReach`) are further apart than the sum of the two sources' largest deviation bounds: no
+chord pair can then pass the band test, so the verdicts are those of the all-pairs loop
+(`TestNearMissGuardSourceRejectKeepsEveryVerdict`). **The guard sets a FLAG and nothing
 else** — region counts, areas and every reported parameter range are byte-identical to
 what the same geometry produced before it (measured across 900 mixed-family scenes).
 That flag-only PROPERTY is enforced by

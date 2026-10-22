@@ -236,22 +236,46 @@ func estimatedRoot(poly []*big.Rat, b ratBracket, s0 int) (float64, bool) {
 		}
 	}
 	u := (lo + hi) / 2
+	// Bisection resolves u to 2^-64 of the interval at best; a root a hair from a
+	// bracket end needs relative accuracy, which Newton steps give.
+	for range 3 {
+		v, dv := coeff[len(coeff)-1], 0.0
+		for i := len(coeff) - 2; i >= 0; i-- {
+			dv = dv*u + v
+			v = v*u + coeff[i]
+		}
+		step := v / dv
+		if dv == 0 || !finiteVal(step) {
+			break
+		}
+		u -= step
+	}
+	// The estimate may sit a cell or two off; the exact signs at a cell's two
+	// boundaries decide which candidate holds the root.
+	for _, cand := range [3]float64{u, math.Nextafter(u, math.Inf(-1)), math.Nextafter(u, math.Inf(1))} {
+		if confirmedRoot(poly, b, cand) {
+			return cand, true
+		}
+	}
+	return 0, false
+}
+
+// confirmedRoot reports whether the one root of the strictly monotone poly in the
+// bracket rounds to u: the cell of u lies in the bracket and poly changes sign across it.
+func confirmedRoot(poly []*big.Rat, b ratBracket, u float64) bool {
 	if !(u >= 0 && u <= 1) {
-		return 0, false
+		return false
 	}
 	below, above := math.Nextafter(u, math.Inf(-1)), math.Nextafter(u, math.Inf(1))
 	lower := quo(add(rat(below), rat(u)), rat(2))
 	upper := quo(add(rat(u), rat(above)), rat(2))
 	if lower.Cmp(b.lo) < 0 || upper.Cmp(b.hi) > 0 {
-		return 0, false
+		return false
 	}
 	// A strictly monotone polynomial with opposite signs at the two cell
 	// boundaries has its root between them.
 	sl, su := evalRatPoly(poly, lower).Sign(), evalRatPoly(poly, upper).Sign()
-	if sl == 0 || su == 0 || sl == su {
-		return 0, false
-	}
-	return u, true
+	return sl != 0 && su != 0 && sl != su
 }
 
 // injectCrossings turns the crossing parameters of spline i with circle j into
