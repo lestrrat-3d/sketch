@@ -110,6 +110,18 @@ func subHull(h exactFitHull, a, b *big.Rat) exactFitHull {
 	return h
 }
 
+// subHullFloat is subHull that also carries the float form of the result. It
+// is the form localCarrierFloatOK reads.
+func subHullFloat(h exactFitHull, a, b *big.Rat) exactFitHull {
+	out := subHull(h, a, b)
+	if h.fl.ok {
+		af, _ := a.Float64()
+		bf, _ := b.Float64()
+		out.fl = h.fl.sub(af, bf)
+	}
+	return out
+}
+
 // bernsteinSquare returns the degree-6 Bernstein coefficients of the square of
 // the degree-3 Bernstein polynomial with coefficients c.
 func bernsteinSquare(c [4]*big.Rat) [7]*big.Rat {

@@ -641,7 +641,27 @@ func TestLedgerFloatPrefilterKeepsEveryVerdict(t *testing.T) {
 			require.NoError(t, err)
 			curves = append(curves, fit)
 			gap := gaps[rng.Intn(len(gaps))] * float64(1-2*rng.Intn(2))
-			switch rng.Intn(5) {
+			switch rng.Intn(8) {
+			case 5:
+				// An arc leaving the spline's end, and one leaving it a hair off.
+				last := fitPts[len(fitPts)-1]
+				c := pt()
+				r := math.Hypot(last.X-c.X, last.Y-c.Y)
+				a0 := math.Atan2(last.Y-c.Y, last.X-c.X)
+				sweep := 0.5 + rng.Float64()*2
+				end := NewPoint(c.X+r*math.Cos(a0+sweep), c.Y+r*math.Sin(a0+sweep))
+				curves = append(curves, NewArc(c, last, end))
+				if gap != 0 {
+					off := NewPoint(last.X+gap, last.Y)
+					curves = append(curves, NewArc(c, off, end))
+				}
+			case 6:
+				// A line leaving the spline's start along its tangent, forward or back.
+				x0, y0 := fit.Eval(0)
+				x1, y1 := fit.Eval(1e-6)
+				k := float64(1 - 2*rng.Intn(2))
+				curves = append(curves, NewLine(NewPoint(x0, y0),
+					NewPoint(x0+k*(x1-x0)*1e6*(0.2+rng.Float64()), y0+k*(y1-y0)*1e6*(0.2+rng.Float64()))))
 			case 0:
 				on := fitPts[rng.Intn(len(fitPts))]
 				c := pt()
@@ -689,6 +709,7 @@ func TestLedgerFloatPrefilterKeepsEveryVerdict(t *testing.T) {
 	require.Greater(t, verdicts[verdictDisjoint], 8, "the scenes must contain separated pairs")
 	require.Greater(t, verdicts[verdictUnproven]+verdicts[verdictEndpointOnly]+verdicts[verdictCrossing], 3,
 		"the scenes must contain pairs the box test cannot settle")
+	require.Greater(t, verdicts[verdictEndpointOnly], 2, "the scenes must contain shared ends")
 }
 
 // TestFloatHullBoxHoldsExactHull splits random cubics to depth 30 in exact and in float

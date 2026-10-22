@@ -213,3 +213,139 @@ func advancesAlongChord(f *ledgerFit) bool {
 	}
 	return true
 }
+
+// sub returns the float form of the part of the cubic over [a, b], 0 <= a < b <= 1,
+// splitting at b and then at a/b like subHull. Each split moves the error bound up by
+// sixteen spacings at the largest coordinate: a lerp rounds twice, three levels of lerps
+// feed each new point, and the split parameter itself is a rounded quotient.
+func (f *floatHull) sub(a, b float64) floatHull {
+	if !f.ok {
+		return floatHull{}
+	}
+	out := *f
+	if b != 1 {
+		out = out.splitAt(b, false)
+		a /= b
+	}
+	if a != 0 {
+		out = out.splitAt(a, true)
+	}
+	return out
+}
+
+// splitAt splits at u by de Casteljau and returns the right part when right is true
+// and the left part otherwise.
+func (f floatHull) splitAt(u float64, right bool) floatHull {
+	m := 0.0
+	for _, p := range f.p {
+		m = math.Max(m, math.Max(math.Abs(p[0]), math.Abs(p[1])))
+	}
+	out := floatHull{e: f.e + 16*ulpOf(m), ok: true}
+	for axis := range 2 {
+		p0, p1, p2, p3 := f.p[0][axis], f.p[1][axis], f.p[2][axis], f.p[3][axis]
+		lerp := func(x, y float64) float64 { return x + u*(y-x) }
+		q0, q1, q2 := lerp(p0, p1), lerp(p1, p2), lerp(p2, p3)
+		r0, r1 := lerp(q0, q1), lerp(q1, q2)
+		s := lerp(r0, r1)
+		if right {
+			out.p[0][axis], out.p[1][axis], out.p[2][axis], out.p[3][axis] = s, r1, q2, p3
+		} else {
+			out.p[0][axis], out.p[1][axis], out.p[2][axis], out.p[3][axis] = p0, q0, r0, s
+		}
+	}
+	for _, p := range out.p {
+		if math.IsNaN(p[0]+p[1]) || math.IsInf(p[0]+p[1], 0) {
+			return floatHull{}
+		}
+	}
+	return out
+}
+
+// localCarrierFloatOK is localCarrierOK in float64. It returns true only when the test
+// passes by a wide margin over the rounding of the arithmetic here, and false when it
+// fails or is too close to say; the caller then runs the exact test.
+//
+// The carrier function is the signed distance to a line (degree 3 along the cubic) or
+// |P - c|^2 - r^2 (degree 6). Its Bernstein coefficients c_k carry an error bound errC.
+// Then the consecutive differences must share one sign, the smallest step is bounded
+// below by its float value less 2 errC (which must stay positive, so every difference
+// exceeds the rounding of its two terms), and the reach 3 speed |c_apex| is bounded
+// above with errC added to |c_apex| and a relative 1e-9 added to the speed.
+func localCarrierFloatOK(cut *exactFitHull, apex int, t *ledgerTarget, merge float64) bool {
+	h := &cut.fl
+	if !h.ok || !(merge > 0) {
+		return false
+	}
+	var c []float64
+	var degree int
+	var errC float64
+	extent := 0.0
+	for _, p := range h.p {
+		extent = math.Max(extent, math.Max(math.Abs(p[0]), math.Abs(p[1])))
+	}
+	switch t.kind {
+	case srcLine:
+		ax, ay := t.fline[0][0], t.fline[0][1]
+		dx, dy := t.fline[1][0]-ax, t.fline[1][1]-ay
+		for _, p := range h.p {
+			c = append(c, dx*(p[1]-ay)-dy*(p[0]-ax))
+		}
+		degree = 3
+		reach := extent + math.Max(math.Abs(ax), math.Abs(ay))
+		errC = 1e-12*(math.Abs(dx)+math.Abs(dy))*reach + 16*h.e*(math.Abs(dx)+math.Abs(dy))
+	case srcCircle, srcArc:
+		var xs, ys [4]float64
+		for i, p := range h.p {
+			xs[i], ys[i] = p[0]-t.fcx, p[1]-t.fcy
+		}
+		sx, sy := floatBernsteinSquare(xs), floatBernsteinSquare(ys)
+		g := make([]float64, 7)
+		for k := range g {
+			g[k] = sx[k] + sy[k] - t.fr*t.fr
+		}
+		c = g
+		degree = 6
+		if apex == 3 {
+			apex = 6
+		}
+		r := extent + math.Abs(t.fcx) + math.Abs(t.fcy) + t.fr
+		errC = 1e-12*r*r + 16*h.e*r
+	default:
+		return false
+	}
+	minStep := math.Inf(1)
+	sign := 0.0
+	for k := 0; k+1 < len(c); k++ {
+		d := c[k+1] - c[k]
+		if math.IsNaN(d) {
+			return false
+		}
+		if sign != 0 && d*sign < 0 {
+			return false
+		}
+		sign = math.Copysign(1, d)
+		minStep = math.Min(minStep, math.Abs(d))
+	}
+	m := float64(degree) * (minStep - 2*errC)
+	speed := 0.0
+	for k := range 3 {
+		speed = math.Max(speed, math.Abs(h.p[k+1][0]-h.p[k][0])+math.Abs(h.p[k+1][1]-h.p[k][1]))
+	}
+	speed = speed*(1+1e-9) + 8*h.e
+	reachUB := 3 * speed * (math.Abs(c[apex]) + errC)
+	return m > 0 && reachUB <= 0.5*merge*m
+}
+
+// floatBernsteinSquare is bernsteinSquare in float64.
+func floatBernsteinSquare(c [4]float64) [7]float64 {
+	var out [7]float64
+	for k := range out {
+		sum := 0.0
+		for i := max(0, k-3); i <= min(3, k); i++ {
+			w := float64(binomial(3, i)*binomial(3, k-i)) / float64(binomial(6, k))
+			sum += w * c[i] * c[k-i]
+		}
+		out[k] = sum
+	}
+	return out
+}
