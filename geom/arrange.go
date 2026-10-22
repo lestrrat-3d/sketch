@@ -374,8 +374,10 @@ type arranger struct {
 	// per-source or per-pair reasoning. It starts true only when every source is
 	// a line, circle or arc. certifyFitCircleScene can also set it for its narrow
 	// fit-spline/root-circle scene after proving every pair contact on or outside
-	// the root circle. Fragments below that circle remain inexact. Other free-form
-	// scenes publish no exact bound anywhere.
+	// the root circle. Fragments below that circle remain inexact. buildPairLedger
+	// can also set it for a scene whose only free-form sources are fit splines, when
+	// every pair of a spline with another source is proven disjoint or endpoint-only.
+	// Other free-form scenes publish no exact bound anywhere.
 	//
 	// A free-form source reaches the planar map only as chords, so a curve with a lobe
 	// between two consecutive samples can cross another curve entirely between them
@@ -400,6 +402,14 @@ type arranger struct {
 	// its own deviation per source — a separate change to densify, not a wider estimate
 	// here.
 	exactAllowed bool
+	// exactVeto records that a source was dropped or the scene overflowed, which
+	// withholds exact bounds scene-wide and which no certificate may lift.
+	exactVeto bool
+	// ledger holds the pair verdicts of a scene with fit splines (see
+	// arrange_pair_ledger.go). ledgerOn is true once buildPairLedger lifted the
+	// source-kind gate on their strength.
+	ledger   map[[2]int]pairEntry
+	ledgerOn bool
 	// fitExactAbove keeps fragments below a certified root-circle crossing
 	// sampled when neighbouring teeth meet inside the root circle.
 	fitExactAbove map[int]float64
@@ -1133,6 +1143,7 @@ func (a *arranger) densify() {
 			// A dropped source withholds exact bounds scene-wide, the same rule
 			// newArranger applies to a source it could not use.
 			a.exactAllowed = false
+			a.exactVeto = true
 			continue
 		}
 		atParam = func(i int) [2]float64 { return pts[i] }
@@ -1170,6 +1181,7 @@ func (a *arranger) densify() {
 	if math.IsInf(a.scale, 1) {
 		a.flagDegenerate(0, 0)
 		a.exactAllowed = false
+		a.exactVeto = true
 	}
 	if !(a.scale > 0) || math.IsInf(a.scale, 1) {
 		a.scale = 1
@@ -1601,6 +1613,7 @@ func (a *arranger) analyticPrepass() {
 		}
 	}
 	a.certifyFitCircleScene()
+	a.buildPairLedger()
 }
 
 // sharedWall reports whether two collinear, overlapping LINE sources i and j are a
@@ -2040,9 +2053,10 @@ func (a *arranger) noteSampledContact(i, j int, x, y float64) {
 // and the reported ranges stay the sampled ones, which is exactly what the same
 // geometry reported before curve/curve crossings could certify at all.
 func (a *arranger) refuseExactOnFusedMap() {
-	if len(a.deferredCross) == 0 {
+	if len(a.deferredCross) == 0 && !a.ledgerOn {
 		return
 	}
+	a.auditPairLedger()
 	uf := newUnionFind(len(a.sources))
 	for k, evs := range a.events {
 		a.budget.step(1)
@@ -2060,6 +2074,21 @@ func (a *arranger) refuseExactOnFusedMap() {
 		uf.union(k[0], k[1])
 	}
 	fused := map[int]struct{}{}
+	// An unproven ledger pair may hide a contact the sampled map does not carry, so
+	// its component is withdrawn exactly like a refused crossing's. The pair joins
+	// the component first, so the two sources land in one.
+	for k, e := range a.ledger {
+		a.budget.step(1)
+		if e.verdict == verdictUnproven {
+			uf.union(k[0], k[1])
+		}
+	}
+	for k, e := range a.ledger {
+		a.budget.step(1)
+		if e.verdict == verdictUnproven {
+			fused[uf.find(k[0])] = struct{}{}
+		}
+	}
 	for k, evs := range a.deferredCross {
 		a.budget.step(1)
 		for _, e := range evs {

@@ -427,7 +427,10 @@ receive exact bounds. The exterior hull proof uses a cut strictly below each
 certified root crossing, so it covers every point of the exposed flank.
 
 Outside that certificate, a scene containing a free-form curve loses exact
-bounds everywhere. Topology, areas and reported ranges are unchanged.
+bounds everywhere, unless the only free-form sources are fit splines and the pair
+ledger proves each spline's relation to every other source
+(`docs/pair-certificate-design.md`). Topology, areas and reported ranges are
+unchanged.
 
 The gallery's embedded gear uses this certificate for 30 or 60 pairs of original
 involute fit splines, their tip arcs and one root circle. An unrelated source

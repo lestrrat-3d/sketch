@@ -735,7 +735,8 @@ func TestFreeFormSourceWithholdsExactBoundsSceneWide(t *testing.T) {
 	// is approximate whatever the topology. So the EXACTNESS gate stays on the SOURCE
 	// KINDS: a scene holding ANY free-form source publishes NO exact bound anywhere in
 	// it, including on the lines, circles and arcs beside it, and however far apart they
-	// sit. This test pins all three halves of that — the hidden crossing, the resolved
+	// sit. A fit spline is the one exception: the pair ledger proves its relation to
+	// every other source (arrange_pair_ledger_test.go). This test pins all three halves of that — the hidden crossing, the resolved
 	// crossing, and the untouching curve — plus the all-analytic control that keeps its
 	// exactness.
 	circles := []geom.ClosedCurve{
@@ -785,8 +786,6 @@ func TestFreeFormSourceWithholdsExactBoundsSceneWide(t *testing.T) {
 			geom.NewPoint(36, 0), geom.NewPoint(38, 4), geom.NewPoint(42, 4), geom.NewPoint(44, 0))}},
 		{name: "closed spline", closed: []geom.ClosedCurve{mustClosedSpline(t,
 			geom.NewPoint(37, -3), geom.NewPoint(43, -3), geom.NewPoint(43, 3), geom.NewPoint(37, 3))}},
-		{name: "fit spline", curves: []geom.Curve{mustFitSpline(t,
-			geom.NewPoint(36, 0), geom.NewPoint(40, 3), geom.NewPoint(44, 0))}},
 		{name: "nurbs", curves: []geom.Curve{geom.NewNURBS(2,
 			[]*geom.Point{geom.NewPoint(37, 0), geom.NewPoint(40, 4), geom.NewPoint(43, 0)},
 			[]float64{0, 0, 0, 1, 1, 1}, []float64{1, 2, 1})}},

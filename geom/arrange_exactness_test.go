@@ -356,10 +356,6 @@ func TestBoundaryEdgeExactInvariantFreeform(t *testing.T) {
 		geom.NewPoint(-4, 0), geom.NewPoint(-2, 4), geom.NewPoint(2, 4), geom.NewPoint(4, 0),
 	)
 	require.NoError(t, err)
-	fit, err := geom.NewFitSpline(
-		geom.NewPoint(-4, 0), geom.NewPoint(0, 3), geom.NewPoint(4, 0),
-	)
-	require.NoError(t, err)
 	nurbs := geom.NewNURBS(2,
 		[]*geom.Point{geom.NewPoint(-3, 0), geom.NewPoint(0, 4), geom.NewPoint(3, 0)},
 		[]float64{0, 0, 0, 1, 1, 1}, []float64{1, 2, 1})
@@ -394,13 +390,6 @@ func TestBoundaryEdgeExactInvariantFreeform(t *testing.T) {
 			name: "whole open spline: no exact bound in a free-form scene",
 			curves: []geom.Curve{
 				spline,
-				geom.NewLine(geom.NewPoint(4, 0), geom.NewPoint(-4, 0)),
-			},
-		},
-		{
-			name: "whole fit spline: no exact bound in a free-form scene",
-			curves: []geom.Curve{
-				fit,
 				geom.NewLine(geom.NewPoint(4, 0), geom.NewPoint(-4, 0)),
 			},
 		},
