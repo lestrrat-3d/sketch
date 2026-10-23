@@ -84,11 +84,14 @@ func defaultFuncs() map[string]Func {
 		if len(a) < 1 {
 			return 0, atLeastOneArgErr("hypot")
 		}
-		var sum float64
-		for _, v := range a {
-			sum += v * v
+		// math.Hypot scales its arguments, so it returns the same bits as Go's
+		// (and Python's math.hypot for two arguments) and does not overflow where
+		// sqrt of a sum of squares does. More than two arguments fold pairwise.
+		acc := math.Abs(a[0])
+		for _, v := range a[1:] {
+			acc = math.Hypot(acc, v)
 		}
-		return math.Sqrt(sum), nil
+		return acc, nil
 	}
 	m["clamp"] = func(a []float64) (float64, error) {
 		if len(a) != 3 {
