@@ -260,3 +260,27 @@ func TestJSONRoundTrip(t *testing.T) {
 	require.InDelta(t, 90, getParam(t, &tb2, "width"), 1e-9, "reloaded width")
 	require.InDelta(t, 7.5, getParam(t, &tb2, "corner_r"), 1e-9, "reloaded corner_r")
 }
+
+// TestHypotMatchesMathHypot pins that hypot returns the bits math.Hypot returns, which a
+// sqrt of a sum of squares does not for every argument pair, and that it survives
+// arguments whose squares overflow.
+func TestHypotMatchesMathHypot(t *testing.T) {
+	tb := param.New()
+	for expr, want := range map[string]float64{
+		"hypot(31, 31)":         math.Hypot(31, 31),
+		"hypot(2 * 7, 2 * 11)":  math.Hypot(14, 22),
+		"hypot(1e200, 1e200)":   math.Hypot(1e200, 1e200),
+		"hypot(1e-200, 1e-200)": math.Hypot(1e-200, 1e-200),
+		"hypot(-5)":             5,
+		"hypot(3, 4, 12)":       math.Hypot(math.Hypot(3, 4), 12),
+	} {
+		got, err := tb.Eval(expr)
+		require.NoErrorf(t, err, "eval %q", expr)
+		require.Equalf(t, want, got, "%s must equal math.Hypot bit for bit", expr)
+	}
+	big, err := tb.Eval("hypot(1e200, 1e200)")
+	require.NoError(t, err)
+	require.False(t, math.IsInf(big, 0), "squares of 1e200 overflow, the result does not")
+	_, err = tb.Eval("hypot()")
+	require.Error(t, err)
+}
