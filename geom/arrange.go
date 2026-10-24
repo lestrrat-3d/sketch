@@ -3155,6 +3155,8 @@ func (a *arranger) splitFragments() []splitFrag {
 	pts := make([][2]float64, 0, nPts)
 	a.verts.xs = slices.Grow(a.verts.xs, nPts)
 	a.verts.ys = slices.Grow(a.verts.ys, nPts)
+	a.verts.nextID = slices.Grow(a.verts.nextID, nPts)
+	a.verts.reserveCells(nPts)
 	for i := range a.segs {
 		for _, b := range bounds[i] {
 			a.budget.step(1)
@@ -5730,11 +5732,89 @@ type vertexTable struct {
 	cell   float64
 	xs     []float64
 	ys     []float64
-	grid   map[[2]int][]int
+
+	// The spatial grid: every grid cell that holds a vertex is one gridCell,
+	// found through an open-addressing table of slots (index+1 into cells, 0
+	// empty). A cell's vertices are a linked list in insertion order — head, then
+	// nextID[id] — which is the order canon visits them in, so a weld picks the
+	// same vertex a per-cell slice of ids would.
+	slots  []int32
+	cells  []gridCell
+	nextID []int
+}
+
+// gridCell is one occupied cell of the vertex grid and the ends of its list.
+type gridCell struct {
+	cx, cy     int
+	head, tail int
 }
 
 func newVertexTable(merge float64) vertexTable {
-	return vertexTable{merge: merge, cell: math.Max(merge, 1e-300), grid: map[[2]int][]int{}}
+	return vertexTable{merge: merge, cell: math.Max(merge, 1e-300)}
+}
+
+func gridHash(cx, cy int) uint64 {
+	h := uint64(cx)*0x9e3779b97f4a7c15 ^ (uint64(cy)+0x7f4a7c15)*0xc2b2ae3d27d4eb4f
+	return h ^ h>>32
+}
+
+// reserveCells sizes the grid for about n more vertices, so building it does not
+// repeatedly regrow and rehash. Welding makes the real count smaller, never
+// larger.
+func (t *vertexTable) reserveCells(n int) {
+	if len(t.slots) > 0 || n <= 0 {
+		return
+	}
+	size := 64
+	for size < 2*n {
+		size *= 2
+	}
+	t.slots = make([]int32, size)
+	t.cells = make([]gridCell, 0, n/2+1)
+}
+
+// cellAt returns the index of the grid cell (cx, cy), or -1 when it holds no
+// vertex.
+func (t *vertexTable) cellAt(cx, cy int) int {
+	if len(t.slots) == 0 {
+		return -1
+	}
+	mask := uint64(len(t.slots) - 1)
+	for h := gridHash(cx, cy) & mask; ; h = (h + 1) & mask {
+		s := t.slots[h]
+		if s == 0 {
+			return -1
+		}
+		if c := &t.cells[s-1]; c.cx == cx && c.cy == cy {
+			return int(s - 1)
+		}
+	}
+}
+
+// cellFor returns the index of the grid cell (cx, cy), creating it empty.
+func (t *vertexTable) cellFor(cx, cy int) int {
+	if ci := t.cellAt(cx, cy); ci >= 0 {
+		return ci
+	}
+	if 2*(len(t.cells)+1) > len(t.slots) {
+		t.slots = make([]int32, max(64, 2*len(t.slots)))
+		mask := uint64(len(t.slots) - 1)
+		for i := range t.cells {
+			h := gridHash(t.cells[i].cx, t.cells[i].cy) & mask
+			for t.slots[h] != 0 {
+				h = (h + 1) & mask
+			}
+			t.slots[h] = int32(i + 1)
+		}
+	}
+	t.cells = append(t.cells, gridCell{cx: cx, cy: cy, head: -1, tail: -1})
+	mask := uint64(len(t.slots) - 1)
+	h := gridHash(cx, cy) & mask
+	for t.slots[h] != 0 {
+		h = (h + 1) & mask
+	}
+	t.slots[h] = int32(len(t.cells))
+	return len(t.cells) - 1
 }
 
 // canon returns the id of the vertex at (x,y), merging with an existing vertex
@@ -5759,7 +5839,11 @@ func (t *vertexTable) canon(x, y float64) int {
 		t.budget.step(1)
 		for dy := -1; dy <= 1; dy++ {
 			t.budget.step(1)
-			for _, id := range t.grid[[2]int{cx + dx, cy + dy}] {
+			ci := t.cellAt(cx+dx, cy+dy)
+			if ci < 0 {
+				continue
+			}
+			for id := t.cells[ci].head; id >= 0; id = t.nextID[id] {
 				t.budget.step(1)
 				if math.Hypot(t.xs[id]-x, t.ys[id]-y) <= t.merge {
 					return id
@@ -5770,7 +5854,18 @@ func (t *vertexTable) canon(x, y float64) int {
 	id := len(t.xs)
 	t.xs = chargedAppend(t.budget, t.xs, x)
 	t.ys = chargedAppend(t.budget, t.ys, y)
-	t.grid[[2]int{cx, cy}] = chargedAppend(t.budget, t.grid[[2]int{cx, cy}], id)
+	t.budget.step(1)
+	for len(t.nextID) < id {
+		t.nextID = append(t.nextID, -1)
+	}
+	t.nextID = append(t.nextID, -1)
+	c := &t.cells[t.cellFor(cx, cy)]
+	if c.head < 0 {
+		c.head = id
+	} else {
+		t.nextID[c.tail] = id
+	}
+	c.tail = id
 	return id
 }
 
