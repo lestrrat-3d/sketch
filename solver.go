@@ -820,10 +820,14 @@ func normalEquationsInto(a [][]float64, g []float64, jt []float64, r []float64, 
 // term.
 func normalEquationsSparseInto(ws *lmWorkspace, m, n int) {
 	jt, r := ws.JT, ws.r
+	nonzeros := 0
 	for i := 0; i < m*n; i++ {
 		if nonFinite(jt[i]) {
 			normalEquationsInto(ws.A, ws.g, jt, r, m, n)
 			return
+		}
+		if jt[i] != 0 {
+			nonzeros++
 		}
 	}
 	for k := 0; k < m; k++ {
@@ -831,6 +835,13 @@ func normalEquationsSparseInto(ws *lmWorkspace, m, n int) {
 			normalEquationsInto(ws.A, ws.g, jt, r, m, n)
 			return
 		}
+	}
+	// Dense columns do not benefit from building row lists and bitmaps. The
+	// finite-value scan above already counts their structural nonzeros, so use
+	// the reference kernel once at least half the matrix is populated.
+	if nonzeros*2 >= m*n {
+		normalEquationsInto(ws.A, ws.g, jt, r, m, n)
+		return
 	}
 
 	// Column i's nonzero rows, read off the contiguous column runs of jt.
