@@ -1099,6 +1099,19 @@ func (a *arranger) densify() {
 		sMinX, sMaxX = math.Min(sMinX, p[0]), math.Max(sMaxX, p[0])
 		sMinY, sMaxY = math.Min(sMinY, p[1]), math.Max(sMaxY, p[1])
 	}
+	// Every usable source's sample parameters are drawn up front, so the segment
+	// lists are sized once for the whole scene instead of growing by append.
+	allParams := make([][]float64, len(a.sources))
+	nSegs := 0
+	for si := range a.sources {
+		if a.sources[si].kind == srcDegenerate {
+			continue
+		}
+		allParams[si] = a.sampleParams(&a.sources[si])
+		nSegs += len(allParams[si]) - 1
+	}
+	a.segs = slices.Grow(a.segs, nSegs)
+	a.segDev = slices.Grow(a.segDev, nSegs)
 	for si := range a.sources {
 		a.budget.step(1)
 		s := &a.sources[si]
@@ -1107,7 +1120,7 @@ func (a *arranger) densify() {
 		}
 		sMinX, sMinY = math.Inf(1), math.Inf(1)
 		sMaxX, sMaxY = math.Inf(-1), math.Inf(-1)
-		params := a.sampleParams(s)
+		params := allParams[si]
 		last := len(params) - 1
 		atParam := func(i int) [2]float64 {
 			// Pin an elliptical arc's ends to its exact boundary points so it
@@ -3036,6 +3049,7 @@ type splitFrag struct {
 // coincident-carrier suppression window covers.
 func (a *arranger) split() {
 	frags := a.splitFragments()
+	a.edges = slices.Grow(a.edges, len(frags))
 	a.certifySuppression(frags)
 	for _, f := range frags {
 		a.budget.step(1)
@@ -3127,10 +3141,21 @@ func (a *arranger) split() {
 // keep it verbatim.
 func (a *arranger) splitFragments() []splitFrag {
 	bounds := make([][]cut, a.budget.preflight(len(a.segs)))
-	var pts [][2]float64
 	for i := range a.segs {
 		a.budget.step(1)
 		bounds[i] = a.segBoundaries(i)
+	}
+	// The totals are known now, so the point and fragment lists are sized once
+	// instead of growing by append (the budget is charged the same either way).
+	nPts, nFrags := 0, 0
+	for _, bs := range bounds {
+		nPts += len(bs)
+		nFrags += max(len(bs)-1, 0)
+	}
+	pts := make([][2]float64, 0, nPts)
+	a.verts.xs = slices.Grow(a.verts.xs, nPts)
+	a.verts.ys = slices.Grow(a.verts.ys, nPts)
+	for i := range a.segs {
 		for _, b := range bounds[i] {
 			a.budget.step(1)
 			pts = chargedAppend(a.budget, pts, [2]float64{b.px, b.py})
@@ -3151,7 +3176,7 @@ func (a *arranger) splitFragments() []splitFrag {
 		a.verts.canon(p[0], p[1])
 	}
 
-	var frags []splitFrag
+	frags := make([]splitFrag, 0, nFrags)
 	for i := range a.segs {
 		a.budget.step(1)
 		uniq := bounds[i]
@@ -3248,10 +3273,9 @@ func canonPointCompare(p, q [2]float64) int {
 func (a *arranger) segBoundaries(i int) []cut {
 	s := &a.segs[i]
 	src := &a.sources[s.src]
-	bs := []cut{
-		{t: 0, px: s.ax, py: s.ay, exact: a.endpointReproduces(src, s.param(0), s.ax, s.ay), srcEnd: atDomainEnd(s.pa)},
-		{t: 1, px: s.bx, py: s.by, exact: a.endpointReproduces(src, s.param(1), s.bx, s.by), srcEnd: atDomainEnd(s.pb)},
-	}
+	bs := make([]cut, 2, 2+len(s.cuts))
+	bs[0] = cut{t: 0, px: s.ax, py: s.ay, exact: a.endpointReproduces(src, s.param(0), s.ax, s.ay), srcEnd: atDomainEnd(s.pa)}
+	bs[1] = cut{t: 1, px: s.bx, py: s.by, exact: a.endpointReproduces(src, s.param(1), s.bx, s.by), srcEnd: atDomainEnd(s.pb)}
 	bs = chargedAppend(a.budget, bs, s.cuts...)
 	// An uncut segment's two boundaries are already t=0 then t=1, in order — the
 	// sort would be a no-op, so skip it. Do not replace sort.Slice with a
@@ -3271,7 +3295,11 @@ func (a *arranger) segBoundaries(i int) []cut {
 	// cut is only as trustworthy as that cut, and a domain end a cut lands on is a
 	// cut — so the merge never launders inexact into exact, nor a cut into a
 	// curve's own end.
-	uniq := make([]cut, 0, a.budget.preflight(len(bs)))
+	//
+	// The survivors are written over the front of bs: the walk never writes past
+	// the element it is reading, so no second list is needed.
+	a.budget.preflight(len(bs))
+	uniq := bs[:0]
 	for _, b := range bs {
 		a.budget.step(1)
 		if len(uniq) == 0 || b.t-uniq[len(uniq)-1].t > segEps {
@@ -4101,25 +4129,47 @@ func (a *arranger) wireGraph() {
 	// source tangent and, for ports sharing a tangent (a tangency), by signed
 	// curvature — this is what stops a shared tangent vertex from branch-swapping.
 	// A vertex with any sampled (ellipse/spline) fragment keeps the chord order.
-	out := map[int][]int{}
+	//
+	// The rings are laid out flat: ring(v) is ringBuf[start[v]:start[v+1]], filled
+	// in half-edge order, which is the order the per-vertex lists were appended in.
+	nv := len(a.verts.xs)
+	start := make([]int, a.budget.preflight(nv+1))
 	for hi := range a.halfs {
 		a.budget.step(1)
-		out[a.halfs[hi].from] = chargedAppend(a.budget, out[a.halfs[hi].from], hi)
+		start[a.halfs[hi].from+1]++
 	}
-	for v := range out {
+	for v := 0; v < nv; v++ {
+		start[v+1] += start[v]
+	}
+	ringBuf := make([]int, a.budget.preflight(len(a.halfs)))
+	fill := slices.Clone(start[:nv])
+	for hi := range a.halfs {
+		a.budget.step(2)
+		from := a.halfs[hi].from
+		ringBuf[fill[from]] = hi
+		fill[from]++
+	}
+	ringOf := func(v int) []int { return ringBuf[start[v]:start[v+1]:start[v+1]] }
+	for v := 0; v < nv; v++ {
+		list := ringOf(v)
+		if len(list) == 0 {
+			continue
+		}
 		a.budget.step(1)
-		list := out[v]
 		if a.useExactPorts(v, list) {
 			a.sortExactPorts(v, list)
 		} else {
 			a.sortChordPorts(list)
 		}
-		out[v] = list
 	}
 	pos := make([]int, a.budget.preflight(len(a.halfs))) // half-edge -> index within its origin's sorted ring
-	for v := range out {
+	for v := 0; v < nv; v++ {
+		list := ringOf(v)
+		if len(list) == 0 {
+			continue
+		}
 		a.budget.step(1)
-		for idx, hi := range out[v] {
+		for idx, hi := range list {
 			a.budget.step(1)
 			pos[hi] = idx
 		}
@@ -4136,7 +4186,7 @@ func (a *arranger) wireGraph() {
 		a.budget.step(1)
 		w := a.halfs[hi].to
 		t := twin(hi)
-		ring := out[w]
+		ring := ringOf(w)
 		k := pos[t]
 		a.halfs[hi].next = ring[(k-1+len(ring))%len(ring)]
 	}
