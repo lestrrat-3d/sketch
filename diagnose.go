@@ -160,6 +160,7 @@ func (s *Sketch) conflictAnalysis() ([]Constraint, []ConflictSet, bool) {
 	if !ok {
 		return nil, nil, false
 	}
+	defer cj.release()
 	flagged, conflicts := s.conflictAnalysisOn(cj, false)
 	return flagged, conflicts, true
 }
@@ -701,6 +702,7 @@ func (s *Sketch) movableVars() (map[int]struct{}, bool) {
 	if !ok {
 		return nil, false
 	}
+	defer cj.release()
 	return s.movableVarsOn(cj), true
 }
 
@@ -726,7 +728,9 @@ func (s *Sketch) movableVarsOn(cj committedJacobian) map[int]struct{} {
 	// scale-invariant. Positive diagonal column scaling preserves which variables a
 	// null direction touches, so the free-point support is unchanged in exact
 	// arithmetic — only the zero threshold becomes scale-invariant.
-	J := cloneMatrix(cj.A)
+	c := cloneMatrixScratch(cj.A)
+	defer c.release()
+	J := c.Rows
 	n := len(free)
 	const eps = rankZeroTol
 	isPivot := make([]bool, n)

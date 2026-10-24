@@ -110,6 +110,14 @@ negative-zero guard to the matrix part only; the right-hand side column is
 updated for every row exactly as the plain update would
 (`TestSolveLinearEliminationRightHandSideSpecials`).
 
+### `Verify`'s matrices are pooled
+
+`Verify`'s shared `committedJacobian` keeps its matrix in a `matrixScratch` that
+the call releases with `cj.release()`, and `rankAnalysisOn`/`movableVarsOn`
+eliminate on a `cloneMatrixScratch` copy. `scaledJacobianFill` overwrites every
+entry of the matrix it is given, so a pooled one needs no clearing. NEVER read a
+pooled matrix after releasing it.
+
 ## `jacobian.go` — the local residual Jacobian
 
 ### Overview

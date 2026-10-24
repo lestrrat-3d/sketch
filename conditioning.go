@@ -2,7 +2,7 @@ package sketch
 
 import (
 	"math"
-	"slices"
+	"sync"
 )
 
 // Scale-invariant conditioning gate.
@@ -448,6 +448,19 @@ type committedJacobian struct {
 	rowKinds []rowKind // residualRowKinds(); length may differ from m only in the
 	// unreachable classification-gap case conditioningOn's NaN path guards
 	A [][]float64 // nil when m == 0 — no rows means nothing to build
+
+	// scratch holds A's storage when buildCommittedJacobian made it; release
+	// hands it back to the pool once the last consumer has read A.
+	scratch *matrixScratch
+}
+
+// release returns A's pooled storage. No consumer may read cj.A afterward.
+func (cj *committedJacobian) release() {
+	if cj.scratch == nil {
+		return
+	}
+	cj.scratch.release()
+	cj.scratch, cj.A = nil, nil
 }
 
 // buildCommittedJacobian builds one [committedJacobian] for the committed
@@ -474,23 +487,62 @@ func (s *Sketch) buildCommittedJacobian() (committedJacobian, bool) {
 	m := len(s.residuals(nil))
 	cj := committedJacobian{free: free, m: m, rowKinds: s.residualRowKinds()}
 	if m > 0 {
-		cj.A = s.committedScaledJacobian(free)
+		L := s.lengthScale()
+		rowKinds := s.residualRowKinds()
+		cj.scratch = newMatrixScratch(len(rowKinds), len(free))
+		cj.A = cj.scratch.Rows
+		s.scaledJacobianFill(cj.A, localJacobian, free, s.residuals, rowKinds, s.condVarScales(L), L)
 	}
 	return cj, true
 }
 
-// cloneMatrix returns a deep copy of A. A consumer whose elimination mutates
-// its matrix in place ([rankAnalysisOfMatrix], [Sketch.movableVars]) clones a
-// shared [committedJacobian]'s A before running, so it does not corrupt what
-// another consumer of the same committedJacobian reads afterward; a consumer
-// that only reads rows ([Sketch.conflictAnalysis], [singularValueExtremes])
-// needs no clone.
-func cloneMatrix(A [][]float64) [][]float64 {
-	out := make([][]float64, len(A))
-	for i, row := range A {
-		out[i] = slices.Clone(row)
+// matrixScratch is a pooled deep copy of a matrix for a consumer that mutates it
+// and discards it within one call.
+//
+// A consumer whose elimination mutates its matrix in place
+// ([rankAnalysisOfMatrix], [Sketch.movableVars]) clones a shared
+// [committedJacobian]'s A before running, so it does not corrupt what another
+// consumer of the same committedJacobian reads afterward; a consumer that only
+// reads rows ([Sketch.conflictAnalysis], [singularValueExtremes]) needs no clone.
+//
+// Rows is a private row table over one slab, so the consumer may swap rows
+// freely; it must not retain Rows past release.
+type matrixScratch struct {
+	Rows [][]float64
+	slab []float64
+}
+
+var matrixScratchPool sync.Pool
+
+// cloneMatrixScratch deep-copies A into pooled storage; pair it with release.
+func cloneMatrixScratch(A [][]float64) *matrixScratch {
+	width := 0
+	if len(A) > 0 {
+		width = len(A[0])
 	}
-	return out
+	c := newMatrixScratch(len(A), width)
+	for i, row := range A {
+		copy(c.Rows[i], row)
+	}
+	return c
+}
+
+// newMatrixScratch returns pooled storage for a rows×cols matrix with unspecified
+// contents; pair it with release.
+func newMatrixScratch(rows, cols int) *matrixScratch {
+	c, _ := matrixScratchPool.Get().(*matrixScratch)
+	if c == nil {
+		c = &matrixScratch{}
+	}
+	c.slab = growF64(c.slab, rows*cols)
+	c.Rows = rowViews(c.Rows, c.slab, rows, cols)
+	return c
+}
+
+// release returns the scratch to the pool.
+func (c *matrixScratch) release() {
+	clear(c.Rows)
+	matrixScratchPool.Put(c)
 }
 
 // committedScaledJacobian builds the nondimensional A = Drow·J·Dcol over the
@@ -527,6 +579,20 @@ func (s *Sketch) scaledJacobian(free []int, eval func([]float64) []float64, rowK
 // wherever that equality is not provable.
 func (s *Sketch) scaledJacobianMode(mode jacobianMode, free []int, eval func([]float64) []float64, rowKinds []rowKind, colScale []float64, L float64, extraPos ...[2]int) [][]float64 {
 	m := len(rowKinds)
+	A := make([][]float64, m)
+	slab := make([]float64, m*len(free))
+	for i := range A {
+		A[i] = slab[i*len(free) : (i+1)*len(free) : (i+1)*len(free)]
+	}
+	s.scaledJacobianFill(A, mode, free, eval, rowKinds, colScale, L, extraPos...)
+	return A
+}
+
+// scaledJacobianFill is [Sketch.scaledJacobianMode] into a caller-supplied
+// len(rowKinds)×len(free) matrix A, every entry of which it overwrites, so A may
+// hold anything on entry.
+func (s *Sketch) scaledJacobianFill(A [][]float64, mode jacobianMode, free []int, eval func([]float64) []float64, rowKinds []rowKind, colScale []float64, L float64, extraPos ...[2]int) {
+	m := len(rowKinds)
 	rowScale := make([]float64, m)
 	for i, k := range rowKinds {
 		if k == rowLength {
@@ -554,12 +620,8 @@ func (s *Sketch) scaledJacobianMode(mode jacobianMode, free []int, eval func([]f
 		}
 	}()
 
-	A := make([][]float64, m)
-	for i := range A {
-		A[i] = make([]float64, len(free))
-	}
 	if mode == localJacobian && len(extraPos) == 0 && s.scaledJacobianLocal(A, free, eval, rowScale, colScale) {
-		return A
+		return
 	}
 	rp := make([]float64, 0, m)
 	rm := make([]float64, 0, m)
@@ -577,7 +639,6 @@ func (s *Sketch) scaledJacobianMode(mode jacobianMode, free []int, eval func([]f
 			A[i][j] = rowScale[i] * (rp[i] - rm[i]) * inv * cs
 		}
 	}
-	return A
 }
 
 // conditioningOn returns the scale-invariant reciprocal condition number

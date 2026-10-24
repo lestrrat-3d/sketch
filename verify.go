@@ -774,6 +774,7 @@ func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *Verificat
 	if !ok {
 		return rep
 	}
+	defer cj.release()
 
 	// The conditioning measure is meaningful only for a DOF-0 candidate: an
 	// under-constrained sketch is genuinely singular by its free DOF (a separate
