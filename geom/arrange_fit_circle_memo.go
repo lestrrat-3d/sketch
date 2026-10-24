@@ -3,6 +3,7 @@ package geom
 import (
 	"encoding/binary"
 	"math"
+	"math/big"
 	"sync"
 )
 
@@ -102,6 +103,8 @@ var (
 	fitCutMemo      fitMemo[bool]
 	fitHullsMemo    fitMemo[[]exactFitHull]
 	fitSideMemo     fitMemo[int]
+	fitBoundsMemo   fitMemo[fitBoundsResult]
+	fitEndCutMemo   fitMemo[fitEndCut]
 	fitSeparateMemo fitMemo[bool]
 )
 
@@ -142,6 +145,44 @@ func fitHullsAfterKey(key string, cut float64) string {
 func memoFitHulls(key string, pieces []exactFitPiece) []exactFitHull {
 	k := fitHullsKey(key)
 	return fitHullsMemo.get(k, func() []exactFitHull { return exactFitHulls(pieces) })
+}
+
+type fitBoundsResult struct {
+	bounds exactFitBounds
+	fbox   floatBox
+}
+
+// memoFitHullBounds is [exactFitHullBounds] and its outward float box for the
+// hulls [memoFitHulls] built under key.
+func memoFitHullBounds(key string, hulls []exactFitHull) (exactFitBounds, floatBox) {
+	r := fitBoundsMemo.get(fitHullsKey(key)+"B", func() fitBoundsResult {
+		b := exactFitHullBounds(hulls)
+		return fitBoundsResult{b, outwardBox(b)}
+	})
+	return r.bounds, r.fbox
+}
+
+type fitEndCut struct {
+	far  []exactFitHull
+	cuts [2]*exactFitHull
+}
+
+// memoFitCutEnds is [cutEnds] at u0 = 2^-k for the hulls [memoFitHulls] built
+// under key. The pieces it returns are shared and read-only.
+func memoFitCutEnds(key string, hulls []exactFitHull, cut [2]bool, k int, u0 *big.Rat) ([]exactFitHull, [2]*exactFitHull) {
+	mk := (&fitKey{}).tag('E').s(key).n(k)
+	for _, c := range cut {
+		if c {
+			mk.n(1)
+		} else {
+			mk.n(0)
+		}
+	}
+	r := fitEndCutMemo.get(mk.String(), func() fitEndCut {
+		far, cuts := cutEnds(hulls, cut, u0)
+		return fitEndCut{far, cuts}
+	})
+	return r.far, r.cuts
 }
 
 // memoFitHullsAfter is [exactFitHullsAfter] for the pieces named by key.
