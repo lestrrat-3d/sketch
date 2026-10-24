@@ -3040,7 +3040,7 @@ func collinearOverlap(s, t *tinySeg) (float64, float64, bool) {
 // certification reasons about, is exactly what it would be with no suppression at all.
 type splitFrag struct {
 	seg    int
-	b0, b1 cut
+	b0, b1 *cut // the segment's boundary list entries, which outlive the fragments
 	u, v   int
 }
 
@@ -3099,10 +3099,10 @@ func (a *arranger) split() {
 			pu: s.param(f.b0.t), pv: s.param(f.b1.t),
 			exactU: exactU, exactV: exactV,
 			endU: f.b0.srcEnd, endV: f.b1.srcEnd,
-			crossU:  crossingAtVertex(f.b0, exactU, &a.verts, f.u),
-			crossV:  crossingAtVertex(f.b1, exactV, &a.verts, f.v),
-			circleU: circleCrossingAtVertex(f.b0, exactU, &a.verts, f.u),
-			circleV: circleCrossingAtVertex(f.b1, exactV, &a.verts, f.v)})
+			crossU:  crossingAtVertex(*f.b0, exactU, &a.verts, f.u),
+			crossV:  crossingAtVertex(*f.b1, exactV, &a.verts, f.v),
+			circleU: circleCrossingAtVertex(*f.b0, exactU, &a.verts, f.u),
+			circleV: circleCrossingAtVertex(*f.b1, exactV, &a.verts, f.v)})
 	}
 }
 
@@ -3141,9 +3141,18 @@ func (a *arranger) split() {
 // keep it verbatim.
 func (a *arranger) splitFragments() []splitFrag {
 	bounds := make([][]cut, a.budget.preflight(len(a.segs)))
+	// One slab holds every segment's boundary list: each needs its two endpoints
+	// plus its cuts at most.
+	slabLen := 0
+	for i := range a.segs {
+		slabLen += 2 + len(a.segs[i].cuts)
+	}
+	slab := make([]cut, a.budget.preflight(slabLen))
 	for i := range a.segs {
 		a.budget.step(1)
-		bounds[i] = a.segBoundaries(i)
+		n := 2 + len(a.segs[i].cuts)
+		bounds[i] = a.segBoundaries(i, slab[:n:n])
+		slab = slab[n:]
 	}
 	// The totals are known now, so the point and fragment lists are sized once
 	// instead of growing by append (the budget is charged the same either way).
@@ -3190,7 +3199,7 @@ func (a *arranger) splitFragments() []splitFrag {
 			if u == v {
 				continue // collapsed to a point
 			}
-			frags = chargedAppend(a.budget, frags, splitFrag{seg: i, b0: b0, b1: b1, u: u, v: v})
+			frags = chargedAppend(a.budget, frags, splitFrag{seg: i, b0: &uniq[k-1], b1: &uniq[k], u: u, v: v})
 		}
 	}
 	return frags
@@ -3272,10 +3281,10 @@ func canonPointCompare(p, q [2]float64) int {
 // The answer depends only on segment i, so splitFragments computes it once and both
 // walks it: the canonicalization pre-pass needs every boundary POINT before any
 // fragment is built, and the fragment loop needs the same boundaries again.
-func (a *arranger) segBoundaries(i int) []cut {
+func (a *arranger) segBoundaries(i int, bs []cut) []cut {
 	s := &a.segs[i]
 	src := &a.sources[s.src]
-	bs := make([]cut, 2, 2+len(s.cuts))
+	bs = bs[:2]
 	bs[0] = cut{t: 0, px: s.ax, py: s.ay, exact: a.endpointReproduces(src, s.param(0), s.ax, s.ay), srcEnd: atDomainEnd(s.pa)}
 	bs[1] = cut{t: 1, px: s.bx, py: s.by, exact: a.endpointReproduces(src, s.param(1), s.bx, s.by), srcEnd: atDomainEnd(s.pb)}
 	bs = chargedAppend(a.budget, bs, s.cuts...)
@@ -4606,7 +4615,7 @@ type cycle struct {
 	// walks it backward — so two cycles sharing a rawEdges member are the SAME
 	// physical edge seen from its two sides: directly adjacent, never a face
 	// nested inside the other. See cyclesShareEdge, which this field exists for.
-	rawEdges map[int]struct{}
+	rawEdges []int // ascending, without duplicates
 }
 
 // cycleAreaFloor measures the sliver threshold from this boundary's sampled
@@ -4648,9 +4657,9 @@ func cyclesShareEdge(a, b *cycle, budget *arrangeBudget) bool {
 	if len(big) < len(small) {
 		small, big = big, small
 	}
-	for e := range small {
+	for _, e := range small {
 		budget.step(1)
-		if _, ok := big[e]; ok {
+		if _, ok := slices.BinarySearch(big, e); ok {
 			return true
 		}
 	}
@@ -4759,13 +4768,13 @@ type cycFrag struct {
 // polygon, and computes the exact signed area.
 func (a *arranger) makeCycle(hs []int) cycle {
 	var c cycle
-	c.rawEdges = make(map[int]struct{}, a.budget.preflight(len(hs)))
+	c.rawEdges = make([]int, 0, a.budget.preflight(len(hs)))
 	// Coalesce consecutive half-edges that share a source into one BoundaryEdge.
 	var frags []boundaryFrag
 	for _, hi := range hs {
 		a.budget.step(1)
 		h := a.halfs[hi]
-		c.rawEdges[h.edge] = struct{}{}
+		c.rawEdges = append(c.rawEdges, h.edge)
 		e := a.edges[h.edge]
 		var pStart, pEnd float64
 		var exStart, exEnd bool
@@ -4924,6 +4933,8 @@ func (a *arranger) makeCycle(hs []int) cycle {
 			c.area = trueArea
 		}
 	}
+	slices.Sort(c.rawEdges)
+	c.rawEdges = slices.Compact(c.rawEdges)
 	return c
 }
 
