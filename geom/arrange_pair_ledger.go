@@ -76,6 +76,7 @@ type ledgerFit struct {
 	bounds exactFitBounds
 	fbox   floatBox
 	p0, p1 [2]float64
+	key    string // fitInterpolantKey of the interpolant the hulls came from
 }
 
 // ledgerTarget is the exact form of the other source of a pair.
@@ -177,13 +178,14 @@ func (l *pairLedger) fit(i int) *ledgerFit {
 	if fi == nil {
 		return nil
 	}
-	pieces, ok := memoFitPieces(fitInterpolantKey(fi), fi)
+	key := fitInterpolantKey(fi)
+	pieces, ok := memoFitPieces(key, fi)
 	if !ok || len(pieces) == 0 {
 		return nil
 	}
-	hulls := memoFitHulls(fitInterpolantKey(fi), pieces)
-	f := &ledgerFit{pieces: pieces, hulls: hulls, bounds: exactFitHullBounds(hulls), p0: src.at(0), p1: src.at(1)}
-	f.fbox = outwardBox(f.bounds)
+	hulls := memoFitHulls(key, pieces)
+	bounds, fbox := memoFitHullBounds(key, hulls)
+	f := &ledgerFit{pieces: pieces, hulls: hulls, bounds: bounds, fbox: fbox, p0: src.at(0), p1: src.at(1), key: key}
 	if f.bounds.min[0] == nil || !finitePt(f.p0) || !finitePt(f.p1) {
 		return nil
 	}
@@ -492,15 +494,15 @@ func (l *pairLedger) endpointOnly(f *ledgerFit, t *ledgerTarget, ends []sharedEn
 			return pairEntry{reason: reasonBudget}
 		}
 		u0 := new(big.Rat).SetFrac(big.NewInt(1), new(big.Int).Lsh(big.NewInt(1), uint(k)))
-		farA, cutsA := cutEnds(f.hulls, cutA, u0)
-		if !l.localOK(cutsA, cutA, t, cutB, u0, ends) {
+		farA, cutsA := memoFitCutEnds(f.key, f.hulls, cutA, k, u0)
+		if !l.localOK(cutsA, cutA, t, cutB, k, u0, ends) {
 			continue
 		}
 		if s := l.avoidsAll(farA, t, m); s != sepOK {
 			return unprovenFrom(s)
 		}
 		if t.fit != nil {
-			farB, _ := cutEnds(t.fit.hulls, cutB, u0)
+			farB, _ := memoFitCutEnds(t.fit.key, t.fit.hulls, cutB, k, u0)
 			aTarget := &ledgerTarget{kind: srcFitSpline, fit: f, bounds: f.bounds, fbox: f.fbox}
 			if s := l.avoidsAll(farB, aTarget, m); s != sepOK {
 				return unprovenFrom(s)
@@ -520,9 +522,9 @@ func unprovenFrom(s sepStatus) pairEntry {
 
 // localOK proves the near-end part of the pair for the cut u0.
 func (l *pairLedger) localOK(cutsA [2]*exactFitHull, cutA [2]bool, t *ledgerTarget, cutB [2]bool,
-	u0 *big.Rat, ends []sharedEnd) bool {
+	k int, u0 *big.Rat, ends []sharedEnd) bool {
 	if t.fit != nil {
-		_, cutsB := cutEnds(t.fit.hulls, cutB, u0)
+		_, cutsB := memoFitCutEnds(t.fit.key, t.fit.hulls, cutB, k, u0)
 		for _, e := range ends {
 			ca, cb := cutsA[e.aEnd], cutsB[e.bEnd]
 			if ca == nil || cb == nil || !conesApart(ca, e.aEnd, cb, e.bEnd) {
