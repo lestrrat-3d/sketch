@@ -92,11 +92,7 @@ func spanDeviation(s *source, p0, p1, ax, ay, bx, by float64) (float64, bool) {
 		}
 		return hullDeviation(hull, ax, ay, bx, by), true
 	case srcFitSpline:
-		hull, ok := fitSplineSpanHull(s.fitEval, p0, p1)
-		if !ok {
-			return 0, false
-		}
-		return hullDeviation(hull, ax, ay, bx, by), true
+		return fitSplineSpanDeviation(s.fitEval, p0, p1, ax, ay, bx, by)
 	}
 	return 0, false
 }
@@ -229,33 +225,34 @@ func closedSplineSpanHull(ctrl [][2]float64, p0, p1 float64) ([][2]float64, bool
 	return out, true
 }
 
-// fitSplineSpanHull returns control points whose convex hull contains the
-// natural-cubic interpolant over the normalized chord range [s0,s1].
+// fitSplineSpanDeviation returns the largest control-point distance from the
+// chord over all natural-cubic pieces intersecting the normalized span [s0,s1].
 //
 // Each natural-cubic piece is a cubic polynomial, converted to Bézier form from
 // its endpoint values and tangents (the Hermite-to-Bézier identity B1 = B0 + h·d0/3,
 // B2 = B3 − h·d1/3), so the sub-span again falls out of de Casteljau.
-func fitSplineSpanHull(e *fitEvaluator, s0, s1 float64) ([][2]float64, bool) {
+func fitSplineSpanDeviation(e *fitEvaluator, s0, s1, ax, ay, bx, by float64) (float64, bool) {
 	if e == nil {
-		return nil, false
+		return 0, false
 	}
 	k := len(e.x)
 	if k == 0 {
-		return nil, false
+		return 0, false
 	}
 	if k == 1 {
-		return [][2]float64{{e.x[0], e.y[0]}}, true
+		return distPointSeg(e.x[0], e.y[0], ax, ay, bx, by), true
 	}
 	total := e.t[k-1]
 	if !(total > 0) {
-		return [][2]float64{{e.x[0], e.y[0]}}, true
+		return distPointSeg(e.x[0], e.y[0], ax, ay, bx, by), true
 	}
 	p0, p1 := s0*total, s1*total
 	if p1 < p0 {
 		p0, p1 = p1, p0
 	}
-	var out [][2]float64
 	var sa, sb [maxSubSpanDegree][3]float64
+	worst := 0.0
+	found := false
 	for i := 0; i < k-1; i++ {
 		lo, hi := e.t[i], e.t[i+1]
 		h := hi - lo
@@ -277,12 +274,17 @@ func fitSplineSpanHull(e *fitEvaluator, s0, s1 float64) ([][2]float64, bool) {
 		if hv < lv {
 			continue
 		}
-		out = appendProjectHom(out, bezierSubSpanScratch(cp, lv, hv, &sa, &sb))
+		for _, c := range bezierSubSpanScratch(cp, lv, hv, &sa, &sb) {
+			if c[2] == 0 {
+				continue
+			}
+			found = true
+			if d := distPointSeg(c[0]/c[2], c[1]/c[2], ax, ay, bx, by); d > worst {
+				worst = d
+			}
+		}
 	}
-	if len(out) == 0 {
-		return nil, false
-	}
-	return out, true
+	return worst, found
 }
 
 // bsplineSpanHull returns control points whose convex hull contains a clamped
