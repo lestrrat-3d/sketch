@@ -785,8 +785,7 @@ func TestEliminateIntoMatchesSolveLinearInto(t *testing.T) {
 				noNegZero = false
 			}
 		}
-		var nz []int
-		gotOK := eliminateInto(gotM, n, noNegZero, gotX, &nz)
+		gotOK := eliminateInto(gotM, n, noNegZero, gotX, nil)
 
 		require.Equal(t, wantOK, gotOK, "n=%d success", n)
 		for i := 0; i < n; i++ {

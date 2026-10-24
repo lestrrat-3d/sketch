@@ -403,6 +403,9 @@ func (ws *lmWorkspace) alloc(m, n int) {
 	ws.rp = growF64(ws.rp, m)[:0]
 	ws.rm = growF64(ws.rm, m)[:0]
 	ws.rNew = growF64(ws.rNew, m)[:0]
+	if cap(ws.nz) < n+1 {
+		ws.nz = make([]int, 0, n+1)
+	}
 	// A Jacobian is sparse, so the pattern starts small and grows by append; the
 	// grown buffer is kept for the next rebuild.
 	if cap(ws.colRows) < 4*m {
@@ -525,7 +528,7 @@ func (s *Sketch) lm(ctx context.Context, free []int, eval func([]float64) []floa
 					noNegZero = false
 				}
 			}
-			if !eliminateInto(ws.M, n, noNegZero, ws.delta, &ws.nz) {
+			if !eliminateInto(ws.M, n, noNegZero, ws.delta, ws.nz) {
 				lambda *= 10
 				continue
 			}
@@ -1199,19 +1202,12 @@ func solveLinearInto(M [][]float64, A [][]float64, b, x []float64) bool {
 			noNegZero = false
 		}
 	}
-	nzp, _ := nzPool.Get().(*[]int)
-	if nzp == nil {
-		nzp = new([]int)
-	}
-	ok := eliminateInto(M, n, noNegZero, x, nzp)
-	nzPool.Put(nzp)
-	return ok
+	// The nonzero-column scratch lives on the stack for the sizes a sketch
+	// meets, so the kernel allocates nothing on a caller-supplied M. A larger
+	// system gets it from the heap inside eliminateInto.
+	var stack [256]int
+	return eliminateInto(M, n, noNegZero, x, stack[:0])
 }
-
-// nzPool holds the nonzero-column scratch [solveLinearInto] hands to
-// [eliminateInto], so a caller-supplied M still means a kernel that allocates
-// nothing in steady state.
-var nzPool sync.Pool
 
 // hasNegZero reports whether any entry of row is negative zero.
 func hasNegZero(row []float64) bool {
@@ -1229,9 +1225,11 @@ func hasNegZero(row []float64) bool {
 // [solveLinearInto]). A caller that builds M itself ([Sketch.lm]) saves the
 // intermediate copy; it must report noNegZero exactly as the copy-in pass of
 // solveLinearInto would.
-func eliminateInto(M [][]float64, n int, noNegZero bool, x []float64, nzBuf *[]int) bool {
-	nz := slices.Grow((*nzBuf)[:0], n+1)
-	*nzBuf = nz
+func eliminateInto(M [][]float64, n int, noNegZero bool, x []float64, nz []int) bool {
+	if cap(nz) < n+1 {
+		nz = make([]int, 0, n+1)
+	}
+	nz = nz[:0]
 	for col := 0; col < n; col++ {
 		piv := col
 		best := math.Abs(M[col][col])
