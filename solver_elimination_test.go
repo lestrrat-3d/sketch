@@ -733,3 +733,65 @@ func BenchmarkSolveLinearElimination(b *testing.B) {
 		})
 	}
 }
+
+// TestSolveLinearEliminationRightHandSideSpecials pins the right-hand side
+// column on its own. The zero-multiplier shortcut keeps its negative-zero and
+// finiteness guards on the matrix part only and updates the right-hand side of
+// every row exactly, so a negative zero, an infinity or a NaN there must come
+// out of the elimination bit for bit as the reference produces it.
+func TestSolveLinearEliminationRightHandSideSpecials(t *testing.T) {
+	negZero := math.Copysign(0, -1)
+	specials := []struct {
+		name string
+		v    float64
+	}{
+		{"negative zero", negZero},
+		{"positive zero", 0},
+		{"+Inf", math.Inf(1)},
+		{"-Inf", math.Inf(-1)},
+		{"NaN", math.NaN()},
+	}
+	for _, sp := range specials {
+		for _, n := range []int{8, 24, 48} {
+			a, b := dampedNormalEquations(n*2, n, 3, uint64(n))
+			for i := 0; i < n; i += 3 {
+				b[i] = sp.v
+			}
+			requireEliminationMatchesReference(t, eliminationSystem{
+				name: fmt.Sprintf("%s rhs n=%d", sp.name, n), a: a, b: b,
+			})
+		}
+	}
+}
+
+// TestEliminateIntoMatchesSolveLinearInto pins the entry point Sketch.lm uses:
+// a matrix filled by the caller, with the negative-zero verdict taken over its
+// matrix part, must eliminate exactly as solveLinearInto's own copy-in does.
+func TestEliminateIntoMatchesSolveLinearInto(t *testing.T) {
+	for _, n := range []int{6, 32, 64} {
+		a, b := dampedNormalEquations(n*2, n, 4, uint64(n)+7)
+		for i := 0; i < n; i += 4 {
+			b[i] = math.Copysign(0, -1)
+		}
+		wantM, wantX := newEliminationScratch(n), sentinelVector(n)
+		wantOK := solveLinearInto(wantM, a, b, wantX)
+
+		gotM, gotX := newEliminationScratch(n), sentinelVector(n)
+		noNegZero := true
+		for i := 0; i < n; i++ {
+			copy(gotM[i], a[i])
+			gotM[i][n] = b[i]
+			if noNegZero && hasNegZero(gotM[i][:n]) {
+				noNegZero = false
+			}
+		}
+		var nz []int
+		gotOK := eliminateInto(gotM, n, noNegZero, gotX, &nz)
+
+		require.Equal(t, wantOK, gotOK, "n=%d success", n)
+		for i := 0; i < n; i++ {
+			requireSameBitsf(t, wantX[i], gotX[i], "n=%d x[%d]", n, i)
+		}
+		requireSameMatrixBits(t, fmt.Sprintf("n=%d", n), wantM, gotM, n)
+	}
+}
