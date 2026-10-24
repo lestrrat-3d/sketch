@@ -1,6 +1,9 @@
 package geom
 
-import "math"
+import (
+	"math"
+	"slices"
+)
 
 // Chord-deviation bounds and the near-miss degeneracy guard.
 //
@@ -304,7 +307,8 @@ func bsplineSpanHull(degree int, ctrl [][2]float64, weights, knots []float64, u0
 	}
 	u0 = math.Max(u0, lo)
 	u1 = math.Min(u1, hi)
-	pw := make([][3]float64, len(ctrl))
+	// Room for the up-to-2p knot insertions below, which refine in place.
+	pw := make([][3]float64, len(ctrl), len(ctrl)+2*p+2)
 	for i, c := range ctrl {
 		w := 1.0
 		if i < len(weights) {
@@ -315,7 +319,7 @@ func bsplineSpanHull(degree int, ctrl [][2]float64, weights, knots []float64, u0
 		}
 		pw[i] = [3]float64{w * c[0], w * c[1], w}
 	}
-	u := append([]float64(nil), knots...)
+	u := append(make([]float64, 0, len(knots)+2*p+2), knots...)
 	for _, x := range [2]float64{u0, u1} {
 		if x <= lo || x >= hi {
 			continue // a clamped end already carries multiplicity p+1
@@ -382,29 +386,27 @@ func insertKnotHom(p int, u []float64, pw [][3]float64, x float64) ([]float64, [
 	for i := k; i >= 0 && u[i] == x; i-- {
 		s++
 	}
-	q := make([][3]float64, n+2)
-	for i := 0; i <= k-p; i++ {
-		q[i] = pw[i]
+	// Refine in place. Entries 0..k-p are unchanged. The tail moves up one slot
+	// first (it reads the old pw[k-s..n]), then the new control points k-p+1..k-s
+	// are computed downward, each from the old pw[i] and pw[i-1], neither of which
+	// has been overwritten when it is read.
+	pw = append(pw, [3]float64{})
+	if k-s+1 <= n+1 {
+		copy(pw[k-s+1:n+2], pw[k-s:n+1])
 	}
-	for i := k - s + 1; i <= n+1; i++ {
-		q[i] = pw[i-1]
-	}
-	for i := k - p + 1; i <= k-s; i++ {
+	for i := k - s; i >= k-p+1; i-- {
 		alpha := 0.0
 		if den := u[i+p] - u[i]; den > 0 {
 			alpha = (x - u[i]) / den
 		}
-		q[i] = [3]float64{
+		pw[i] = [3]float64{
 			alpha*pw[i][0] + (1-alpha)*pw[i-1][0],
 			alpha*pw[i][1] + (1-alpha)*pw[i-1][1],
 			alpha*pw[i][2] + (1-alpha)*pw[i-1][2],
 		}
 	}
-	nu := make([]float64, 0, len(u)+1)
-	nu = append(nu, u[:k+1]...)
-	nu = append(nu, x)
-	nu = append(nu, u[k+1:]...)
-	return nu, q
+	u = slices.Insert(u, k+1, x)
+	return u, pw
 }
 
 // bezierSubSpan returns the homogeneous control points of the Bézier restricted
@@ -421,28 +423,37 @@ func bezierSubSpan(cp [][3]float64, v0, v1 float64) [][3]float64 {
 		// Returning the piece's own polygon here is what once let a sample span
 		// ending exactly on a knot pull in the neighbouring piece's full hull,
 		// inflating that segment's bound by three orders of magnitude.
-		_, right := deCasteljauSplit(cp, v0)
-		return right[:1]
+		return deCasteljauHalf(cp, v0, false)[:1]
 	}
 	if v0 > 0 {
-		_, cp = deCasteljauSplit(cp, v0)
+		cp = deCasteljauHalf(cp, v0, false)
 		v1 = (v1 - v0) / (1 - v0)
 	}
 	if v1 < 1 {
-		cp, _ = deCasteljauSplit(cp, v1)
+		cp = deCasteljauHalf(cp, v1, true)
 	}
 	return cp
 }
 
-// deCasteljauSplit subdivides a Bézier (homogeneous control points) at parameter
-// t, returning the control points of the left and right pieces.
-func deCasteljauSplit(cp [][3]float64, t float64) ([][3]float64, [][3]float64) {
+// deCasteljauHalf subdivides a Bézier (homogeneous control points) at parameter
+// t and returns the control points of one piece: the left one (the curve on
+// [0,t]) when left is true, the right one (on [t,1]) otherwise. Both callers
+// keep exactly one piece, so only that one is built; the arithmetic is the
+// plain de Casteljau recurrence.
+func deCasteljauHalf(cp [][3]float64, t float64, left bool) [][3]float64 {
 	n := len(cp)
-	tmp := append([][3]float64(nil), cp...)
-	left := make([][3]float64, n)
-	right := make([][3]float64, n)
-	left[0] = tmp[0]
-	right[n-1] = tmp[n-1]
+	var buf [8][3]float64
+	tmp := buf[:0]
+	if n > len(buf) {
+		tmp = make([][3]float64, 0, n)
+	}
+	tmp = append(tmp, cp...)
+	out := make([][3]float64, n)
+	if left {
+		out[0] = tmp[0]
+	} else {
+		out[n-1] = tmp[n-1]
+	}
 	for k := 1; k < n; k++ {
 		for i := 0; i < n-k; i++ {
 			tmp[i] = [3]float64{
@@ -451,10 +462,13 @@ func deCasteljauSplit(cp [][3]float64, t float64) ([][3]float64, [][3]float64) {
 				tmp[i][2] + t*(tmp[i+1][2]-tmp[i][2]),
 			}
 		}
-		left[k] = tmp[0]
-		right[n-1-k] = tmp[n-1-k]
+		if left {
+			out[k] = tmp[0]
+		} else {
+			out[n-1-k] = tmp[n-1-k]
+		}
 	}
-	return left, right
+	return out
 }
 
 // projectHom divides homogeneous control points through by their weight.
