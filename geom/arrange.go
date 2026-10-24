@@ -3483,6 +3483,7 @@ type halfEdge struct {
 	tx, ty   float64 // exact source-tangent departure direction (when exact)
 	kappa    float64 // exact signed curvature in the departure direction (when exact)
 	exact    bool    // tx/ty/kappa are valid (a line/circle/arc fragment)
+	prepared bool    // exact tangent data has been requested for this port
 	next     int     // index into arranger.halfs
 	visited  bool
 }
@@ -3503,6 +3504,41 @@ func (a *arranger) portKey(src int, t, dir float64) (float64, float64, float64, 
 	}
 	kappa := dir * (d1[0]*d2[1] - d1[1]*d2[0]) / (n1 * n1 * n1)
 	return dir * d1[0], dir * d1[1], kappa, true
+}
+
+// preparePort fills one half-edge's exact tangent key when exact ordering needs
+// it. Most vertices keep their chord order, so their source differential is not
+// evaluated.
+func (a *arranger) preparePort(hi int) bool {
+	h := &a.halfs[hi]
+	if h.prepared {
+		return h.exact
+	}
+	h.prepared = true
+	e := a.edges[h.edge]
+	if a.sources[e.src].kind == srcLine {
+		fromX, fromY := a.verts.coord(h.from)
+		toX, toY := a.verts.coord(h.to)
+		h.tx, h.ty = toX-fromX, toY-fromY
+		h.exact = h.tx != 0 || h.ty != 0
+		return h.exact
+	}
+	t, dir := e.pu, 1.0
+	if !h.forward {
+		t, dir = e.pv, -1
+	}
+	tx, ty, kappa, ok := a.portKey(e.src, t, dir)
+	if !ok {
+		return false
+	}
+	vx, vy := a.verts.coord(h.from)
+	if !a.certifiedPortVertex(vx, vy) {
+		if dx, dy, ok := a.curvedPortDir(e, vx, vy); ok {
+			tx, ty = dx, dy
+		}
+	}
+	h.tx, h.ty, h.kappa, h.exact = tx, ty, kappa, true
+	return true
 }
 
 const (
@@ -3593,9 +3629,10 @@ func (a *arranger) sortExactPorts(v int, ring []int) {
 	copy(ring, sorted)
 }
 
-// useExactPorts reports whether vertex v should be ordered by exact tangent ports
-// rather than chord direction. Every incident half-edge must be an exact
-// line/circle/arc fragment, and one of two things must hold:
+// prepareExactPorts reports whether vertex v should be ordered by exact tangent
+// ports rather than chord direction, and prepares those tangent keys when needed.
+// Every incident half-edge must be an exact line/circle/arc fragment, and one of
+// two things must hold:
 //
 //   - the vertex is a certified analytic tangency contact (exactPortVerts), where
 //     the chord directions tie because the contact is a double root; or
@@ -3620,10 +3657,12 @@ func (a *arranger) sortExactPorts(v int, ring []int) {
 // fragment, whose chord lags its own tangent, can. Everywhere else — sampled
 // crossings, polygon corners, ellipse/spline vertices — chord ordering matches the
 // polyline geometry the face walk traverses, so exact tangents must NOT be used.
-func (a *arranger) useExactPorts(v int, ring []int) bool {
+func (a *arranger) prepareExactPorts(v int, ring []int) bool {
 	for _, hi := range ring {
 		a.budget.step(1)
-		if !a.halfs[hi].exact {
+		switch a.sources[a.edges[a.halfs[hi].edge].src].kind {
+		case srcLine, srcArc, srcCircle:
+		default:
 			return false
 		}
 	}
@@ -3631,6 +3670,11 @@ func (a *arranger) useExactPorts(v int, ring []int) bool {
 	for _, p := range a.exactPortVerts {
 		a.budget.step(1)
 		if math.Hypot(p[0]-vx, p[1]-vy) <= a.merge {
+			for _, hi := range ring {
+				if !a.preparePort(hi) {
+					return false
+				}
+			}
 			return true
 		}
 	}
@@ -3654,6 +3698,14 @@ func (a *arranger) useExactPorts(v int, ring []int) bool {
 			// A curved fragment is the opposite case: its chord is a secant of a
 			// curve that departs along a different ray, so the tangent carries the
 			// geometry the chord has lost.
+			ki := a.sources[a.edges[hi.edge].src].kind
+			kj := a.sources[a.edges[hj.edge].src].kind
+			if ki == srcLine && kj == srcLine {
+				continue
+			}
+			if !a.preparePort(ring[i]) || !a.preparePort(ring[j]) {
+				return false
+			}
 			if hi.kappa == 0 && hj.kappa == 0 {
 				continue
 			}
@@ -3663,6 +3715,11 @@ func (a *arranger) useExactPorts(v int, ring []int) bool {
 			cr := hi.tx*hj.ty - hi.ty*hj.tx
 			if dot > 0 && math.Abs(cr) <= dirParallelEps*math.Hypot(hi.tx, hi.ty)*math.Hypot(hj.tx, hj.ty) {
 				continue
+			}
+			for _, hi := range ring {
+				if !a.preparePort(hi) {
+					return false
+				}
 			}
 			return true
 		}
@@ -3719,7 +3776,7 @@ func (a *arranger) externalCurvedTangency(i, j int) bool {
 // a whole closed curve — the degenerate case of a circle cut once, whose midpoint is
 // the antipode and would hand both half-edges one ray, is not reachable.
 // certifiedPortVertex reports whether (vx, vy) is a certified analytic tangency
-// contact — the FIRST of useExactPorts' two doors. Ordering there rests on the
+// contact — the FIRST of prepareExactPorts' two doors. Ordering there rests on the
 // incident exact tangents being one ray, so a port at such a vertex keeps portKey's
 // tangent rather than a vertex-anchored ray.
 func (a *arranger) certifiedPortVertex(vx, vy float64) bool {
@@ -3773,7 +3830,7 @@ func (a *arranger) curvedPortDir(e arrEdge, vx, vy float64) (float64, float64, b
 //
 //   - A CURVED fragment's chord is a secant of a curve departing along a
 //     different ray than a straight one sharing its endpoints, so it carries
-//     information a merge would destroy. useExactPorts' own curvature-gated
+//     information a merge would destroy. prepareExactPorts' own curvature-gated
 //     door already orders a straight/curved or curved/curved tie correctly
 //     (TestArcSpanningOneChordKeepsItsFaces,
 //     TestWeldedArcPortKeepsTheLargeFace, TestInnerTangentArcKeepsBothFaces).
@@ -3781,7 +3838,7 @@ func (a *arranger) curvedPortDir(e arrEdge, vx, vy float64) (float64, float64, b
 //     resolved earlier, in split() via resolveCoincidentOverlap, and never
 //     reaches here as two edges over the shared span.
 //   - A duplicate SAMPLED fragment (ellipse/spline/conic/NURBS) never
-//     qualifies for exact ordering at all — useExactPorts requires every
+//     qualifies for exact ordering at all — prepareExactPorts requires every
 //     incident half-edge to be exact — so it already falls back to chord
 //     order, the honest verdict for a source the map only holds as chords.
 //
@@ -4098,48 +4155,10 @@ func (a *arranger) wireGraph() {
 		a.budget.step(1)
 		ux, uy := a.verts.coord(e.u)
 		vx, vy := a.verts.coord(e.v)
-		// Forward leaves e.u at param e.pu (increasing); backward leaves e.v at
-		// param e.pv (decreasing). The exact tangent at the departure point orders
-		// the rotation system correctly even where chord directions tie (a tangency).
-		ftx, fty, fka, fok := a.portKey(e.src, e.pu, +1)
-		btx, bty, bka, bok := a.portKey(e.src, e.pv, -1)
-		// A STRAIGHT fragment is keyed by the chord it actually emits, never by its
-		// source direction. portKey answers a srcLine with the AUTHORED endpoint
-		// delta, and welding moves a fragment's ends onto other vertices, so that
-		// delta can name a ray the face walk never traverses. Ordering a welded line
-		// by it puts edges in an order the map does not hold, which merges or drops
-		// faces — and a curved member in the same ring does not protect it, since
-		// once the ring is sorted exactly EVERY straight port is sorted that way.
-		// For a line the emitted chord IS the traversed geometry, so it is the
-		// honest key, and where nothing welded it is the same ray as before.
-		//
-		// A CURVED fragment is re-keyed the same way by curvedPortDir, but ONLY at a
-		// vertex that is not a certified tangency contact. At a certified contact the
-		// ordering depends on all the incident tangents being ONE ray so
-		// sortExactPorts can cluster them and separate the loops by curvature;
-		// midpoint rays do not tie, the cluster breaks, and an inner tangent arc
-		// sorts to the wrong side — an outer circle with an inner tangent arc
-		// published no regions at all before this was scoped. So the first door keeps
-		// portKey's exact tangent and only the second door gets the vertex-anchored
-		// ray, which is exactly where welding can have moved the vertex off the
-		// parametric endpoint.
-		if a.sources[e.src].kind == srcLine {
-			ftx, fty = vx-ux, vy-uy
-			btx, bty = ux-vx, uy-vy
-		} else {
-			if !a.certifiedPortVertex(ux, uy) {
-				if dx, dy, ok := a.curvedPortDir(e, ux, uy); ok {
-					ftx, fty = dx, dy
-				}
-			}
-			if !a.certifiedPortVertex(vx, vy) {
-				if dx, dy, ok := a.curvedPortDir(e, vx, vy); ok {
-					btx, bty = dx, dy
-				}
-			}
-		}
-		a.halfs = chargedAppend(a.budget, a.halfs, halfEdge{from: e.u, to: e.v, edge: ei, forward: true, angle: math.Atan2(vy-uy, vx-ux), tx: ftx, ty: fty, kappa: fka, exact: fok, next: -1})
-		a.halfs = chargedAppend(a.budget, a.halfs, halfEdge{from: e.v, to: e.u, edge: ei, forward: false, angle: math.Atan2(uy-vy, ux-vx), tx: btx, ty: bty, kappa: bka, exact: bok, next: -1})
+		// Chord directions order the usual case. Exact source tangents are built
+		// lazily only for rings where a certified contact or an angle tie needs them.
+		a.halfs = chargedAppend(a.budget, a.halfs, halfEdge{from: e.u, to: e.v, edge: ei, forward: true, angle: math.Atan2(vy-uy, vx-ux), next: -1})
+		a.halfs = chargedAppend(a.budget, a.halfs, halfEdge{from: e.v, to: e.u, edge: ei, forward: false, angle: math.Atan2(uy-vy, ux-vx), next: -1})
 	}
 	// Outgoing half-edges per vertex, sorted CCW by departure direction. When every
 	// incident half-edge is an exact (line/circle/arc) fragment, order by the exact
@@ -4173,7 +4192,7 @@ func (a *arranger) wireGraph() {
 			continue
 		}
 		a.budget.step(1)
-		if a.useExactPorts(v, list) {
+		if a.prepareExactPorts(v, list) {
 			a.sortExactPorts(v, list)
 		} else {
 			a.sortChordPorts(list)
