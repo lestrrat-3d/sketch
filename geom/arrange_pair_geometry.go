@@ -83,12 +83,36 @@ func hullAxisApart(a, b *exactFitHull, ax, ay *big.Rat) bool {
 	return hiA.Cmp(loB) < 0 || hiB.Cmp(loA) < 0
 }
 
+// lerpRat returns x + u*(y-x) exactly. It forms the numerator and denominator
+// of the result over integers and reduces once, where the chain of Rat
+// operations would reduce after each of its three steps; the value, and so its
+// reduced form, is the same.
+func lerpRat(x, y, u *big.Rat) *big.Rat {
+	a, b := x.Num(), x.Denom()
+	c, e := y.Num(), y.Denom()
+	n, d := u.Num(), u.Denom()
+
+	var diff, t big.Int
+	diff.Mul(c, b)
+	t.Mul(a, e)
+	diff.Sub(&diff, &t) // c*b - a*e
+	diff.Mul(&diff, n)  // n*(c*b - a*e)
+	var num big.Int
+	num.Mul(a, d)
+	num.Mul(&num, e)
+	num.Add(&num, &diff) // a*d*e + n*(c*b - a*e)
+	var den big.Int
+	den.Mul(d, b)
+	den.Mul(&den, e) // d*b*e, positive: every factor is a Rat denominator
+	return new(big.Rat).SetFrac(&num, &den)
+}
+
 // splitHull splits a cubic Bézier at u by de Casteljau.
 func splitHull(h exactFitHull, u *big.Rat) (exactFitHull, exactFitHull) {
 	var left, right exactFitHull
 	for axis := range 2 {
 		p := [4]*big.Rat{h.points[0][axis], h.points[1][axis], h.points[2][axis], h.points[3][axis]}
-		lerp := func(x, y *big.Rat) *big.Rat { return add(x, mul(u, sub(y, x))) }
+		lerp := func(x, y *big.Rat) *big.Rat { return lerpRat(x, y, u) }
 		q0, q1, q2 := lerp(p[0], p[1]), lerp(p[1], p[2]), lerp(p[2], p[3])
 		r0, r1 := lerp(q0, q1), lerp(q1, q2)
 		s := lerp(r0, r1)
