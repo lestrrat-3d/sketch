@@ -131,14 +131,19 @@ func (a *arranger) certifyLineCircleCrossings() {
 		seen   int
 		counts [2]int
 		valid  bool
+		known  bool
 	}
-	contacts := make(map[int]*contact)
+	// Indexed by vertex id.
+	nv := len(a.verts.xs)
+	for _, e := range a.edges {
+		nv = max(nv, e.u+1, e.v+1)
+	}
+	contacts := make([]contact, nv)
 	visit := func(v, src int, cross *LineCircleCrossing) {
 		a.budget.step(1)
-		c := contacts[v]
-		if c == nil {
-			c = &contact{cross: cross, valid: cross != nil}
-			contacts[v] = c
+		c := &contacts[v]
+		if !c.known {
+			*c = contact{cross: cross, valid: cross != nil, known: true}
 		}
 		c.seen++
 		if cross == nil || cross != c.cross {
@@ -167,7 +172,7 @@ func (a *arranger) certifyLineCircleCrossings() {
 			cross **LineCircleCrossing
 		}{{e.u, &e.circleU}, {e.v, &e.circleV}} {
 			a.budget.step(1)
-			c := contacts[end.v]
+			c := &contacts[end.v]
 			if !c.valid || c.seen != 4 || c.counts != [2]int{2, 2} {
 				*end.cross = nil
 			}
