@@ -204,6 +204,7 @@ func closedSplineSpanHull(ctrl [][2]float64, p0, p1 float64) ([][2]float64, bool
 		hi = lo
 	}
 	var out [][2]float64
+	var sa, sb [maxSubSpanDegree][3]float64
 	for i := lo; i <= hi; i++ {
 		if i < 0 || i >= n {
 			continue
@@ -220,7 +221,7 @@ func closedSplineSpanHull(ctrl [][2]float64, p0, p1 float64) ([][2]float64, bool
 		if hv < lv {
 			continue
 		}
-		out = append(out, projectHom(bezierSubSpan(cp, lv, hv))...)
+		out = appendProjectHom(out, bezierSubSpanScratch(cp, lv, hv, &sa, &sb))
 	}
 	if len(out) == 0 {
 		return nil, false
@@ -254,6 +255,7 @@ func fitSplineSpanHull(e *fitEvaluator, s0, s1 float64) ([][2]float64, bool) {
 		p0, p1 = p1, p0
 	}
 	var out [][2]float64
+	var sa, sb [maxSubSpanDegree][3]float64
 	for i := 0; i < k-1; i++ {
 		lo, hi := e.t[i], e.t[i+1]
 		h := hi - lo
@@ -275,7 +277,7 @@ func fitSplineSpanHull(e *fitEvaluator, s0, s1 float64) ([][2]float64, bool) {
 		if hv < lv {
 			continue
 		}
-		out = append(out, projectHom(bezierSubSpan(cp, lv, hv))...)
+		out = appendProjectHom(out, bezierSubSpanScratch(cp, lv, hv, &sa, &sb))
 	}
 	if len(out) == 0 {
 		return nil, false
@@ -441,14 +443,25 @@ func bezierSubSpan(cp [][3]float64, v0, v1 float64) [][3]float64 {
 // keep exactly one piece, so only that one is built; the arithmetic is the
 // plain de Casteljau recurrence.
 func deCasteljauHalf(cp [][3]float64, t float64, left bool) [][3]float64 {
+	out := make([][3]float64, len(cp))
+	deCasteljauHalfInto(out, cp, t, left)
+	return out
+}
+
+// maxSubSpanDegree is the control-point count up to which sub-span extraction
+// works in caller-supplied stack buffers.
+const maxSubSpanDegree = 8
+
+// deCasteljauHalfInto is [deCasteljauHalf] into out, which must have len(cp)
+// entries and may be cp itself.
+func deCasteljauHalfInto(out, cp [][3]float64, t float64, left bool) {
 	n := len(cp)
-	var buf [8][3]float64
+	var buf [maxSubSpanDegree][3]float64
 	tmp := buf[:0]
 	if n > len(buf) {
 		tmp = make([][3]float64, 0, n)
 	}
 	tmp = append(tmp, cp...)
-	out := make([][3]float64, n)
 	if left {
 		out[0] = tmp[0]
 	} else {
@@ -468,12 +481,45 @@ func deCasteljauHalf(cp [][3]float64, t float64, left bool) [][3]float64 {
 			out[n-1-k] = tmp[n-1-k]
 		}
 	}
-	return out
+}
+
+// bezierSubSpanScratch is [bezierSubSpan] working in the caller's two buffers
+// when the curve fits them. The result may alias cp, sa or sb, so the caller
+// MUST consume it before reusing the buffers.
+func bezierSubSpanScratch(cp [][3]float64, v0, v1 float64, sa, sb *[maxSubSpanDegree][3]float64) [][3]float64 {
+	n := len(cp)
+	if n > maxSubSpanDegree {
+		return bezierSubSpan(cp, v0, v1)
+	}
+	if v0 < 0 {
+		v0 = 0
+	}
+	if v1 > 1 {
+		v1 = 1
+	}
+	if v1 <= v0 {
+		deCasteljauHalfInto(sa[:n], cp, v0, false)
+		return sa[:1]
+	}
+	if v0 > 0 {
+		deCasteljauHalfInto(sa[:n], cp, v0, false)
+		cp = sa[:n]
+		v1 = (v1 - v0) / (1 - v0)
+	}
+	if v1 < 1 {
+		deCasteljauHalfInto(sb[:n], cp, v1, true)
+		cp = sb[:n]
+	}
+	return cp
 }
 
 // projectHom divides homogeneous control points through by their weight.
 func projectHom(cp [][3]float64) [][2]float64 {
-	out := make([][2]float64, 0, len(cp))
+	return appendProjectHom(make([][2]float64, 0, len(cp)), cp)
+}
+
+// appendProjectHom appends projectHom(cp) to out.
+func appendProjectHom(out [][2]float64, cp [][3]float64) [][2]float64 {
 	for _, c := range cp {
 		if c[2] == 0 {
 			continue
