@@ -790,7 +790,10 @@ func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *Verificat
 		rep.Conditioning = s.conditioningOn(cj)
 	}
 
-	movable := s.movableVarsOn(cj)
+	var movable map[int]struct{}
+	if rep.DOF != 0 {
+		movable = s.movableVarsOn(cj)
+	}
 	rep.FreePoints = freePoints(s.points, movable) // same loop Sketch.FreePoints uses
 
 	rep.ParametersValid = true
