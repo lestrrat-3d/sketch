@@ -3,6 +3,8 @@ package sketch
 import (
 	"context"
 	"math"
+	"slices"
+	"sync"
 
 	"github.com/lestrrat-3d/units"
 	"github.com/lestrrat-go/option/v3"
@@ -298,23 +300,23 @@ func (s *Sketch) Solve(ctx context.Context, options ...SolveOption) (*Result, er
 
 // lmWorkspace holds every buffer one [Sketch.lm] call needs across its outer
 // iterations and damping trials — the Jacobian, the normal-equation matrix and
-// gradient, the damped trial matrix and its solveLinearInto scratch, and the
+// gradient, the damped trial matrix (the augmented elimination scratch), and the
 // residual buffers — so the loop and its trials mutate fixed-size buffers in
 // place instead of allocating fresh ones every iteration/trial. Sized once from
 // m (residual rows) and n (free variables), which are fixed for the life of one
 // lm call.
 type lmWorkspace struct {
-	J, A, damped, M [][]float64
+	J, A, M [][]float64
 	// JT is J transposed into one flat m*n buffer, column-major: column j of J
 	// occupies the contiguous run JT[j*m:(j+1)*m]. The normal equations read
 	// each column end to end (see normalEquationsInto), which J's row-major
 	// [][]float64 layout cannot serve — there a column walk strides across m
 	// separately allocated rows. One transpose per Jacobian pays for n*(n+1)/2
 	// column pairs plus n gradient dot products.
-	JT            []float64
-	g, rhs, delta []float64
-	rp, rm, rNew  []float64
-	r             []float64
+	JT           []float64
+	g, delta     []float64
+	rp, rm, rNew []float64
+	r            []float64
 
 	// The sparsity pattern of one Jacobian, in the two forms
 	// normalEquationsSparseInto reads it. colRows holds, for each column i, the
@@ -324,44 +326,97 @@ type lmWorkspace struct {
 	// two columns share a nonzero row?" in a word-at-a-time AND instead of a walk
 	// — the question asked once per column PAIR, so it must not cost per row.
 	// Both are rebuilt from scratch every iteration (see normalEquationsSparseInto
-	// on why a pattern is never carried over) and both are sized for a fully dense
-	// m×n Jacobian, so no rebuild allocates.
+	// on why a pattern is never carried over); colRows grows to the densest
+	// pattern seen and is kept.
 	colRows, colStart []int
 	colBits           []uint64
 	colWords          int
+	nz                []int
+
+	// The slabs the J, A and M row views are cut from.
+	jBack, aBack, mBack []float64
+}
+
+// lmPool recycles lmWorkspace values across [Sketch.lm] calls, so a sequence of
+// solves reuses the same Jacobian, normal-equation and elimination slabs instead
+// of allocating them afresh. Reuse is sound because every buffer is either fully
+// overwritten or cleared before it is read each iteration: J is cleared by
+// jacobianLocalInto or written whole by jacobianInto, JT by transposeInto, A and
+// g by the normal-equation kernels, M row by row before each elimination, and
+// the pattern buffers by the pattern rebuild.
+var lmPool sync.Pool
+
+// getLMWorkspace returns a workspace for a lm call whose residual vector is r.
+func getLMWorkspace(r []float64) *lmWorkspace {
+	ws, _ := lmPool.Get().(*lmWorkspace)
+	if ws == nil {
+		ws = &lmWorkspace{}
+	}
+	ws.r = r
+	return ws
+}
+
+// release returns ws to the pool. It drops the residual vector, which the
+// caller owns, and every matrix row view, which aliases slabs that stay with the
+// workspace.
+func (ws *lmWorkspace) release() {
+	ws.r = nil
+	ws.rNew = ws.rNew[:0]
+	lmPool.Put(ws)
+}
+
+// growF64 returns buf resliced to length k, reallocating only when its capacity
+// is too small. The contents are unspecified.
+func growF64(buf []float64, k int) []float64 {
+	if cap(buf) >= k {
+		return buf[:k]
+	}
+	return make([]float64, k)
+}
+
+// rowViews points rows at the consecutive width-wide runs of slab. The rows are
+// only ever indexed, never resliced past their length.
+func rowViews(rows [][]float64, slab []float64, count, width int) [][]float64 {
+	rows = slices.Grow(rows[:0], count)[:count]
+	for i := range rows {
+		rows[i] = slab[i*width : (i+1)*width : (i+1)*width]
+	}
+	return rows
 }
 
 // alloc sizes every buffer but r for m residual rows and n free variables. It is
 // called from inside the outer loop, past the termination checks, rather than
 // before it: a solve that is already converged (or has nothing free to move)
 // never builds a Jacobian, and would otherwise pay several m×n and n×n
-// allocations to do nothing.
+// allocations to do nothing. The buffers are those the workspace already holds
+// when they are large enough.
 func (ws *lmWorkspace) alloc(m, n int) {
-	ws.J = make([][]float64, m)
-	ws.JT = make([]float64, m*n)
-	ws.A = make([][]float64, n)
-	ws.damped = make([][]float64, n)
-	ws.M = make([][]float64, n)
-	ws.g = make([]float64, n)
-	ws.rhs = make([]float64, n)
-	ws.delta = make([]float64, n)
-	ws.rp = make([]float64, 0, m)
-	ws.rm = make([]float64, 0, m)
-	ws.rNew = make([]float64, 0, m)
-	// Worst case is a fully dense Jacobian, so the pattern rebuild in
-	// normalEquationsSparseInto only ever appends into capacity it already holds.
-	ws.colRows = make([]int, 0, m*n)
-	ws.colStart = make([]int, n+1)
+	ws.jBack = growF64(ws.jBack, m*n)
+	ws.aBack = growF64(ws.aBack, n*n)
+	ws.mBack = growF64(ws.mBack, n*(n+1))
+	ws.J = rowViews(ws.J, ws.jBack, m, n)
+	ws.A = rowViews(ws.A, ws.aBack, n, n)
+	ws.M = rowViews(ws.M, ws.mBack, n, n+1)
+	ws.JT = growF64(ws.JT, m*n)
+	ws.g = growF64(ws.g, n)
+	ws.delta = growF64(ws.delta, n)
+	ws.rp = growF64(ws.rp, m)[:0]
+	ws.rm = growF64(ws.rm, m)[:0]
+	ws.rNew = growF64(ws.rNew, m)[:0]
+	// A Jacobian is sparse, so the pattern starts small and grows by append; the
+	// grown buffer is kept for the next rebuild.
+	if cap(ws.colRows) < 4*m {
+		ws.colRows = make([]int, 0, 4*m)
+	}
+	if cap(ws.colStart) < n+1 {
+		ws.colStart = make([]int, n+1)
+	}
+	ws.colStart = ws.colStart[:n+1]
 	ws.colWords = (m + 63) / 64
-	ws.colBits = make([]uint64, n*ws.colWords)
-	for i := range ws.J {
-		ws.J[i] = make([]float64, n)
+	if cap(ws.colBits) < n*ws.colWords {
+		ws.colBits = make([]uint64, n*ws.colWords)
 	}
-	for i := range ws.A {
-		ws.A[i] = make([]float64, n)
-		ws.damped[i] = make([]float64, n)
-		ws.M[i] = make([]float64, n+1)
-	}
+	ws.colBits = ws.colBits[:n*ws.colWords]
 }
 
 // lm runs the Levenberg–Marquardt loop on the residual vector produced by
@@ -396,8 +451,10 @@ func (s *Sketch) lm(ctx context.Context, free []int, eval func([]float64) []floa
 
 	// eval(nil) already returned a fresh buffer; no need to copy it in. The rest
 	// of the workspace is sized lazily below, once an iteration actually needs it.
-	ws := &lmWorkspace{r: r}
+	ws := getLMWorkspace(r)
+	defer ws.release()
 	var plan *residualPlan
+	sized := false
 
 	cost := dot(ws.r, ws.r) // sum of squared residuals
 	lambda := 1e-3
@@ -412,7 +469,8 @@ func (s *Sketch) lm(ctx context.Context, free []int, eval func([]float64) []floa
 		if n == 0 {
 			break // nothing free to move
 		}
-		if ws.J == nil {
+		if !sized {
+			sized = true
 			ws.alloc(m, n)
 			// Built here rather than before the loop for the same reason the
 			// workspace is: a solve that is already converged, or has nothing
@@ -457,13 +515,17 @@ func (s *Sketch) lm(ctx context.Context, free []int, eval func([]float64) []floa
 				return iter, err
 			}
 			mu := lambda * maxDiag
-			damped, rhs := ws.damped, ws.rhs
+			noNegZero := true
 			for i := 0; i < n; i++ {
-				copy(damped[i], A[i])
-				damped[i][i] += mu + 1e-12 // Levenberg damping + numerical floor
-				rhs[i] = -g[i]
+				row := ws.M[i]
+				copy(row, A[i])
+				row[i] += mu + 1e-12 // Levenberg damping + numerical floor
+				row[n] = -g[i]
+				if noNegZero && hasNegZero(row[:n]) {
+					noNegZero = false
+				}
 			}
-			if !solveLinearInto(ws.M, damped, rhs, ws.delta) {
+			if !eliminateInto(ws.M, n, noNegZero, ws.delta, &ws.nz) {
 				lambda *= 10
 				continue
 			}
@@ -780,6 +842,7 @@ func normalEquationsSparseInto(ws *lmWorkspace, m, n int) {
 		}
 	}
 	colStart[n] = len(colRows)
+	ws.colRows = colRows
 
 	// The same pattern as one bitmap per column, so the "share a row?" question
 	// below costs a handful of word ANDs rather than a walk over either column.
@@ -923,8 +986,9 @@ func (s *Sketch) committedRankAnalysis(free []int) (rankAnalysis, bool) {
 	if s.hasNonFiniteVars() {
 		return rankAnalysis{}, false
 	}
-	cj := committedJacobian{free: free, A: s.committedScaledJacobian(free)}
-	return s.rankAnalysisOn(cj), true
+	// The matrix is built for this call alone, so elimination may consume it
+	// without the clone rankAnalysisOn makes for a shared one.
+	return rankAnalysisOfMatrix(s.committedScaledJacobian(free), len(free)), true
 }
 
 // rankAnalysisOn runs the same partial-pivot elimination as
@@ -1088,20 +1152,25 @@ const negZeroBits = 1 << 63
 //     once per pivot, never once per row. It cannot be hoisted out of the pivot
 //     loop either: a row that started finite can overflow to an infinity during
 //     elimination.
-//   - The working copy must hold NO NEGATIVE ZERO. Subtracting an exact zero is
-//     the identity on every float64 except -0, where the subtrahend's sign
-//     decides: -0 − (+0) is -0, but -0 − (-0) is +0. Skipping would keep a -0
-//     the update turns positive, and that sign reaches x through the back
-//     substitution. Elimination can never CREATE a negative zero — a
+//   - The working copy's MATRIX part must hold NO NEGATIVE ZERO. Subtracting an
+//     exact zero is the identity on every float64 except -0, where the
+//     subtrahend's sign decides: -0 − (+0) is -0, but -0 − (-0) is +0. Skipping
+//     would keep a -0 the update turns positive, and that sign reaches x through
+//     the back substitution. Elimination can never CREATE a negative zero — a
 //     subtraction yields one only from a -0 minuend, an exact cancellation
 //     rounds to +0, and no nonzero difference of two float64s underflows (both
 //     are integer multiples of 2⁻¹⁰⁷⁴, so their difference is too) — so the
-//     single scan below, over the copy every later value descends from, settles
-//     the question for the whole call. It is answered on the copy-in pass,
-//     where the rows are in cache exactly once, and one negative zero anywhere
-//     costs the call its shortcut rather than risking a sign. That is rare: it
-//     needs a gradient component of exactly zero, which the profiled workload
-//     produced in 10.3% of its calls.
+//     single scan on the copy-in pass, over the copy every later value descends
+//     from, settles the question for the whole call. One negative zero in the
+//     matrix costs the call its shortcut rather than risking a sign.
+//
+// The right-hand side column is outside that scan. A zero gradient component
+// makes it a negative zero without touching the matrix (the profiled workload
+// produced one in 10.3% of its calls), and no matrix entry ever reads it, so the
+// shortcut leaves the matrix part to the zero-skipping update and applies the
+// plain `row[n] -= f*pivot[n]` to the right-hand side of every row, skipped or
+// not. That keeps the right-hand side bit-identical whatever its signs and
+// non-finite values are.
 //
 // The test is deliberately EXACT: a zero multiplier is `f == 0`, never a
 // small-magnitude test. A tiny nonzero f still changes the row, and an epsilon
@@ -1124,16 +1193,43 @@ func solveLinearInto(M [][]float64, A [][]float64, b, x []float64) bool {
 		row := M[i]
 		copy(row, A[i])
 		row[n] = b[i]
-		if !noNegZero {
-			continue
-		}
-		for _, v := range row[:n+1] {
-			if math.Float64bits(v) == negZeroBits {
-				noNegZero = false
-				break
-			}
+		if noNegZero && hasNegZero(row[:n]) {
+			noNegZero = false
 		}
 	}
+	nzp, _ := nzPool.Get().(*[]int)
+	if nzp == nil {
+		nzp = new([]int)
+	}
+	ok := eliminateInto(M, n, noNegZero, x, nzp)
+	nzPool.Put(nzp)
+	return ok
+}
+
+// nzPool holds the nonzero-column scratch [solveLinearInto] hands to
+// [eliminateInto], so a caller-supplied M still means a kernel that allocates
+// nothing in steady state.
+var nzPool sync.Pool
+
+// hasNegZero reports whether any entry of row is negative zero.
+func hasNegZero(row []float64) bool {
+	for _, v := range row {
+		if math.Float64bits(v) == negZeroBits {
+			return true
+		}
+	}
+	return false
+}
+
+// eliminateInto is the elimination and back substitution of [solveLinearInto]
+// over an already-filled n×(n+1) augmented matrix M. noNegZero says that no
+// entry of M's n×n matrix part is negative zero, which the zero-multiplier shortcut needs (see
+// [solveLinearInto]). A caller that builds M itself ([Sketch.lm]) saves the
+// intermediate copy; it must report noNegZero exactly as the copy-in pass of
+// solveLinearInto would.
+func eliminateInto(M [][]float64, n int, noNegZero bool, x []float64, nzBuf *[]int) bool {
+	nz := slices.Grow((*nzBuf)[:0], n+1)
+	*nzBuf = nz
 	for col := 0; col < n; col++ {
 		piv := col
 		best := math.Abs(M[col][col])
@@ -1149,24 +1245,38 @@ func solveLinearInto(M [][]float64, A [][]float64, b, x []float64) bool {
 		M[col], M[piv] = M[piv], M[col]
 
 		pivot := M[col][col : n+1]
+		last := len(pivot) - 1
 		skipZero := noNegZero
+		nz = nz[:0]
 		if skipZero {
-			for _, v := range pivot {
+			for c, v := range pivot[:last] {
 				if nonFinite(v) {
 					skipZero = false
 					break
 				}
+				if v != 0 {
+					nz = append(nz, c)
+				}
 			}
 		}
+		// The matrix columns of a pivot row that hold a zero are skipped: they
+		// would subtract f*0, an exact ±0, from a finite entry that is never -0
+		// (skipZero), which changes nothing. The multiplier must be finite for that
+		// product to be a zero. The right-hand side column is a separate case: a
+		// zero gradient component makes it a negative zero without touching the
+		// matrix, and nothing in the matrix ever reads it, so it is updated for
+		// every row, skipped or not, exactly as the plain update would.
 		for r := col + 1; r < n; r++ {
 			row := M[r][col : n+1]
 			f := row[0] / pivot[0]
-			if skipZero && f == 0 {
+			if skipZero && !nonFinite(f) {
+				if f != 0 {
+					subtractScaledAt(row, pivot, nz, f)
+				}
+				row[last] -= f * pivot[last]
 				continue
 			}
-			for c, v := range pivot {
-				row[c] -= f * v
-			}
+			subtractScaled(row, pivot, f)
 		}
 	}
 	for i := n - 1; i >= 0; i-- {
@@ -1177,6 +1287,21 @@ func solveLinearInto(M [][]float64, A [][]float64, b, x []float64) bool {
 		x[i] = sum / M[i][i]
 	}
 	return true
+}
+
+// subtractScaledAt does row[c] -= f*pivot[c] for the listed columns only.
+func subtractScaledAt(row, pivot []float64, cols []int, f float64) {
+	for _, c := range cols {
+		row[c] -= f * pivot[c]
+	}
+}
+
+// subtractScaled does row[c] -= f*pivot[c] for every column of pivot.
+func subtractScaled(row, pivot []float64, f float64) {
+	row = row[:len(pivot)]
+	for c, v := range pivot {
+		row[c] -= f * v
+	}
 }
 
 func dot(a, b []float64) float64 {

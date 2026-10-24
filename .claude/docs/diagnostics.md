@@ -96,6 +96,20 @@ so such an entry reads as the worst possible pivot candidate on both comparisons
 a plain `math.Abs` would get backwards, rather than making the result of an
 already-poisoned matrix meaningful.
 
+### The LM workspace is pooled, and every buffer is overwritten before it is read
+
+`Sketch.lm` takes its `lmWorkspace` from `lmPool`. Reuse is sound only because
+each buffer is either cleared or written whole before anything reads it: `J` by
+`jacobianLocalInto` (clears) or `jacobianInto` (writes every entry), `JT` by
+`transposeInto`, `A` and `g` by the normal-equation kernels, `M` row by row
+before each elimination. A new buffer in the workspace MUST keep that property.
+
+`eliminateInto` is `solveLinearInto` without the copy-in, so `lm` builds its
+damped matrix straight into `M`. Its zero-multiplier shortcut applies the
+negative-zero guard to the matrix part only; the right-hand side column is
+updated for every row exactly as the plain update would
+(`TestSolveLinearEliminationRightHandSideSpecials`).
+
 ## `jacobian.go` — the local residual Jacobian
 
 ### Overview
