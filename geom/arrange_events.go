@@ -79,10 +79,24 @@ func analyticEvents(si, sj *source, scale float64) ([]xEvent, bool, bool) {
 	if !analyticKind(si.kind) || !analyticKind(sj.kind) {
 		return nil, false, false
 	}
-	// Reduce to (line|circle-with-sweep) operands: an arc is its full circle plus
-	// a sweep filter; a circle is a full sweep.
-	a := operandOf(si)
-	b := operandOf(sj)
+	return analyticEventsOf(si, sj, operandOf(si), operandOf(sj), scale)
+}
+
+// analyticEventsOf is [analyticEvents] with the operands of the two sources
+// already reduced, for a caller that pairs one source with many.
+func analyticEventsOf(si, sj *source, a, b operand, scale float64) ([]xEvent, bool, bool) {
+	if !analyticKind(si.kind) || !analyticKind(sj.kind) {
+		return nil, false, false
+	}
+	// Operands reduce a source to a line or a circle-with-sweep: an arc is its
+	// full circle plus a sweep filter; a circle is a full sweep.
+	if a.isLine && b.isLine {
+		// Most line pairs cross outside both segments; reject those before an
+		// event is allocated. The event is the one lineLineEvents would build.
+		if e, ok := plainLineCrossing(a, b); ok && !(a.inSweep(e.ti) && b.inSweep(e.tj)) {
+			return nil, false, true
+		}
+	}
 	var events []xEvent
 	var ambiguous bool
 	switch {
@@ -331,6 +345,9 @@ const arcParamEps = 1e-9
 // or are parallel and disjoint (no event). The arrangement's edge clipping decides
 // whether the crossing lands on the segments; here we report the carrier crossing.
 func lineLineEvents(a, b operand, scale float64) ([]xEvent, bool) {
+	if e, ok := plainLineCrossing(a, b); ok {
+		return []xEvent{e}, false
+	}
 	d1x, d1y := a.bx-a.ax, a.by-a.ay
 	d2x, d2y := b.bx-b.ax, b.by-b.ay
 	den := d1x*d2y - d1y*d2x
@@ -395,6 +412,31 @@ func lineLineEvents(a, b operand, scale float64) ([]xEvent, bool) {
 		tj:   b.lineParam(x, y),
 		kind: evCross,
 	}}, false
+}
+
+// plainLineCrossing returns the carrier crossing of two lines that are plainly
+// not parallel, as lineLineEvents reports it, without allocating. A pair that is
+// plainly not parallel needs neither length: the L1 norm bounds the length from
+// above (|dx|+|dy| >= hypot), so |den|/(s1*s2) is a lower bound on the sine the
+// full test computes, and the factor of two covers the rounding of the lengths
+// and of the product. A zero, infinite or NaN operand fails the comparison and
+// ok is false, leaving the pair to the full test.
+func plainLineCrossing(a, b operand) (xEvent, bool) {
+	d1x, d1y := a.bx-a.ax, a.by-a.ay
+	d2x, d2y := b.bx-b.ax, b.by-b.ay
+	den := d1x*d2y - d1y*d2x
+	s1, s2 := math.Abs(d1x)+math.Abs(d1y), math.Abs(d2x)+math.Abs(d2y)
+	if !(s1 > 0 && s2 > 0 && math.Abs(den) >= 2*lineParallelEps*(s1*s2)) {
+		return xEvent{}, false
+	}
+	t := ((b.ax-a.ax)*d2y - (b.ay-a.ay)*d2x) / den
+	x, y := a.ax+t*d1x, a.ay+t*d1y
+	return xEvent{
+		x: x, y: y,
+		ti:   a.lineParam(x, y),
+		tj:   b.lineParam(x, y),
+		kind: evCross,
+	}, true
 }
 
 // lineCircleEvents: substitute the line into the circle to get a quadratic in the

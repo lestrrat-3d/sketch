@@ -1424,6 +1424,12 @@ func (a *arranger) analyticPrepass() {
 		a.budget.step(1)
 		a.sourceSegs[a.segs[i].src] = chargedAppend(a.budget, a.sourceSegs[a.segs[i].src], i)
 	}
+	operands := make([]operand, len(a.sources))
+	for i := range a.sources {
+		if analyticKind(a.sources[i].kind) {
+			operands[i] = operandOf(&a.sources[i])
+		}
+	}
 	for i := 0; i < len(a.sources); i++ {
 		a.budget.step(1)
 		si := &a.sources[i]
@@ -1436,7 +1442,7 @@ func (a *arranger) analyticPrepass() {
 			if !analyticKind(sj.kind) {
 				continue
 			}
-			events, ambiguous, ok := analyticEvents(si, sj, a.scale)
+			events, ambiguous, ok := analyticEventsOf(si, sj, operands[i], operands[j], a.scale)
 			if !ok {
 				continue
 			}
