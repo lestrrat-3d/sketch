@@ -859,9 +859,11 @@ const badgeTextIncomplete = "verification incomplete · DOF/status not evaluated
 func (s *Sketch) badgeVerify() (bool, int, Status, bool) {
 	tolerance := defaultSolveConfig().tolerance
 	rep := &VerificationReport{condGate: conditioningGate(tolerance)}
-	if _, ok := s.verifyCore(rep, tolerance); !ok {
+	cj, ok := s.verifyCore(rep, tolerance)
+	if !ok {
 		return false, 0, Underconstrained, false
 	}
+	cj.release()
 	return true, rep.DOF, classifyStatus(rep), rep.Solvable
 }
 

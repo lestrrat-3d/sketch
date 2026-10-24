@@ -1000,7 +1000,9 @@ func (s *Sketch) committedRankAnalysis(free []int) (rankAnalysis, bool) {
 // mutates it in place, and cj.A may still be read by another consumer of the
 // same committedJacobian after this call returns.
 func (s *Sketch) rankAnalysisOn(cj committedJacobian) rankAnalysis {
-	return rankAnalysisOfMatrix(cloneMatrix(cj.A), len(cj.free))
+	c := cloneMatrixScratch(cj.A)
+	defer c.release()
+	return rankAnalysisOfMatrix(c.Rows, len(cj.free))
 }
 
 // rankAnalysisOf computes the rank and the deciding pivot magnitudes on the
