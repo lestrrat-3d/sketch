@@ -88,6 +88,35 @@ func TestBandedExtremesAreDeterministic(t *testing.T) {
 	require.Equal(t, math.Float64bits(b1), math.Float64bits(b2))
 }
 
+func TestBandHypotMatchesHypot(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		x, y float64
+	}{
+		{name: "ordinary", x: 3, y: 4},
+		{name: "large fast path", x: 1e150, y: 1e149},
+		{name: "small fast path", x: 1e-150, y: 2e-150},
+		{name: "underflow fallback", x: 1e-200, y: 1e-200},
+		{name: "overflow fallback", x: 1e200, y: 1e200},
+		{name: "infinity and NaN", x: math.Inf(1), y: math.NaN()},
+		{name: "zero", x: 0, y: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, want := bandHypot(tc.x, tc.y), math.Hypot(tc.x, tc.y)
+			switch {
+			case math.IsNaN(want):
+				require.True(t, math.IsNaN(got))
+			case math.IsInf(want, 0):
+				require.Equal(t, want, got)
+			case want == 0:
+				require.Equal(t, math.Float64bits(want), math.Float64bits(got))
+			default:
+				require.LessOrEqual(t, math.Abs(got-want)/want, 2*math.Nextafter(1, 2)-2)
+			}
+		})
+	}
+}
+
 func TestBandedExtremesRankDeficientReadsSingular(t *testing.T) {
 	A := ringMatrix(rand.New(rand.NewSource(5)), 300, 1, 0, false)
 	// Zero a column so the matrix loses rank.

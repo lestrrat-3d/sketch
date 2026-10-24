@@ -294,7 +294,7 @@ func bandToBidiagonal(R []float64, n, beta int) ([]float64, []float64) {
 					break
 				}
 				x := B[idx(row, col-1)]
-				rho := math.Hypot(x, y)
+				rho := bandHypot(x, y)
 				cs, sn := x/rho, y/rho
 				for r := row; r <= col; r++ {
 					a, b := B[idx(r, col-1)], B[idx(r, col)]
@@ -308,7 +308,7 @@ func bandToBidiagonal(R []float64, n, beta int) ([]float64, []float64) {
 					break
 				}
 				p := B[idx(col-1, col-1)]
-				rho = math.Hypot(p, z)
+				rho = bandHypot(p, z)
 				cs, sn = p/rho, z/rho
 				for j := col - 1; j <= min(n-1, col+k); j++ {
 					a, b := B[idx(col-1, j)], B[idx(col, j)]
@@ -329,4 +329,16 @@ func bandToBidiagonal(R []float64, n, beta int) ([]float64, []float64) {
 		}
 	}
 	return d, e
+}
+
+// bandHypot uses the hardware square-root path for the ordinary finite range
+// produced by a scaled Jacobian. Outside that range it keeps Hypot's overflow,
+// underflow and non-finite handling.
+func bandHypot(x, y float64) float64 {
+	ax, ay := math.Abs(x), math.Abs(y)
+	max := math.Max(ax, ay)
+	if max >= 1e-150 && max <= 1e150 {
+		return math.Sqrt(x*x + y*y)
+	}
+	return math.Hypot(x, y)
 }
