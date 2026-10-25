@@ -167,3 +167,35 @@ func Chamfer(l1, l2 *Line, d float64) (*Line, bool) {
 	replaceEndpoint(l2, ci.c, t2)
 	return NewLine(t1, t2), true
 }
+
+// ArcThroughPoints returns the arc through start, mid and end, swept
+// counter-clockwise. Its Center is a new point at the circumcenter of the three
+// points. When mid lies on the counter-clockwise path from start to end, the
+// returned arc's Start and End are the start and end pointers passed in;
+// otherwise they are swapped (Start is end, End is start), so the arc still
+// passes through mid. ok is false when a point is nil or has a non-finite
+// coordinate, when two of the points coincide, or when the three points are
+// collinear.
+func ArcThroughPoints(start, mid, end *Point) (*Arc, bool) {
+	for _, p := range []*Point{start, mid, end} {
+		if p == nil || math.IsNaN(p.X) || math.IsNaN(p.Y) || math.IsInf(p.X, 0) || math.IsInf(p.Y, 0) {
+			return nil, false
+		}
+	}
+	bx, by := end.X-start.X, end.Y-start.Y
+	mx, my := mid.X-start.X, mid.Y-start.Y
+	lb, lm := math.Hypot(bx, by), math.Hypot(mx, my)
+	cross := bx*my - by*mx
+	// Coincident points make lb or lm zero (or, for mid == end, cross zero), so
+	// this one test also refuses them.
+	if lb == 0 || lm == 0 || math.Abs(cross) <= 1e-9*lb*lm {
+		return nil, false
+	}
+	bb, mm := bx*bx+by*by, mx*mx+my*my
+	d := 2 * cross
+	center := NewPoint(start.X+(my*bb-by*mm)/d, start.Y+(bx*mm-mx*bb)/d)
+	if cross < 0 { // start → mid → end runs counter-clockwise
+		return NewArc(center, start, end), true
+	}
+	return NewArc(center, end, start), true
+}

@@ -79,7 +79,7 @@ from a solid — the seam is first-class reference geometry), live in
 | File | Responsibility | Detail |
 |---|---|---|
 | `sketch.go` | `Sketch`, solver-bound geometry (`Point`/`Line`/`Circle`/`Arc`/`Ellipse`) authored from points, the parameter model, grounding, construction flag, `Geometry()` snapshots, the always-grounded origin point, and the contracts a new entity type must satisfy. | `.claude/docs/sketch-core.md` → "`sketch.go` — Sketch, solver-bound geometry, grounding" |
-| `compound.go` | Compound shape builders (`CreateRectangle`/`CreatePolygon`/`CreateSlot`): primitives + shape-holding constraints, returned as a grouping handle (handle itself is not serialized). | — |
+| `compound.go` | Compound shape builders (`CreateRectangle`/`CreatePolygon`/`CreateSlot`) and creation variants (`CreateArcThreePoints`): primitives + shape-holding constraints, returned as the entity or a grouping handle (handle itself is not serialized). Design of the variants in `docs/creation-variants-design.md`. | — |
 | `tools.go` | Sketch-modification tools on committed geometry, as package-level functions taking the sketch first (`Trim`/`Extend`/`Break`, `CreateFillet`/`CreateChamfer`, `CreateMirror`, `CreatePatternRect`/`CreatePatternCircular`/`CreatePatternCircularRing`, `CreateOffset`; the curve tools are generic over `OpenCurve`): build-then-replace via the `geom` toolkit + `RemoveEntity`. Design in `docs/modification-tools-design.md`. Every tool screens its inputs and its pattern/mirror seed. | `.claude/docs/sketch-core.md` → "`tools.go` — sketch-modification tools" |
 | `profiles.go` | `Sketch.Profiles()`: closed planar regions via the `geom` arrangement engine; `ProfilesLinesBounded`: charged line-only publication. `buildProfiles` runs the one arrangement both publications come from. | `.claude/docs/profiles-geom.md` → "`profiles.go` — closed planar regions" |
 | `loops.go` | Declared closed loops of entities or of parameter ranges of entities (`DeclareLoop`, `DeclareLoopSpans`, `Loops`, `RemoveLoop`) and the per-profile verdict (`Profile.Containment`, `Containments`): inside, outside or unproven with a reason, by parity over the arrangement's face graph (`geom.WithFaceGraph`). Transient: not serialized, not in `Revision`. Design in `docs/loop-containment-design.md`. | `.claude/docs/profiles-geom.md` → "Loop containment" |
@@ -375,7 +375,8 @@ regions". Read it before touching anything under `geom/`.
   interface.
 - **Public constructors validate input by returning errors, never panicking.**
   The shape/pattern builders (`CreatePolygon`/`CreateSlot`/`CreateSpline`/
-  `CreatePatternRect`/`CreatePatternCircular` → `ErrInvalidShape`),
+  `CreatePatternRect`/`CreatePatternCircular` and the creation variants
+  `CreateArcThreePoints` → `ErrInvalidShape`),
   `World.CreateSketch`/`CreateOffsetPlane` (`ErrForeignPlane`), and the plane/frame
   constructors (`World.CreatePlaneFromFrame`/`CreatePlaneFromPoints`,
   `r3.ErrDegenerateFrame`, `geom.ErrTooFewControlPoints`) all return
