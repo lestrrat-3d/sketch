@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 
 	"github.com/lestrrat-3d/sketch/geom"
 	"github.com/lestrrat-3d/units"
@@ -598,6 +599,42 @@ func (s *Sketch) CreatePatternRect(ents []Entity, nx, ny int, dx, dy float64) (*
 // circle, arc or fit spline — only those four can be copied, so the refusal is
 // what keeps the limit from silently shrinking the pattern.
 func (s *Sketch) CreatePatternCircular(ents []Entity, center *Point, n int) (*Pattern, error) {
+	return s.createPatternCircular("CreatePatternCircular", ents, center, n, nil, nil)
+}
+
+// CreatePatternCircularRing is [Sketch.CreatePatternCircular] for a seed that is
+// one link of a closed ring: a chain of entities running from the point start to
+// the point end, where end is start turned by one step (2π/n) about center. The
+// copies are joined to each other and to the seed by SHARING that junction point
+// instead of by a coincident constraint, exactly as a ring drawn point by point
+// is: the copy k+1 chain starts at the very *Point the copy k chain ends at,
+// copy 1 starts at the seed's end, and the last copy ends at the seed's start.
+// No coincident is needed, no point is left over, and a profile cut at a
+// junction is cut at the shared point's exact coordinates.
+//
+// The seed's end is not a free point: the tool places it with a spoke from
+// center held equal in length to start's and at the step angle from it, so a
+// caller must NOT dimension it (one more constraint would be redundant). Draw it
+// where it belongs; the solver does not need to move it.
+//
+// start and end must be distinct, live points of this sketch other than center,
+// and each must define at least one seed entity, else [ErrInvalidShape]. All
+// the other errors are CreatePatternCircular's, and n below 2 is refused the
+// same way.
+func (s *Sketch) CreatePatternCircularRing(ents []Entity, center *Point, n int, start, end *Point) (*Pattern, error) {
+	if !s.owns(start) || !s.owns(end) {
+		return nil, ErrForeignEntity
+	}
+	if start == end || start == center || end == center {
+		return nil, fmt.Errorf("%w: CreatePatternCircularRing needs start, end and center to be distinct points", ErrInvalidShape)
+	}
+	return s.createPatternCircular("CreatePatternCircularRing", ents, center, n, start, end)
+}
+
+// createPatternCircular builds both circular patterns. start and end are nil for
+// a plain pattern; for a ring they are the seed's first and last junction points
+// (see [Sketch.CreatePatternCircularRing]).
+func (s *Sketch) createPatternCircular(name string, ents []Entity, center *Point, n int, start, end *Point) (*Pattern, error) {
 	if s.foreignInput(ents...) || !s.owns(center) {
 		return nil, ErrForeignEntity
 	}
@@ -605,10 +642,14 @@ func (s *Sketch) CreatePatternCircular(ents []Entity, center *Point, n int) (*Pa
 		return nil, ErrReferenceGeometry
 	}
 	if n < 2 {
-		return nil, fmt.Errorf("%w: CreatePatternCircular requires n >= 2, got %d", ErrInvalidShape, n)
+		return nil, fmt.Errorf("%w: %s requires n >= 2, got %d", ErrInvalidShape, name, n)
 	}
 	if e, ok := unsupportedSeed(ents); ok {
-		return nil, fmt.Errorf("%w: CreatePatternCircular cannot copy %T; only *sketch.Line, *sketch.Circle, *sketch.Arc and *sketch.FitSpline are copied", ErrUnsupportedEntity, e)
+		return nil, fmt.Errorf("%w: %s cannot copy %T; only *sketch.Line, *sketch.Circle, *sketch.Arc and *sketch.FitSpline are copied", ErrUnsupportedEntity, name, e)
+	}
+	ring := start != nil
+	if ring && (!seedDefinedBy(ents, start) || !seedDefinedBy(ents, end)) {
+		return nil, fmt.Errorf("%w: %s start and end must each define a seed entity", ErrInvalidShape, name)
 	}
 	step := 2 * math.Pi / float64(n)
 	p := &Pattern{Seed: ents}
@@ -623,10 +664,37 @@ func (s *Sketch) CreatePatternCircular(ents []Entity, center *Point, n int) (*Pa
 		p.Spokes = append(p.Spokes, sp)
 		return sp
 	}
+	// tie holds the end of spokeTo at the angle ang from sfrom, at the same
+	// distance from the center.
+	tie := func(sfrom, spokeTo *Line, ang float64) {
+		eq := NewEqual(sfrom, spokeTo)
+		an := NewAngle(sfrom, spokeTo, 0)
+		_ = an.SetValue(units.Radians(ang))
+		s.AddConstraint(eq, an)
+		p.Constraints = append(p.Constraints, eq, an)
+	}
+	if ring {
+		// The seed's end is start turned by one step.
+		sstart := spokeFor(start)
+		tie(sstart, spokeFor(end), step)
+	}
+	gcenter := center.Geometry()
+	var prevEnd *Point // the previous copy's image of end, the next copy's start
 	for k := 1; k < n; k++ {
 		ang := step * float64(k)
-		gcenter := center.Geometry()
 		copyOf := map[*Point]*Point{}
+		if ring {
+			// Junctions are shared, never re-created: they carry the constraints
+			// their first creation gave them, and a second set would be redundant.
+			if k == 1 {
+				copyOf[start] = end
+			} else {
+				copyOf[start] = prevEnd
+			}
+			if k == n-1 {
+				copyOf[end] = start
+			}
+		}
 		link := func(src *Point) *Point {
 			if cp, ok := copyOf[src]; ok {
 				return cp
@@ -639,16 +707,25 @@ func (s *Sketch) CreatePatternCircular(ents []Entity, center *Point, n int) (*Pa
 			scp := s.CreateLine(center, cp)
 			scp.SetConstruction(true)
 			p.Spokes = append(p.Spokes, scp)
-			eq := NewEqual(ssrc, scp)
-			an := NewAngle(ssrc, scp, 0)
-			_ = an.SetValue(units.Radians(ang))
-			s.AddConstraint(eq, an)
-			p.Constraints = append(p.Constraints, eq, an)
+			tie(ssrc, scp, ang)
 			return cp
 		}
 		s.instantiate(ents, link, false, p)
+		if ring {
+			prevEnd = copyOf[end]
+		}
 	}
 	return p, nil
+}
+
+// seedDefinedBy reports whether pt is one of the defining points of a seed entity.
+func seedDefinedBy(ents []Entity, pt *Point) bool {
+	for _, e := range ents {
+		if slices.Contains(entityPoints(e), pt) {
+			return true
+		}
+	}
+	return false
 }
 
 // --- offset -----------------------------------------------------------------
