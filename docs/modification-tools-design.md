@@ -114,7 +114,11 @@ func CreateOffset(s *Sketch, ents []Entity, d float64) (*OffsetGroup, error)
   contact points with the legs by pointer (no coincidence constraint needed).
   Fillet adds `NewTangent` on both legs + a `NewDistance(center, T1)` radius
   dimension; Chamfer adds the cut line + two setback `NewDistance` dimensions
-  from the far ends. Both remove the corner point.
+  from the far ends. Both remove the corner point. `CreateFillet` also rounds a
+  corner where a line meets an arc or two arcs meet (`geom.FilletLineArc`,
+  `geom.FilletArcArc`): an arc leg keeps its center and far end, and gets
+  `NewTangentCircles` to the fillet (internal when the fillet lies inside the
+  leg's circle).
 - **Mirror** reflects each source point across the axis (`geom.MirrorPoint`),
   links source↔copy with `NewSymmetric`, and (for circles) `NewEqualRadius`;
   arcs are committed start/end-swapped to stay counter-clockwise. Shared source

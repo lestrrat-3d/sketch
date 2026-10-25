@@ -61,8 +61,8 @@ var (
 	ErrReferenceGeometry = errors.New("sketch: cannot modify reference geometry")
 	// ErrUnsupportedEntity is returned by the copy tools (CreateMirror,
 	// CreatePatternRect, CreatePatternCircular) when the seed holds an entity kind
-	// the copy funnel cannot reproduce, and by CreateFillet for an operand kind it
-	// does not fillet. Only lines, circles, arcs and fit splines are copied: every
+	// the copy funnel cannot reproduce. Only lines, circles, arcs and fit splines
+	// are copied: every
 	// other kind needs the transform's rotation or reflection applied to a shape the
 	// point-relinking interface does not carry.
 	ErrUnsupportedEntity = errors.New("sketch: entity kind cannot be copied by this tool")
@@ -707,8 +707,10 @@ type Fillet[A, B OpenCurve] struct {
 // name them (horizontal, angle, …) survive. The arc is held tangent to both legs
 // and its radius pinned by an editable dimension, so editing [Fillet.Radius] and
 // re-solving keeps the rounding tangent. Constraints on the corner point are
-// removed with it; constraints on the far endpoints are kept. Two lines are
-// handled; an arc operand returns [ErrUnsupportedEntity]. Returns
+// removed with it; constraints on the far endpoints are kept. Lines and arcs are
+// handled in any combination: a line leg gets [NewTangent], an arc leg
+// [NewTangentCircles] (internal when the fillet lies inside the leg's circle),
+// both at the shared contact point. Returns
 // [ErrForeignEntity] when s is nil or either curve or corner is not a live
 // handle of s (nil, dead, or foreign) or a curve has an endpoint that is not a
 // live point of s, [ErrReferenceGeometry], [ErrNoSharedCorner] or
@@ -721,35 +723,24 @@ func CreateFillet[A, B OpenCurve](s *Sketch, e1 A, e2 B, corner *Point, r float6
 	if ent1.IsReference() || ent2.IsReference() {
 		return nil, ErrReferenceGeometry
 	}
-	l1, ok1 := ent1.(*Line)
-	l2, ok2 := ent2.(*Line)
-	if !ok1 || !ok2 {
-		return nil, fmt.Errorf("%w: CreateFillet does not fillet an arc yet", ErrUnsupportedEntity)
-	}
-	if sharedPoint(l1, l2) != corner {
+	if ent1 == ent2 || !slices.Contains(cutterEnds(ent1), corner) || !slices.Contains(cutterEnds(ent2), corner) {
 		return nil, ErrNoSharedCorner
 	}
-	far1, far2 := otherSketchEnd(l1, corner), otherSketchEnd(l2, corner)
-
-	cc := geom.NewPoint(corner.x(), corner.y())
-	copy1 := geom.NewLine(far1.Geometry(), cc)
-	copy2 := geom.NewLine(far2.Geometry(), cc)
-	arc, ok := geom.Fillet(copy1, copy2, r)
+	fg, ok := filletContacts(ent1, ent2, corner, r)
 	if !ok {
 		return nil, ErrFilletInfeasible
 	}
-	c1, c2 := otherEnd(copy1, copy1.Start), otherEnd(copy2, copy2.Start)
 
-	t1, t2 := s.CreatePoint(c1.X, c1.Y), s.CreatePoint(c2.X, c2.Y)
-	ctr := s.CreatePoint(arc.Center.X, arc.Center.Y)
-	replaceEnd(l1, corner, t1)
-	replaceEnd(l2, corner, t2)
+	t1, t2 := s.CreatePoint(fg.p1.X, fg.p1.Y), s.CreatePoint(fg.p2.X, fg.p2.Y)
+	ctr := s.CreatePoint(fg.center.X, fg.center.Y)
+	replaceEnd(ent1, corner, t1)
+	replaceEnd(ent2, corner, t2)
 	nArc := s.CreateArc(ctr, t1, t2)
-	if arc.Start != c1 { // geom.Fillet took the minor arc the other way
+	if !fg.startsAtP1 { // the minor arc runs from the second contact
 		nArc = s.CreateArc(ctr, t2, t1)
 	}
 
-	s.AddConstraint(NewTangent(l1, nArc), NewTangent(l2, nArc))
+	s.AddConstraint(tangentToFillet(ent1, nArc, fg.inside1), tangentToFillet(ent2, nArc, fg.inside2))
 	rad := NewDistance(nArc.Center, nArc.Start, r)
 	s.AddConstraint(rad)
 
@@ -757,6 +748,66 @@ func CreateFillet[A, B OpenCurve](s *Sketch, e1 A, e2 B, corner *Point, r float6
 	s.refreshSharedEndpoints()
 
 	return &Fillet[A, B]{Arc: nArc, L1: e1, L2: e2, T1: t1, T2: t2, Radius: rad}, nil
+}
+
+// filletGeometry is a fillet computed on solved-coordinate copies: the contacts
+// on the first and second leg, the center, which contact the minor arc starts
+// at, and whether the fillet lies inside each leg's circle.
+type filletGeometry struct {
+	p1, p2, center   *geom.Point
+	startsAtP1       bool
+	inside1, inside2 bool
+}
+
+// filletContacts runs the geom fillet math for two legs (each a *Line or an
+// *Arc) meeting at corner: geom.Fillet for two lines, FilletLineArc or
+// FilletArcArc otherwise.
+func filletContacts(e1, e2 Entity, corner *Point, r float64) (filletGeometry, bool) {
+	cc := geom.NewPoint(corner.x(), corner.y())
+	// legLine copies a line leg as the geom helpers expect it: kept end first,
+	// the corner (one shared geom point) last.
+	legLine := func(l *Line) *geom.Line { return geom.NewLine(otherSketchEnd(l, corner).Geometry(), cc) }
+	l1, isLine1 := e1.(*Line)
+	l2, isLine2 := e2.(*Line)
+	if isLine1 && isLine2 {
+		copy1, copy2 := legLine(l1), legLine(l2)
+		arc, ok := geom.Fillet(copy1, copy2, r)
+		if !ok {
+			return filletGeometry{}, false
+		}
+		c1, c2 := otherEnd(copy1, copy1.Start), otherEnd(copy2, copy2.Start)
+		return filletGeometry{p1: c1, p2: c2, center: arc.Center, startsAtP1: arc.Start == c1}, true
+	}
+	a1, _ := e1.(*Arc)
+	a2, _ := e2.(*Arc)
+	var cf geom.CornerFillet
+	var ok bool
+	switch {
+	case isLine1:
+		cf, ok = geom.FilletLineArc(legLine(l1), a2.Geometry(), a2.Start == corner, r)
+	case isLine2:
+		cf, ok = geom.FilletLineArc(legLine(l2), a1.Geometry(), a1.Start == corner, r)
+		cf.T1, cf.T2, cf.Inside1, cf.Inside2 = cf.T2, cf.T1, cf.Inside2, cf.Inside1
+	default:
+		cf, ok = geom.FilletArcArc(a1.Geometry(), a1.Start == corner, a2.Geometry(), a2.Start == corner, r)
+	}
+	if !ok {
+		return filletGeometry{}, false
+	}
+	return filletGeometry{
+		p1: cf.T1, p2: cf.T2, center: cf.Arc.Center,
+		startsAtP1: cf.Arc.Start == cf.T1, inside1: cf.Inside1, inside2: cf.Inside2,
+	}, true
+}
+
+// tangentToFillet is the endpoint tangency between a fillet arc and one of its
+// legs, which share the contact point.
+func tangentToFillet(leg Entity, fillet *Arc, inside bool) Constraint {
+	if l, ok := leg.(*Line); ok {
+		return NewTangent(l, fillet)
+	}
+	a, _ := leg.(*Arc)
+	return NewTangentCircles(a, fillet, inside)
 }
 
 // Chamfer groups the geometry created by [CreateChamfer]: the cut line, the

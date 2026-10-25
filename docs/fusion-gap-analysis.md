@@ -47,8 +47,11 @@ whole entity.
 ## Sketch-modification tools
 
 **Closed:** `Trim`, `Extend`, `Break`, `CreateFillet`, `CreateChamfer`,
-`CreateMirror`, `CreatePatternRect`, `CreatePatternCircular` and `CreateOffset`.
-Design in `docs/modification-tools-design.md`.
+`CreateMirror`, `CreatePatternRect`, `CreatePatternCircular` and `CreateOffset`,
+as package-level functions. `Trim`, `Extend` and `CreateFillet` take lines and
+arcs, `TrimCircle` trims a circle, and trim, extend, fillet and chamfer edit the
+curve in place as Fusion does. Design in `docs/modification-tools-design.md`
+and `docs/curve-modify-tools-design.md`.
 
 **Open:**
 
@@ -56,9 +59,6 @@ Design in `docs/modification-tools-design.md`.
   Mirror and the two patterns are the only ways to copy geometry.
 - **Offset of arcs and circles.** `CreateOffset` skips every entity that is not a
   line.
-- **Trim, extend, fillet and chamfer on curves.** `Trim` and `Extend` take a
-  `*Line`, and `CreateFillet` and `CreateChamfer` take two `*Line` operands.
-  `Break` accepts any entity.
 - **Project, include and intersect.** These stay out by design. The engine verifies
   against 2D curves you hand it as reference geometry and never computes them from
   a solid.
