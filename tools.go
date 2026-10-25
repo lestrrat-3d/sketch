@@ -39,8 +39,8 @@ var (
 	ErrReferenceGeometry = errors.New("sketch: cannot modify reference geometry")
 	// ErrUnsupportedEntity is returned by the pattern tools (CreatePatternRect,
 	// CreatePatternCircular) when the seed holds an entity kind the copy funnel
-	// cannot reproduce. Only lines, circles and arcs are copied: every other
-	// kind needs the transform's rotation or reflection applied to a shape the
+	// cannot reproduce. Only lines, circles, arcs and fit splines are copied: every
+	// other kind needs the transform's rotation or reflection applied to a shape the
 	// point-relinking interface does not carry. CreateMirror (which has no error
 	// return) reports it by returning nil.
 	ErrUnsupportedEntity = errors.New("sketch: entity kind cannot be copied by this tool")
@@ -477,7 +477,7 @@ func containsReference(ents []Entity) bool {
 func unsupportedSeed(ents []Entity) (Entity, bool) {
 	for _, e := range ents {
 		switch e.(type) {
-		case *Line, *Circle, *Arc:
+		case *Line, *Circle, *Arc, *FitSpline:
 		default:
 			return e, true
 		}
@@ -486,8 +486,8 @@ func unsupportedSeed(ents []Entity) (Entity, bool) {
 }
 
 // CreateMirror reflects each entity across the infinite line through axis,
-// creating a linked copy. Only lines, circles and arcs can be copied; it
-// returns nil if the seed holds any other entity kind. Copies share a mirror
+// creating a linked copy. Only lines, circles, arcs and fit splines can be
+// copied; it returns nil if the seed holds any other entity kind. Copies share a mirror
 // point wherever their sources share a vertex, so a connected source chain
 // mirrors to a connected copy. Each source point and its copy are tied with
 // [NewSymmetric] (about axis); circles additionally get [NewEqualRadius], and
@@ -547,8 +547,8 @@ type Pattern struct {
 // It returns [ErrForeignEntity] if a seed entity, or a point defining one, is
 // not live in this sketch, [ErrInvalidShape] if nx or ny is below 1, and
 // [ErrUnsupportedEntity] if the seed holds an entity kind other than a line,
-// circle or arc — only those three can be copied, so the refusal is what keeps
-// the limit from silently shrinking the pattern.
+// circle, arc or fit spline — only those four can be copied, so the refusal is
+// what keeps the limit from silently shrinking the pattern.
 func (s *Sketch) CreatePatternRect(ents []Entity, nx, ny int, dx, dy float64) (*Pattern, error) {
 	if s.foreignInput(ents...) {
 		return nil, ErrForeignEntity
@@ -560,7 +560,7 @@ func (s *Sketch) CreatePatternRect(ents []Entity, nx, ny int, dx, dy float64) (*
 		return nil, fmt.Errorf("%w: CreatePatternRect requires nx,ny >= 1, got %d,%d", ErrInvalidShape, nx, ny)
 	}
 	if e, ok := unsupportedSeed(ents); ok {
-		return nil, fmt.Errorf("%w: CreatePatternRect cannot copy %T; only *sketch.Line, *sketch.Circle and *sketch.Arc are copied", ErrUnsupportedEntity, e)
+		return nil, fmt.Errorf("%w: CreatePatternRect cannot copy %T; only *sketch.Line, *sketch.Circle, *sketch.Arc and *sketch.FitSpline are copied", ErrUnsupportedEntity, e)
 	}
 	p := &Pattern{Seed: ents}
 	for j := 0; j < ny; j++ {
@@ -595,8 +595,8 @@ func (s *Sketch) CreatePatternRect(ents []Entity, nx, ny int, dx, dy float64) (*
 // [ErrForeignEntity] if a seed entity, a point defining one, or the center is
 // not a live handle of this sketch, [ErrInvalidShape] if n is below 2, and
 // [ErrUnsupportedEntity] if the seed holds an entity kind other than a line,
-// circle or arc — only those three can be copied, so the refusal is what keeps
-// the limit from silently shrinking the pattern.
+// circle, arc or fit spline — only those four can be copied, so the refusal is
+// what keeps the limit from silently shrinking the pattern.
 func (s *Sketch) CreatePatternCircular(ents []Entity, center *Point, n int) (*Pattern, error) {
 	if s.foreignInput(ents...) || !s.owns(center) {
 		return nil, ErrForeignEntity
@@ -608,7 +608,7 @@ func (s *Sketch) CreatePatternCircular(ents []Entity, center *Point, n int) (*Pa
 		return nil, fmt.Errorf("%w: CreatePatternCircular requires n >= 2, got %d", ErrInvalidShape, n)
 	}
 	if e, ok := unsupportedSeed(ents); ok {
-		return nil, fmt.Errorf("%w: CreatePatternCircular cannot copy %T; only *sketch.Line, *sketch.Circle and *sketch.Arc are copied", ErrUnsupportedEntity, e)
+		return nil, fmt.Errorf("%w: CreatePatternCircular cannot copy %T; only *sketch.Line, *sketch.Circle, *sketch.Arc and *sketch.FitSpline are copied", ErrUnsupportedEntity, e)
 	}
 	step := 2 * math.Pi / float64(n)
 	p := &Pattern{Seed: ents}
@@ -732,10 +732,11 @@ func (s *Sketch) CreateOffset(ents []Entity, d float64) (*OffsetGroup, error) {
 // to grp; copies inherit their source's construction flag. swapArc reverses arc
 // orientation (used by mirror, not by patterns).
 func (s *Sketch) instantiate(ents []Entity, link func(*Point) *Point, swapArc bool, grp *Pattern) {
-	// Only line/circle/arc are copied: the rotated-shape entities (ellipse,
-	// elliptical arc) and splines need the transform's rotation/reflection
-	// applied to their shape — information the point-relinking interface here
-	// does not carry — so the modification tools do not yet pattern/mirror them.
+	// Only line/circle/arc/fit spline are copied: the rotated-shape entities
+	// (ellipse, elliptical arc) and the other splines need the transform's
+	// rotation/reflection applied to their shape — information the
+	// point-relinking interface here does not carry — so the modification tools
+	// do not yet pattern/mirror them.
 	// Every caller screens the seed with unsupportedSeed first, so an unhandled
 	// type is refused before anything is committed rather than dropped here.
 	for _, e := range ents {
@@ -759,6 +760,20 @@ func (s *Sketch) instantiate(ents []Entity, link func(*Point) *Point, swapArc bo
 			ca := s.CreateArc(cc, cs, ce)
 			ca.SetConstruction(t.IsConstruction())
 			grp.Instances = append(grp.Instances, ca)
+		case *FitSpline:
+			// A fit spline is defined by its fit points alone: the natural cubic
+			// through them is parametrized by chord length, which a rotation, a
+			// reflection and a translation all preserve, so the copy through the
+			// linked points IS the transformed spline and needs no constraint of
+			// its own. Shared fit points share their copies through link.
+			fit := make([]*Point, len(t.Fit))
+			for i, p := range t.Fit {
+				fit[i] = link(p)
+			}
+			// The fit-point count and non-nil links meet CreateFitSpline's minimums.
+			cf, _ := s.CreateFitSpline(fit...)
+			cf.SetConstruction(t.IsConstruction())
+			grp.Instances = append(grp.Instances, cf)
 		}
 	}
 }
