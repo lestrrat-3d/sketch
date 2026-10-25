@@ -23,7 +23,7 @@ func Example_sketch_fillet() {
 	l1 := s.CreateLine(a, corner)
 	l2 := s.CreateLine(corner, b)
 
-	f, err := s.CreateFillet(l1, l2, 3)
+	f, err := sketch.CreateFillet(s, l1, l2, corner, 3)
 	if err != nil {
 		fmt.Printf("failed to fillet: %s\n", err)
 		return

@@ -1041,10 +1041,10 @@ func (s *Sketch) CreateConic(start, apex, end *Point, rho float64) (*Conic, erro
 var ErrNotConverged = errors.New("sketch: constraint solver did not converge")
 
 // ErrForeignEntity is returned by [Sketch.WorldPolyline] and by the
-// error-returning modification tools ([Sketch.CreateFillet],
-// [Sketch.CreateChamfer], [Sketch.CreatePatternRect],
-// [Sketch.CreatePatternCircular], [Sketch.CreateOffset]) when a handle is nil, a
-// removed (dead) handle, or belongs to a different sketch. The tools with no
-// error return report the same condition as [Sketch.Trim], [Sketch.Extend] and
-// [Sketch.Break] do — false — or, for [Sketch.CreateMirror], nil.
+// error-returning modification tools ([CreateFillet], [CreateChamfer],
+// [CreateMirror], [CreatePatternRect], [CreatePatternCircular],
+// [CreatePatternCircularRing], [CreateOffset]) when the sketch is nil or a
+// handle is nil, a removed (dead) handle, or belongs to a different sketch. The
+// tools with no error return ([Trim], [Extend], [Break]) report the same
+// condition by returning false.
 var ErrForeignEntity = errors.New("sketch: entity is not a live member of this sketch")

@@ -10,16 +10,36 @@ import (
 	"github.com/lestrrat-3d/units"
 )
 
-// Sketch-modification tools mutate committed geometry by the build-then-replace
-// pattern: they read the current geometry via each entity's Geometry snapshot,
-// compute the replacement with the geom math layer, build the new geometry from
-// sketch points (reusing the originals' surviving points so neighbouring
-// geometry stays attached), and retire the originals with RemoveEntity.
-// Constraints that referenced a replaced entity by identity are dropped with it
-// (the removal cascade); constraints on the surviving shared points are kept.
-// Replaced handles are dead.
+// Sketch-modification tools are package-level functions that take the sketch
+// first. They mutate committed geometry by the build-then-replace pattern: they
+// read the current geometry via each entity's Geometry snapshot, compute the
+// replacement with the geom math layer, build the new geometry from sketch
+// points (reusing the originals' surviving points so neighbouring geometry stays
+// attached), and retire the originals with RemoveEntity. Constraints that
+// referenced a replaced entity by identity are dropped with it (the removal
+// cascade); constraints on the surviving shared points are kept. Replaced
+// handles are dead. Every tool refuses a nil sketch.
 
 const epsTool = 1e-9
+
+// OpenCurve is the set of curve types the modification tools split, trim,
+// extend and fillet: curves with two end points. Use it only as a type
+// constraint.
+type OpenCurve interface{ *Line | *Arc }
+
+// asEntity returns e as an Entity. A typed-nil e gives a non-nil interface
+// holding the nil pointer, which foreignInput refuses.
+func asEntity[T OpenCurve](e T) Entity {
+	ent, _ := any(e).(Entity)
+	return ent
+}
+
+// asCurve returns e as the curve type T, or T's zero value when e holds a
+// different type.
+func asCurve[T OpenCurve](e Entity) T {
+	t, _ := any(e).(T)
+	return t
+}
 
 // Errors returned by the corner-modification tools.
 var (
@@ -33,17 +53,17 @@ var (
 	// the legs are collinear, or the setback exceeds either leg.
 	ErrChamferInfeasible = errors.New("sketch: chamfer distance does not fit the corner")
 	// ErrReferenceGeometry is returned by the modification tools (CreateFillet,
-	// CreateChamfer, CreatePatternRect, CreatePatternCircular, CreateOffset) when an input is
-	// reference geometry, which is externally locked and must not be modified or
-	// re-derived. Trim/Extend/Break report it by returning false, and CreateMirror
-	// (which has no error return) by returning nil.
+	// CreateChamfer, CreateMirror, CreatePatternRect, CreatePatternCircular,
+	// CreateOffset) when an input is reference geometry, which is externally
+	// locked and must not be modified or re-derived. Trim/Extend/Break report it
+	// by returning false.
 	ErrReferenceGeometry = errors.New("sketch: cannot modify reference geometry")
-	// ErrUnsupportedEntity is returned by the pattern tools (CreatePatternRect,
-	// CreatePatternCircular) when the seed holds an entity kind the copy funnel
-	// cannot reproduce. Only lines, circles, arcs and fit splines are copied: every
+	// ErrUnsupportedEntity is returned by the copy tools (CreateMirror,
+	// CreatePatternRect, CreatePatternCircular) when the seed holds an entity kind
+	// the copy funnel cannot reproduce, and by CreateFillet for an operand kind it
+	// does not fillet. Only lines, circles, arcs and fit splines are copied: every
 	// other kind needs the transform's rotation or reflection applied to a shape the
-	// point-relinking interface does not carry. CreateMirror (which has no error
-	// return) reports it by returning nil.
+	// point-relinking interface does not carry.
 	ErrUnsupportedEntity = errors.New("sketch: entity kind cannot be copied by this tool")
 )
 
@@ -75,8 +95,11 @@ var (
 // second list to keep in step. Ownership is s.owns, the same predicate Verify's
 // integrity scan and MarshalJSON use — it carries the origin exception, so
 // geometry drawn from [Sketch.Origin] (deliberately absent from s.points) stays
-// a valid tool input.
+// a valid tool input. A nil sketch owns nothing, so every input is foreign to it.
 func (s *Sketch) foreignInput(ents ...Entity) bool {
+	if s == nil {
+		return true
+	}
 	for _, e := range ents {
 		if !s.ownsEntity(e) {
 			return true
@@ -91,62 +114,79 @@ func (s *Sketch) foreignInput(ents ...Entity) bool {
 }
 
 // Break splits a committed line or arc at the projection of (x, y) onto it,
-// replacing the original with two entities that share a fresh vertex point at
-// the split and reporting them. It returns false (changing nothing) when e is
-// not a line or arc, or the projection falls outside the segment / arc sweep.
-// It also returns false when e is not a live entity of this sketch (nil, dead,
-// or foreign) or is defined by a point that is not a live point of this sketch.
-// The original entity handle and any constraints that referenced it
-// are gone; constraints on the surviving endpoints remain.
-func (s *Sketch) Break(e Entity, x, y float64) (Entity, Entity, bool) {
-	if s.foreignInput(e) {
-		return nil, nil, false // nil, removed, or another sketch's entity
+// replacing the original with two curves of the same type that share a fresh
+// vertex point at the split, and returns them. It returns false (changing
+// nothing) when the projection falls outside the segment / arc sweep, when s is
+// nil, when e is reference geometry, or when e is not a live entity of s (nil,
+// dead, or foreign) or is defined by a point that is not a live point of s. The
+// original handle and any constraints that referenced it are gone; constraints
+// on the surviving endpoints remain.
+func Break[T OpenCurve](s *Sketch, e T, x, y float64) (T, T, bool) {
+	var zero T
+	ent := asEntity(e)
+	if s.foreignInput(ent) {
+		return zero, zero, false // nil, removed, or another sketch's entity
 	}
-	if e.IsReference() {
-		return nil, nil, false // reference geometry is locked; cannot be split
+	if ent.IsReference() {
+		return zero, zero, false // reference geometry is locked; cannot be split
 	}
-	switch t := e.(type) {
+	switch t := ent.(type) {
 	case *Line:
 		sl := t.Geometry()
 		_, param := geom.ClosestPointOnLine(sl, geom.NewPoint(x, y))
 		if param <= epsTool || param >= 1-epsTool {
-			return nil, nil, false
+			return zero, zero, false
 		}
 		mid := s.CreatePoint(sl.Start.X+param*(sl.End.X-sl.Start.X), sl.Start.Y+param*(sl.End.Y-sl.Start.Y))
 		l1, l2 := s.CreateLine(t.Start, mid), s.CreateLine(mid, t.End)
 		s.RemoveEntity(t)
-		return l1, l2, true
+		return asCurve[T](l1), asCurve[T](l2), true
 	case *Arc:
 		sa := t.Geometry()
 		cx, cy, r := sa.Center.X, sa.Center.Y, sa.Radius()
 		ang := math.Atan2(y-cy, x-cx)
 		split := geom.NewPoint(cx+r*math.Cos(ang), cy+r*math.Sin(ang))
 		if !sa.Contains(split) || near(split, sa.Start) || near(split, sa.End) {
-			return nil, nil, false
+			return zero, zero, false
 		}
 		mid := s.CreatePoint(split.X, split.Y)
 		a1, a2 := s.CreateArc(t.Center, t.Start, mid), s.CreateArc(t.Center, mid, t.End)
 		s.RemoveEntity(t)
-		return a1, a2, true
+		return asCurve[T](a1), asCurve[T](a2), true
 	}
-	return nil, nil, false
+	return zero, zero, false
 }
 
-// Trim shortens line l by removing the portion adjacent to an endpoint up to
-// its nearest crossing with another entity, choosing the end nearest the pick
-// point (x, y). It returns the shortened replacement line and true, or false
-// (changing nothing) when l has no crossing on the picked side, or the pick
-// sits on an interior portion bounded by crossings on both sides (which would
-// split the line — use Break instead), or when l is not a live line of this
-// sketch (nil, dead, or foreign) or has an endpoint that is not a live point of
-// this sketch. The original handle is dead.
-func (s *Sketch) Trim(l *Line, x, y float64) (*Line, bool) {
-	if s.foreignInput(l) {
-		return nil, false // nil, removed, or another sketch's line
+// Trim shortens e by removing the portion adjacent to an endpoint up to its
+// nearest crossing with another entity, choosing the end nearest the pick point
+// (x, y). It returns the result, of the same type as e, and true. It returns nil
+// and false (changing nothing) when s is nil; when e is not a live entity of s
+// (nil, dead, or foreign) or has an endpoint that is not a live point of s; when
+// e is reference geometry; when e has no crossing on the picked side; or when
+// the pick sits on an interior portion bounded by crossings on both sides (use
+// [Break]). Lines are handled; an arc returns nil and false. The original handle
+// is dead.
+func Trim[T OpenCurve](s *Sketch, e T, x, y float64) ([]T, bool) {
+	ent := asEntity(e)
+	if s.foreignInput(ent) {
+		return nil, false // nil, removed, or another sketch's entity
 	}
-	if l.IsReference() {
+	if ent.IsReference() {
 		return nil, false // reference geometry is locked; cannot be trimmed
 	}
+	l, ok := ent.(*Line)
+	if !ok {
+		return nil, false // arcs are not trimmed yet
+	}
+	nl, ok := s.trimLine(l, x, y)
+	if !ok {
+		return nil, false
+	}
+	return []T{asCurve[T](nl)}, true
+}
+
+// trimLine is Trim for a screened line.
+func (s *Sketch) trimLine(l *Line, x, y float64) (*Line, bool) {
 	sl := l.Geometry()
 	_, pick := geom.ClosestPointOnLine(sl, geom.NewPoint(x, y))
 	hits := s.lineCrossings(sl, l, true)
@@ -179,19 +219,35 @@ func (s *Sketch) Trim(l *Line, x, y float64) (*Line, bool) {
 	return nil, false
 }
 
-// Extend lengthens line l from the given endpoint (l.Start or l.End) to its
-// nearest crossing with another entity beyond that end, replacing l and
-// returning the lengthened line. It returns false (changing nothing) when end
-// is neither endpoint or no entity lies beyond it, and when l, either of its
-// endpoints, or end is not a live handle of this sketch (nil, dead, or
-// foreign). The original handle is dead.
-func (s *Sketch) Extend(l *Line, end *Point) (*Line, bool) {
-	if s.foreignInput(l) || !s.owns(end) {
-		return nil, false // nil, removed, or another sketch's handle
+// Extend lengthens e from the given endpoint (its Start or End) to its nearest
+// crossing with another entity beyond that end, and returns the result, of the
+// same type as e. It returns false (changing nothing) when end is neither
+// endpoint or no entity lies beyond it; when s is nil; when e is reference
+// geometry; and when e, either of its endpoints, or end is not a live handle of
+// s (nil, dead, or foreign). Lines are handled; an arc returns false. The
+// original handle is dead.
+func Extend[T OpenCurve](s *Sketch, e T, end *Point) (T, bool) {
+	var zero T
+	ent := asEntity(e)
+	if s.foreignInput(ent) || !s.owns(end) {
+		return zero, false // nil, removed, or another sketch's handle
 	}
-	if l.IsReference() {
-		return nil, false // reference geometry is locked; cannot be extended
+	if ent.IsReference() {
+		return zero, false // reference geometry is locked; cannot be extended
 	}
+	l, ok := ent.(*Line)
+	if !ok {
+		return zero, false // arcs are not extended yet
+	}
+	nl, ok := s.extendLine(l, end)
+	if !ok {
+		return zero, false
+	}
+	return asCurve[T](nl), true
+}
+
+// extendLine is Extend for a screened line.
+func (s *Sketch) extendLine(l *Line, end *Point) (*Line, bool) {
 	if end != l.Start && end != l.End {
 		return nil, false
 	}
@@ -275,36 +331,44 @@ func near(a, b *geom.Point) bool { return math.Hypot(a.X-b.X, a.Y-b.Y) <= epsToo
 
 // --- fillet / chamfer -------------------------------------------------------
 
-// Fillet groups the geometry created by [Sketch.CreateFillet]: the rounding arc,
-// the two shortened legs that meet it, the contact points T1 (on L1) and T2
-// (on L2), and the editable radius dimension.
-type Fillet struct {
+// Fillet groups the geometry created by [CreateFillet]: the rounding arc, the
+// two shortened legs that meet it (of the same types as the inputs), the contact
+// points T1 (on L1) and T2 (on L2), and the editable radius dimension.
+type Fillet[A, B OpenCurve] struct {
 	Arc    *Arc
-	L1, L2 *Line
+	L1     A
+	L2     B
 	T1, T2 *Point
 	Radius *Distance
 }
 
-// CreateFillet rounds the corner shared by lines l1 and l2 with a tangent arc of
-// radius r. The shared corner is removed and each leg is shortened to its
-// contact point; the arc is held tangent to both legs and its radius pinned by
-// an editable dimension, so editing [Fillet.Radius] and re-solving keeps the
-// rounding tangent. The original legs (and any constraints that referenced them
-// as entities — horizontal, angle, …) are replaced; re-apply such constraints
-// to the returned [Fillet.L1]/[Fillet.L2] if needed. Constraints on the
-// surviving far endpoints are kept. Returns [ErrForeignEntity] when either line
-// is not a live entity of this sketch (nil, dead, or foreign) or has an
-// endpoint that is not a live point of this sketch, [ErrNoSharedCorner] or
+// CreateFillet rounds the corner where e1 and e2 meet with a tangent arc of
+// radius r. corner must be an endpoint of both curves. The corner is removed and
+// each leg is shortened to its contact point; the arc is held tangent to both
+// legs and its radius pinned by an editable dimension, so editing
+// [Fillet.Radius] and re-solving keeps the rounding tangent. The original legs
+// (and any constraints that referenced them as entities — horizontal, angle, …)
+// are replaced; re-apply such constraints to the returned [Fillet.L1]/[Fillet.L2]
+// if needed. Constraints on the surviving far endpoints are kept. Two lines are
+// handled; an arc operand returns [ErrUnsupportedEntity]. Returns
+// [ErrForeignEntity] when s is nil or either curve or corner is not a live
+// handle of s (nil, dead, or foreign) or a curve has an endpoint that is not a
+// live point of s, [ErrReferenceGeometry], [ErrNoSharedCorner] or
 // [ErrFilletInfeasible] — in each case without modifying the sketch.
-func (s *Sketch) CreateFillet(l1, l2 *Line, r float64) (*Fillet, error) {
-	if s.foreignInput(l1, l2) {
+func CreateFillet[A, B OpenCurve](s *Sketch, e1 A, e2 B, corner *Point, r float64) (*Fillet[A, B], error) {
+	ent1, ent2 := asEntity(e1), asEntity(e2)
+	if s.foreignInput(ent1, ent2) || !s.owns(corner) {
 		return nil, ErrForeignEntity
 	}
-	if l1.IsReference() || l2.IsReference() {
+	if ent1.IsReference() || ent2.IsReference() {
 		return nil, ErrReferenceGeometry
 	}
-	corner := sharedPoint(l1, l2)
-	if corner == nil {
+	l1, ok1 := ent1.(*Line)
+	l2, ok2 := ent2.(*Line)
+	if !ok1 || !ok2 {
+		return nil, fmt.Errorf("%w: CreateFillet does not fillet an arc yet", ErrUnsupportedEntity)
+	}
+	if sharedPoint(l1, l2) != corner {
 		return nil, ErrNoSharedCorner
 	}
 	far1, far2 := otherSketchEnd(l1, corner), otherSketchEnd(l2, corner)
@@ -335,10 +399,10 @@ func (s *Sketch) CreateFillet(l1, l2 *Line, r float64) (*Fillet, error) {
 	s.RemoveEntity(l2)
 	s.RemovePoint(corner)
 
-	return &Fillet{Arc: nArc, L1: nL1, L2: nL2, T1: t1, T2: t2, Radius: rad}, nil
+	return &Fillet[A, B]{Arc: nArc, L1: asCurve[A](nL1), L2: asCurve[B](nL2), T1: t1, T2: t2, Radius: rad}, nil
 }
 
-// Chamfer groups the geometry created by [Sketch.CreateChamfer]: the cut line, the
+// Chamfer groups the geometry created by [CreateChamfer]: the cut line, the
 // two shortened legs, the contact points T1/T2, and the editable setback
 // dimensions D1/D2 (each the surviving distance from a far endpoint to its
 // contact).
@@ -354,11 +418,11 @@ type Chamfer struct {
 // and each leg shortened to its contact; the contacts are pinned by editable
 // distance dimensions from the far endpoints (D1/D2), so editing them and
 // re-solving moves the chamfer parametrically. Constraint handling matches
-// [Sketch.CreateFillet]. Returns [ErrForeignEntity] when either line is not a
-// live entity of this sketch (nil, dead, or foreign) or has an endpoint that is
-// not a live point of this sketch, [ErrNoSharedCorner] or
+// [CreateFillet]. Returns [ErrForeignEntity] when s is nil or either line is not
+// a live entity of s (nil, dead, or foreign) or has an endpoint that is not a
+// live point of s, [ErrReferenceGeometry], [ErrNoSharedCorner] or
 // [ErrChamferInfeasible] — in each case without modifying the sketch.
-func (s *Sketch) CreateChamfer(l1, l2 *Line, d float64) (*Chamfer, error) {
+func CreateChamfer(s *Sketch, l1, l2 *Line, d float64) (*Chamfer, error) {
 	if s.foreignInput(l1, l2) {
 		return nil, ErrForeignEntity
 	}
@@ -439,7 +503,7 @@ func (s *Sketch) orientLeg(orig *Line, corner, far, contact *Point) *Line {
 
 // --- mirror -----------------------------------------------------------------
 
-// Mirror groups the geometry created by [Sketch.CreateMirror]: the source entities
+// Mirror groups the geometry created by [CreateMirror]: the source entities
 // (left in place), their mirrored copies, and the constraints that keep each
 // copy the reflection of its source — symmetric constraints on every point pair
 // plus an equal-radius constraint per circle. Editing a source and re-solving
@@ -488,23 +552,24 @@ func unsupportedSeed(ents []Entity) (Entity, bool) {
 
 // CreateMirror reflects each entity across the infinite line through axis,
 // creating a linked copy. Only lines, circles, arcs and fit splines can be
-// copied; it returns nil if the seed holds any other entity kind. Copies share a mirror
-// point wherever their sources share a vertex, so a connected source chain
-// mirrors to a connected copy. Each source point and its copy are tied with
-// [NewSymmetric] (about axis); circles additionally get [NewEqualRadius], and
-// arcs are reversed to stay counter-clockwise. The sources are left untouched.
-// Returns nil if any source or the axis is reference geometry, is not a live
-// entity of this sketch (nil, dead, or foreign), or is defined by a point that
-// is not a live point of this sketch.
-func (s *Sketch) CreateMirror(ents []Entity, axis *Line) *Mirror {
+// copied. Copies share a mirror point wherever their sources share a vertex, so a
+// connected source chain mirrors to a connected copy. Each source point and its
+// copy are tied with [NewSymmetric] (about axis); circles additionally get
+// [NewEqualRadius], and arcs are reversed to stay counter-clockwise. The sources
+// are left untouched. It returns [ErrForeignEntity] when s is nil or a source,
+// the axis, or a point defining one is not live in s; [ErrReferenceGeometry]
+// when a source or the axis is reference geometry; and [ErrUnsupportedEntity]
+// when the seed holds any other entity kind — in each case without modifying
+// the sketch.
+func CreateMirror(s *Sketch, ents []Entity, axis *Line) (*Mirror, error) {
 	if s.foreignInput(ents...) || s.foreignInput(axis) {
-		return nil // nil, removed, or another sketch's entity
+		return nil, ErrForeignEntity
 	}
 	if containsReference(ents) || axis.IsReference() {
-		return nil // reference geometry is locked; cannot be mirrored
+		return nil, ErrReferenceGeometry
 	}
-	if _, ok := unsupportedSeed(ents); ok {
-		return nil // an entity kind the copy funnel cannot reproduce
+	if e, ok := unsupportedSeed(ents); ok {
+		return nil, fmt.Errorf("%w: CreateMirror cannot copy %T; only *sketch.Line, *sketch.Circle, *sketch.Arc and *sketch.FitSpline are copied", ErrUnsupportedEntity, e)
 	}
 	gaxis := axis.Geometry()
 	copyOf := map[*Point]*Point{}
@@ -524,13 +589,13 @@ func (s *Sketch) CreateMirror(ents []Entity, axis *Line) *Mirror {
 	}
 	// Reflection reverses arc sweep, so copies are committed start/end-swapped.
 	s.instantiate(ents, link, true, grp)
-	return &Mirror{Originals: ents, Copies: grp.Instances, Constraints: grp.Constraints}
+	return &Mirror{Originals: ents, Copies: grp.Instances, Constraints: grp.Constraints}, nil
 }
 
 // --- patterns ---------------------------------------------------------------
 
-// Pattern groups the geometry created by [Sketch.CreatePatternRect] and
-// [Sketch.CreatePatternCircular]: the seed entities (left in place), every copy
+// Pattern groups the geometry created by [CreatePatternRect] and
+// [CreatePatternCircular]: the seed entities (left in place), every copy
 // instance, the constraints tying each copy to the seed, and — for a circular
 // pattern — the construction spokes that hold the angular spacing.
 type Pattern struct {
@@ -545,12 +610,12 @@ type Pattern struct {
 // holds a copy whose points are tied to the seed's corresponding points by
 // horizontal and vertical distance dimensions (and an equal-radius constraint
 // per circle), so the whole grid follows when the seed is moved or resized.
-// It returns [ErrForeignEntity] if a seed entity, or a point defining one, is
-// not live in this sketch, [ErrInvalidShape] if nx or ny is below 1, and
+// It returns [ErrForeignEntity] if s is nil or a seed entity, or a point
+// defining one, is not live in s, [ErrInvalidShape] if nx or ny is below 1, and
 // [ErrUnsupportedEntity] if the seed holds an entity kind other than a line,
 // circle, arc or fit spline — only those four can be copied, so the refusal is
 // what keeps the limit from silently shrinking the pattern.
-func (s *Sketch) CreatePatternRect(ents []Entity, nx, ny int, dx, dy float64) (*Pattern, error) {
+func CreatePatternRect(s *Sketch, ents []Entity, nx, ny int, dx, dy float64) (*Pattern, error) {
 	if s.foreignInput(ents...) {
 		return nil, ErrForeignEntity
 	}
@@ -593,16 +658,16 @@ func (s *Sketch) CreatePatternRect(ents []Entity, nx, ny int, dx, dy float64) (*
 // (2π/n) about center; cell 0 is the seed. Each copy point is tied to its
 // source by a construction spoke from center constrained equal in length and at
 // the instance's angle, so the ring follows when the seed is moved. It returns
-// [ErrForeignEntity] if a seed entity, a point defining one, or the center is
-// not a live handle of this sketch, [ErrInvalidShape] if n is below 2, and
+// [ErrForeignEntity] if s is nil or a seed entity, a point defining one, or the
+// center is not a live handle of s, [ErrInvalidShape] if n is below 2, and
 // [ErrUnsupportedEntity] if the seed holds an entity kind other than a line,
 // circle, arc or fit spline — only those four can be copied, so the refusal is
 // what keeps the limit from silently shrinking the pattern.
-func (s *Sketch) CreatePatternCircular(ents []Entity, center *Point, n int) (*Pattern, error) {
+func CreatePatternCircular(s *Sketch, ents []Entity, center *Point, n int) (*Pattern, error) {
 	return s.createPatternCircular("CreatePatternCircular", ents, center, n, nil, nil)
 }
 
-// CreatePatternCircularRing is [Sketch.CreatePatternCircular] for a seed that is
+// CreatePatternCircularRing is [CreatePatternCircular] for a seed that is
 // one link of a closed ring: a chain of entities running from the point start to
 // the point end, where end is start turned by one step (2π/n) about center. The
 // copies are joined to each other and to the seed by SHARING that junction point
@@ -617,12 +682,11 @@ func (s *Sketch) CreatePatternCircular(ents []Entity, center *Point, n int) (*Pa
 // caller must NOT dimension it (one more constraint would be redundant). Draw it
 // where it belongs; the solver does not need to move it.
 //
-// start and end must be distinct, live points of this sketch other than center,
-// and each must define at least one seed entity, else [ErrInvalidShape]. All
-// the other errors are CreatePatternCircular's, and n below 2 is refused the
-// same way.
-func (s *Sketch) CreatePatternCircularRing(ents []Entity, center *Point, n int, start, end *Point) (*Pattern, error) {
-	if !s.owns(start) || !s.owns(end) {
+// start and end must be distinct, live points of s other than center, and each
+// must define at least one seed entity, else [ErrInvalidShape]. All the other
+// errors are CreatePatternCircular's, and n below 2 is refused the same way.
+func CreatePatternCircularRing(s *Sketch, ents []Entity, center *Point, n int, start, end *Point) (*Pattern, error) {
+	if s == nil || !s.owns(start) || !s.owns(end) {
 		return nil, ErrForeignEntity
 	}
 	if start == end || start == center || end == center {
@@ -633,7 +697,7 @@ func (s *Sketch) CreatePatternCircularRing(ents []Entity, center *Point, n int, 
 
 // createPatternCircular builds both circular patterns. start and end are nil for
 // a plain pattern; for a ring they are the seed's first and last junction points
-// (see [Sketch.CreatePatternCircularRing]).
+// (see [CreatePatternCircularRing]).
 func (s *Sketch) createPatternCircular(name string, ents []Entity, center *Point, n int, start, end *Point) (*Pattern, error) {
 	if s.foreignInput(ents...) || !s.owns(center) {
 		return nil, ErrForeignEntity
@@ -730,7 +794,7 @@ func seedDefinedBy(ents []Entity, pt *Point) bool {
 
 // --- offset -----------------------------------------------------------------
 
-// OffsetGroup groups the geometry created by [Sketch.CreateOffset]: the source
+// OffsetGroup groups the geometry created by [CreateOffset]: the source
 // lines (left in place), their offset copies, and the per-segment offset
 // constraints. Use [OffsetGroup.Set] to retarget the whole offset distance at
 // once and re-solve.
@@ -754,11 +818,11 @@ func (g *OffsetGroup) Set(d float64) {
 // constraint; offset segments that meet at a shared source corner share a
 // single offset point, which the two constraints pull to the offset
 // intersection — so editing the distance keeps a mitred chain. Non-line
-// entities in ents are skipped. It returns [ErrForeignEntity] if a source
-// entity, or a point defining one, is not live in this sketch, and
+// entities in ents are skipped. It returns [ErrForeignEntity] if s is nil or a
+// source entity, or a point defining one, is not live in s, and
 // [ErrInvalidShape] if a source line has zero length (no defined offset
 // direction).
-func (s *Sketch) CreateOffset(ents []Entity, d float64) (*OffsetGroup, error) {
+func CreateOffset(s *Sketch, ents []Entity, d float64) (*OffsetGroup, error) {
 	if s.foreignInput(ents...) {
 		return nil, ErrForeignEntity
 	}

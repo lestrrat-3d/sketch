@@ -101,15 +101,15 @@ The third assertion is what separates a CAD tool from a drawing program.
 
 | Test | Status | Asserts |
 |---|---|---|
-| `TestTrimEndStub` / `TestTrimStartStub` / `TestTrimInteriorRejected` | [exists] | `s.Trim(line, x, y)` — committed line crossing a cutter: trim removes the stub on the pick side and replaces the line; a pick bounded by crossings on both sides is rejected (would split — use Break). |
-| `TestExtendToCutter` | [exists] | `s.Extend(line, end)` — endpoint extends to the nearest entity beyond it. |
-| `TestBreakLine` / `TestBreakArc` | [exists] | `s.Break(ent, x, y)` — one line/arc becomes two sharing the split vertex (and, for arcs, the center); `TestBreakIsParametric` dimensions a half and re-solves. |
-| `TestCreateFillet` | [exists] | `s.CreateFillet(l1, l2, r)` — removes the corner, adds the arc with tangent constraints to both legs + a radius dimension; editing `Fillet.Radius` and re-solving keeps tangency (parametric fillet). |
-| `TestCreateChamfer` | [exists] | `s.CreateChamfer(l1, l2, d)` — same shape with setback distance dimensions. |
-| `TestOffsetLine` / `TestOffsetChainMitresCorner` | [exists] | `s.CreateOffset(entities, d)` — a parallel chain bound by the new `Offset` **constraint**; corners mitre at the offset intersection and `OffsetGroup.Set(d)` + re-solve moves the copy. |
-| `TestMirrorLine` / `TestMirrorTracksSource` | [exists] | `s.CreateMirror(entities, axisLine)` — mirrored copies created with symmetric constraints; moving the original re-solves the mirror side. |
-| `TestPatternRect` / `TestPatternRectTracksSeed` | [exists] | `s.CreatePatternRect(entities, nx, ny, dx, dy)` — instances rigid-tied to and following the seed. |
-| `TestPatternCircular` | [exists] | `s.CreatePatternCircular(entities, center, n)` — equal angular spacing held by construction-spoke constraints. |
+| `TestTrimEndStub` / `TestTrimStartStub` / `TestTrimInteriorRejected` | [exists] | `Trim(s, line, x, y)` — committed line crossing a cutter: trim removes the stub on the pick side and replaces the line; a pick bounded by crossings on both sides is rejected (would split — use Break). |
+| `TestExtendToCutter` | [exists] | `Extend(s, line, end)` — endpoint extends to the nearest entity beyond it. |
+| `TestBreakLine` / `TestBreakArc` | [exists] | `Break(s, ent, x, y)` — one line/arc becomes two sharing the split vertex (and, for arcs, the center); `TestBreakIsParametric` dimensions a half and re-solves. |
+| `TestCreateFillet` | [exists] | `CreateFillet(s, l1, l2, corner, r)` — removes the corner, adds the arc with tangent constraints to both legs + a radius dimension; editing `Fillet.Radius` and re-solving keeps tangency (parametric fillet). |
+| `TestCreateChamfer` | [exists] | `CreateChamfer(s, l1, l2, d)` — same shape with setback distance dimensions. |
+| `TestOffsetLine` / `TestOffsetChainMitresCorner` | [exists] | `CreateOffset(s, entities, d)` — a parallel chain bound by the new `Offset` **constraint**; corners mitre at the offset intersection and `OffsetGroup.Set(d)` + re-solve moves the copy. |
+| `TestMirrorLine` / `TestMirrorTracksSource` | [exists] | `CreateMirror(s, entities, axisLine)` — mirrored copies created with symmetric constraints; moving the original re-solves the mirror side. |
+| `TestPatternRect` / `TestPatternRectTracksSeed` | [exists] | `CreatePatternRect(s, entities, nx, ny, dx, dy)` — instances rigid-tied to and following the seed. |
+| `TestPatternCircular` | [exists] | `CreatePatternCircular(s, entities, center, n)` — equal angular spacing held by construction-spoke constraints. |
 
 ## 6. Geometry coverage gaps
 

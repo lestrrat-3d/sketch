@@ -89,7 +89,7 @@ func TestPatternMirrorRefuseUnsupportedSeed(t *testing.T) {
 				s := newSketch(t)
 				seed := []sketch.Entity{tc.build(t, s)}
 
-				p, err := s.CreatePatternRect(seed, 2, 1, 30, 0)
+				p, err := sketch.CreatePatternRect(s, seed, 2, 1, 30, 0)
 				require.Nil(t, p)
 				require.ErrorIs(t, err, sketch.ErrUnsupportedEntity)
 				require.ErrorContains(t, err, "*sketch."+tc.name)
@@ -101,7 +101,7 @@ func TestPatternMirrorRefuseUnsupportedSeed(t *testing.T) {
 				seed := []sketch.Entity{tc.build(t, s)}
 				center := s.CreatePoint(-20, 0)
 
-				p, err := s.CreatePatternCircular(seed, center, 4)
+				p, err := sketch.CreatePatternCircular(s, seed, center, 4)
 				require.Nil(t, p)
 				require.ErrorIs(t, err, sketch.ErrUnsupportedEntity)
 				require.ErrorContains(t, err, "*sketch."+tc.name)
@@ -113,7 +113,9 @@ func TestPatternMirrorRefuseUnsupportedSeed(t *testing.T) {
 				seed := []sketch.Entity{tc.build(t, s)}
 				axis := s.CreateLine(s.CreatePoint(-20, -50), s.CreatePoint(-20, 50))
 
-				require.Nil(t, s.CreateMirror(seed, axis))
+				m, err := sketch.CreateMirror(s, seed, axis)
+				require.ErrorIs(t, err, sketch.ErrUnsupportedEntity)
+				require.Nil(t, m)
 			})
 		})
 	}
@@ -130,7 +132,7 @@ func TestPatternMirrorRefusalLeavesSketchUnchanged(t *testing.T) {
 				seed := []sketch.Entity{tc.build(t, s)}
 
 				pts, ents, cons, dof, rev := len(s.Points()), len(s.Entities()), len(s.Constraints()), s.DOF(), s.Revision()
-				_, err := s.CreatePatternRect(seed, 2, 1, 30, 0)
+				_, err := sketch.CreatePatternRect(s, seed, 2, 1, 30, 0)
 				require.Error(t, err)
 				require.Len(t, s.Points(), pts, "a refused pattern commits no point")
 				require.Len(t, s.Entities(), ents, "a refused pattern commits no entity")
@@ -145,7 +147,7 @@ func TestPatternMirrorRefusalLeavesSketchUnchanged(t *testing.T) {
 				center := s.CreatePoint(-20, 0)
 
 				pts, ents, cons, dof, rev := len(s.Points()), len(s.Entities()), len(s.Constraints()), s.DOF(), s.Revision()
-				_, err := s.CreatePatternCircular(seed, center, 4)
+				_, err := sketch.CreatePatternCircular(s, seed, center, 4)
 				require.Error(t, err)
 				require.Len(t, s.Points(), pts, "a refused pattern commits no point")
 				require.Len(t, s.Entities(), ents, "a refused pattern commits no entity")
@@ -160,7 +162,9 @@ func TestPatternMirrorRefusalLeavesSketchUnchanged(t *testing.T) {
 				axis := s.CreateLine(s.CreatePoint(-20, -50), s.CreatePoint(-20, 50))
 
 				pts, ents, cons, dof, rev := len(s.Points()), len(s.Entities()), len(s.Constraints()), s.DOF(), s.Revision()
-				require.Nil(t, s.CreateMirror(seed, axis))
+				m, err := sketch.CreateMirror(s, seed, axis)
+				require.ErrorIs(t, err, sketch.ErrUnsupportedEntity)
+				require.Nil(t, m)
 				require.Len(t, s.Points(), pts, "a refused mirror commits no point")
 				require.Len(t, s.Entities(), ents, "a refused mirror commits no entity")
 				require.Len(t, s.Constraints(), cons, "a refused mirror commits no constraint")
@@ -189,7 +193,7 @@ func TestPatternMirrorMixedSeedRefused(t *testing.T) {
 
 	pts, ents, cons, dof, rev := len(s.Points()), len(s.Entities()), len(s.Constraints()), s.DOF(), s.Revision()
 
-	p, err := s.CreatePatternCircular(seed, center, 6)
+	p, err := sketch.CreatePatternCircular(s, seed, center, 6)
 	require.Nil(t, p)
 	require.ErrorIs(t, err, sketch.ErrUnsupportedEntity)
 
@@ -209,7 +213,8 @@ func TestMirrorArcSwapsEnds(t *testing.T) {
 	axis := s.CreateLine(s.CreatePoint(0, -5), s.CreatePoint(0, 5)) // the y axis
 	a := s.CreateArc(s.CreatePoint(3, 0), s.CreatePoint(5, 0), s.CreatePoint(3, 2))
 
-	m := s.CreateMirror([]sketch.Entity{a}, axis)
+	m, err := sketch.CreateMirror(s, []sketch.Entity{a}, axis)
+	require.NoError(t, err)
 	require.NotNil(t, m)
 	require.Len(t, m.Copies, 1)
 	cp := m.Copies[0].(*sketch.Arc)
@@ -240,7 +245,7 @@ func TestPatternMirrorCopiesInheritConstruction(t *testing.T) {
 		s := newSketch(t)
 		seed := buildSeed(t, s)
 
-		p, err := s.CreatePatternRect([]sketch.Entity{seed}, 2, 1, 30, 0)
+		p, err := sketch.CreatePatternRect(s, []sketch.Entity{seed}, 2, 1, 30, 0)
 		require.NoError(t, err)
 		require.Len(t, p.Instances, 1)
 		cp := p.Instances[0].(*sketch.Line)
@@ -254,7 +259,7 @@ func TestPatternMirrorCopiesInheritConstruction(t *testing.T) {
 		seed := buildSeed(t, s)
 		center := s.CreatePoint(-20, 0)
 
-		p, err := s.CreatePatternCircular([]sketch.Entity{seed}, center, 2)
+		p, err := sketch.CreatePatternCircular(s, []sketch.Entity{seed}, center, 2)
 		require.NoError(t, err)
 		require.Len(t, p.Instances, 1)
 		cp := p.Instances[0].(*sketch.Line)
@@ -268,7 +273,8 @@ func TestPatternMirrorCopiesInheritConstruction(t *testing.T) {
 		seed := buildSeed(t, s)
 		axis := s.CreateLine(s.CreatePoint(-20, -50), s.CreatePoint(-20, 50))
 
-		m := s.CreateMirror([]sketch.Entity{seed}, axis)
+		m, err := sketch.CreateMirror(s, []sketch.Entity{seed}, axis)
+		require.NoError(t, err)
 		require.NotNil(t, m)
 		require.Len(t, m.Copies, 1)
 		cp := m.Copies[0].(*sketch.Line)
