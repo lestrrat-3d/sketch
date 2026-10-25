@@ -915,33 +915,41 @@ func seedDefinedBy(ents []Entity, pt *Point) bool {
 // --- offset -----------------------------------------------------------------
 
 // OffsetGroup groups the geometry created by [CreateOffset]: the source
-// lines (left in place), their offset copies, and the per-segment offset
-// constraints. Use [OffsetGroup.Set] to retarget the whole offset distance at
-// once and re-solve.
+// lines (left in place), their offset copies, the per-segment offset
+// constraints, and the constraints that hold each free chain end on the source
+// normal. Use [OffsetGroup.Set] to retarget the whole offset distance at once
+// and re-solve.
 type OffsetGroup struct {
-	Source  []Entity
-	Copies  []Entity
-	Offsets []*Offset
+	Source      []Entity
+	Copies      []Entity
+	Offsets     []*Offset
+	Constraints []Constraint
+	signs       []float64 // per Offset: its target is signs[i]·d
 }
 
-// Set retargets every segment's offset distance to d. Call [Sketch.Solve]
-// afterwards to apply it.
+// Set retargets the whole offset to distance d (positive to the right of the
+// flow, as [CreateOffset] takes it). Call [Sketch.Solve] afterwards to apply it.
 func (g *OffsetGroup) Set(d float64) {
-	for _, o := range g.Offsets {
-		o.Set(d)
+	for i, o := range g.Offsets {
+		o.Set(g.signs[i] * d)
 	}
 }
 
-// CreateOffset creates a parallel offset of a chain of lines at signed distance d
-// (positive on the left of each segment's start→end direction). Each source
-// line gets an offset copy held parallel at distance d by an [Offset]
-// constraint; offset segments that meet at a shared source corner share a
-// single offset point, which the two constraints pull to the offset
-// intersection — so editing the distance keeps a mitred chain. Non-line
-// entities in ents are skipped. It returns [ErrForeignEntity] if s is nil or a
-// source entity, or a point defining one, is not live in s, and
-// [ErrInvalidShape] if a source line has zero length (no defined offset
-// direction).
+// CreateOffset creates a parallel offset of a chain of lines at signed distance
+// d, as Fusion's offset does: positive d is to the right of the flow, negative
+// to the left. The flow of a chain runs from its first line in ents toward the
+// next line in ents that shares an end point with it; a lone line flows from
+// Start to End. Each source line gets an offset copy held parallel by an
+// [Offset] constraint; offset segments that meet at a shared source corner share
+// a single offset point, which the two constraints pull to the offset
+// intersection — so editing the distance keeps a mitred chain. Each free end of
+// a chain is held on the source line's normal at the source end
+// ([NewPointOnNormal]), so the copy is fully determined by the source and d.
+// Non-line entities in ents are skipped. It returns [ErrForeignEntity] if s is
+// nil or a source entity, or a point defining one, is not live in s,
+// [ErrReferenceGeometry] for reference geometry, and [ErrInvalidShape] if a
+// source line has zero length (no defined offset direction) or an end point is
+// shared by three or more lines (not a chain).
 func CreateOffset(s *Sketch, ents []Entity, d float64) (*OffsetGroup, error) {
 	if s.foreignInput(ents...) {
 		return nil, ErrForeignEntity
@@ -951,6 +959,7 @@ func CreateOffset(s *Sketch, ents []Entity, d float64) (*OffsetGroup, error) {
 	}
 	// Validate every source line up front so a failure leaves the sketch
 	// unchanged (no partial geometry committed).
+	var lines []*Line
 	for _, e := range ents {
 		l, ok := e.(*Line)
 		if !ok {
@@ -959,6 +968,11 @@ func CreateOffset(s *Sketch, ents []Entity, d float64) (*OffsetGroup, error) {
 		if math.Hypot(l.End.x()-l.Start.x(), l.End.y()-l.Start.y()) == 0 {
 			return nil, fmt.Errorf("%w: CreateOffset source line has zero length", ErrInvalidShape)
 		}
+		lines = append(lines, l)
+	}
+	flow, err := offsetFlow(lines)
+	if err != nil {
+		return nil, err
 	}
 	g := &OffsetGroup{Source: ents}
 	copyOf := map[*Point]*Point{}
@@ -970,22 +984,110 @@ func CreateOffset(s *Sketch, ents []Entity, d float64) (*OffsetGroup, error) {
 		copyOf[src] = cp
 		return cp
 	}
-	for _, e := range ents {
-		l, ok := e.(*Line)
-		if !ok {
-			continue
-		}
+	for i, l := range lines {
+		// Offset's target is left-positive along the line's own direction; the
+		// right of the flow is the left of the line when the flow runs against it.
+		sign := -flow[i]
 		dx, dy := l.End.x()-l.Start.x(), l.End.y()-l.Start.y()
-		n := math.Hypot(dx, dy) // nonzero: validated above
-		nx, ny := -dy/n, dx/n   // left normal of the segment direction
+		n := math.Hypot(dx, dy)         // nonzero: validated above
+		nx, ny := -sign*dy/n, sign*dx/n // unit normal toward the offset side
 		qa, qb := offsetPt(l.Start, nx, ny), offsetPt(l.End, nx, ny)
 		dst := s.CreateLine(qa, qb)
-		off := NewOffset(l, dst, d)
+		off := NewOffset(l, dst, sign*d)
 		s.AddConstraint(off)
 		g.Copies = append(g.Copies, dst)
 		g.Offsets = append(g.Offsets, off)
+		g.signs = append(g.signs, sign)
+	}
+	// A free chain end (a source end point no other source line uses) is held on
+	// the source normal there, so the copy cannot slide along its own line.
+	uses := map[*Point]int{}
+	for _, l := range lines {
+		uses[l.Start]++
+		uses[l.End]++
+	}
+	for _, l := range lines {
+		for _, p := range []*Point{l.Start, l.End} {
+			if uses[p] != 1 {
+				continue
+			}
+			pin := NewPointOnNormal(copyOf[p], l, p)
+			s.AddConstraint(pin)
+			g.Constraints = append(g.Constraints, pin)
+		}
 	}
 	return g, nil
+}
+
+// offsetFlow returns, per line, +1 when the offset flow runs along the line's
+// own Start→End direction and -1 when it runs against it. Lines sharing end
+// points form a chain. A chain's flow runs from its first line (in the given
+// order) toward the next line in that order that shares a point with it, as
+// Fusion's offset flows from curve 1 to curve 2; a lone line flows from Start to
+// End. An end point shared by three or more lines is not a chain:
+// [ErrInvalidShape].
+func offsetFlow(lines []*Line) ([]float64, error) {
+	at := map[*Point][]int{}
+	for i, l := range lines {
+		at[l.Start] = append(at[l.Start], i)
+		at[l.End] = append(at[l.End], i)
+	}
+	for _, l := range lines {
+		for _, p := range []*Point{l.Start, l.End} {
+			if len(at[p]) > 2 {
+				return nil, fmt.Errorf("%w: CreateOffset: an end point is shared by %d lines, which is not a chain", ErrInvalidShape, len(at[p]))
+			}
+		}
+	}
+	// other returns the line other than i that uses p, or -1.
+	other := func(i int, p *Point) int {
+		for _, j := range at[p] {
+			if j != i {
+				return j
+			}
+		}
+		return -1
+	}
+	flow := make([]float64, len(lines))
+	// walk signs the lines reached from line `from` through point p: forward
+	// means the flow enters the next line at p, backward that it leaves it there.
+	walk := func(from int, p *Point, forward bool) {
+		for {
+			j := other(from, p)
+			if j < 0 || flow[j] != 0 {
+				return
+			}
+			lj := lines[j]
+			if (forward && lj.Start == p) || (!forward && lj.End == p) {
+				flow[j] = 1
+			} else {
+				flow[j] = -1
+			}
+			if lj.Start == p {
+				p = lj.End
+			} else {
+				p = lj.Start
+			}
+			from = j
+		}
+	}
+	for i, l := range lines {
+		if flow[i] != 0 {
+			continue // already reached from an earlier line of its chain
+		}
+		toStart, toEnd := other(i, l.Start), other(i, l.End)
+		flow[i] = 1
+		if toStart >= 0 && (toEnd < 0 || toStart < toEnd) {
+			flow[i] = -1 // the earliest neighbour is at Start: the flow leaves through Start
+		}
+		exit, entry := l.End, l.Start
+		if flow[i] < 0 {
+			exit, entry = l.Start, l.End
+		}
+		walk(i, exit, true)
+		walk(i, entry, false)
+	}
+	return flow, nil
 }
 
 // instantiate builds one copy of every entity in ents using link to map each

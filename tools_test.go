@@ -417,17 +417,20 @@ func TestOffsetLine(t *testing.T) {
 	s.Fix(b)
 	src := s.CreateLine(a, b)
 
-	// Positive offset is the left normal of +x, i.e. +y.
+	// As in Fusion, positive offset is to the right of the flow: right of +x is -y.
 	g, err := sketch.CreateOffset(s, []sketch.Entity{src}, 2)
 	require.NoError(t, err)
 	dst := g.Copies[0].(*sketch.Line)
 	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
-	require.InDelta(t, 2, dst.Start.Y(), 1e-6)
-	require.InDelta(t, 2, dst.End.Y(), 1e-6)
+	require.Equal(t, 0, s.DOF(), "the free ends are held on the source normals")
+	require.InDelta(t, 0, dst.Start.X(), 1e-6)
+	require.InDelta(t, -2, dst.Start.Y(), 1e-6)
+	require.InDelta(t, 10, dst.End.X(), 1e-6)
+	require.InDelta(t, -2, dst.End.Y(), 1e-6)
 
-	// Editing the distance moves the copy.
-	g.Set(5)
+	// Editing the distance moves the copy; a negative distance goes left.
+	g.Set(-5)
 	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
 	require.InDelta(t, 5, dst.Start.Y(), 1e-6)
@@ -473,9 +476,11 @@ func TestOffsetChainMitresCorner(t *testing.T) {
 
 	d1, d2 := g.Copies[0].(*sketch.Line), g.Copies[1].(*sketch.Line)
 	require.Same(t, d1.End, d2.Start, "offset segments share the corner point")
-	// Offset of l1 sits at y=2; offset of l2 at x=8; the shared corner is (8,2).
-	require.InDelta(t, 8, d1.End.X(), 1e-6)
-	require.InDelta(t, 2, d1.End.Y(), 1e-6)
+	// The flow runs l1 then l2, and positive is to its right: the offset of l1
+	// sits at y=-2, the offset of l2 at x=12; the shared corner is (12,-2).
+	require.InDelta(t, 12, d1.End.X(), 1e-6)
+	require.InDelta(t, -2, d1.End.Y(), 1e-6)
+	require.Equal(t, 0, s.DOF())
 }
 
 func TestOffsetJSONRoundTrip(t *testing.T) {
