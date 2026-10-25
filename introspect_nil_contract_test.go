@@ -102,6 +102,10 @@ var nilOperandOutcomes = []nilOperandCase{
 	{"NewDistanceLineArc", "", func() sketch.Constraint { return sketch.NewDistanceLineArc(nil, nil, 0) }, "ok", "distance_line_arc", "pts=[] ents=[typed-nil(*sketch.Line) typed-nil(*sketch.Arc)]", "panic"},
 	{"NewDistanceLines", "", func() sketch.Constraint { return sketch.NewDistanceLines(nil, nil, 0) }, "ok", "distance_lines", "pts=[] ents=[typed-nil(*sketch.Line) typed-nil(*sketch.Line)]", "panic"},
 	{"NewOffset", "", func() sketch.Constraint { return sketch.NewOffset(nil, nil, 0) }, "ok", "offset", "pts=[] ents=[typed-nil(*sketch.Line) typed-nil(*sketch.Line)]", "panic"},
+	{"NewRadialOffset", "typed", func() sketch.Constraint {
+		return sketch.NewRadialOffset((*sketch.Circle)(nil), (*sketch.Circle)(nil), 0)
+	}, "ok", "radial_offset", "pts=[] ents=[typed-nil(*sketch.Circle) typed-nil(*sketch.Circle)]", "panic"},
+	{"NewRadialOffset", "untyped", func() sketch.Constraint { return sketch.NewRadialOffset(nil, nil, 0) }, "ok", "radial_offset", "pts=[] ents=[untyped-nil untyped-nil]", "panic"},
 	{"NewArcLength", "", func() sketch.Constraint { return sketch.NewArcLength(nil, 1) }, "ok", "arc_length", "pts=[] ents=[typed-nil(*sketch.Arc)]", "panic"},
 	{"NewEqualLineArc", "", func() sketch.Constraint { return sketch.NewEqualLineArc(nil, nil) }, "ok", "equal_line_arc", "pts=[] ents=[typed-nil(*sketch.Line) typed-nil(*sketch.Arc)]", "panic"},
 	{"NewAngle", "", func() sketch.Constraint { return sketch.NewAngle(nil, nil, 0) }, "ok", "angle", "pts=[] ents=[typed-nil(*sketch.Line) typed-nil(*sketch.Line)]", "panic"},

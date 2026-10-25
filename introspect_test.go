@@ -235,6 +235,7 @@ func TestIntrospectionNilSafetyContract(t *testing.T) {
 			{"DistanceLineArc", (*sketch.DistanceLineArc)(nil), "distance_line_arc"},
 			{"DistanceLines", (*sketch.DistanceLines)(nil), "distance_lines"},
 			{"Offset", (*sketch.Offset)(nil), "offset"},
+			{"RadialOffset", (*sketch.RadialOffset)(nil), "radial_offset"},
 			{"Radius", (*sketch.Radius)(nil), "radius"},
 			{"Diameter", (*sketch.Diameter)(nil), "diameter"},
 			{"ArcLength", (*sketch.ArcLength)(nil), "arc_length"},
