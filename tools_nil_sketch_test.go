@@ -79,5 +79,5 @@ func TestToolsReturnConcreteTypes(t *testing.T) {
 	require.InDelta(t, 22, f.L1.Start.X(), 1e-9, "L1 is a *sketch.Line")
 
 	_, err = sketch.CreateFillet(s, f.L1, a1, f.L1.End, 2)
-	require.ErrorIs(t, err, sketch.ErrUnsupportedEntity, "arc fillets are not implemented yet")
+	require.ErrorIs(t, err, sketch.ErrNoSharedCorner, "the line and the arc share no end point")
 }
