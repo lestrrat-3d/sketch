@@ -260,6 +260,8 @@ func constraintRefs(c Constraint) ([]*Point, []Entity) {
 		return nil, []Entity{t.L1, t.L2}
 	case *pointOnLine:
 		return []*Point{t.P}, []Entity{t.L}
+	case *pointOnNormal:
+		return []*Point{t.P, t.At}, []Entity{t.C}
 	case *collinear:
 		return nil, []Entity{t.L1, t.L2}
 	case *concentric:

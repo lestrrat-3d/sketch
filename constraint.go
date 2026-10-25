@@ -163,6 +163,38 @@ func (c *pointOnLine) residual(out []float64) []float64 {
 // NewPointOnLine forces a point to lie on the infinite line through a segment.
 func NewPointOnLine(p *Point, l *Line) Constraint { return &pointOnLine{p, l} }
 
+// pointOnNormal holds P on the line through At that is normal to C. C is a
+// *Line or an *Arc (the constructor's type constraint admits nothing else).
+type pointOnNormal struct {
+	P, At *Point
+	C     Entity
+}
+
+func (c *pointOnNormal) residual(out []float64) []float64 {
+	if l, ok := c.C.(*Line); ok {
+		// signed distance of P from the perpendicular to l through At (length units)
+		ux, uy := l.End.x()-l.Start.x(), l.End.y()-l.Start.y()
+		dx, dy := c.P.x()-c.At.x(), c.P.y()-c.At.y()
+		return append(out, (dx*ux+dy*uy)/norm(ux, uy))
+	}
+	if a, ok := c.C.(*Arc); ok {
+		// signed distance of P from the radial line through the center and At
+		rx, ry := c.At.x()-a.Center.x(), c.At.y()-a.Center.y()
+		px, py := c.P.x()-a.Center.x(), c.P.y()-a.Center.y()
+		return append(out, (rx*py-ry*px)/norm(rx, ry))
+	}
+	return append(out, 1)
+}
+
+// NewPointOnNormal holds p on the line through at that is normal to c: for a
+// line, the perpendicular to its direction through at; for an arc, the radial
+// line through its center and at. The residual is the distance of p from that
+// line, in length units. The offset tools use it to keep an offset end on the
+// source curve's normal at the source end.
+func NewPointOnNormal[T OpenCurve](p *Point, c T, at *Point) Constraint {
+	return &pointOnNormal{P: p, At: at, C: asEntity(c)}
+}
+
 type collinear struct{ L1, L2 *Line }
 
 func (c *collinear) residual(out []float64) []float64 {

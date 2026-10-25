@@ -228,6 +228,8 @@ func condRowKinds(c Constraint, out []rowKind) []rowKind {
 		return append(out, rowDimensionless)
 	case *pointOnLine:
 		return append(out, rowLength)
+	case *pointOnNormal:
+		return append(out, rowLength)
 	case *collinear:
 		return append(out, rowLength, rowLength)
 	case *pointOnCircle:

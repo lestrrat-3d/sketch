@@ -405,6 +405,8 @@ func constraintKind(c Constraint) string {
 		return "perpendicular"
 	case *pointOnLine:
 		return "point_on_line"
+	case *pointOnNormal:
+		return "point_on_normal"
 	case *collinear:
 		return "collinear"
 	case *concentric:
@@ -532,6 +534,8 @@ func marshalConstraint(c Constraint) (jsonConstraint, bool) {
 		return jsonConstraint{Type: typ, Entities: []int{t.L1.id, t.L2.id}}, true
 	case *pointOnLine:
 		return jsonConstraint{Type: typ, Points: []int{t.P.id}, Entities: []int{t.L.id}}, true
+	case *pointOnNormal:
+		return jsonConstraint{Type: typ, Points: []int{t.P.id, t.At.id}, Entities: []int{t.C.entID()}}, true
 	case *collinear:
 		return jsonConstraint{Type: typ, Entities: []int{t.L1.id, t.L2.id}}, true
 	case *concentric:
@@ -985,7 +989,7 @@ var constraintArity = map[string][2]int{
 	"coincident": {2, 0}, "horizontal": {0, 1}, "vertical": {0, 1},
 	"horizontal_points": {2, 0}, "vertical_points": {2, 0},
 	"parallel": {0, 2}, "perpendicular": {0, 2}, "equal_lines": {0, 2},
-	"collinear": {0, 2}, "angle": {0, 2}, "point_on_line": {1, 1},
+	"collinear": {0, 2}, "angle": {0, 2}, "point_on_line": {1, 1}, "point_on_normal": {2, 1},
 	"point_on_circle": {1, 1}, "point_on_arc": {1, 1}, "point_on_elliptical_arc": {1, 1},
 	"point_on_ellipse": {1, 1}, "point_on_spline": {1, 1}, "point_on_closed_spline": {1, 1},
 	"point_on_fit_spline": {1, 1}, "tangent_spline": {0, 2}, "tangent_closed_spline": {0, 2},
@@ -1094,6 +1098,20 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 			return err
 		}
 		s.AddConstraint(NewPointOnLine(pt(0), l))
+	case "point_on_normal":
+		if l, err := line(jc.Entities[0]); err == nil {
+			s.AddConstraint(NewPointOnNormal(pt(0), l, pt(1)))
+		} else {
+			c, err := circular(jc.Entities[0])
+			if err != nil {
+				return err
+			}
+			a, ok := c.(*Arc)
+			if !ok {
+				return fmt.Errorf("sketch: point_on_normal entity %d is not a line or an arc", jc.Entities[0])
+			}
+			s.AddConstraint(NewPointOnNormal(pt(0), a, pt(1)))
+		}
 	case "point_on_circle":
 		c, err := circle(jc.Entities[0])
 		if err != nil {

@@ -341,6 +341,8 @@ func (a *annCtx) glyph(c Constraint) {
 		a.badge(a.scr(t.C1.centerPt()), "◎")
 	case *pointOnLine:
 		a.badge(a.scr(t.P), "•")
+	case *pointOnNormal:
+		a.badge(a.scr(t.P), "⊥")
 	case *pointOnCircle:
 		a.badge(a.scr(t.P), "•")
 	case *pointOnEllipse:

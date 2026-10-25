@@ -69,6 +69,7 @@ var nilOperandOutcomes = []nilOperandCase{
 	{"NewParallel", "", func() sketch.Constraint { return sketch.NewParallel(nil, nil) }, "ok", "parallel", "pts=[] ents=[typed-nil(*sketch.Line) typed-nil(*sketch.Line)]", "panic"},
 	{"NewPerpendicular", "", func() sketch.Constraint { return sketch.NewPerpendicular(nil, nil) }, "ok", "perpendicular", "pts=[] ents=[typed-nil(*sketch.Line) typed-nil(*sketch.Line)]", "panic"},
 	{"NewPointOnLine", "", func() sketch.Constraint { return sketch.NewPointOnLine(nil, nil) }, "ok", "point_on_line", "pts=[nil] ents=[typed-nil(*sketch.Line)]", "panic"},
+	{"NewPointOnNormal", "", func() sketch.Constraint { return sketch.NewPointOnNormal[*sketch.Line](nil, nil, nil) }, "ok", "point_on_normal", "pts=[nil nil] ents=[typed-nil(*sketch.Line)]", "panic"},
 	{"NewCollinear", "", func() sketch.Constraint { return sketch.NewCollinear(nil, nil) }, "ok", "collinear", "pts=[] ents=[typed-nil(*sketch.Line) typed-nil(*sketch.Line)]", "panic"},
 	{"NewPointOnCircle", "", func() sketch.Constraint { return sketch.NewPointOnCircle(nil, nil) }, "ok", "point_on_circle", "pts=[nil] ents=[typed-nil(*sketch.Circle)]", "panic"},
 	{"NewPointOnArc", "", func() sketch.Constraint { return sketch.NewPointOnArc(nil, nil) }, "ok", "point_on_arc", "pts=[nil] ents=[typed-nil(*sketch.Arc)]", "panic"},
@@ -325,9 +326,23 @@ func constraintConstructorsFromSource(t *testing.T) map[string]constraintConstru
 		}
 
 		ctor := constraintConstructor{}
+		// A type parameter (NewPointOnNormal's T OpenCurve) is constrained to
+		// pointer types, so its nil is always a typed nil: one row, like a
+		// concrete pointer operand.
+		typeParams := map[string]struct{}{}
+		if fn.Type.TypeParams != nil {
+			for _, f := range fn.Type.TypeParams.List {
+				for _, n := range f.Names {
+					typeParams[n.Name] = struct{}{}
+				}
+			}
+		}
 		for _, param := range fn.Type.Params.List {
 			id, ok := param.Type.(*ast.Ident)
 			if !ok {
+				continue
+			}
+			if _, tp := typeParams[id.Name]; tp {
 				continue
 			}
 			if _, builtin := builtinTypeNames[id.Name]; !builtin {
