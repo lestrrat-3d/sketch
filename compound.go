@@ -232,3 +232,82 @@ func (s *Sketch) CreateArcTangent(l *Line, at *Point, x, y float64) (*Arc, error
 	s.AddConstraint(NewTangent(l, a))
 	return a, nil
 }
+
+// CreateCircleThreeTangents adds a circle tangent to the infinite lines through
+// l1, l2 and l3, the counterpart of Fusion's three-tangent circle. Three lines
+// that form a triangle have four such circles (the incircle and three
+// excircles); the hint (hx, hy) picks the one whose region contains it: inside
+// the triangle for the incircle, across one side for that side's excircle. A new
+// center point and the circle are created, held by one [NewTangent] per line.
+// The circle adds no degree of freedom: the lines determine it. It returns
+// [ErrForeignEntity] if a line is not a live line of this sketch or has an
+// endpoint that is not a live point of it, and [ErrInvalidShape] if two
+// arguments are the same line, a line has zero length, two lines are parallel,
+// hx or hy is not finite, the hint lies on one of the lines, or no tangent
+// circle lies in the hint's region (a hint across a vertex, or three lines
+// through one point) — in each case without modifying the sketch.
+func (s *Sketch) CreateCircleThreeTangents(l1, l2, l3 *Line, hx, hy float64) (*Circle, error) {
+	if s.foreignInput(l1, l2, l3) {
+		return nil, ErrForeignEntity
+	}
+	if l1 == l2 || l1 == l3 || l2 == l3 {
+		return nil, fmt.Errorf("%w: CreateCircleThreeTangents requires three distinct lines", ErrInvalidShape)
+	}
+	if !allFinite(hx, hy) {
+		return nil, fmt.Errorf("%w: CreateCircleThreeTangents requires a finite hint", ErrInvalidShape)
+	}
+	lines := [3]*Line{l1, l2, l3}
+	var m [3][3]float64 // rows: nx·cx + ny·cy − σ·ρ = d
+	var rhs [3]float64
+	for i, l := range lines {
+		dx, dy := l.End.x()-l.Start.x(), l.End.y()-l.Start.y()
+		dl := math.Hypot(dx, dy)
+		if dl <= epsTool {
+			return nil, fmt.Errorf("%w: CreateCircleThreeTangents requires lines of nonzero length", ErrInvalidShape)
+		}
+		nx, ny := -dy/dl, dx/dl
+		d := nx*l.Start.x() + ny*l.Start.y()
+		side := nx*hx + ny*hy - d
+		if math.Abs(side) <= epsTool {
+			return nil, fmt.Errorf("%w: CreateCircleThreeTangents requires a hint off every line", ErrInvalidShape)
+		}
+		sigma := 1.0
+		if side < 0 {
+			sigma = -1
+		}
+		m[i] = [3]float64{nx, ny, -sigma}
+		rhs[i] = d
+	}
+	for i := 0; i < 3; i++ {
+		for j := i + 1; j < 3; j++ {
+			if math.Abs(m[i][0]*m[j][1]-m[i][1]*m[j][0]) <= epsTool {
+				return nil, fmt.Errorf("%w: CreateCircleThreeTangents requires non-parallel lines", ErrInvalidShape)
+			}
+		}
+	}
+	det := det3(m)
+	if math.Abs(det) <= epsTool {
+		return nil, fmt.Errorf("%w: CreateCircleThreeTangents found no tangent circle", ErrInvalidShape)
+	}
+	var sol [3]float64
+	for k := 0; k < 3; k++ {
+		mk := m
+		for i := 0; i < 3; i++ {
+			mk[i][k] = rhs[i]
+		}
+		sol[k] = det3(mk) / det
+	}
+	if sol[2] <= epsTool {
+		return nil, fmt.Errorf("%w: CreateCircleThreeTangents found no tangent circle in the hint's region", ErrInvalidShape)
+	}
+	c := s.CreateCircle(s.CreatePoint(sol[0], sol[1]), sol[2])
+	s.AddConstraint(NewTangent(l1, c), NewTangent(l2, c), NewTangent(l3, c))
+	return c, nil
+}
+
+// det3 returns the determinant of a 3×3 matrix.
+func det3(m [3][3]float64) float64 {
+	return m[0][0]*(m[1][1]*m[2][2]-m[1][2]*m[2][1]) -
+		m[0][1]*(m[1][0]*m[2][2]-m[1][2]*m[2][0]) +
+		m[0][2]*(m[1][0]*m[2][1]-m[1][1]*m[2][0])
+}
