@@ -124,10 +124,10 @@ func TestAnalyticFusedComponentWithdrawsLineAndArcBounds(t *testing.T) {
 			build: func() ([]geom.Curve, []geom.ClosedCurve) {
 				c := geom.NewPoint(100, 0)
 				return []geom.Curve{
-						geom.NewLine(geom.NewPoint(94, 1), geom.NewPoint(106, 1)),
-						geom.NewArc(c, geom.NewPoint(103, 0), geom.NewPoint(97, 0)),
-					}, append(fusedTripleCircles(),
-						geom.NewCircle(c, 5))
+					geom.NewLine(geom.NewPoint(94, 1), geom.NewPoint(106, 1)),
+					geom.NewArc(c, geom.NewPoint(103, 0), geom.NewPoint(97, 0)),
+				}, append(fusedTripleCircles(),
+					geom.NewCircle(c, 5))
 			},
 			fusedRegions:     8,
 			convergedRegions: 10,

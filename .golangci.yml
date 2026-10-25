@@ -31,6 +31,7 @@ linters:
     # outright (the house config suppresses it via an all-.go exclusion, which
     # reads as a bug — express the intent directly instead).
     - exhaustruct
+    - exhaustruct_v5
     - funcorder
     - funlen
     - gochecknoglobals
