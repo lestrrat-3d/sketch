@@ -342,7 +342,7 @@ func filletAfter() (string, error) {
 	// The fillet removes edges BC (vertical) and CD (horizontal) with their
 	// axis-alignment constraints, so re-pin the shortened legs to keep the sketch
 	// fully constrained.
-	f, err := s.CreateFillet(r.BC, r.CD, 40)
+	f, err := sketch.CreateFillet(s, r.BC, r.CD, r.C, 40)
 	if err != nil {
 		return "", err
 	}

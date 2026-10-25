@@ -334,11 +334,12 @@ tool has to call, not a check per tool, but nothing enforces the call:
 behind it, so a new tool that skips it builds and vets clean. (Contrast
 `Entity.isNil`, which a new entity type cannot forget because the sealed
 interface makes the omission a compile error at the total `addEntity` funnel; Go
-has no equivalent for "a method must call this helper", and a tool is a free
-method with an arbitrary signature.) The refusal reuses each signature's
-existing reference-geometry shape — `ErrForeignEntity` from the `Create…` tools,
-nil from `CreateMirror`, false from `Trim`/`Extend`/`Break` — so no signature
-changes. The plain builders (`CreateLine` and friends) still take a foreign
+has no equivalent for "a function must call this helper", and a tool is a
+package-level function with an arbitrary signature.) The refusal reuses each
+signature's existing reference-geometry shape — `ErrForeignEntity` from the
+`Create…` tools, false from `Trim`/`Extend`/`Break` — so no signature changes.
+`foreignInput` also refuses a nil sketch, so every tool called with a nil
+`*Sketch` returns its refusal instead of panicking. The plain builders (`CreateLine` and friends) still take a foreign
 point silently: they have no error return to refuse through.
 
 ### `CreatePatternCircularRing` shares its junction points
@@ -377,9 +378,8 @@ The screen is an ALLOW-LIST with a refusing default, so an entity type added
 later is refused by it without being named — the worst a forgotten update can do
 is refuse a kind `instantiate` could in fact copy, never silently drop one it
 cannot. The refusal reuses each signature's existing shape:
-`ErrUnsupportedEntity` from `CreatePatternRect`/`CreatePatternCircular`, nil
-from `CreateMirror` (which has no error return, so a caller learns "refused" but
-not which kind). `instantiate`'s own switch stays exactly as partial as before —
+`ErrUnsupportedEntity` from `CreateMirror`/`CreatePatternRect`/
+`CreatePatternCircular`, wrapped with the refused kind. `instantiate`'s own switch stays exactly as partial as before —
 an unhandled kind reaching it is now unreachable rather than fixed, since every
 caller screens first — and both switches carry an `entitySwitchExempt` entry in
 `entity_switches_test.go`.

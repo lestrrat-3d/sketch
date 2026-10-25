@@ -98,16 +98,17 @@ func TestReferenceToolsReject(t *testing.T) {
 	l, err := s.CreateReferenceLine(p1, p2, "edge")
 	require.NoError(t, err)
 
-	_, ok := s.Trim(l, 5, 0)
+	_, ok := sketch.Trim(s, l, 5, 0)
 	require.False(t, ok, "Trim refuses reference geometry")
-	_, _, ok = s.Break(l, 5, 0)
+	_, _, ok = sketch.Break(s, l, 5, 0)
 	require.False(t, ok, "Break refuses reference geometry")
 
 	axis := s.CreateLine(s.CreatePoint(0, -1), s.CreatePoint(10, -1))
-	require.Nil(t, s.CreateMirror([]sketch.Entity{l}, axis), "Mirror refuses reference geometry")
-	_, err = s.CreatePatternRect([]sketch.Entity{l}, 2, 1, 5, 5)
+	_, err = sketch.CreateMirror(s, []sketch.Entity{l}, axis)
+	require.ErrorIs(t, err, sketch.ErrReferenceGeometry, "Mirror refuses reference geometry")
+	_, err = sketch.CreatePatternRect(s, []sketch.Entity{l}, 2, 1, 5, 5)
 	require.ErrorIs(t, err, sketch.ErrReferenceGeometry)
-	_, err = s.CreateOffset([]sketch.Entity{l}, 2)
+	_, err = sketch.CreateOffset(s, []sketch.Entity{l}, 2)
 	require.ErrorIs(t, err, sketch.ErrReferenceGeometry)
 }
 

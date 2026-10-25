@@ -29,7 +29,7 @@ func TestToolsRejectForeignEntity(t *testing.T) {
 		s := newSketch(t)
 		fl := foreignLine(t, 0, 0, 10, 0)
 
-		e1, e2, ok := s.Break(fl, 5, 0)
+		e1, e2, ok := sketch.Break(s, fl, 5, 0)
 		require.False(t, ok)
 		require.Nil(t, e1)
 		require.Nil(t, e2)
@@ -44,7 +44,7 @@ func TestToolsRejectForeignEntity(t *testing.T) {
 		s.CreateLine(s.CreatePoint(5, -5), s.CreatePoint(5, 5))
 		fl := foreignLine(t, 0, 0, 10, 0)
 
-		nl, ok := s.Trim(fl, 9, 0)
+		nl, ok := sketch.Trim(s, fl, 9, 0)
 		require.False(t, ok)
 		require.Nil(t, nl)
 		require.Len(t, s.Entities(), 1, "only the cutter")
@@ -56,7 +56,7 @@ func TestToolsRejectForeignEntity(t *testing.T) {
 		s.CreateLine(s.CreatePoint(8, -5), s.CreatePoint(8, 5))
 		fl := foreignLine(t, 0, 0, 4, 0)
 
-		nl, ok := s.Extend(fl, fl.End)
+		nl, ok := sketch.Extend(s, fl, fl.End)
 		require.False(t, ok)
 		require.Nil(t, nl)
 		require.Len(t, s.Entities(), 1, "only the cutter")
@@ -72,7 +72,7 @@ func TestToolsRejectForeignEntity(t *testing.T) {
 		l := s.CreateLine(s.CreatePoint(0, 0), s.CreatePoint(4, 0))
 		fl := foreignLine(t, 0, 0, 4, 0)
 
-		nl, ok := s.Extend(l, fl.End)
+		nl, ok := sketch.Extend(s, l, fl.End)
 		require.False(t, ok)
 		require.Nil(t, nl)
 		require.Len(t, s.Entities(), 1)
@@ -90,7 +90,7 @@ func TestToolsRejectForeignEntity(t *testing.T) {
 		l := s.CreateLine(fl.Start, s.CreatePoint(4, 0))
 		s.CreateLine(s.CreatePoint(-8, -5), s.CreatePoint(-8, 5)) // cutter beyond the Start end
 
-		nl, ok := s.Extend(l, l.Start)
+		nl, ok := sketch.Extend(s, l, l.Start)
 		require.False(t, ok)
 		require.Nil(t, nl)
 		require.Len(t, s.Entities(), 2, "l and the cutter, nothing manufactured")
@@ -102,7 +102,9 @@ func TestToolsRejectForeignEntity(t *testing.T) {
 		axis := s.CreateLine(s.CreatePoint(0, -5), s.CreatePoint(0, 5))
 		fl := foreignLine(t, 2, 0, 6, 0)
 
-		require.Nil(t, s.CreateMirror([]sketch.Entity{fl}, axis))
+		m, err := sketch.CreateMirror(s, []sketch.Entity{fl}, axis)
+		require.ErrorIs(t, err, sketch.ErrForeignEntity)
+		require.Nil(t, m)
 		require.Len(t, s.Entities(), 1, "only the axis")
 		require.Empty(t, s.Constraints(), "no symmetric constraints on foreign points")
 	})
@@ -112,7 +114,9 @@ func TestToolsRejectForeignEntity(t *testing.T) {
 		l := s.CreateLine(s.CreatePoint(2, 0), s.CreatePoint(6, 0))
 		faxis := foreignLine(t, 0, -5, 0, 5)
 
-		require.Nil(t, s.CreateMirror([]sketch.Entity{l}, faxis))
+		m, err := sketch.CreateMirror(s, []sketch.Entity{l}, faxis)
+		require.ErrorIs(t, err, sketch.ErrForeignEntity)
+		require.Nil(t, m)
 		require.Len(t, s.Entities(), 1)
 		require.Empty(t, s.Constraints())
 	})
@@ -121,7 +125,7 @@ func TestToolsRejectForeignEntity(t *testing.T) {
 		s := newSketch(t)
 		fl := foreignLine(t, 0, 0, 4, 0)
 
-		p, err := s.CreatePatternRect([]sketch.Entity{fl}, 2, 1, 10, 0)
+		p, err := sketch.CreatePatternRect(s, []sketch.Entity{fl}, 2, 1, 10, 0)
 		require.ErrorIs(t, err, sketch.ErrForeignEntity)
 		require.Nil(t, p)
 		require.Empty(t, s.Entities())
@@ -132,7 +136,7 @@ func TestToolsRejectForeignEntity(t *testing.T) {
 		s := newSketch(t)
 		fl := foreignLine(t, 4, 0, 6, 0)
 
-		p, err := s.CreatePatternCircular([]sketch.Entity{fl}, s.CreatePoint(0, 0), 4)
+		p, err := sketch.CreatePatternCircular(s, []sketch.Entity{fl}, s.CreatePoint(0, 0), 4)
 		require.ErrorIs(t, err, sketch.ErrForeignEntity)
 		require.Nil(t, p)
 		require.Empty(t, s.Entities())
@@ -144,7 +148,7 @@ func TestToolsRejectForeignEntity(t *testing.T) {
 		l := s.CreateLine(s.CreatePoint(4, 0), s.CreatePoint(6, 0))
 		fcenter := foreignLine(t, 0, 0, 1, 0).Start
 
-		p, err := s.CreatePatternCircular([]sketch.Entity{l}, fcenter, 4)
+		p, err := sketch.CreatePatternCircular(s, []sketch.Entity{l}, fcenter, 4)
 		require.ErrorIs(t, err, sketch.ErrForeignEntity)
 		require.Nil(t, p)
 		require.Len(t, s.Entities(), 1, "no spokes built from a foreign centre")
@@ -155,7 +159,7 @@ func TestToolsRejectForeignEntity(t *testing.T) {
 		s := newSketch(t)
 		fl := foreignLine(t, 0, 0, 10, 0)
 
-		g, err := s.CreateOffset([]sketch.Entity{fl}, 2)
+		g, err := sketch.CreateOffset(s, []sketch.Entity{fl}, 2)
 		require.ErrorIs(t, err, sketch.ErrForeignEntity)
 		require.Nil(t, g)
 		require.Empty(t, s.Entities())
@@ -168,7 +172,7 @@ func TestToolsRejectForeignEntity(t *testing.T) {
 		l1 := s.CreateLine(corner, s.CreatePoint(10, 0))
 		fl := foreignLine(t, 0, 0, 0, 10)
 
-		f, err := s.CreateFillet(l1, fl, 2)
+		f, err := sketch.CreateFillet(s, l1, fl, corner, 2)
 		require.ErrorIs(t, err, sketch.ErrForeignEntity)
 		require.Nil(t, f)
 		require.Len(t, s.Entities(), 1, "the local leg survives untouched")
@@ -181,7 +185,7 @@ func TestToolsRejectForeignEntity(t *testing.T) {
 		l1 := s.CreateLine(corner, s.CreatePoint(10, 0))
 		fl := foreignLine(t, 0, 0, 0, 10)
 
-		c, err := s.CreateChamfer(l1, fl, 2)
+		c, err := sketch.CreateChamfer(s, l1, fl, 2)
 		require.ErrorIs(t, err, sketch.ErrForeignEntity)
 		require.Nil(t, c)
 		require.Len(t, s.Entities(), 1)
@@ -200,7 +204,7 @@ func TestToolsRejectRemovedEntity(t *testing.T) {
 		require.True(t, s.RemoveEntity(l))
 		require.Len(t, s.Entities(), 1)
 
-		nl, ok := s.Trim(l, 9, 0)
+		nl, ok := sketch.Trim(s, l, 9, 0)
 		require.False(t, ok)
 		require.Nil(t, nl)
 		require.Len(t, s.Entities(), 1, "the removed line is not resurrected")
@@ -213,7 +217,7 @@ func TestToolsRejectRemovedEntity(t *testing.T) {
 		require.True(t, s.RemoveEntity(l))
 		require.Empty(t, s.Entities())
 
-		e1, e2, ok := s.Break(l, 5, 0)
+		e1, e2, ok := sketch.Break(s, l, 5, 0)
 		require.False(t, ok)
 		require.Nil(t, e1)
 		require.Nil(t, e2)
@@ -232,7 +236,7 @@ func TestToolsRejectRemovedEntity(t *testing.T) {
 		require.Empty(t, s.Entities())
 		require.Empty(t, s.Constraints())
 
-		e1, e2, ok := s.Break(a, 4, 4) // pick near the 45° point
+		e1, e2, ok := sketch.Break(s, a, 4, 4) // pick near the 45° point
 		require.False(t, ok)
 		require.Nil(t, e1)
 		require.Nil(t, e2)
@@ -248,7 +252,7 @@ func TestToolsAcceptOwnedEntity(t *testing.T) {
 		s := newSketch(t)
 		l := s.CreateLine(s.CreatePoint(0, 0), s.CreatePoint(10, 0))
 
-		e1, e2, ok := s.Break(l, 4, 0)
+		e1, e2, ok := sketch.Break(s, l, 4, 0)
 		require.True(t, ok)
 		require.NotNil(t, e1)
 		require.NotNil(t, e2)
@@ -260,8 +264,10 @@ func TestToolsAcceptOwnedEntity(t *testing.T) {
 		l := s.CreateLine(s.CreatePoint(0, 0), s.CreatePoint(10, 0))
 		s.CreateLine(s.CreatePoint(5, -5), s.CreatePoint(5, 5))
 
-		nl, ok := s.Trim(l, 9, 0)
+		res, ok := sketch.Trim(s, l, 9, 0)
 		require.True(t, ok)
+		require.Len(t, res, 1)
+		nl := res[0]
 		require.InDelta(t, 5, nl.End.X(), 1e-9)
 	})
 
@@ -270,7 +276,7 @@ func TestToolsAcceptOwnedEntity(t *testing.T) {
 		l := s.CreateLine(s.CreatePoint(0, 0), s.CreatePoint(4, 0))
 		s.CreateLine(s.CreatePoint(8, -5), s.CreatePoint(8, 5))
 
-		nl, ok := s.Extend(l, l.End)
+		nl, ok := sketch.Extend(s, l, l.End)
 		require.True(t, ok)
 		require.InDelta(t, 8, nl.End.X(), 1e-9)
 	})
@@ -280,7 +286,8 @@ func TestToolsAcceptOwnedEntity(t *testing.T) {
 		axis := s.CreateLine(s.CreatePoint(0, -5), s.CreatePoint(0, 5))
 		l := s.CreateLine(s.CreatePoint(2, 0), s.CreatePoint(6, 0))
 
-		m := s.CreateMirror([]sketch.Entity{l}, axis)
+		m, err := sketch.CreateMirror(s, []sketch.Entity{l}, axis)
+		require.NoError(t, err)
 		require.NotNil(t, m)
 		require.Len(t, m.Copies, 1)
 	})
@@ -289,7 +296,7 @@ func TestToolsAcceptOwnedEntity(t *testing.T) {
 		s := newSketch(t)
 		l := s.CreateLine(s.CreatePoint(0, 0), s.CreatePoint(4, 0))
 
-		p, err := s.CreatePatternRect([]sketch.Entity{l}, 2, 1, 10, 0)
+		p, err := sketch.CreatePatternRect(s, []sketch.Entity{l}, 2, 1, 10, 0)
 		require.NoError(t, err)
 		require.Len(t, p.Instances, 1)
 	})
@@ -300,7 +307,7 @@ func TestToolsAcceptOwnedEntity(t *testing.T) {
 		l1 := s.CreateLine(corner, s.CreatePoint(10, 0))
 		l2 := s.CreateLine(corner, s.CreatePoint(0, 10))
 
-		f, err := s.CreateFillet(l1, l2, 2)
+		f, err := sketch.CreateFillet(s, l1, l2, corner, 2)
 		require.NoError(t, err)
 		require.NotNil(t, f.Arc)
 	})
@@ -317,7 +324,7 @@ func TestToolsRejectForeignDefiningPoint(t *testing.T) {
 		fl := foreignLine(t, 0, 0, 10, 0)
 		l := s.CreateLine(fl.Start, s.CreatePoint(10, 0))
 
-		e1, e2, ok := s.Break(l, 5, 0)
+		e1, e2, ok := sketch.Break(s, l, 5, 0)
 		require.False(t, ok)
 		require.Nil(t, e1)
 		require.Nil(t, e2)
@@ -331,7 +338,7 @@ func TestToolsRejectForeignDefiningPoint(t *testing.T) {
 		l := s.CreateLine(fl.Start, s.CreatePoint(10, 0))
 		s.CreateLine(s.CreatePoint(5, -5), s.CreatePoint(5, 5)) // cutter
 
-		nl, ok := s.Trim(l, 9, 0)
+		nl, ok := sketch.Trim(s, l, 9, 0)
 		require.False(t, ok)
 		require.Nil(t, nl)
 		require.Len(t, s.Entities(), 2, "l and the cutter")
@@ -346,7 +353,7 @@ func TestToolsRejectForeignDefiningPoint(t *testing.T) {
 		l := s.CreateLine(fl.Start, s.CreatePoint(4, 0))
 		s.CreateLine(s.CreatePoint(8, -5), s.CreatePoint(8, 5)) // cutter beyond the End end
 
-		nl, ok := s.Extend(l, l.End)
+		nl, ok := sketch.Extend(s, l, l.End)
 		require.False(t, ok)
 		require.Nil(t, nl)
 		require.Len(t, s.Entities(), 2, "l and the cutter")
@@ -359,7 +366,7 @@ func TestToolsRejectForeignDefiningPoint(t *testing.T) {
 		l1 := s.CreateLine(corner, fl.Start) // foreign FAR endpoint
 		l2 := s.CreateLine(corner, s.CreatePoint(0, 10))
 
-		f, err := s.CreateFillet(l1, l2, 2)
+		f, err := sketch.CreateFillet(s, l1, l2, corner, 2)
 		require.ErrorIs(t, err, sketch.ErrForeignEntity)
 		require.Nil(t, f)
 		require.Len(t, s.Entities(), 2, "both legs survive untouched")
@@ -373,7 +380,7 @@ func TestToolsRejectForeignDefiningPoint(t *testing.T) {
 		l1 := s.CreateLine(corner, fl.Start)
 		l2 := s.CreateLine(corner, s.CreatePoint(0, 10))
 
-		c, err := s.CreateChamfer(l1, l2, 2)
+		c, err := sketch.CreateChamfer(s, l1, l2, 2)
 		require.ErrorIs(t, err, sketch.ErrForeignEntity)
 		require.Nil(t, c)
 		require.Len(t, s.Entities(), 2)
@@ -386,7 +393,9 @@ func TestToolsRejectForeignDefiningPoint(t *testing.T) {
 		fl := foreignLine(t, 2, 0, 6, 0)
 		l := s.CreateLine(fl.Start, s.CreatePoint(6, 0))
 
-		require.Nil(t, s.CreateMirror([]sketch.Entity{l}, axis))
+		m, err := sketch.CreateMirror(s, []sketch.Entity{l}, axis)
+		require.ErrorIs(t, err, sketch.ErrForeignEntity)
+		require.Nil(t, m)
 		require.Len(t, s.Entities(), 2, "the axis and l, no copies")
 		require.Empty(t, s.Constraints(), "no symmetric constraints on a foreign point")
 	})
@@ -400,7 +409,9 @@ func TestToolsRejectForeignDefiningPoint(t *testing.T) {
 		axis := s.CreateLine(fl.Start, s.CreatePoint(0, 5))
 		l := s.CreateLine(s.CreatePoint(2, 0), s.CreatePoint(6, 0))
 
-		require.Nil(t, s.CreateMirror([]sketch.Entity{l}, axis))
+		m, err := sketch.CreateMirror(s, []sketch.Entity{l}, axis)
+		require.ErrorIs(t, err, sketch.ErrForeignEntity)
+		require.Nil(t, m)
 		require.Len(t, s.Entities(), 2, "the axis and l, no copies")
 		require.Empty(t, s.Constraints())
 	})
@@ -410,7 +421,7 @@ func TestToolsRejectForeignDefiningPoint(t *testing.T) {
 		fl := foreignLine(t, 0, 0, 4, 0)
 		l := s.CreateLine(fl.Start, s.CreatePoint(4, 0))
 
-		p, err := s.CreatePatternRect([]sketch.Entity{l}, 2, 1, 10, 0)
+		p, err := sketch.CreatePatternRect(s, []sketch.Entity{l}, 2, 1, 10, 0)
 		require.ErrorIs(t, err, sketch.ErrForeignEntity)
 		require.Nil(t, p)
 		require.Len(t, s.Entities(), 1)
@@ -422,7 +433,7 @@ func TestToolsRejectForeignDefiningPoint(t *testing.T) {
 		fl := foreignLine(t, 4, 0, 6, 0)
 		l := s.CreateLine(fl.Start, s.CreatePoint(6, 0))
 
-		p, err := s.CreatePatternCircular([]sketch.Entity{l}, s.CreatePoint(0, 0), 4)
+		p, err := sketch.CreatePatternCircular(s, []sketch.Entity{l}, s.CreatePoint(0, 0), 4)
 		require.ErrorIs(t, err, sketch.ErrForeignEntity)
 		require.Nil(t, p)
 		require.Len(t, s.Entities(), 1, "no spokes built from a foreign point")
@@ -434,7 +445,7 @@ func TestToolsRejectForeignDefiningPoint(t *testing.T) {
 		fl := foreignLine(t, 0, 0, 10, 0)
 		l := s.CreateLine(fl.Start, s.CreatePoint(10, 0))
 
-		g, err := s.CreateOffset([]sketch.Entity{l}, 2)
+		g, err := sketch.CreateOffset(s, []sketch.Entity{l}, 2)
 		require.ErrorIs(t, err, sketch.ErrForeignEntity)
 		require.Nil(t, g)
 		require.Len(t, s.Entities(), 1)
@@ -462,7 +473,7 @@ func TestToolsDoNotLaunderForeignPoint(t *testing.T) {
 
 		// Pick near the Start end, so the surviving portion is (5,0)-(10,0) and
 		// the foreign endpoint is what gets trimmed away.
-		nl, ok := s.Trim(l, 1, 0)
+		nl, ok := sketch.Trim(s, l, 1, 0)
 		require.False(t, ok, "a line with a foreign endpoint is not trimmable")
 		require.Nil(t, nl)
 
@@ -484,7 +495,7 @@ func TestToolsDoNotLaunderForeignPoint(t *testing.T) {
 
 		require.True(t, s.Verify(t.Context()).ForeignHandles)
 
-		f, err := s.CreateFillet(l1, l2, 2)
+		f, err := sketch.CreateFillet(s, l1, l2, corner, 2)
 		require.ErrorIs(t, err, sketch.ErrForeignEntity)
 		require.Nil(t, f)
 
@@ -506,7 +517,7 @@ func TestToolsDoNotLaunderForeignPoint(t *testing.T) {
 
 		require.True(t, s.Verify(t.Context()).ForeignHandles)
 
-		c, err := s.CreateChamfer(l1, l2, 2)
+		c, err := sketch.CreateChamfer(s, l1, l2, 2)
 		require.ErrorIs(t, err, sketch.ErrForeignEntity)
 		require.Nil(t, c)
 
@@ -530,8 +541,10 @@ func TestToolsAcceptOriginDefiningPoint(t *testing.T) {
 		l := s.CreateLine(s.Origin(), s.CreatePoint(10, 0))
 		s.CreateLine(s.CreatePoint(5, -5), s.CreatePoint(5, 5))
 
-		nl, ok := s.Trim(l, 9, 0)
+		res, ok := sketch.Trim(s, l, 9, 0)
 		require.True(t, ok)
+		require.Len(t, res, 1)
+		nl := res[0]
 		require.InDelta(t, 5, nl.End.X(), 1e-9)
 		require.False(t, s.Verify(t.Context()).ForeignHandles)
 	})
@@ -541,7 +554,7 @@ func TestToolsAcceptOriginDefiningPoint(t *testing.T) {
 		l1 := s.CreateLine(s.Origin(), s.CreatePoint(10, 0))
 		l2 := s.CreateLine(s.Origin(), s.CreatePoint(0, 10))
 
-		f, err := s.CreateFillet(l1, l2, 2)
+		f, err := sketch.CreateFillet(s, l1, l2, s.Origin(), 2)
 		require.NoError(t, err)
 		require.NotNil(t, f.Arc)
 		require.False(t, s.Verify(t.Context()).ForeignHandles)
@@ -552,7 +565,7 @@ func TestToolsAcceptOriginDefiningPoint(t *testing.T) {
 		l1 := s.CreateLine(s.Origin(), s.CreatePoint(10, 0))
 		l2 := s.CreateLine(s.Origin(), s.CreatePoint(0, 10))
 
-		c, err := s.CreateChamfer(l1, l2, 2)
+		c, err := sketch.CreateChamfer(s, l1, l2, 2)
 		require.NoError(t, err)
 		require.NotNil(t, c.Cut)
 		require.False(t, s.Verify(t.Context()).ForeignHandles)
@@ -562,7 +575,7 @@ func TestToolsAcceptOriginDefiningPoint(t *testing.T) {
 		s := newSketch(t)
 		l := s.CreateLine(s.Origin(), s.CreatePoint(10, 0))
 
-		e1, e2, ok := s.Break(l, 4, 0)
+		e1, e2, ok := sketch.Break(s, l, 4, 0)
 		require.True(t, ok)
 		require.NotNil(t, e1)
 		require.NotNil(t, e2)
@@ -574,7 +587,8 @@ func TestToolsAcceptOriginDefiningPoint(t *testing.T) {
 		axis := s.CreateLine(s.Origin(), s.CreatePoint(0, 5))
 		l := s.CreateLine(s.CreatePoint(2, 0), s.CreatePoint(6, 0))
 
-		m := s.CreateMirror([]sketch.Entity{l}, axis)
+		m, err := sketch.CreateMirror(s, []sketch.Entity{l}, axis)
+		require.NoError(t, err)
 		require.NotNil(t, m)
 		require.Len(t, m.Copies, 1)
 		require.False(t, s.Verify(t.Context()).ForeignHandles)

@@ -57,20 +57,24 @@ that **commit new geometry**: `CreateFillet`, `CreateChamfer`, `CreateMirror`,
 ## API
 
 ```go
+// Package-level functions taking the sketch first (docs/curve-modify-tools-design.md).
+type OpenCurve interface{ *Line | *Arc }
+
 // Replace tools (no new constraints): build-then-replace.
-func (s *Sketch) Break(e Entity, x, y float64) (Entity, Entity, bool) // line | arc
-func (s *Sketch) Trim(l *Line, x, y float64) (*Line, bool)
-func (s *Sketch) Extend(l *Line, end *Point) (*Line, bool)
+func Break[T OpenCurve](s *Sketch, e T, x, y float64) (T, T, bool)
+func Trim[T OpenCurve](s *Sketch, e T, x, y float64) ([]T, bool)
+func Extend[T OpenCurve](s *Sketch, e T, end *Point) (T, bool)
 
 // Corner tools: arc/cut + tangency/coincidence + editable dimension.
-func (s *Sketch) CreateFillet(l1, l2 *Line, r float64) (*Fillet, error)
-func (s *Sketch) CreateChamfer(l1, l2 *Line, d float64) (*Chamfer, error)
+func CreateFillet[A, B OpenCurve](s *Sketch, e1 A, e2 B, corner *Point, r float64) (*Fillet[A, B], error)
+func CreateChamfer(s *Sketch, l1, l2 *Line, d float64) (*Chamfer, error)
 
 // Copy tools: copies linked to the seed by constraints.
-func (s *Sketch) CreateMirror(ents []Entity, axis *Line) *Mirror
-func (s *Sketch) CreatePatternRect(ents []Entity, nx, ny int, dx, dy float64) (*Pattern, error)
-func (s *Sketch) CreatePatternCircular(ents []Entity, center *Point, n int) (*Pattern, error)
-func (s *Sketch) CreateOffset(ents []Entity, d float64) (*OffsetGroup, error)
+func CreateMirror(s *Sketch, ents []Entity, axis *Line) (*Mirror, error)
+func CreatePatternRect(s *Sketch, ents []Entity, nx, ny int, dx, dy float64) (*Pattern, error)
+func CreatePatternCircular(s *Sketch, ents []Entity, center *Point, n int) (*Pattern, error)
+func CreatePatternCircularRing(s *Sketch, ents []Entity, center *Point, n int, start, end *Point) (*Pattern, error)
+func CreateOffset(s *Sketch, ents []Entity, d float64) (*OffsetGroup, error)
 ```
 
 ## Mechanics per tool

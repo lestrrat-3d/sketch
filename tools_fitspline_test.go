@@ -55,7 +55,7 @@ func buildPatternedRing(t *testing.T, cx, cy float64, n int) *sketch.Sketch {
 		require.NoError(t, err)
 		seed = append(seed, fs)
 	}
-	pat, err := s.CreatePatternCircular(seed, center, n)
+	pat, err := sketch.CreatePatternCircular(s, seed, center, n)
 	require.NoError(t, err)
 	require.Len(t, pat.Instances, 3*(n-1), "three fit splines per copy")
 
@@ -151,7 +151,7 @@ func TestPatternCopiesFitSplineShape(t *testing.T) {
 
 	t.Run("circular", func(t *testing.T) {
 		s, seed := build(t)
-		pat, err := s.CreatePatternCircular([]sketch.Entity{seed}, s.Origin(), 5)
+		pat, err := sketch.CreatePatternCircular(s, []sketch.Entity{seed}, s.Origin(), 5)
 		require.NoError(t, err)
 		_, err = s.Solve(t.Context())
 		require.NoError(t, err)
@@ -172,7 +172,7 @@ func TestPatternCopiesFitSplineShape(t *testing.T) {
 
 	t.Run("rect", func(t *testing.T) {
 		s, seed := build(t)
-		pat, err := s.CreatePatternRect([]sketch.Entity{seed}, 3, 1, 50, 0)
+		pat, err := sketch.CreatePatternRect(s, []sketch.Entity{seed}, 3, 1, 50, 0)
 		require.NoError(t, err)
 		_, err = s.Solve(t.Context())
 		require.NoError(t, err)
@@ -189,9 +189,10 @@ func TestPatternCopiesFitSplineShape(t *testing.T) {
 	t.Run("mirror", func(t *testing.T) {
 		s, seed := build(t)
 		axis := s.CreateLine(s.CreatePoint(0, -10), s.CreatePoint(0, 10))
-		m := s.CreateMirror([]sketch.Entity{seed}, axis)
+		m, err := sketch.CreateMirror(s, []sketch.Entity{seed}, axis)
+		require.NoError(t, err)
 		require.NotNil(t, m)
-		_, err := s.Solve(t.Context())
+		_, err = s.Solve(t.Context())
 		require.NoError(t, err)
 		cp := m.Copies[0].(*sketch.FitSpline)
 		want, got := seed.Polyline(40), cp.Polyline(40)
@@ -211,7 +212,7 @@ func TestPatternSharedFitPointsShareCopies(t *testing.T) {
 	require.NoError(t, err)
 	f2, err := s.CreateFitSpline(c, d, e)
 	require.NoError(t, err)
-	pat, err := s.CreatePatternCircular([]sketch.Entity{f1, f2}, s.Origin(), 3)
+	pat, err := sketch.CreatePatternCircular(s, []sketch.Entity{f1, f2}, s.Origin(), 3)
 	require.NoError(t, err)
 	require.Len(t, pat.Instances, 4)
 	c1 := pat.Instances[0].(*sketch.FitSpline)
@@ -276,7 +277,7 @@ func buildSharedRing(t *testing.T, cx, cy float64, n int) (*sketch.Sketch, *sket
 		require.NoError(t, err)
 		seed = append(seed, fs)
 	}
-	pat, err := s.CreatePatternCircularRing(seed, center, n, pts[0], pts[6])
+	pat, err := sketch.CreatePatternCircularRing(s, seed, center, n, pts[0], pts[6])
 	require.NoError(t, err)
 	_, err = s.Solve(t.Context())
 	require.NoError(t, err)
@@ -354,17 +355,17 @@ func TestPatternCircularRingRefusals(t *testing.T) {
 	seed := []sketch.Entity{fs}
 	before := len(s.Entities())
 
-	_, err = s.CreatePatternCircularRing(seed, center, 4, a, a)
+	_, err = sketch.CreatePatternCircularRing(s, seed, center, 4, a, a)
 	require.ErrorIs(t, err, sketch.ErrInvalidShape, "start == end")
-	_, err = s.CreatePatternCircularRing(seed, center, 4, a, c)
+	_, err = sketch.CreatePatternCircularRing(s, seed, center, 4, a, c)
 	require.ErrorIs(t, err, sketch.ErrInvalidShape, "end defines no seed entity")
-	_, err = s.CreatePatternCircularRing(seed, center, 4, a, center)
+	_, err = sketch.CreatePatternCircularRing(s, seed, center, 4, a, center)
 	require.ErrorIs(t, err, sketch.ErrInvalidShape, "end is the center")
-	_, err = s.CreatePatternCircularRing(seed, center, 1, a, b)
+	_, err = sketch.CreatePatternCircularRing(s, seed, center, 1, a, b)
 	require.ErrorIs(t, err, sketch.ErrInvalidShape, "n < 2")
 	require.Len(t, s.Entities(), before, "a refusal commits nothing")
 
 	other := newSketch(t)
-	_, err = s.CreatePatternCircularRing(seed, center, 4, a, other.CreatePoint(1, 1))
+	_, err = sketch.CreatePatternCircularRing(s, seed, center, 4, a, other.CreatePoint(1, 1))
 	require.ErrorIs(t, err, sketch.ErrForeignEntity)
 }

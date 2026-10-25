@@ -80,7 +80,7 @@ from a solid — the seam is first-class reference geometry), live in
 |---|---|---|
 | `sketch.go` | `Sketch`, solver-bound geometry (`Point`/`Line`/`Circle`/`Arc`/`Ellipse`) authored from points, the parameter model, grounding, construction flag, `Geometry()` snapshots, the always-grounded origin point, and the contracts a new entity type must satisfy. | `.claude/docs/sketch-core.md` → "`sketch.go` — Sketch, solver-bound geometry, grounding" |
 | `compound.go` | Compound shape builders (`CreateRectangle`/`CreatePolygon`/`CreateSlot`): primitives + shape-holding constraints, returned as a grouping handle (handle itself is not serialized). | — |
-| `tools.go` | Sketch-modification tools on committed geometry (`Trim`/`Extend`/`Break`, `CreateFillet`/`CreateChamfer`, `CreateMirror`, `CreatePatternRect`/`CreatePatternCircular`, `CreateOffset`): build-then-replace via the `geom` toolkit + `RemoveEntity`. Design in `docs/modification-tools-design.md`. Every tool screens its inputs and its pattern/mirror seed. | `.claude/docs/sketch-core.md` → "`tools.go` — sketch-modification tools" |
+| `tools.go` | Sketch-modification tools on committed geometry, as package-level functions taking the sketch first (`Trim`/`Extend`/`Break`, `CreateFillet`/`CreateChamfer`, `CreateMirror`, `CreatePatternRect`/`CreatePatternCircular`/`CreatePatternCircularRing`, `CreateOffset`; the curve tools are generic over `OpenCurve`): build-then-replace via the `geom` toolkit + `RemoveEntity`. Design in `docs/modification-tools-design.md`. Every tool screens its inputs and its pattern/mirror seed. | `.claude/docs/sketch-core.md` → "`tools.go` — sketch-modification tools" |
 | `profiles.go` | `Sketch.Profiles()`: closed planar regions via the `geom` arrangement engine; `ProfilesLinesBounded`: charged line-only publication. `buildProfiles` runs the one arrangement both publications come from. | `.claude/docs/profiles-geom.md` → "`profiles.go` — closed planar regions" |
 | `loops.go` | Declared closed loops of entities or of parameter ranges of entities (`DeclareLoop`, `DeclareLoopSpans`, `Loops`, `RemoveLoop`) and the per-profile verdict (`Profile.Containment`, `Containments`): inside, outside or unproven with a reason, by parity over the arrangement's face graph (`geom.WithFaceGraph`). Transient: not serialized, not in `Revision`. Design in `docs/loop-containment-design.md`. | `.claude/docs/profiles-geom.md` → "Loop containment" |
 | `chains.go` | `Sketch.Chains()`: the arrangement's OPEN publication — ordered open runs of `BoundaryEdge` over the edges no region boundary uses, with arc length, per-chain validity and the same snapshot/staleness handles a `Profile` carries. Shares the edge set with `Profiles()` — no edge in both, a closed run that bounds nothing in neither; walks are cut at every vertex the whole arrangement gives a degree other than 2. | `.claude/docs/profiles-geom.md` → "`chains.go` — open boundary chains" |
@@ -119,7 +119,9 @@ on a plane from `World.XY()`/`XZ()`/`YZ()` or a created plane
 **verb convention** is settled: `New*` = package-level standalone constructor (only
 `NewWorld` remains at the sketch layer); `Create*` = a World method that
 manufactures a new owned object; `Add*` = a method that attaches an existing
-object (the sketch's geometry builders). Load-bearing rules:
+object (the sketch's geometry builders). The sketch-modification tools in
+`tools.go` are package-level functions that take the sketch first
+(`sketch.Trim(s, l, x, y)`, `sketch.CreateFillet(s, l1, l2, corner, r)`). Load-bearing rules:
 
 - **Global parameters are world-shared.** `World.CreateSketch(plane)` seeds the
   new sketch with `s.params = w.params`, so one global parameter drives dimensions
