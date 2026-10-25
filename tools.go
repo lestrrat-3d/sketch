@@ -648,7 +648,7 @@ func (s *Sketch) createPatternCircular(name string, ents []Entity, center *Point
 		return nil, fmt.Errorf("%w: %s cannot copy %T; only *sketch.Line, *sketch.Circle, *sketch.Arc and *sketch.FitSpline are copied", ErrUnsupportedEntity, name, e)
 	}
 	ring := start != nil
-	if ring && !(seedDefinedBy(ents, start) && seedDefinedBy(ents, end)) {
+	if ring && (!seedDefinedBy(ents, start) || !seedDefinedBy(ents, end)) {
 		return nil, fmt.Errorf("%w: %s start and end must each define a seed entity", ErrInvalidShape, name)
 	}
 	step := 2 * math.Pi / float64(n)
