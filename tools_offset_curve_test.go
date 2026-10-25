@@ -74,10 +74,13 @@ func TestOffsetCurveRefusals(t *testing.T) {
 		{"radius would vanish", func(s *sketch.Sketch) []sketch.Entity {
 			return []sketch.Entity{s.CreateCircle(s.CreatePoint(0, 0), 2)}
 		}, sketch.ErrInvalidShape},
-		{"joined arc", func(s *sketch.Sketch) []sketch.Entity {
+		{"cusp", func(s *sketch.Sketch) []sketch.Entity {
 			p := s.CreatePoint(10, 0)
-			arc := s.CreateArc(s.CreatePoint(0, 0), p, s.CreatePoint(0, 10))
-			return []sketch.Entity{s.CreateLine(s.CreatePoint(20, 0), p), arc}
+			return []sketch.Entity{s.CreateLine(s.CreatePoint(0, 0), p), s.CreateLine(p, s.CreatePoint(5, 0))}
+		}, sketch.ErrInvalidShape},
+		{"closed loop of tangent arcs", func(s *sketch.Sketch) []sketch.Entity {
+			c, a, b := s.CreatePoint(0, 0), s.CreatePoint(5, 0), s.CreatePoint(-5, 0)
+			return []sketch.Entity{s.CreateArc(c, a, b), s.CreateArc(c, b, a)}
 		}, sketch.ErrInvalidShape},
 	}
 	for _, tc := range cases {

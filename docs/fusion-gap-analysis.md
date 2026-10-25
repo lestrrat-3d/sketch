@@ -50,15 +50,14 @@ whole entity.
 `CreateMirror`, `CreatePatternRect`, `CreatePatternCircular` and `CreateOffset`,
 as package-level functions. `Trim`, `Extend` and `CreateFillet` take lines and
 arcs, `TrimCircle` trims a circle, and trim, extend, fillet and chamfer edit the
-curve in place as Fusion does. Design in `docs/modification-tools-design.md`
+curve in place as Fusion does. `CreateOffset` offsets circles and chains of
+lines and arcs. Design in `docs/modification-tools-design.md`
 and `docs/curve-modify-tools-design.md`.
 
 **Open:**
 
 - **Move, copy, rotate, scale and stretch.** The sketch has no API for any of them.
   Mirror and the two patterns are the only ways to copy geometry.
-- **Offset of arcs and circles.** `CreateOffset` skips every entity that is not a
-  line.
 - **Project, include and intersect.** These stay out by design. The engine verifies
   against 2D curves you hand it as reference geometry and never computes them from
   a solid.
