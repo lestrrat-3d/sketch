@@ -195,9 +195,10 @@ func (s *Sketch) trimLine(l *Line, x, y float64) []*Line {
 	hits := s.lineCrossings(sl, l, true)
 
 	loT, hiT := 0.0, 1.0
-	var loP, hiP *geom.Point
-	for _, h := range hits {
-		_, ht := geom.ClosestPointOnLine(sl, h)
+	var loP, hiP *crossing
+	for i := range hits {
+		h := &hits[i]
+		_, ht := geom.ClosestPointOnLine(sl, h.at)
 		if ht <= epsTool || ht >= 1-epsTool {
 			continue
 		}
@@ -217,15 +218,15 @@ func (s *Sketch) trimLine(l *Line, x, y float64) []*Line {
 		s.RemovePoint(end)
 		return []*Line{}
 	case loP == nil: // crossing only above the pick: cut the start stub in place
-		s.moveEnd(l, l.Start, s.CreatePoint(hiP.X, hiP.Y))
+		s.moveEnd(l, l.Start, s.pointOnCutter(*hiP))
 		return []*Line{l}
 	case hiP == nil: // crossing only below the pick: cut the end stub in place
-		s.moveEnd(l, l.End, s.CreatePoint(loP.X, loP.Y))
+		s.moveEnd(l, l.End, s.pointOnCutter(*loP))
 		return []*Line{l}
 	}
 	// Crossings on both sides: delete the line and keep the two outer pieces.
-	first := s.CreateLine(l.Start, s.CreatePoint(loP.X, loP.Y))
-	second := s.CreateLine(s.CreatePoint(hiP.X, hiP.Y), l.End)
+	first := s.CreateLine(l.Start, s.pointOnCutter(*loP))
+	second := s.CreateLine(s.pointOnCutter(*hiP), l.End)
 	s.RemoveEntity(l)
 	return []*Line{first, second}
 }
@@ -341,9 +342,10 @@ func (s *Sketch) extendLine(l *Line, end *Point) (*Line, bool) {
 
 	fromStart := end == l.Start
 	bestT := math.Inf(1)
-	var best *geom.Point
-	for _, h := range hits {
-		_, ht := geom.ClosestPointOnLine(sl, h)
+	var best *crossing
+	for i := range hits {
+		h := &hits[i]
+		_, ht := geom.ClosestPointOnLine(sl, h.at)
 		var beyond float64
 		if fromStart {
 			if ht >= -epsTool {
@@ -363,18 +365,64 @@ func (s *Sketch) extendLine(l *Line, end *Point) (*Line, bool) {
 	if best == nil {
 		return nil, false
 	}
-	s.moveEnd(l, end, s.CreatePoint(best.X, best.Y))
+	s.moveEnd(l, end, s.pointOnCutter(*best))
 	return l, true
 }
 
-// lineCrossings returns the plane-local intersection points of sl with every
-// entity except skip. When segment is true, line cutters are intersected as
-// bounded segments (for trimming); otherwise the infinite line through sl is
-// used and a line cutter contributes a point only where it falls within the
-// cutter's own segment (for extending). Circle and arc cutters always use the
-// infinite line through sl; the caller filters by position along sl.
-func (s *Sketch) lineCrossings(sl *geom.Line, skip Entity, segment bool) []*geom.Point {
-	var out []*geom.Point
+// crossing is a point where a trimmed or extended curve meets another entity,
+// and that entity (the cutter).
+type crossing struct {
+	at     *geom.Point
+	cutter Entity
+}
+
+// pointOnCutter returns the sketch point a trimmed or extended end moves to. A
+// crossing on one of the cutter's own end points reuses that point, so the two
+// curves share it. Otherwise it creates a point at the crossing and ties it to
+// the cutter with a point-on-curve constraint, as Fusion's trim and extend
+// create constraints by default.
+func (s *Sketch) pointOnCutter(c crossing) *Point {
+	for _, p := range cutterEnds(c.cutter) {
+		if near(p.Geometry(), c.at) {
+			return p
+		}
+	}
+	np := s.CreatePoint(c.at.X, c.at.Y)
+	s.pinToCutter(np, c.cutter)
+	return np
+}
+
+// cutterEnds returns the end points of a line or arc cutter. A circle has none.
+func cutterEnds(e Entity) []*Point {
+	switch t := e.(type) {
+	case *Line:
+		return []*Point{t.Start, t.End}
+	case *Arc:
+		return []*Point{t.Start, t.End}
+	}
+	return nil
+}
+
+// pinToCutter ties p to the cutter it was created on.
+func (s *Sketch) pinToCutter(p *Point, cutter Entity) {
+	switch t := cutter.(type) {
+	case *Line:
+		s.AddConstraint(NewPointOnLine(p, t))
+	case *Circle:
+		s.AddConstraint(NewPointOnCircle(p, t))
+	case *Arc:
+		s.AddConstraint(NewPointOnArc(p, t))
+	}
+}
+
+// lineCrossings returns where sl meets every entity except skip, with the
+// entity met. When segment is true, line cutters are intersected as bounded
+// segments (for trimming); otherwise the infinite line through sl is used and a
+// line cutter contributes a point only where it falls within the cutter's own
+// segment (for extending). Circle and arc cutters always use the infinite line
+// through sl; the caller filters by position along sl.
+func (s *Sketch) lineCrossings(sl *geom.Line, skip Entity, segment bool) []crossing {
+	var out []crossing
 	for _, e := range s.ents {
 		if e == skip {
 			continue
@@ -384,7 +432,7 @@ func (s *Sketch) lineCrossings(sl *geom.Line, skip Entity, segment bool) []*geom
 			ol := t.Geometry()
 			if segment {
 				if p, ok := geom.SegmentIntersection(sl, ol); ok {
-					out = append(out, p)
+					out = append(out, crossing{p, t})
 				}
 				continue
 			}
@@ -393,12 +441,16 @@ func (s *Sketch) lineCrossings(sl *geom.Line, skip Entity, segment bool) []*geom
 				continue
 			}
 			if _, u := geom.ClosestPointOnLine(ol, p); u >= -epsTool && u <= 1+epsTool {
-				out = append(out, p)
+				out = append(out, crossing{p, t})
 			}
 		case *Circle:
-			out = append(out, geom.LineCircleIntersections(sl, t.Geometry())...)
+			for _, p := range geom.LineCircleIntersections(sl, t.Geometry()) {
+				out = append(out, crossing{p, t})
+			}
 		case *Arc:
-			out = append(out, geom.LineArcIntersections(sl, t.Geometry())...)
+			for _, p := range geom.LineArcIntersections(sl, t.Geometry()) {
+				out = append(out, crossing{p, t})
+			}
 		}
 	}
 	return out
