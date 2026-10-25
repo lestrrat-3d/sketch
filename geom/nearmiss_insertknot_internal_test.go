@@ -30,10 +30,11 @@ func referenceInsertKnotHom(p int, u []float64, pw [][3]float64, x float64) ([]f
 		if den := u[i+p] - u[i]; den > 0 {
 			alpha = (x - u[i]) / den
 		}
+		// The same explicit rounding as insertKnotHom, so no FMA can fuse here.
 		q[i] = [3]float64{
-			alpha*pw[i][0] + (1-alpha)*pw[i-1][0],
-			alpha*pw[i][1] + (1-alpha)*pw[i-1][1],
-			alpha*pw[i][2] + (1-alpha)*pw[i-1][2],
+			float64(alpha*pw[i][0]) + float64((1-alpha)*pw[i-1][0]),
+			float64(alpha*pw[i][1]) + float64((1-alpha)*pw[i-1][1]),
+			float64(alpha*pw[i][2]) + float64((1-alpha)*pw[i-1][2]),
 		}
 	}
 	nu := make([]float64, 0, len(u)+1)

@@ -151,13 +151,19 @@ func operandOf(s *source) operand {
 
 // lineParam returns the natural parameter t of point (x,y) on the line operand
 // (t=0 at A, t=1 at B), by projection onto the segment direction.
+//
+// Every product is rounded with an explicit float64 conversion. The Go spec lets
+// the compiler fuse x*y+z into one FMA instruction, and arm64 does, choosing per
+// inlined call site which product to fuse. The conversion forbids that, so every
+// caller and every architecture rounds this parameter alike; the line-event tests
+// that compare two paths bit for bit depend on it.
 func (o operand) lineParam(x, y float64) float64 {
 	dx, dy := o.bx-o.ax, o.by-o.ay
-	d2 := dx*dx + dy*dy
+	d2 := float64(dx*dx) + float64(dy*dy)
 	if d2 == 0 {
 		return 0
 	}
-	return ((x-o.ax)*dx + (y-o.ay)*dy) / d2
+	return (float64((x-o.ax)*dx) + float64((y-o.ay)*dy)) / d2
 }
 
 // circleParam returns the natural parameter t∈[0,1) of point (x,y) on the circle/
@@ -344,13 +350,17 @@ const arcParamEps = 1e-9
 // lineLineEvents: two infinite lines either cross once, are coincident (overlap),
 // or are parallel and disjoint (no event). The arrangement's edge clipping decides
 // whether the crossing lands on the segments; here we report the carrier crossing.
+//
+// The products are rounded with explicit float64 conversions, as in lineParam, so
+// no FMA can be formed: this function, plainLineCrossing and the test reference
+// then round the shared crossing arithmetic identically on every architecture.
 func lineLineEvents(a, b operand, scale float64) ([]xEvent, bool) {
 	if e, ok := plainLineCrossing(a, b); ok {
 		return []xEvent{e}, false
 	}
 	d1x, d1y := a.bx-a.ax, a.by-a.ay
 	d2x, d2y := b.bx-b.ax, b.by-b.ay
-	den := d1x*d2y - d1y*d2x
+	den := float64(d1x*d2y) - float64(d1y*d2x)
 	l1 := math.Hypot(d1x, d1y)
 	l2 := math.Hypot(d2x, d2y)
 	if l1 == 0 || l2 == 0 {
@@ -360,7 +370,7 @@ func lineLineEvents(a, b operand, scale float64) ([]xEvent, bool) {
 		// Parallel. Distinct carriers never meet. A shared carrier is a degenerate
 		// duplicate edge ONLY where the two segments actually overlap; collinear but
 		// disjoint segments do not meet.
-		perp := math.Abs((b.ax-a.ax)*d1y-(b.ay-a.ay)*d1x) / l1
+		perp := math.Abs(float64((b.ax-a.ax)*d1y)-float64((b.ay-a.ay)*d1x)) / l1
 		if perp >= scale*mergeEps {
 			return nil, false // parallel, distinct carriers
 		}
@@ -373,7 +383,7 @@ func lineLineEvents(a, b operand, scale float64) ([]xEvent, bool) {
 			return nil, false
 		}
 		mid := (ov0 + ov1) / 2 // a point inside the positive-length overlap, in a's param
-		x, y := a.ax+mid*d1x, a.ay+mid*d1y
+		x, y := a.ax+float64(mid*d1x), a.ay+float64(mid*d1y)
 		e := xEvent{x: x, y: y, ti: mid, tj: b.lineParam(x, y), kind: evOverlap}
 		// The overlap's two ends are each an endpoint of one of the two lines: a's
 		// own end where b reaches past it, b's endpoint where b stops inside a. A pair
@@ -404,8 +414,8 @@ func lineLineEvents(a, b operand, scale float64) ([]xEvent, bool) {
 		}
 		return []xEvent{e}, false
 	}
-	t := ((b.ax-a.ax)*d2y - (b.ay-a.ay)*d2x) / den
-	x, y := a.ax+t*d1x, a.ay+t*d1y
+	t := (float64((b.ax-a.ax)*d2y) - float64((b.ay-a.ay)*d2x)) / den
+	x, y := a.ax+float64(t*d1x), a.ay+float64(t*d1y)
 	return []xEvent{{
 		x: x, y: y,
 		ti:   a.lineParam(x, y),
@@ -420,17 +430,18 @@ func lineLineEvents(a, b operand, scale float64) ([]xEvent, bool) {
 // above (|dx|+|dy| >= hypot), so |den|/(s1*s2) is a lower bound on the sine the
 // full test computes, and the factor of two covers the rounding of the lengths
 // and of the product. A zero, infinite or NaN operand fails the comparison and
-// ok is false, leaving the pair to the full test.
+// ok is false, leaving the pair to the full test. Its products are rounded
+// explicitly, as in lineLineEvents, so both report the same bits.
 func plainLineCrossing(a, b operand) (xEvent, bool) {
 	d1x, d1y := a.bx-a.ax, a.by-a.ay
 	d2x, d2y := b.bx-b.ax, b.by-b.ay
-	den := d1x*d2y - d1y*d2x
+	den := float64(d1x*d2y) - float64(d1y*d2x)
 	s1, s2 := math.Abs(d1x)+math.Abs(d1y), math.Abs(d2x)+math.Abs(d2y)
 	if !(s1 > 0 && s2 > 0 && math.Abs(den) >= 2*lineParallelEps*(s1*s2)) {
 		return xEvent{}, false
 	}
-	t := ((b.ax-a.ax)*d2y - (b.ay-a.ay)*d2x) / den
-	x, y := a.ax+t*d1x, a.ay+t*d1y
+	t := (float64((b.ax-a.ax)*d2y) - float64((b.ay-a.ay)*d2x)) / den
+	x, y := a.ax+float64(t*d1x), a.ay+float64(t*d1y)
 	return xEvent{
 		x: x, y: y,
 		ti:   a.lineParam(x, y),
