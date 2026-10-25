@@ -96,21 +96,30 @@ func TestTrimStartStub(t *testing.T) {
 	require.InDelta(t, 5, nl.End.X(), 1e-9)
 }
 
-func TestTrimInteriorRejected(t *testing.T) {
+func TestTrimInteriorSplits(t *testing.T) {
 	s := newSketch(t)
 	h := s.CreateLine(s.CreatePoint(-5, 0), s.CreatePoint(5, 0))
 	s.CreateLine(s.CreatePoint(-2, -5), s.CreatePoint(-2, 5)) // cutter left of pick
 	s.CreateLine(s.CreatePoint(2, -5), s.CreatePoint(2, 5))   // cutter right of pick
 
-	_, ok := sketch.Trim(s, h, 0, 0) // pick on the interior portion
-	require.False(t, ok, "trimming a bounded interior portion would split the line")
+	res, ok := sketch.Trim(s, h, 0, 0) // pick on the interior portion
+	require.True(t, ok)
+	require.Len(t, res, 2, "Fusion deletes the line and keeps the two outer pieces")
+	require.Same(t, h.Start, res[0].Start)
+	require.InDelta(t, -2, res[0].End.X(), 1e-9)
+	require.InDelta(t, 2, res[1].Start.X(), 1e-9)
+	require.Same(t, h.End, res[1].End)
+	require.Len(t, s.Entities(), 4, "two cutters and two pieces")
 }
 
 func TestTrimNoCrossing(t *testing.T) {
 	s := newSketch(t)
 	h := s.CreateLine(s.CreatePoint(0, 0), s.CreatePoint(5, 0))
-	_, ok := sketch.Trim(s, h, 2, 0)
-	require.False(t, ok)
+	res, ok := sketch.Trim(s, h, 2, 0)
+	require.True(t, ok)
+	require.Empty(t, res, "Fusion deletes a curve that crosses nothing")
+	require.Empty(t, s.Entities())
+	require.Empty(t, s.Points(), "the deleted line's end points go with it")
 }
 
 func TestExtendToCutter(t *testing.T) {

@@ -84,12 +84,19 @@ func CreateOffset(s *Sketch, ents []Entity, d float64) (*OffsetGroup, error)
   `SplitArcAt` reusing the original endpoints, commits the two halves (they
   share a fresh split vertex by pointer), and removes the original.
 - **Trim** collects the line's crossings with every other entity
-  (`lineCrossings`), locates the interval around the pick, and replaces the line
-  with the portion that keeps the far end. A pick on a portion bounded by
-  crossings on *both* sides returns false (it would split — use Break).
+  (`lineCrossings`) and locates the portion around the pick, bounded by the
+  nearest crossings or the line's own ends, as Fusion's trim does. An end portion
+  is cut by moving that end of the SAME line in place (the handle and its
+  constraints survive; the old end point is removed when unused). A middle
+  portion deletes the line and returns the two outer pieces. A line with no
+  crossing is deleted.
 - **Extend** intersects the infinite line through `l` with the other entities,
-  picks the nearest crossing *beyond* the chosen end, and replaces `l` with the
-  lengthened segment.
+  picks the nearest crossing *beyond* the chosen end, and moves that end of `l`
+  there in place.
+- **In-place edits refresh endpoint tangencies.** An endpoint tangency whose
+  shared contact point is moved off one operand becomes a tangency anywhere on the
+  two curves (`refreshSharedEndpoints`); a conic tangency in that state is
+  removed.
 - **Fillet/Chamfer** find the shared corner point, run `geom.Fillet`/`Chamfer`
   on solved-coordinate copies (the copies share a throwaway corner so the geom
   helper's endpoint-replacement is harmless), then commit the shortened legs +
