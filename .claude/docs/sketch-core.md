@@ -344,11 +344,19 @@ point silently: they have no error return to refuse through.
 ### `unsupportedSeed` — the pattern/mirror seed allow-list
 
 **Every pattern/mirror builder also screens its seed through the ONE allow-list
-`unsupportedSeed` before committing anything.** Only `*Line`/`*Circle`/`*Arc`
-can be copied, because the point-relinking interface `instantiate` builds a copy
-through carries no shape transform — a rotated ellipse, a spline's control
-polygon, and every other curved kind need the mirror's reflection or the
-pattern's rotation applied to their SHAPE, not just relinked to copied points.
+`unsupportedSeed` before committing anything.** Only `*Line`/`*Circle`/`*Arc`/
+`*FitSpline` can be copied, because the point-relinking interface `instantiate`
+builds a copy through carries no shape transform — a rotated ellipse, a spline's
+control polygon, and every other curved kind need the mirror's reflection or the
+pattern's rotation applied to their SHAPE, not just relinked to copied points. A
+`*FitSpline` is the exception: it is defined by its fit points alone, and the
+natural cubic through them is parametrized by chord length, which rotation,
+reflection and translation preserve, so the copy through the linked points IS
+the transformed spline and needs no constraint of its own (shared fit points
+share their copies through `link`). A pattern leaves no record of its own in the
+JSON document — its copies are ordinary entities, points, construction spokes
+and constraints — so adding the kind changes no schema or version.
+
 The screen is an ALLOW-LIST with a refusing default, so an entity type added
 later is refused by it without being named — the worst a forgotten update can do
 is refuse a kind `instantiate` could in fact copy, never silently drop one it

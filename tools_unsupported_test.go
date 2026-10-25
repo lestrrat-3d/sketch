@@ -63,20 +63,6 @@ var unsupportedSeeds = []struct {
 		},
 	},
 	{
-		name: "FitSpline",
-		build: func(t *testing.T, s *sketch.Sketch) sketch.Entity {
-			t.Helper()
-			pts := make([]*sketch.Point, 5)
-			for i := range pts {
-				u := float64(i) / 4
-				pts[i] = s.CreatePoint(u*10, math.Sin(u*math.Pi)*3)
-			}
-			fs, err := s.CreateFitSpline(pts...)
-			require.NoError(t, err)
-			return fs
-		},
-	},
-	{
 		name: "NURBS",
 		build: func(t *testing.T, s *sketch.Sketch) sketch.Entity {
 			t.Helper()
@@ -186,7 +172,7 @@ func TestPatternMirrorRefusalLeavesSketchUnchanged(t *testing.T) {
 }
 
 // TestPatternMirrorMixedSeedRefused is the gear-generator's exact case: a
-// FitSpline flank plus the Line that closes it. Before this refusal existed,
+// ClosedSpline plus the Line that closes it. Before this refusal existed,
 // CreatePatternCircular returned a nil error and a Pattern holding only the
 // copyable line — the spline silently dropped, with no signal that the
 // resulting geometry was not what was asked for.
@@ -195,10 +181,10 @@ func TestPatternMirrorMixedSeedRefused(t *testing.T) {
 	p0 := s.CreatePoint(0, 0)
 	p1 := s.CreatePoint(1, 3)
 	p2 := s.CreatePoint(2, 5)
-	fs, err := s.CreateFitSpline(p0, p1, p2)
+	cs, err := s.CreateClosedSpline(p0, p1, p2)
 	require.NoError(t, err)
 	closingLine := s.CreateLine(p2, p0)
-	seed := []sketch.Entity{fs, closingLine}
+	seed := []sketch.Entity{cs, closingLine}
 	center := s.CreatePoint(-20, 0)
 
 	pts, ents, cons, dof, rev := len(s.Points()), len(s.Entities()), len(s.Constraints()), s.DOF(), s.Revision()
