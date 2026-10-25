@@ -96,6 +96,12 @@ func depFixtures() []depFixture {
 			s.AddConstraint(c)
 			return c
 		}},
+		{"point_on_normal", func(s *Sketch) Constraint {
+			l := s.CreateLine(s.CreatePoint(0, 0), s.CreatePoint(4, 0))
+			c := NewPointOnNormal(s.CreatePoint(4, 1), l, s.CreatePoint(4, 0))
+			s.AddConstraint(c)
+			return c
+		}},
 		{"collinear", func(s *Sketch) Constraint {
 			l1 := s.CreateLine(s.CreatePoint(0, 0), s.CreatePoint(4, 0))
 			l2 := s.CreateLine(s.CreatePoint(5, 1), s.CreatePoint(9, 1))
@@ -498,6 +504,7 @@ var constraintDependencies = []dependencyRow{
 	{"parallel", 1, 8, 0, 0, "static", true},
 	{"perpendicular", 1, 8, 0, 0, "static", true},
 	{"point_on_line", 1, 6, 0, 0, "static", true},
+	{"point_on_normal", 1, 8, 0, 0, "static", true},
 	{"collinear", 2, 8, 0, 0, "static", true},
 	{"point_on_circle", 1, 4, 1, 0, "static", true},
 	{"point_on_arc", 2, 8, 0, 1, "aux-gated", true},
@@ -664,6 +671,7 @@ var constructorKind = map[string]string{
 	"NewParallel":               "parallel",
 	"NewPerpendicular":          "perpendicular",
 	"NewPointOnLine":            "point_on_line",
+	"NewPointOnNormal":          "point_on_normal",
 	"NewCollinear":              "collinear",
 	"NewPointOnCircle":          "point_on_circle",
 	"NewPointOnArc":             "point_on_arc",
