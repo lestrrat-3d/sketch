@@ -180,3 +180,55 @@ func (s *Sketch) CreateArcThreePoints(start *Point, mx, my float64, end *Point) 
 	}
 	return s.CreateArc(center, end, start), nil
 }
+
+// CreateArcTangent adds an arc that starts at at, an endpoint of l, leaves it
+// tangent to l in the direction l runs toward at, and ends at a new point
+// (x, y). It is the counterpart of Fusion's tangent arc. A new center point is
+// created, and [NewTangent] holds the arc tangent to l at the shared point, so
+// the arc stays tangent when either is re-dimensioned. Arcs sweep
+// counter-clockwise: an arc that turns left has at as its Start, and one that
+// turns right has at as its End. Beyond the line, the arc adds two degrees of
+// freedom (its end point). It returns [ErrForeignEntity] if l is not a live line
+// of this sketch or has an endpoint that is not a live point of it, and
+// [ErrInvalidShape] if at is not an endpoint of l, l has zero length, x or y is
+// not finite, or (x, y) lies on the infinite line through l (no arc tangent at
+// at reaches it) — in each case without modifying the sketch.
+func (s *Sketch) CreateArcTangent(l *Line, at *Point, x, y float64) (*Arc, error) {
+	if s.foreignInput(l) {
+		return nil, ErrForeignEntity
+	}
+	var other *Point
+	switch at {
+	case l.End:
+		other = l.Start
+	case l.Start:
+		other = l.End
+	default:
+		return nil, fmt.Errorf("%w: CreateArcTangent requires at to be an endpoint of l", ErrInvalidShape)
+	}
+	if !allFinite(x, y) {
+		return nil, fmt.Errorf("%w: CreateArcTangent requires a finite end point", ErrInvalidShape)
+	}
+	dx, dy := at.x()-other.x(), at.y()-other.y()
+	dl := math.Hypot(dx, dy)
+	if dl <= epsTool {
+		return nil, fmt.Errorf("%w: CreateArcTangent requires a line of nonzero length", ErrInvalidShape)
+	}
+	vx, vy := x-at.x(), y-at.y()
+	cross := dx*vy - dy*vx
+	if math.Abs(cross) <= epsTool*dl*math.Hypot(vx, vy) {
+		return nil, fmt.Errorf("%w: CreateArcTangent requires an end point off the line", ErrInvalidShape)
+	}
+	nx, ny := -dy/dl, dx/dl // left normal of the travel direction
+	k := (vx*vx + vy*vy) / (2 * (nx*vx + ny*vy))
+	end := s.CreatePoint(x, y)
+	center := s.CreatePoint(at.x()+k*nx, at.y()+k*ny)
+	var a *Arc
+	if cross > 0 {
+		a = s.CreateArc(center, at, end)
+	} else {
+		a = s.CreateArc(center, end, at)
+	}
+	s.AddConstraint(NewTangent(l, a))
+	return a, nil
+}
