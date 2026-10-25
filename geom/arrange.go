@@ -4916,13 +4916,13 @@ func (a *arranger) makeCycle(hs []int) cycle {
 		// elliptical fragment is its natural-param fraction times the source sweep.
 		switch s.kind {
 		case srcArc:
-			bulge += chordArcCorrection(s.r, (f.pEnd-f.pStart)*s.sweep)
+			bulge += chordArcCorrection(s.r, f.pEnd-f.pStart, s.sweep)
 		case srcCircle:
-			bulge += chordArcCorrection(s.r, (f.pEnd-f.pStart)*2*math.Pi)
+			bulge += chordArcCorrection(s.r, f.pEnd-f.pStart, 2*math.Pi)
 		case srcEllipse:
-			bulge += chordEllipseCorrection(s.rx, s.ry, (f.pEnd-f.pStart)*2*math.Pi)
+			bulge += chordEllipseCorrection(s.rx, s.ry, f.pEnd-f.pStart, 2*math.Pi)
 		case srcEllipticalArc:
-			bulge += chordEllipseCorrection(s.rx, s.ry, (f.pEnd-f.pStart)*s.sweep)
+			bulge += chordEllipseCorrection(s.rx, s.ry, f.pEnd-f.pStart, s.sweep)
 		case srcConic:
 			// Exact, sampling-independent area between the conic fragment
 			// (parameters f.pStart→f.pEnd in walk order) and its chord. The closed
@@ -5561,11 +5561,21 @@ func (a *arranger) angInFragment(s *source, f cycFrag, ang float64) bool {
 }
 
 // chordArcCorrection returns the signed area between an arc's chord and the arc,
-// for a fragment of signed subtended angle theta on a circle of radius r. The
-// sign follows the walk: a CCW fragment (theta>0) bulges to the left of its
-// directed chord and adds positive area.
-func chordArcCorrection(r, theta float64) float64 {
-	return 0.5 * r * r * (theta - math.Sin(theta))
+// for a fragment of signed subtended angle theta = frac·span on a circle of radius
+// r, where frac is the fragment's share of the source's natural parameter and span
+// the source's signed sweep. The sign follows the walk: a CCW fragment (theta>0)
+// bulges to the left of its directed chord and adds positive area.
+//
+// theta and the result are rounded with explicit float64 conversions. The Go spec
+// lets the compiler fuse a product into a following add or subtract (FMA), and
+// arm64 does: theta−sin(theta) would then use the unrounded product while Sin saw
+// the rounded one. For a thin fragment that difference cancels to ~1e-8 of theta,
+// which magnifies the half-ulp mismatch into the region's area. The result's
+// conversion likewise keeps the caller's bulge sum from fusing. Area tests pin
+// these values bit-close, so every architecture must round alike.
+func chordArcCorrection(r, frac, span float64) float64 {
+	theta := float64(frac * span)
+	return float64(0.5 * r * r * (theta - math.Sin(theta)))
 }
 
 // chordEllipseCorrection returns the exact signed area between an elliptical
@@ -5576,9 +5586,12 @@ func chordArcCorrection(r, theta float64) float64 {
 // sin(dphi)) — the elliptical analog of [chordArcCorrection] (r² → rx·ry). It is
 // independent of the ellipse's centre and rotation (area is invariant under
 // translation and rotation), so it is exact, not sampled. The sign follows the
-// walk via the signed dphi, exactly like the circular case.
-func chordEllipseCorrection(rx, ry, dphi float64) float64 {
-	return 0.5 * rx * ry * (dphi - math.Sin(dphi))
+// walk via the signed dphi, exactly like the circular case. dphi is frac·span as
+// in chordArcCorrection, and it and the result are rounded explicitly for the same
+// reason: no FMA may fuse across them.
+func chordEllipseCorrection(rx, ry, frac, span float64) float64 {
+	dphi := float64(frac * span)
+	return float64(0.5 * rx * ry * (dphi - math.Sin(dphi)))
 }
 
 // conicBulge returns the exact signed area between a conic (rational quadratic

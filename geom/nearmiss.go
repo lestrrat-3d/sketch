@@ -403,10 +403,14 @@ func insertKnotHom(p int, u []float64, pw [][3]float64, x float64) ([]float64, [
 		if den := u[i+p] - u[i]; den > 0 {
 			alpha = (x - u[i]) / den
 		}
+		// Both products are rounded with explicit float64 conversions: the Go spec
+		// lets the compiler fuse one of them into the sum (FMA), and which one it
+		// picks varies by architecture and call site. The test reference must be
+		// matched bit for bit, so neither may fuse.
 		pw[i] = [3]float64{
-			alpha*pw[i][0] + (1-alpha)*pw[i-1][0],
-			alpha*pw[i][1] + (1-alpha)*pw[i-1][1],
-			alpha*pw[i][2] + (1-alpha)*pw[i-1][2],
+			float64(alpha*pw[i][0]) + float64((1-alpha)*pw[i-1][0]),
+			float64(alpha*pw[i][1]) + float64((1-alpha)*pw[i-1][1]),
+			float64(alpha*pw[i][2]) + float64((1-alpha)*pw[i-1][2]),
 		}
 	}
 	u = slices.Insert(u, k+1, x)
