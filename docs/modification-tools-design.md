@@ -41,11 +41,11 @@ private `solvedLine`/`solvedCircle`/`solvedArc` helpers are gone.)
 | `(x, y)` pick locations resolved to the nearest point on the entity | Snapping, magnetism |
 | Constraints on a *replaced entity* are dropped; constraints on surviving points are kept | Constraint *transfer* (re-homing a horizontal/angle onto the replacement) |
 
-The deliberate limitation: a tool that replaces a line (trim, fillet, chamfer)
-drops constraints that referenced *that line entity* (horizontal, angle, …) via
-the removal cascade; constraints on its endpoints survive because the points
-survive. The returned handle exposes the replacement entities so the caller can
-re-apply entity constraints. Constraint transfer is left to the UI layer.
+Trim of an end, extend, fillet and chamfer edit the curve IN PLACE, as Fusion
+does, so constraints that reference the curve (horizontal, angle, …) survive. A
+tool that deletes a curve (a middle trim, or a curve with no crossing) drops
+the constraints that referenced it via the removal cascade; constraints on its
+surviving endpoints are kept.
 
 ## Naming
 
@@ -99,12 +99,13 @@ func CreateOffset(s *Sketch, ents []Entity, d float64) (*OffsetGroup, error)
   removed.
 - **Fillet/Chamfer** find the shared corner point, run `geom.Fillet`/`Chamfer`
   on solved-coordinate copies (the copies share a throwaway corner so the geom
-  helper's endpoint-replacement is harmless), then commit the shortened legs +
-  arc/cut reusing the far generics and fresh contact points. The arc/cut shares
-  its contact points with the legs by pointer (no coincidence constraint
-  needed). Fillet adds `NewTangent` on both legs + a `NewDistance(center, T1)`
-  radius dimension; Chamfer adds the cut line + two setback `NewDistance`
-  dimensions from the far ends. Both remove the originals and the corner point.
+  helper's endpoint-replacement is harmless), then move each leg's corner end to
+  a fresh contact point IN PLACE (the legs keep their handles and constraints, as
+  Fusion's fillet and chamfer do) and commit the arc/cut. The arc/cut shares its
+  contact points with the legs by pointer (no coincidence constraint needed).
+  Fillet adds `NewTangent` on both legs + a `NewDistance(center, T1)` radius
+  dimension; Chamfer adds the cut line + two setback `NewDistance` dimensions
+  from the far ends. Both remove the corner point.
 - **Mirror** reflects each source point across the axis (`geom.MirrorPoint`),
   links source↔copy with `NewSymmetric`, and (for circles) `NewEqualRadius`;
   arcs are committed start/end-swapped to stay counter-clockwise. Shared source

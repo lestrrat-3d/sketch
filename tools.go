@@ -422,12 +422,12 @@ type Fillet[A, B OpenCurve] struct {
 
 // CreateFillet rounds the corner where e1 and e2 meet with a tangent arc of
 // radius r. corner must be an endpoint of both curves. The corner is removed and
-// each leg is shortened to its contact point; the arc is held tangent to both
-// legs and its radius pinned by an editable dimension, so editing
-// [Fillet.Radius] and re-solving keeps the rounding tangent. The original legs
-// (and any constraints that referenced them as entities — horizontal, angle, …)
-// are replaced; re-apply such constraints to the returned [Fillet.L1]/[Fillet.L2]
-// if needed. Constraints on the surviving far endpoints are kept. Two lines are
+// each leg is shortened to its contact point in place, as Fusion's fillet does:
+// [Fillet.L1] and [Fillet.L2] are e1 and e2 themselves, and the constraints that
+// name them (horizontal, angle, …) survive. The arc is held tangent to both legs
+// and its radius pinned by an editable dimension, so editing [Fillet.Radius] and
+// re-solving keeps the rounding tangent. Constraints on the corner point are
+// removed with it; constraints on the far endpoints are kept. Two lines are
 // handled; an arc operand returns [ErrUnsupportedEntity]. Returns
 // [ErrForeignEntity] when s is nil or either curve or corner is not a live
 // handle of s (nil, dead, or foreign) or a curve has an endpoint that is not a
@@ -462,22 +462,21 @@ func CreateFillet[A, B OpenCurve](s *Sketch, e1 A, e2 B, corner *Point, r float6
 
 	t1, t2 := s.CreatePoint(c1.X, c1.Y), s.CreatePoint(c2.X, c2.Y)
 	ctr := s.CreatePoint(arc.Center.X, arc.Center.Y)
-	nL1 := s.orientLeg(l1, corner, far1, t1)
-	nL2 := s.orientLeg(l2, corner, far2, t2)
+	replaceEnd(l1, corner, t1)
+	replaceEnd(l2, corner, t2)
 	nArc := s.CreateArc(ctr, t1, t2)
 	if arc.Start != c1 { // geom.Fillet took the minor arc the other way
 		nArc = s.CreateArc(ctr, t2, t1)
 	}
 
-	s.AddConstraint(NewTangent(nL1, nArc), NewTangent(nL2, nArc))
+	s.AddConstraint(NewTangent(l1, nArc), NewTangent(l2, nArc))
 	rad := NewDistance(nArc.Center, nArc.Start, r)
 	s.AddConstraint(rad)
 
-	s.RemoveEntity(l1)
-	s.RemoveEntity(l2)
 	s.RemovePoint(corner)
+	s.refreshSharedEndpoints()
 
-	return &Fillet[A, B]{Arc: nArc, L1: asCurve[A](nL1), L2: asCurve[B](nL2), T1: t1, T2: t2, Radius: rad}, nil
+	return &Fillet[A, B]{Arc: nArc, L1: e1, L2: e2, T1: t1, T2: t2, Radius: rad}, nil
 }
 
 // Chamfer groups the geometry created by [CreateChamfer]: the cut line, the
@@ -493,10 +492,11 @@ type Chamfer struct {
 
 // CreateChamfer cuts the corner shared by lines l1 and l2 with a straight line
 // whose contacts sit d from the corner along each leg. The corner is removed
-// and each leg shortened to its contact; the contacts are pinned by editable
-// distance dimensions from the far endpoints (D1/D2), so editing them and
-// re-solving moves the chamfer parametrically. Constraint handling matches
-// [CreateFillet]. Returns [ErrForeignEntity] when s is nil or either line is not
+// and each leg shortened to its contact in place, as Fusion's chamfer does:
+// [Chamfer.L1] and [Chamfer.L2] are l1 and l2 themselves. The contacts are
+// pinned by editable distance dimensions from the far endpoints (D1/D2), so
+// editing them and re-solving moves the chamfer parametrically. Constraint
+// handling matches [CreateFillet]. Returns [ErrForeignEntity] when s is nil or either line is not
 // a live entity of s (nil, dead, or foreign) or has an endpoint that is not a
 // live point of s, [ErrReferenceGeometry], [ErrNoSharedCorner] or
 // [ErrChamferInfeasible] — in each case without modifying the sketch.
@@ -525,8 +525,8 @@ func CreateChamfer(s *Sketch, l1, l2 *Line, d float64) (*Chamfer, error) {
 	c1, c2 := otherEnd(copy1, copy1.Start), otherEnd(copy2, copy2.Start)
 
 	t1, t2 := s.CreatePoint(c1.X, c1.Y), s.CreatePoint(c2.X, c2.Y)
-	nL1 := s.orientLeg(l1, corner, far1, t1)
-	nL2 := s.orientLeg(l2, corner, far2, t2)
+	replaceEnd(l1, corner, t1)
+	replaceEnd(l2, corner, t2)
 	nCut := s.CreateLine(t1, t2)
 	if cut.Start != c1 {
 		nCut = s.CreateLine(t2, t1)
@@ -535,11 +535,10 @@ func CreateChamfer(s *Sketch, l1, l2 *Line, d float64) (*Chamfer, error) {
 	d1, d2 := NewDistance(far1, t1, len1-d), NewDistance(far2, t2, len2-d)
 	s.AddConstraint(d1, d2)
 
-	s.RemoveEntity(l1)
-	s.RemoveEntity(l2)
 	s.RemovePoint(corner)
+	s.refreshSharedEndpoints()
 
-	return &Chamfer{Cut: nCut, L1: nL1, L2: nL2, T1: t1, T2: t2, D1: d1, D2: d2}, nil
+	return &Chamfer{Cut: nCut, L1: l1, L2: l2, T1: t1, T2: t2, D1: d1, D2: d2}, nil
 }
 
 // sharedPoint returns the point shared by both lines, or nil if they do not
@@ -568,15 +567,6 @@ func otherEnd(l *geom.Line, known *geom.Point) *geom.Point {
 		return l.End
 	}
 	return l.Start
-}
-
-// orientLeg builds the replacement leg for orig, putting the fresh contact
-// point where the corner used to be and reusing the surviving far point.
-func (s *Sketch) orientLeg(orig *Line, corner, far, contact *Point) *Line {
-	if orig.Start == corner {
-		return s.CreateLine(contact, far)
-	}
-	return s.CreateLine(far, contact)
 }
 
 // --- mirror -----------------------------------------------------------------
