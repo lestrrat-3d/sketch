@@ -45,6 +45,7 @@ var entitySwitchExempt = map[entitySwitchSite]string{
 	{"tools.go", "Break"}:                    "splitting is defined for a line and an arc only; every other type is the documented false return",
 	{"tools.go", "cutterEnds"}:               "only a line or an arc cutter has end points a trimmed end can reuse; a circle has none",
 	{"tools.go", "pinToCutter"}:              "only line/circle/arc cutters produce a crossing (lineCrossings), so only they are pinned to",
+	{"tools.go", "circleCrossings"}:          "only line/circle/arc cutters have a closed-form circle intersection in geom; a curve contributes no crossing",
 	{"tools.go", "lineCrossings"}:            "only line/circle/arc cutters have a closed-form line intersection in geom; a curve contributes no crossing",
 	{"tools.go", "instantiate"}:              "mirror/pattern copies need the transform applied to a shape the point-relinking interface does not carry, so only line/circle/arc/fit spline are copied (a fit spline is defined by its fit points alone); every caller screens the seed with unsupportedSeed first, so an unhandled type is refused before anything is committed rather than dropped here",
 	{"tools.go", "unsupportedSeed"}:          "an allow-list with a refusing default: only line/circle/arc/fit spline can be copied by instantiate, and an entity type not named here is REFUSED by the pattern/mirror builders rather than dropped",
