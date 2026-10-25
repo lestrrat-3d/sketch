@@ -89,7 +89,11 @@ func CreateOffset(s *Sketch, ents []Entity, d float64) (*OffsetGroup, error)
   is cut by moving that end of the SAME line in place (the handle and its
   constraints survive; the old end point is removed when unused). A middle
   portion deletes the line and returns the two outer pieces. A line with no
-  crossing is deleted.
+  crossing is deleted. Every end a trim or extend creates on a cutter is tied to
+  it, as Fusion's trim and extend create constraints by default: the cutter's own
+  end point is reused when the crossing is on it, otherwise a fresh point gets
+  `NewPointOnLine`/`NewPointOnCircle`/`NewPointOnArc` to the cutter
+  (`pointOnCutter`).
 - **Extend** intersects the infinite line through `l` with the other entities,
   picks the nearest crossing *beyond* the chosen end, and moves that end of `l`
   there in place.

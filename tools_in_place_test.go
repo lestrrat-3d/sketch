@@ -35,7 +35,8 @@ func TestTrimEndKeepsHandle(t *testing.T) {
 	require.InDelta(t, 0, h.End.Y(), 1e-9)
 	require.NotContains(t, s.Points(), oldEnd, "the trimmed-away end point is removed")
 	require.Equal(t, 1, countKind(s, "horizontal"), "the constraint on the line survives")
-	require.Equal(t, dof, s.DOF(), "a fresh end replaces the removed one")
+	require.Equal(t, 1, countKind(s, "point_on_line"), "the new end is tied to the cutter")
+	require.Equal(t, dof-1, s.DOF(), "a fresh end replaces the removed one, less the pin")
 }
 
 // Extending keeps the handle too, as Fusion's extend returns the modified curve.
