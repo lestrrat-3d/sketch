@@ -341,6 +341,22 @@ nil from `CreateMirror`, false from `Trim`/`Extend`/`Break` — so no signature
 changes. The plain builders (`CreateLine` and friends) still take a foreign
 point silently: they have no error return to refuse through.
 
+### `CreatePatternCircularRing` shares its junction points
+
+A circular pattern whose copies must close into a ring cannot be closed by a
+coincident: the coincident leaves two distinct points one ulp apart, and a
+profile cut at such a junction is cut by intersection (`TExact` false) with a gap
+between consecutive boundary edges. **`CreatePatternCircularRing(ents, center, n,
+start, end)` makes the junctions ONE `*Point`**, as a ring drawn point by point
+has: copy 1 starts at the seed's `end`, copy k+1 starts at copy k's image of
+`end`, and the last copy's image of `end` is the seed's `start`. Both builders
+run through `createPatternCircular`; a junction carries the spoke constraints of
+its first creation and gets no second set (that would be redundant). The seed's
+`end` is placed by a spoke equal to `start`'s at the step angle, so the caller
+leaves it undimensioned. `TestPatternCircularRingSharesJunctions` pins shared
+junctions around the whole ring, `TExact` on every edge, bit-equal closure of
+consecutive edges, DOF 0 and no redundancy.
+
 ### `unsupportedSeed` — the pattern/mirror seed allow-list
 
 **Every pattern/mirror builder also screens its seed through the ONE allow-list

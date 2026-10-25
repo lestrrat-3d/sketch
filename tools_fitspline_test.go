@@ -242,3 +242,129 @@ func TestPatternFitSplineJSONRoundTrip(t *testing.T) {
 	require.Len(t, got, 1)
 	require.InDelta(t, want[0].Area, got[0].Area, 1e-9*want[0].Area)
 }
+
+// buildSharedRing is buildPatternedRing closed by CreatePatternCircularRing: the
+// seed's last point is the junction, and no coincident is added.
+func buildSharedRing(t *testing.T, cx, cy float64, n int) (*sketch.Sketch, *sketch.Pattern) {
+	t.Helper()
+	s := newSketch(t)
+	var center *sketch.Point
+	if cx == 0 && cy == 0 {
+		center = s.Origin()
+	} else {
+		center = s.CreatePoint(cx, cy)
+		s.AddConstraint(
+			sketch.NewHorizontalDistance(s.Origin(), center, cx),
+			sketch.NewVerticalDistance(s.Origin(), center, cy),
+		)
+	}
+	step := 2 * math.Pi / float64(n)
+	pts := make([]*sketch.Point, 7)
+	for i := range pts {
+		x, y := lobePoint(cx, cy, 0, step, i)
+		pts[i] = s.CreatePoint(x, y)
+	}
+	for _, p := range pts[:6] {
+		s.AddConstraint(
+			sketch.NewHorizontalDistance(center, p, p.X()-cx),
+			sketch.NewVerticalDistance(center, p, p.Y()-cy),
+		)
+	}
+	var seed []sketch.Entity
+	for _, run := range [][]*sketch.Point{pts[0:3], pts[2:5], pts[4:7]} {
+		fs, err := s.CreateFitSpline(run...)
+		require.NoError(t, err)
+		seed = append(seed, fs)
+	}
+	pat, err := s.CreatePatternCircularRing(seed, center, n, pts[0], pts[6])
+	require.NoError(t, err)
+	_, err = s.Solve(t.Context())
+	require.NoError(t, err)
+	return s, pat
+}
+
+func TestPatternCircularRingSharesJunctions(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		cx, cy float64
+		n      int
+	}{
+		{"off-origin center, 15 lobes", 30, 20, 15},
+		{"origin center, 48 lobes", 0, 0, 48},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, pat := buildSharedRing(t, tc.cx, tc.cy, tc.n)
+			require.Len(t, pat.Instances, 3*(tc.n-1))
+
+			// Every junction is one shared *Point, around the whole ring.
+			var splines []*sketch.FitSpline
+			for _, e := range s.Entities() {
+				if fs, ok := e.(*sketch.FitSpline); ok {
+					splines = append(splines, fs)
+				}
+			}
+			require.Len(t, splines, 3*tc.n)
+			for i, fs := range splines {
+				next := splines[(i+1)%len(splines)]
+				require.Same(t, fs.Fit[len(fs.Fit)-1], next.Fit[0], "spline %d ends where spline %d starts", i, (i+1)%len(splines))
+			}
+
+			// No orphan point: every point is a fit point of some spline, or the
+			// ring's center (the sketch origin is not among the sketch's points).
+			used := map[*sketch.Point]struct{}{}
+			for _, fs := range splines {
+				for _, p := range fs.Fit {
+					used[p] = struct{}{}
+				}
+			}
+			for _, p := range s.Points() {
+				_, isFit := used[p]
+				require.True(t, isFit || (tc.cx != 0 && p.X() == tc.cx && p.Y() == tc.cy), "orphan point %d", p.ID())
+			}
+			rep := s.Verify(t.Context())
+			require.Equal(t, sketch.FullyConstrained, rep.Status)
+			require.Zero(t, rep.DOF)
+			require.Empty(t, rep.Redundant)
+			require.Empty(t, rep.Conflicts)
+
+			profiles := s.Profiles()
+			require.Len(t, profiles, 1)
+			require.True(t, profiles[0].Valid)
+			outer := profiles[0].Outer
+			for i, edge := range outer {
+				require.True(t, edge.TExact, "edge %d is trimmed at an exact parameter", i)
+				next := outer[(i+1)%len(outer)]
+				last := edge.Polyline[len(edge.Polyline)-1]
+				require.Equal(t, last, next.Polyline[0], "edge %d closes exactly onto edge %d", i, (i+1)%len(outer))
+			}
+
+			ref := referenceRing(t, tc.cx, tc.cy, tc.n).Profiles()
+			require.Len(t, ref, 1)
+			require.InDelta(t, ref[0].Area, profiles[0].Area, 1e-6*ref[0].Area)
+		})
+	}
+}
+
+func TestPatternCircularRingRefusals(t *testing.T) {
+	s := newSketch(t)
+	center := s.CreatePoint(0, 0)
+	a, b, c := s.CreatePoint(10, 0), s.CreatePoint(12, 2), s.CreatePoint(10, 4)
+	fs, err := s.CreateFitSpline(a, b)
+	require.NoError(t, err)
+	seed := []sketch.Entity{fs}
+	before := len(s.Entities())
+
+	_, err = s.CreatePatternCircularRing(seed, center, 4, a, a)
+	require.ErrorIs(t, err, sketch.ErrInvalidShape, "start == end")
+	_, err = s.CreatePatternCircularRing(seed, center, 4, a, c)
+	require.ErrorIs(t, err, sketch.ErrInvalidShape, "end defines no seed entity")
+	_, err = s.CreatePatternCircularRing(seed, center, 4, a, center)
+	require.ErrorIs(t, err, sketch.ErrInvalidShape, "end is the center")
+	_, err = s.CreatePatternCircularRing(seed, center, 1, a, b)
+	require.ErrorIs(t, err, sketch.ErrInvalidShape, "n < 2")
+	require.Len(t, s.Entities(), before, "a refusal commits nothing")
+
+	other := newSketch(t)
+	_, err = s.CreatePatternCircularRing(seed, center, 4, a, other.CreatePoint(1, 1))
+	require.ErrorIs(t, err, sketch.ErrForeignEntity)
+}
