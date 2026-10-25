@@ -188,9 +188,10 @@ doubled). `geom/transform_test.go` covers the pure math.
 - **Single-knob parametric spacing** for rectangular patterns via a shared
   parameter — today each cell carries its own distance dims (rigid to the seed);
   a `param.Table`-bound spacing is a clean follow-up.
-- **Offset of arcs/circles** as a chain (concentric offset) — `CreateOffset` skips
-  non-line entities; a single circle offset is already expressible with
-  `NewConcentric` + `NewRadius`.
+- **Offset of arcs joined into a chain** — `CreateOffset` offsets circles and
+  lone arcs (a concentric copy held by `RadialOffset`) and refuses an arc that
+  shares an end point with another member; any kind other than line, arc and
+  circle returns `ErrUnsupportedEntity`.
 - **Break of circles** (needs two break points; `TrimCircle` covers the profile
   use) and ellipse mirroring.
   `CreateMirror`, `CreatePatternRect` and `CreatePatternCircular` refuse rather
