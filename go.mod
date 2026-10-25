@@ -1,6 +1,6 @@
 module github.com/lestrrat-3d/sketch
 
-go 1.24
+go 1.27.3
 
 require (
 	github.com/lestrrat-3d/r3 v0.0.0-20260904102550-456163073bdd

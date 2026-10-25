@@ -10,11 +10,13 @@ import (
 
 // referenceLineLineEvents is lineLineEvents as it stood when it computed both
 // segment lengths for every pair. The length-free fast path must agree with it
-// on every pair, near-parallel ones included.
+// on every pair, near-parallel ones included. Its products carry the same
+// explicit float64 conversions as lineLineEvents, so no FMA fusion can make the
+// two paths round differently on an architecture that fuses.
 func referenceLineLineEvents(a, b operand, scale float64) ([]xEvent, bool) {
 	d1x, d1y := a.bx-a.ax, a.by-a.ay
 	d2x, d2y := b.bx-b.ax, b.by-b.ay
-	den := d1x*d2y - d1y*d2x
+	den := float64(d1x*d2y) - float64(d1y*d2x)
 	l1 := math.Hypot(d1x, d1y)
 	l2 := math.Hypot(d2x, d2y)
 	if l1 == 0 || l2 == 0 {
@@ -24,7 +26,7 @@ func referenceLineLineEvents(a, b operand, scale float64) ([]xEvent, bool) {
 		// Parallel. Distinct carriers never meet. A shared carrier is a degenerate
 		// duplicate edge ONLY where the two segments actually overlap; collinear but
 		// disjoint segments do not meet.
-		perp := math.Abs((b.ax-a.ax)*d1y-(b.ay-a.ay)*d1x) / l1
+		perp := math.Abs(float64((b.ax-a.ax)*d1y)-float64((b.ay-a.ay)*d1x)) / l1
 		if perp >= scale*mergeEps {
 			return nil, false // parallel, distinct carriers
 		}
@@ -37,7 +39,7 @@ func referenceLineLineEvents(a, b operand, scale float64) ([]xEvent, bool) {
 			return nil, false
 		}
 		mid := (ov0 + ov1) / 2 // a point inside the positive-length overlap, in a's param
-		x, y := a.ax+mid*d1x, a.ay+mid*d1y
+		x, y := a.ax+float64(mid*d1x), a.ay+float64(mid*d1y)
 		e := xEvent{x: x, y: y, ti: mid, tj: b.lineParam(x, y), kind: evOverlap}
 		// The overlap's two ends are each an endpoint of one of the two lines: a's
 		// own end where b reaches past it, b's endpoint where b stops inside a. A pair
@@ -68,8 +70,8 @@ func referenceLineLineEvents(a, b operand, scale float64) ([]xEvent, bool) {
 		}
 		return []xEvent{e}, false
 	}
-	t := ((b.ax-a.ax)*d2y - (b.ay-a.ay)*d2x) / den
-	x, y := a.ax+t*d1x, a.ay+t*d1y
+	t := (float64((b.ax-a.ax)*d2y) - float64((b.ay-a.ay)*d2x)) / den
+	x, y := a.ax+float64(t*d1x), a.ay+float64(t*d1y)
 	return []xEvent{{
 		x: x, y: y,
 		ti:   a.lineParam(x, y),

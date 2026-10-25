@@ -50,10 +50,10 @@ func nonFiniteSweepScene(family int, s float64, rng *rand.Rand) ([]geom.Curve, [
 		return []geom.Curve{a, b, geom.NewLine(p(-0.5*s, 0.5*s), p(1.5*s, 0.5*s))}, nil
 	case 3: // ellipse + crossing line
 		return []geom.Curve{
-				geom.NewLine(p(-1.5*s, 0.2*s), p(1.5*s, 0.2*s*(1+j()))),
-			}, []geom.ClosedCurve{
-				geom.NewEllipse(p(0, 0), s*(1+j()), 0.6*s, 0.3),
-			}
+			geom.NewLine(p(-1.5*s, 0.2*s), p(1.5*s, 0.2*s*(1+j()))),
+		}, []geom.ClosedCurve{
+			geom.NewEllipse(p(0, 0), s*(1+j()), 0.6*s, 0.3),
+		}
 	case 4: // elliptical arc + lines closing it
 		ea := geom.NewEllipticalArc(p(0, 0), p(s, 0), p(-s, 0), s, 0.5*s, 0.2)
 		return []geom.Curve{ea, geom.NewLine(p(-s, 0), p(s, 0)),
