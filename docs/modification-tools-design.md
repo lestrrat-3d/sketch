@@ -128,8 +128,12 @@ func CreateOffset(s *Sketch, ents []Entity, d float64) (*OffsetGroup, error)
   infinite line (positive on the left of the source direction). `CreateOffset`
   makes one offset line per source segment with one `Offset` each; segments that
   share a source corner share an offset point, which the two constraints pull to
-  the offset intersection — so chains mitre. `OffsetGroup.Set(d)` retargets the
-  whole offset.
+  the offset intersection — so chains mitre. As in Fusion, `CreateOffset`'s `d`
+  is positive to the RIGHT of the flow, and the flow of a chain runs from its
+  first line in the list toward the next line that shares a point with it
+  (`offsetFlow`); each `Offset` stores the matching left-positive target. Every
+  free chain end is held on the source normal by `NewPointOnNormal`, so an open
+  offset is fully determined. `OffsetGroup.Set(d)` retargets the whole offset.
 
 ## The `Offset` constraint (new-constraint checklist)
 
