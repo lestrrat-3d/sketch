@@ -1194,16 +1194,19 @@ func seedDefinedBy(ents []Entity, pt *Point) bool {
 // --- offset -----------------------------------------------------------------
 
 // OffsetGroup groups the geometry created by [CreateOffset]: the source
-// lines (left in place), their offset copies, the per-segment offset
-// constraints, and the constraints that hold each free chain end on the source
-// normal. Use [OffsetGroup.Set] to retarget the whole offset distance at once
-// and re-solve.
+// entities (left in place), their offset copies (the line copies in order, then
+// the arc and circle copies in order), the per-line offset constraints, the
+// per-arc/circle radial offsets, and the constraints that hold each free end on
+// the source normal. Use [OffsetGroup.Set] to retarget the whole offset distance
+// at once and re-solve.
 type OffsetGroup struct {
 	Source      []Entity
 	Copies      []Entity
 	Offsets     []*Offset
+	Radials     []*RadialOffset
 	Constraints []Constraint
 	signs       []float64 // per Offset: its target is signs[i]·d
+	radialSigns []float64 // per RadialOffset: its target is radialSigns[i]·d
 }
 
 // Set retargets the whole offset to distance d (positive to the right of the
@@ -1211,6 +1214,9 @@ type OffsetGroup struct {
 func (g *OffsetGroup) Set(d float64) {
 	for i, o := range g.Offsets {
 		o.Set(g.signs[i] * d)
+	}
+	for i, r := range g.Radials {
+		r.Set(g.radialSigns[i] * d)
 	}
 }
 
@@ -1224,17 +1230,29 @@ func (g *OffsetGroup) Set(d float64) {
 // intersection — so editing the distance keeps a mitred chain. Each free end of
 // a chain is held on the source line's normal at the source end
 // ([NewPointOnNormal]), so the copy is fully determined by the source and d.
-// Non-line entities in ents are skipped. It returns [ErrForeignEntity] if s is
-// nil or a source entity, or a point defining one, is not live in s,
-// [ErrReferenceGeometry] for reference geometry, and [ErrInvalidShape] if a
-// source line has zero length (no defined offset direction) or an end point is
-// shared by three or more lines (not a chain).
+// A circle, and an arc that shares no end point with another member, flows
+// counter-clockwise: its copy shares the source's center, a [RadialOffset] holds
+// its radius at the source radius plus d (positive d is outward, as Fusion
+// offsets a circle), and an arc copy's ends are held on the source normals. It
+// returns [ErrForeignEntity] if s is nil or a source entity, or a point
+// defining one, is not live in s, [ErrReferenceGeometry] for reference
+// geometry, [ErrUnsupportedEntity] for an entity other than a line, an arc or a
+// circle, and [ErrInvalidShape] if a source line has zero length (no defined
+// offset direction), an end point is shared by three or more lines (not a
+// chain), a copy's radius would not be positive, or an arc shares an end point
+// with another member (joined arcs are not offset yet).
 func CreateOffset(s *Sketch, ents []Entity, d float64) (*OffsetGroup, error) {
 	if s.foreignInput(ents...) {
 		return nil, ErrForeignEntity
 	}
 	if containsReference(ents) {
 		return nil, ErrReferenceGeometry
+	}
+	if e, ok := unsupportedOffset(ents); ok {
+		return nil, fmt.Errorf("%w: CreateOffset cannot offset %T; only *sketch.Line, *sketch.Arc and *sketch.Circle are offset", ErrUnsupportedEntity, e)
+	}
+	if err := checkOffsetCurves(ents, d); err != nil {
+		return nil, err
 	}
 	// Validate every source line up front so a failure leaves the sketch
 	// unchanged (no partial geometry committed).
@@ -1295,7 +1313,84 @@ func CreateOffset(s *Sketch, ents []Entity, d float64) (*OffsetGroup, error) {
 			g.Constraints = append(g.Constraints, pin)
 		}
 	}
+	s.offsetCurves(g, ents, d)
 	return g, nil
+}
+
+// unsupportedOffset reports the first entity in ents CreateOffset cannot
+// offset. Like unsupportedSeed it is an allow-list with a refusing default, so
+// an entity type added later is refused rather than silently skipped.
+func unsupportedOffset(ents []Entity) (Entity, bool) {
+	for _, e := range ents {
+		switch e.(type) {
+		case *Line, *Arc, *Circle:
+		default:
+			return e, true
+		}
+	}
+	return nil, false
+}
+
+// checkOffsetCurves refuses, before anything is committed, a circle or arc whose
+// copy would have a radius of zero or less, and an arc that shares an end point
+// with another member.
+func checkOffsetCurves(ents []Entity, d float64) error {
+	ends := map[*Point]int{}
+	for _, e := range ents {
+		for _, p := range cutterEnds(e) {
+			ends[p]++
+		}
+	}
+	for _, e := range ents {
+		if c, ok := e.(*Circle); ok && c.r()+d <= 0 {
+			return fmt.Errorf("%w: CreateOffset: the offset circle's radius would be %g", ErrInvalidShape, c.r()+d)
+		}
+		a, ok := e.(*Arc)
+		if !ok {
+			continue
+		}
+		if a.R()+d <= 0 {
+			return fmt.Errorf("%w: CreateOffset: the offset arc's radius would be %g", ErrInvalidShape, a.R()+d)
+		}
+		if ends[a.Start] > 1 || ends[a.End] > 1 {
+			return fmt.Errorf("%w: CreateOffset does not offset an arc joined to another member yet", ErrInvalidShape)
+		}
+	}
+	return nil
+}
+
+// offsetCurves adds the copies of the circles and lone arcs in ents: each shares
+// its source's center, a RadialOffset holds its radius at the source radius plus
+// d, and an arc copy's ends are held on the source normals at the source ends.
+func (s *Sketch) offsetCurves(g *OffsetGroup, ents []Entity, d float64) {
+	for _, e := range ents {
+		if c, ok := e.(*Circle); ok {
+			dst := s.CreateCircle(c.Center, c.r()+d)
+			ro := NewRadialOffset(c, dst, d)
+			s.AddConstraint(ro)
+			g.Copies = append(g.Copies, dst)
+			g.Radials = append(g.Radials, ro)
+			g.radialSigns = append(g.radialSigns, 1)
+			continue
+		}
+		a, ok := e.(*Arc)
+		if !ok {
+			continue
+		}
+		k := (a.R() + d) / a.R()
+		at := func(p *Point) *Point {
+			return s.CreatePoint(a.Center.x()+k*(p.x()-a.Center.x()), a.Center.y()+k*(p.y()-a.Center.y()))
+		}
+		dst := s.CreateArc(a.Center, at(a.Start), at(a.End))
+		ro := NewRadialOffset(a, dst, d)
+		pins := []Constraint{NewPointOnNormal(dst.Start, a, a.Start), NewPointOnNormal(dst.End, a, a.End)}
+		s.AddConstraint(ro)
+		s.AddConstraint(pins...)
+		g.Copies = append(g.Copies, dst)
+		g.Radials = append(g.Radials, ro)
+		g.radialSigns = append(g.radialSigns, 1)
+		g.Constraints = append(g.Constraints, pins...)
+	}
 }
 
 // offsetFlow returns, per line, +1 when the offset flow runs along the line's
