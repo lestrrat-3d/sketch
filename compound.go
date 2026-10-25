@@ -4,12 +4,15 @@ import (
 	"errors"
 	"fmt"
 	"math"
+
+	"github.com/lestrrat-3d/sketch/geom"
 )
 
-// ErrInvalidShape is returned by the compound shape builders ([Sketch.CreatePolygon],
-// [Sketch.CreateSlot]) and the pattern tools ([Sketch.CreatePatternRect],
-// [Sketch.CreatePatternCircular]) when given counts or coordinates that cannot form
-// the requested shape.
+// ErrInvalidShape is returned by the compound shape builders and creation
+// variants in this file (for example [Sketch.CreatePolygon], [Sketch.CreateSlot]
+// and [Sketch.CreateArcThreePoints]) and by the pattern tools
+// ([Sketch.CreatePatternRect], [Sketch.CreatePatternCircular]) when given counts
+// or coordinates that cannot form the requested shape.
 var ErrInvalidShape = errors.New("sketch: invalid shape parameters")
 
 // Compound constructors build several primitives plus the constraints that
@@ -132,4 +135,48 @@ func (s *Sketch) CreateSlot(x1, y1, x2, y2, r float64) (*Slot, error) {
 	spoke(c2, p2l, st.L2)
 	s.AddConstraint(NewEqualRadius(st.A1, st.A2))
 	return st, nil
+}
+
+// allFinite reports whether every value is neither NaN nor ±Inf.
+func allFinite(vs ...float64) bool {
+	for _, v := range vs {
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return false
+		}
+	}
+	return true
+}
+
+// CreateArcThreePoints adds an arc from start to end that passes through
+// (mx, my), the counterpart of Fusion's three-point arc. start and end are
+// existing points, so the arc can share them with other geometry; (mx, my) only
+// places the arc and is not kept as a point. A new center point is created at
+// the circumcenter. Arcs sweep counter-clockwise, so when (mx, my) lies
+// clockwise of the path from start to end, the returned arc's Start is end and
+// its End is start. To keep a point on the arc, create it and add
+// [NewPointOnArc]. Beyond its two endpoints the arc adds one degree of freedom
+// (its bulge). It returns [ErrForeignEntity] if start or end is not a live point
+// of this sketch, and [ErrInvalidShape] if start and end are the same point, mx
+// or my is not finite, or the three positions coincide or are collinear — in
+// each case without modifying the sketch.
+func (s *Sketch) CreateArcThreePoints(start *Point, mx, my float64, end *Point) (*Arc, error) {
+	if !s.owns(start) || !s.owns(end) {
+		return nil, ErrForeignEntity
+	}
+	if start == end {
+		return nil, fmt.Errorf("%w: CreateArcThreePoints requires distinct start and end points", ErrInvalidShape)
+	}
+	if !allFinite(mx, my) {
+		return nil, fmt.Errorf("%w: CreateArcThreePoints requires a finite middle position", ErrInvalidShape)
+	}
+	sg, eg := start.Geometry(), end.Geometry()
+	g, ok := geom.ArcThroughPoints(sg, geom.NewPoint(mx, my), eg)
+	if !ok {
+		return nil, fmt.Errorf("%w: CreateArcThreePoints requires three distinct, finite, non-collinear positions", ErrInvalidShape)
+	}
+	center := s.CreatePoint(g.Center.X, g.Center.Y)
+	if g.Start == sg {
+		return s.CreateArc(center, start, end), nil
+	}
+	return s.CreateArc(center, end, start), nil
 }
