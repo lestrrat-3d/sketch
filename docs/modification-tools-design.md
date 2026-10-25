@@ -142,7 +142,13 @@ func CreateOffset(s *Sketch, ents []Entity, d float64) (*OffsetGroup, error)
   first line in the list toward the next line that shares a point with it
   (`offsetFlow`); each `Offset` stores the matching left-positive target. Every
   free chain end is held on the source normal by `NewPointOnNormal`, so an open
-  offset is fully determined. `OffsetGroup.Set(d)` retargets the whole offset.
+  offset is fully determined. Arcs and circles are offset concentrically
+  (`RadialOffset`), alone or in a chain with lines: a corner joint mitres where
+  the two offset curves cross; a tangent joint touching an arc is held on the
+  arc's normal (`NewPointOnNormal`), the line beside it is held tangent to the
+  arc copy instead of by `Offset`, and the second arc of a tangent arc–arc joint
+  takes its radius from the joint (`planOffset`). `OffsetGroup.Set(d)` retargets
+  the whole offset.
 
 ## The `Offset` constraint (new-constraint checklist)
 
@@ -188,10 +194,10 @@ doubled). `geom/transform_test.go` covers the pure math.
 - **Single-knob parametric spacing** for rectangular patterns via a shared
   parameter — today each cell carries its own distance dims (rigid to the seed);
   a `param.Table`-bound spacing is a clean follow-up.
-- **Offset of arcs joined into a chain** — `CreateOffset` offsets circles and
-  lone arcs (a concentric copy held by `RadialOffset`) and refuses an arc that
-  shares an end point with another member; any kind other than line, arc and
-  circle returns `ErrUnsupportedEntity`.
+- **Offset of a line–line tangent joint** (collinear consecutive lines) keeps
+  both `Offset` constraints, so that joint carries one redundant row and one
+  sliding degree of freedom. Any kind other than line, arc and circle returns
+  `ErrUnsupportedEntity` from `CreateOffset`.
 - **Break of circles** (needs two break points; `TrimCircle` covers the profile
   use) and ellipse mirroring.
   `CreateMirror`, `CreatePatternRect` and `CreatePatternCircular` refuse rather

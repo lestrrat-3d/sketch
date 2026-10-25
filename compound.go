@@ -11,7 +11,7 @@ import (
 // ErrInvalidShape is returned by the compound shape builders and creation
 // variants in this file (for example [Sketch.CreatePolygon], [Sketch.CreateSlot]
 // and [Sketch.CreateArcThreePoints]) and by the pattern tools
-// ([Sketch.CreatePatternRect], [Sketch.CreatePatternCircular]) when given counts
+// ([CreatePatternRect], [CreatePatternCircular]) when given counts
 // or coordinates that cannot form the requested shape.
 var ErrInvalidShape = errors.New("sketch: invalid shape parameters")
 
