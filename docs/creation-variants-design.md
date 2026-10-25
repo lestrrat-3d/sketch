@@ -1,10 +1,9 @@
 # Creation Variants — Design
 
-Status: **proposed**, decisions recorded. Closes the "creation variants" gap against the Fusion sketch
-environment (`docs/fusion-gap-analysis.md`, "Geometry primitives" → "Slot" and "Rectangle / polygon
-constructors"): three-point arc, tangent arc, three-tangent circle, inscribed and circumscribed polygon, arc
-slot, and center-to-center versus overall-length slot. Step-by-step implementation tasks are in
-`docs/creation-variants-tasks.md`.
+Status: **proposed**, decisions recorded. Closes two open items of `docs/fusion-gap-analysis.md`,
+"Geometry primitives": "Arc slot" and "Creation variants" (three-point arc, tangent arc, three-tangent
+circle, inscribed and circumscribed polygon, center-to-center versus overall-length slot). Step-by-step
+implementation tasks are in `docs/creation-variants-tasks.md`.
 
 ## Question router
 

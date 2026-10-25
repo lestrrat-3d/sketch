@@ -474,22 +474,39 @@ func Example_sketch_slotOverall() {
 
 ### Step 1.2 — `docs/fusion-gap-analysis.md`
 
-Replace exactly:
+Both edits are in the "Geometry primitives" section.
+
+Edit 1 (the **Closed** paragraph). Replace exactly:
 
 ```markdown
-- ~~**Rectangle / polygon constructors**~~ — *closed*: `CreateRectangle`
-  (H/V constraints) and `CreatePolygon` (equal sides + equal construction spokes).
+and reference geometry (point, line, arc, circle). Any entity can be flagged as
+construction geometry.
 ```
 
 with:
 
 ```markdown
-- ~~**Rectangle / polygon constructors**~~ — *closed*: `CreateRectangle`
-  (H/V constraints) and `CreatePolygon` (equal sides + equal construction spokes).
-- **Creation variants** — design in `docs/creation-variants-design.md`. Recipes:
-  inscribed/circumscribed polygon and overall-length/center-point slot
-  (`examples/sketch_shape_recipes_example_test.go`).
-  Builders: none yet.
+and reference geometry (point, line, arc, circle). Any entity can be flagged as
+construction geometry. Inscribed and circumscribed polygons and overall-length or
+center-point slots are recipes on existing builders
+(`examples/sketch_shape_recipes_example_test.go`).
+```
+
+Edit 2 (the **Open** list). Replace exactly:
+
+```markdown
+- **Creation variants.** `CreateArc` takes center, start and end points. Fusion's
+  three-point arc, tangent arc, three-tangent circle, inscribed and circumscribed
+  polygon, and center-to-center or overall-length slot have no dedicated builder.
+  You build them from points plus constraints.
+```
+
+with:
+
+```markdown
+- **Creation variants.** Fusion's three-point arc, tangent arc and three-tangent
+  circle have no dedicated builder; you build them from points plus constraints.
+  Design in `docs/creation-variants-design.md`.
 ```
 
 ### Step 1.3 — verify
@@ -926,16 +943,35 @@ with:
 
 ### Step 2.10 — `docs/fusion-gap-analysis.md`
 
-Replace exactly:
+Both edits are in the "Geometry primitives" section.
+
+Edit 1 (the **Closed** paragraph). Replace exactly:
 
 ```markdown
-  Builders: none yet.
+(`CreateSlot`), rectangle (`CreateRectangle`), regular polygon (`CreatePolygon`),
+and reference geometry (point, line, arc, circle). Any entity can be flagged as
 ```
 
 with:
 
 ```markdown
-  Builders: `CreateArcThreePoints`.
+(`CreateSlot`), rectangle (`CreateRectangle`), regular polygon (`CreatePolygon`),
+three-point arc (`CreateArcThreePoints`),
+and reference geometry (point, line, arc, circle). Any entity can be flagged as
+```
+
+Edit 2 (the **Open** list). Replace exactly:
+
+```markdown
+- **Creation variants.** Fusion's three-point arc, tangent arc and three-tangent
+  circle have no dedicated builder; you build them from points plus constraints.
+```
+
+with:
+
+```markdown
+- **Creation variants.** Fusion's tangent arc and three-tangent circle have no
+  dedicated builder; you build them from points plus constraints.
 ```
 
 ### Step 2.11 — verify
@@ -1259,16 +1295,34 @@ with:
 
 ### Step 3.6 — `docs/fusion-gap-analysis.md`
 
-Replace exactly:
+Both edits are in the "Geometry primitives" section.
+
+Edit 1 (the **Closed** paragraph). Replace exactly:
 
 ```markdown
-  Builders: `CreateArcThreePoints`.
+three-point arc (`CreateArcThreePoints`),
+and reference geometry (point, line, arc, circle). Any entity can be flagged as
 ```
 
 with:
 
 ```markdown
-  Builders: `CreateArcThreePoints`, `CreateArcTangent`.
+three-point arc (`CreateArcThreePoints`), tangent arc (`CreateArcTangent`),
+and reference geometry (point, line, arc, circle). Any entity can be flagged as
+```
+
+Edit 2 (the **Open** list). Replace exactly:
+
+```markdown
+- **Creation variants.** Fusion's tangent arc and three-tangent circle have no
+  dedicated builder; you build them from points plus constraints.
+```
+
+with:
+
+```markdown
+- **Creation variants.** Fusion's three-tangent circle has no dedicated builder;
+  you build it from points plus constraints.
 ```
 
 ### Step 3.7 — verify
@@ -1595,17 +1649,37 @@ with:
 
 ### Step 4.6 — `docs/fusion-gap-analysis.md`
 
-Replace exactly:
+Both edits are in the "Geometry primitives" section. Edit 2 deletes the "Creation variants" entry from the
+**Open** list, because this increment ships its last builder.
+
+Edit 1 (the **Closed** paragraph). Replace exactly:
 
 ```markdown
-  Builders: `CreateArcThreePoints`, `CreateArcTangent`.
+three-point arc (`CreateArcThreePoints`), tangent arc (`CreateArcTangent`),
+and reference geometry (point, line, arc, circle). Any entity can be flagged as
 ```
 
 with:
 
 ```markdown
-  Builders: `CreateArcThreePoints`, `CreateArcTangent`,
-  `CreateCircleThreeTangents`.
+three-point arc (`CreateArcThreePoints`), tangent arc (`CreateArcTangent`),
+three-tangent circle (`CreateCircleThreeTangents`),
+and reference geometry (point, line, arc, circle). Any entity can be flagged as
+```
+
+Edit 2 (the **Open** list). Replace exactly:
+
+```markdown
+- **Creation variants.** Fusion's three-tangent circle has no dedicated builder;
+  you build it from points plus constraints.
+  Design in `docs/creation-variants-design.md`.
+- **Reference elliptical arc, ellipse, spline and conic.** Only point, line, arc
+```
+
+with:
+
+```markdown
+- **Reference elliptical arc, ellipse, spline and conic.** Only point, line, arc
 ```
 
 ### Step 4.7 — verify
@@ -1954,28 +2028,34 @@ with:
 
 ### Step 5.6 — `docs/fusion-gap-analysis.md`
 
-Edit 1. Replace exactly:
+Both edits are in the "Geometry primitives" section. Edit 2 deletes the "Arc slot" entry from the **Open**
+list.
+
+Edit 1 (the **Closed** paragraph). Replace exactly:
 
 ```markdown
-  tangent constraint does not). Arc slot still open.
+three-tangent circle (`CreateCircleThreeTangents`),
+and reference geometry (point, line, arc, circle). Any entity can be flagged as
 ```
 
 with:
 
 ```markdown
-  tangent constraint does not). Arc slot: `CreateArcSlot` (see Creation variants).
+three-tangent circle (`CreateCircleThreeTangents`), arc slot (`CreateArcSlot`),
+and reference geometry (point, line, arc, circle). Any entity can be flagged as
 ```
 
-Edit 2. Replace exactly:
+Edit 2 (the **Open** list). Replace exactly:
 
 ```markdown
-  `CreateCircleThreeTangents`.
+- **Arc slot.** `CreateSlot` builds only the straight slot.
+- **Reference elliptical arc, ellipse, spline and conic.** Only point, line, arc
 ```
 
 with:
 
 ```markdown
-  `CreateCircleThreeTangents`, `CreateArcSlot`.
+- **Reference elliptical arc, ellipse, spline and conic.** Only point, line, arc
 ```
 
 ### Step 5.7 — `docs/creation-variants-design.md`
