@@ -123,11 +123,14 @@ func TestAnalyticFusedComponentWithdrawsLineAndArcBounds(t *testing.T) {
 			name: "distant line and arc keep their exact bounds",
 			build: func() ([]geom.Curve, []geom.ClosedCurve) {
 				c := geom.NewPoint(100, 0)
-				return []geom.Curve{
+				// Built in two statements: gofmt 1.27.0 and 1.27.3 indent a
+				// multi-line two-value return differently.
+				curves := []geom.Curve{
 					geom.NewLine(geom.NewPoint(94, 1), geom.NewPoint(106, 1)),
 					geom.NewArc(c, geom.NewPoint(103, 0), geom.NewPoint(97, 0)),
-				}, append(fusedTripleCircles(),
-					geom.NewCircle(c, 5))
+				}
+				closed := append(fusedTripleCircles(), geom.NewCircle(c, 5))
+				return curves, closed
 			},
 			fusedRegions:     8,
 			convergedRegions: 10,

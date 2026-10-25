@@ -49,11 +49,15 @@ func nonFiniteSweepScene(family int, s float64, rng *rand.Rand) ([]geom.Curve, [
 		b := geom.NewArc(p(s, s), p(s, 0), p(0, s))
 		return []geom.Curve{a, b, geom.NewLine(p(-0.5*s, 0.5*s), p(1.5*s, 0.5*s))}, nil
 	case 3: // ellipse + crossing line
-		return []geom.Curve{
+		// Built in two statements: gofmt 1.27.0 and 1.27.3 indent a multi-line
+		// two-value return differently. Source order keeps the j() draws as before.
+		curves := []geom.Curve{
 			geom.NewLine(p(-1.5*s, 0.2*s), p(1.5*s, 0.2*s*(1+j()))),
-		}, []geom.ClosedCurve{
+		}
+		closed := []geom.ClosedCurve{
 			geom.NewEllipse(p(0, 0), s*(1+j()), 0.6*s, 0.3),
 		}
+		return curves, closed
 	case 4: // elliptical arc + lines closing it
 		ea := geom.NewEllipticalArc(p(0, 0), p(s, 0), p(-s, 0), s, 0.5*s, 0.2)
 		return []geom.Curve{ea, geom.NewLine(p(-s, 0), p(s, 0)),
