@@ -14,7 +14,7 @@ oracle, and the sketch/3D separation contract, see `docs/verification-roadmap.md
 (`CreateFitSpline`), conic (`CreateConic`), NURBS (`CreateNURBS`), straight slot
 (`CreateSlot`), rectangle (`CreateRectangle`), regular polygon (`CreatePolygon`),
 three-point arc (`CreateArcThreePoints`), tangent arc (`CreateArcTangent`),
-three-tangent circle (`CreateCircleThreeTangents`),
+three-tangent circle (`CreateCircleThreeTangents`), arc slot (`CreateArcSlot`),
 and reference geometry (point, line, arc, circle). Any entity can be flagged as
 construction geometry. Inscribed and circumscribed polygons and overall-length or
 center-point slots are recipes on existing builders
@@ -22,7 +22,6 @@ center-point slots are recipes on existing builders
 
 **Open:**
 
-- **Arc slot.** `CreateSlot` builds only the straight slot.
 - **Reference elliptical arc, ellipse, spline and conic.** Only point, line, arc
   and circle have `CreateReference…` builders.
 

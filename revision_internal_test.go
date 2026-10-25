@@ -194,6 +194,8 @@ func TestEntityUIDInvariant(t *testing.T) {
 		ta, tb, tc := s.CreatePoint(40, 60), s.CreatePoint(52, 60), s.CreatePoint(40, 69)
 		_, err = s.CreateCircleThreeTangents(s.CreateLine(ta, tb), s.CreateLine(tb, tc), s.CreateLine(tc, ta), 42, 62)
 		require.NoError(t, err)
+		_, err = s.CreateArcSlot(80, 80, 100, 80, 80, 100, 3)
+		require.NoError(t, err)
 		requireStamped(t, s)
 	})
 

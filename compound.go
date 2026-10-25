@@ -311,3 +311,79 @@ func det3(m [3][3]float64) float64 {
 		m[0][1]*(m[1][0]*m[2][2]-m[1][2]*m[2][0]) +
 		m[0][2]*(m[1][0]*m[2][1]-m[1][1]*m[2][0])
 }
+
+// ArcSlot groups the geometry created by [Sketch.CreateArcSlot].
+type ArcSlot struct {
+	Center       *Point  // center of the slot's centerline arc
+	C1, C2       *Point  // cap centers: the centerline's start and end
+	Outer, Inner *Arc    // concentric flanks about Center
+	A1, A2       *Arc    // semicircular end caps about C1 and C2
+	Spokes       []*Line // construction lines Center→C1 and Center→C2, for dimensioning
+}
+
+// CreateArcSlot builds an arc slot, the counterpart of Fusion's center-point
+// arc slot: a slot of cap radius r (half the slot width) whose centerline is the
+// arc about (cx, cy) running counter-clockwise from (x1, y1) toward the
+// direction of (x2, y2). As with [Sketch.CreateArc], (x2, y2) sets only the end
+// direction; the centerline radius is the distance from the center to
+// (x1, y1). Swap the two points for the clockwise slot. Two concentric flank
+// arcs about Center are joined by two semicircular caps about C1 and C2; each
+// cap is held tangent to both flanks at the endpoints it shares with them
+// ([NewTangentCircles]: internally to Outer, externally to Inner), which also
+// keeps both caps the same radius and both cap centers on the centerline. The
+// construction Spokes carry no constraint; they exist so the sweep can be
+// dimensioned with [NewAngle] and the centerline radius with [NewDistance] on
+// Center and C1. The slot keeps 6 degrees of freedom (center, centerline
+// radius, start angle, sweep, cap radius). It returns [ErrInvalidShape] if an
+// argument is not finite, (x1, y1) or (x2, y2) coincides with the center,
+// r <= 0 or r is not less than the centerline radius, the sweep is a full turn,
+// or the caps would overlap across the gap of a sweep above 180°.
+func (s *Sketch) CreateArcSlot(cx, cy, x1, y1, x2, y2, r float64) (*ArcSlot, error) {
+	if !allFinite(cx, cy, x1, y1, x2, y2, r) {
+		return nil, fmt.Errorf("%w: CreateArcSlot requires finite arguments", ErrInvalidShape)
+	}
+	rc := math.Hypot(x1-cx, y1-cy)
+	if rc <= epsTool || math.Hypot(x2-cx, y2-cy) <= epsTool {
+		return nil, fmt.Errorf("%w: CreateArcSlot requires both points away from the center", ErrInvalidShape)
+	}
+	if r <= 0 || r >= rc {
+		return nil, fmt.Errorf("%w: CreateArcSlot requires 0 < r < centerline radius", ErrInvalidShape)
+	}
+	th1 := math.Atan2(y1-cy, x1-cx)
+	sweep := math.Mod(math.Atan2(y2-cy, x2-cx)-th1, 2*math.Pi)
+	if sweep < 0 {
+		sweep += 2 * math.Pi
+	}
+	if sweep <= epsTool || sweep >= 2*math.Pi-epsTool {
+		return nil, fmt.Errorf("%w: CreateArcSlot requires a sweep below a full turn", ErrInvalidShape)
+	}
+	if sweep > math.Pi && rc*math.Sin(sweep/2) <= r {
+		return nil, fmt.Errorf("%w: CreateArcSlot caps would overlap across the gap", ErrInvalidShape)
+	}
+	th2 := th1 + sweep
+	at := func(th, rad float64) *Point { return s.CreatePoint(cx+rad*math.Cos(th), cy+rad*math.Sin(th)) }
+	center := s.CreatePoint(cx, cy)
+	c1, c2 := at(th1, rc), at(th2, rc)
+	p1o, p1i := at(th1, rc+r), at(th1, rc-r)
+	p2o, p2i := at(th2, rc+r), at(th2, rc-r)
+	sl := &ArcSlot{
+		Center: center, C1: c1, C2: c2,
+		Outer: s.CreateArc(center, p1o, p2o),
+		Inner: s.CreateArc(center, p1i, p2i),
+		// Each cap's half-turn bulges away from the slot body.
+		A1: s.CreateArc(c1, p1i, p1o),
+		A2: s.CreateArc(c2, p2o, p2i),
+	}
+	for _, c := range []*Point{c1, c2} {
+		sp := s.CreateLine(center, c)
+		sp.SetConstruction(true)
+		sl.Spokes = append(sl.Spokes, sp)
+	}
+	s.AddConstraint(
+		NewTangentCircles(sl.A1, sl.Outer, true),
+		NewTangentCircles(sl.A1, sl.Inner, false),
+		NewTangentCircles(sl.A2, sl.Outer, true),
+		NewTangentCircles(sl.A2, sl.Inner, false),
+	)
+	return sl, nil
+}

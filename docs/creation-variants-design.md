@@ -1,6 +1,6 @@
 # Creation Variants — Design
 
-Status: **proposed**, decisions recorded. Closes two open items of `docs/fusion-gap-analysis.md`,
+Status: **implemented**. Closes two open items of `docs/fusion-gap-analysis.md`,
 "Geometry primitives": "Arc slot" and "Creation variants" (three-point arc, tangent arc, three-tangent
 circle, inscribed and circumscribed polygon, center-to-center versus overall-length slot). Step-by-step
 implementation tasks are in `docs/creation-variants-tasks.md`.
