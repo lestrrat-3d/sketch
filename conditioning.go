@@ -404,6 +404,8 @@ func condRowKinds(c Constraint, out []rowKind) []rowKind {
 		return append(out, rowLength, rowLength)
 	case *Offset:
 		return append(out, rowLength, rowLength)
+	case *RadialOffset:
+		return append(out, rowLength)
 	case *Radius:
 		return append(out, rowLength)
 	case *Diameter:

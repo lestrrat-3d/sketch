@@ -388,6 +388,13 @@ func depFixtures() []depFixture {
 			s.AddConstraint(c)
 			return c
 		}},
+		{"radial_offset", func(s *Sketch) Constraint {
+			c1 := s.CreateCircle(s.CreatePoint(0, 0), 2)
+			c2 := s.CreateCircle(s.CreatePoint(1, 0), 3)
+			c := NewRadialOffset(c1, c2, 1)
+			s.AddConstraint(c)
+			return c
+		}},
 		{"radius", func(s *Sketch) Constraint {
 			ci := s.CreateCircle(s.CreatePoint(0, 0), 2)
 			c := NewRadius(ci, 3)
@@ -544,6 +551,7 @@ var constraintDependencies = []dependencyRow{
 	{"distance_line_arc", 2, 10, 0, 1, "aux-gated", true},
 	{"distance_lines", 2, 8, 0, 0, "static", true},
 	{"offset", 2, 8, 0, 0, "static", true},
+	{"radial_offset", 1, 4, 2, 0, "static", true},
 	{"radius", 1, 2, 1, 0, "static", true},
 	{"diameter", 1, 2, 1, 0, "static", true},
 	{"arc_length", 2, 6, 0, 1, "aux-gated", true},
@@ -711,6 +719,7 @@ var constructorKind = map[string]string{
 	"NewDistanceLineArc":        "distance_line_arc",
 	"NewDistanceLines":          "distance_lines",
 	"NewOffset":                 "offset",
+	"NewRadialOffset":           "radial_offset",
 	"NewRadius":                 "radius",
 	"NewDiameter":               "diameter",
 	"NewArcLength":              "arc_length",

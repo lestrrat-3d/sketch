@@ -361,6 +361,8 @@ func constraintRefs(c Constraint) ([]*Point, []Entity) {
 		return nil, []Entity{t.L1, t.L2}
 	case *Offset:
 		return nil, []Entity{t.Src, t.Dst}
+	case *RadialOffset:
+		return nil, []Entity{t.Src, t.Dst}
 	case *Radius:
 		return nil, []Entity{t.C}
 	case *Diameter:

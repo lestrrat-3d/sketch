@@ -2859,6 +2859,27 @@ func NewOffset(src, dst *Line, d float64) *Offset {
 	return &Offset{dimBase: lengthDim(d), Src: src, Dst: dst}
 }
 
+// RadialOffset is an editable radius-difference dimension: it drives Dst's
+// radius to Src's radius plus d, so positive d makes Dst larger. It does not hold
+// the two curves concentric: [CreateOffset] gives the copy the source's center
+// point, and a direct caller shares the center the same way or adds
+// [NewConcentric].
+type RadialOffset struct {
+	dimBase
+	Src, Dst Circular
+}
+
+func (c *RadialOffset) residual(out []float64) []float64 {
+	return append(out, c.Dst.R()-c.Src.R()-c.base()) // length units
+}
+
+// NewRadialOffset constrains dst's radius to src's radius plus d (positive d is
+// outward). Both operands are circles or arcs; an arc's radius is read from its
+// Start, as [Arc.R] does.
+func NewRadialOffset(src, dst Circular, d float64) *RadialOffset {
+	return &RadialOffset{dimBase: lengthDim(d), Src: src, Dst: dst}
+}
+
 // Radius is an editable radius dimension.
 type Radius struct {
 	dimBase

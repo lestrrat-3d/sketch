@@ -491,6 +491,8 @@ func constraintKind(c Constraint) string {
 		return "distance_lines"
 	case *Offset:
 		return "offset"
+	case *RadialOffset:
+		return "radial_offset"
 	case *Radius:
 		return "radius"
 	case *Diameter:
@@ -614,6 +616,8 @@ func marshalConstraint(c Constraint) (jsonConstraint, bool) {
 		return dimJSON(typ, t, nil, []int{t.L1.id, t.L2.id}), true
 	case *Offset:
 		return dimJSON(typ, t, nil, []int{t.Src.id, t.Dst.id}), true
+	case *RadialOffset:
+		return dimJSON(typ, t, nil, []int{t.Src.entID(), t.Dst.entID()}), true
 	case *Radius:
 		return dimJSON(typ, t, nil, []int{t.C.entID()}), true
 	case *Diameter:
@@ -1003,7 +1007,7 @@ var constraintArity = map[string][2]int{
 	"concentric":     {0, 2}, "equal_radii": {0, 2}, "equal_line_arc": {0, 2},
 	"tangent_line_circle": {0, 2}, "tangent_circles": {0, 2}, "tangent_ellipse": {0, 2},
 	"distance": {2, 0}, "hdistance": {2, 0}, "vdistance": {2, 0},
-	"distance_point_line": {1, 1}, "distance_lines": {0, 2}, "offset": {0, 2},
+	"distance_point_line": {1, 1}, "distance_lines": {0, 2}, "offset": {0, 2}, "radial_offset": {0, 2},
 	"distance_point_circle": {1, 1}, "distance_line_circle": {0, 2},
 	"distance_point_arc": {1, 1}, "distance_line_arc": {0, 2},
 	"radius": {0, 1}, "diameter": {0, 1}, "arc_length": {0, 1},
@@ -1433,6 +1437,18 @@ func (s *Sketch) rebuildConstraint(jc jsonConstraint, line func(int) (*Line, err
 			return err
 		}
 		if err := dim(NewOffset(src, dst, jc.Value)); err != nil {
+			return err
+		}
+	case "radial_offset":
+		src, err := circular(jc.Entities[0])
+		if err != nil {
+			return err
+		}
+		dst, err := circular(jc.Entities[1])
+		if err != nil {
+			return err
+		}
+		if err := dim(NewRadialOffset(src, dst, jc.Value)); err != nil {
 			return err
 		}
 	case "hdistance":

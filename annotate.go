@@ -413,6 +413,8 @@ func (a *annCtx) dimension(d Dimension) {
 		a.lineToLine(t.L1, t.L2, a.dimText("", t), t.Driven())
 	case *Offset:
 		a.lineToLine(t.Src, t.Dst, a.dimText("", t), t.Driven())
+	case *RadialOffset:
+		a.leaderToCircular(a.scr(t.Src.centerPt()), t.Dst, a.dimText("", t), t.Driven())
 	case *Radius:
 		a.radial(t.C, a.dimText("R", t), t.Driven())
 	case *Diameter:
