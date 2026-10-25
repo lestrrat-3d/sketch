@@ -1,6 +1,7 @@
 package sketch
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"math"
@@ -167,7 +168,8 @@ func Break[T OpenCurve](s *Sketch, e T, x, y float64) (T, T, bool) {
 // other entity uses) and returns an empty slice. It returns nil and false,
 // changing nothing, when s is nil, when e is not a live entity of s (nil, dead,
 // or foreign) or has an end point that is not a live point of s, or when e is
-// reference geometry. Lines are handled; an arc returns nil and false.
+// reference geometry. Lines and arcs are both handled; a circle is trimmed by
+// [TrimCircle].
 func Trim[T OpenCurve](s *Sketch, e T, x, y float64) ([]T, bool) {
 	ent := asEntity(e)
 	if s.foreignInput(ent) {
@@ -176,11 +178,16 @@ func Trim[T OpenCurve](s *Sketch, e T, x, y float64) ([]T, bool) {
 	if ent.IsReference() {
 		return nil, false // reference geometry is locked; cannot be trimmed
 	}
-	l, ok := ent.(*Line)
-	if !ok {
-		return nil, false // arcs are not trimmed yet
+	var pieces []Entity
+	if l, ok := ent.(*Line); ok {
+		for _, p := range s.trimLine(l, x, y) {
+			pieces = append(pieces, p)
+		}
+	} else if a, ok := ent.(*Arc); ok {
+		for _, p := range s.trimArc(a, x, y) {
+			pieces = append(pieces, p)
+		}
 	}
-	pieces := s.trimLine(l, x, y)
 	out := make([]T, len(pieces))
 	for i, p := range pieces {
 		out[i] = asCurve[T](p)
@@ -229,6 +236,188 @@ func (s *Sketch) trimLine(l *Line, x, y float64) []*Line {
 	second := s.CreateLine(s.pointOnCutter(*hiP), l.End)
 	s.RemoveEntity(l)
 	return []*Line{first, second}
+}
+
+// trimArc is Trim for a screened arc: the same three outcomes as trimLine,
+// measured by the angle from the arc's start along its sweep.
+func (s *Sketch) trimArc(a *Arc, x, y float64) []*Arc {
+	ga := a.Geometry()
+	sweep := ga.Sweep()
+	pick := ga.AngleFromStart(geom.NewPoint(x, y)) / sweep
+	if pick > 1 { // the pick's direction is off the arc: take the nearer end
+		if (pick-1)*sweep < 2*math.Pi-pick*sweep {
+			pick = 1
+		} else {
+			pick = 0
+		}
+	}
+	hits := s.circleCrossings(geom.NewCircle(ga.Center, ga.Radius()), a)
+
+	loT, hiT := 0.0, 1.0
+	var loP, hiP *crossing
+	for i := range hits {
+		h := &hits[i]
+		ht := ga.AngleFromStart(h.at) / sweep
+		if ht <= epsTool || ht >= 1-epsTool {
+			continue // an end of the arc, or off the sweep
+		}
+		if ht < pick && ht > loT {
+			loT, loP = ht, h
+		}
+		if ht > pick && ht < hiT {
+			hiT, hiP = ht, h
+		}
+	}
+
+	switch {
+	case loP == nil && hiP == nil: // nothing crosses the picked portion: delete the arc
+		center, start, end := a.Center, a.Start, a.End
+		s.RemoveEntity(a)
+		s.RemovePoint(start)
+		s.RemovePoint(end)
+		s.RemovePoint(center)
+		return []*Arc{}
+	case loP == nil: // crossing only after the pick: cut the start stub in place
+		s.moveEnd(a, a.Start, s.pointOnCutter(*hiP))
+		return []*Arc{a}
+	case hiP == nil: // crossing only before the pick: cut the end stub in place
+		s.moveEnd(a, a.End, s.pointOnCutter(*loP))
+		return []*Arc{a}
+	}
+	// Crossings on both sides: delete the arc and keep the two outer pieces.
+	first := s.CreateArc(a.Center, a.Start, s.pointOnCutter(*loP))
+	second := s.CreateArc(a.Center, s.pointOnCutter(*hiP), a.End)
+	s.RemoveEntity(a)
+	return []*Arc{first, second}
+}
+
+// TrimCircle removes the portion of c between the two crossings with other
+// entities that bound the pick point (x, y), as Fusion's trim of a closed curve
+// does: c is deleted and the remaining arc is returned, both of its ends tied to
+// their cutters. The radius, diameter, concentric and equal-radius constraints
+// that named c are moved to the arc, so their handles stay valid; every other
+// constraint naming c is removed with it. With fewer than two distinct
+// crossings c is deleted (with its center point when nothing else uses it) and
+// an empty slice returned. It returns nil and false, changing nothing, when s is
+// nil, when c or its center is not live in s, when c is reference geometry, or
+// when the pick lies exactly on a crossing.
+func TrimCircle(s *Sketch, c *Circle, x, y float64) ([]*Arc, bool) {
+	if s.foreignInput(c) {
+		return nil, false // nil, removed, or another sketch's circle
+	}
+	if c.IsReference() {
+		return nil, false // reference geometry is locked; cannot be trimmed
+	}
+	gc := c.Geometry()
+	angle := func(p *geom.Point) float64 {
+		v := math.Atan2(p.Y-gc.Center.Y, p.X-gc.Center.X)
+		if v < 0 {
+			v += 2 * math.Pi
+		}
+		return v
+	}
+	hits := s.circleCrossings(gc, c)
+	slices.SortFunc(hits, func(p, q crossing) int { return cmp.Compare(angle(p.at), angle(q.at)) })
+	// Merge crossings that coincide (two cutters through one point, a tangent).
+	var distinct []crossing
+	for _, h := range hits {
+		if len(distinct) > 0 && (angle(h.at)-angle(distinct[len(distinct)-1].at))*gc.Radius <= epsTool {
+			continue
+		}
+		distinct = append(distinct, h)
+	}
+	if n := len(distinct); n > 1 && (angle(distinct[0].at)+2*math.Pi-angle(distinct[n-1].at))*gc.Radius <= epsTool {
+		distinct = distinct[:n-1] // the last crossing wraps onto the first
+	}
+	if len(distinct) < 2 {
+		center := c.Center
+		s.RemoveEntity(c)
+		s.RemovePoint(center)
+		return []*Arc{}, true
+	}
+	pick := angle(geom.NewPoint(x, y))
+	n := len(distinct)
+	for i := range distinct {
+		lo, hi := angle(distinct[i].at), angle(distinct[(i+1)%n].at)
+		if math.Abs(pick-lo)*gc.Radius <= epsTool {
+			return nil, false // the pick is on a crossing: no portion is picked
+		}
+		inside := lo < pick && pick < hi
+		if i == n-1 { // the portion that wraps through angle 0
+			inside = pick > lo || pick < hi
+		}
+		if !inside {
+			continue
+		}
+		// Keep the arc running counter-clockwise from hi round to lo.
+		arc := s.CreateArc(c.Center, s.pointOnCutter(distinct[(i+1)%n]), s.pointOnCutter(distinct[i]))
+		s.moveCircleConstraints(c, arc)
+		s.RemoveEntity(c)
+		return []*Arc{arc}, true
+	}
+	return nil, false
+}
+
+// moveCircleConstraints rewrites to arc the operand of every radius, diameter,
+// concentric and equal-radius constraint that names c. None of the four owns an
+// auxiliary variable, and none depends on which part of the circle survives.
+func (s *Sketch) moveCircleConstraints(c *Circle, arc *Arc) {
+	for _, k := range s.cons {
+		switch t := k.(type) {
+		case *Radius:
+			if t.C == Circular(c) {
+				t.C = arc
+			}
+		case *Diameter:
+			if t.C == Circular(c) {
+				t.C = arc
+			}
+		case *concentric:
+			if t.C1 == Circular(c) {
+				t.C1 = arc
+			}
+			if t.C2 == Circular(c) {
+				t.C2 = arc
+			}
+		case *equalRadii:
+			if t.C1 == Circular(c) {
+				t.C1 = arc
+			}
+			if t.C2 == Circular(c) {
+				t.C2 = arc
+			}
+		}
+	}
+}
+
+// circleCrossings returns where the full circle c meets every entity except
+// skip, with the entity met: a line cutter within its own segment, a circle, or
+// an arc within its sweep.
+func (s *Sketch) circleCrossings(c *geom.Circle, skip Entity) []crossing {
+	var out []crossing
+	for _, e := range s.ents {
+		if e == skip {
+			continue
+		}
+		switch t := e.(type) {
+		case *Line:
+			ol := t.Geometry()
+			for _, p := range geom.LineCircleIntersections(ol, c) {
+				if _, u := geom.ClosestPointOnLine(ol, p); u >= -epsTool && u <= 1+epsTool {
+					out = append(out, crossing{p, t})
+				}
+			}
+		case *Circle:
+			for _, p := range geom.CircleCircleIntersections(c, t.Geometry()) {
+				out = append(out, crossing{p, t})
+			}
+		case *Arc:
+			for _, p := range geom.CircleArcIntersections(c, t.Geometry()) {
+				out = append(out, crossing{p, t})
+			}
+		}
+	}
+	return out
 }
 
 // replaceEnd points e's end old (its Start or End) at np instead. It is the

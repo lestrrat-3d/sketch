@@ -93,7 +93,10 @@ func CreateOffset(s *Sketch, ents []Entity, d float64) (*OffsetGroup, error)
   it, as Fusion's trim and extend create constraints by default: the cutter's own
   end point is reused when the crossing is on it, otherwise a fresh point gets
   `NewPointOnLine`/`NewPointOnCircle`/`NewPointOnArc` to the cutter
-  (`pointOnCutter`).
+  (`pointOnCutter`). An arc is trimmed the same way, measured along its sweep
+  (`trimArc`, `circleCrossings`). `TrimCircle` deletes a circle and returns the
+  arc that remains, moving the circle's radius, diameter, concentric and
+  equal-radius constraints onto it.
 - **Extend** intersects the infinite line through `l` with the other entities,
   picks the nearest crossing *beyond* the chosen end, and moves that end of `l`
   there in place.
@@ -182,7 +185,8 @@ doubled). `geom/transform_test.go` covers the pure math.
 - **Offset of arcs/circles** as a chain (concentric offset) — `CreateOffset` skips
   non-line entities; a single circle offset is already expressible with
   `NewConcentric` + `NewRadius`.
-- **Trim/Break of circles** (needs two break points) and ellipse mirroring.
+- **Break of circles** (needs two break points; `TrimCircle` covers the profile
+  use) and ellipse mirroring.
   `CreateMirror`, `CreatePatternRect` and `CreatePatternCircular` refuse rather
   than skip a seed holding an ellipse, elliptical arc, conic, or any spline-family
   entity: `unsupportedSeed` (`tools.go`) screens the seed before anything commits

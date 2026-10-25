@@ -120,16 +120,24 @@ func CircleCircleIntersections(c1, c2 *Circle) []*Point {
 	}
 }
 
-// Contains reports whether p's angle about the arc's center lies within the
-// arc's counter-clockwise sweep (endpoints inclusive, with a small angular
-// tolerance). The point is not required to lie on the arc's circle.
-func (a *Arc) Contains(p *Point) bool {
+// AngleFromStart returns the counter-clockwise angle from a's start direction to
+// p's direction about a's center, in [0, 2π]. p's direction is inside the sweep
+// when the result is at most a.Sweep(). The point is not required to lie on the
+// arc's circle.
+func (a *Arc) AngleFromStart(p *Point) float64 {
 	ang := math.Atan2(p.Y-a.Center.Y, p.X-a.Center.X)
 	d := math.Mod(ang-a.StartAngle(), 2*math.Pi)
 	if d < 0 {
 		d += 2 * math.Pi
 	}
-	return d <= a.Sweep()+epsIntersect
+	return d
+}
+
+// Contains reports whether p's angle about the arc's center lies within the
+// arc's counter-clockwise sweep (endpoints inclusive, with a small angular
+// tolerance). The point is not required to lie on the arc's circle.
+func (a *Arc) Contains(p *Point) bool {
+	return a.AngleFromStart(p) <= a.Sweep()+epsIntersect
 }
 
 // circle returns the arc's full circle, used to reduce arc intersections to
