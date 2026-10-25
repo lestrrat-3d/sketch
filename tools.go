@@ -499,8 +499,9 @@ func (s *Sketch) refreshSharedEndpoints() {
 // geometry; and when e, either of its endpoints, or end is not a live handle of
 // s (nil, dead, or foreign). As Fusion's extend does, it moves end in place and
 // returns e itself: the handle and the constraints that name it survive, and
-// the old end point is removed when nothing else uses it. Lines are handled; an
-// arc returns false.
+// the old end point is removed when nothing else uses it. An arc is extended
+// along its own circle; an extension that would reach the arc's other end (and
+// close it into a circle, which Fusion returns) is refused with false.
 func Extend[T OpenCurve](s *Sketch, e T, end *Point) (T, bool) {
 	var zero T
 	ent := asEntity(e)
@@ -510,15 +511,53 @@ func Extend[T OpenCurve](s *Sketch, e T, end *Point) (T, bool) {
 	if ent.IsReference() {
 		return zero, false // reference geometry is locked; cannot be extended
 	}
-	l, ok := ent.(*Line)
-	if !ok {
-		return zero, false // arcs are not extended yet
+	var got Entity
+	ok := false
+	if l, isLine := ent.(*Line); isLine {
+		got, ok = s.extendLine(l, end)
+	} else if a, isArc := ent.(*Arc); isArc {
+		got, ok = s.extendArc(a, end)
 	}
-	nl, ok := s.extendLine(l, end)
 	if !ok {
 		return zero, false
 	}
-	return asCurve[T](nl), true
+	return asCurve[T](got), true
+}
+
+// extendArc is Extend for a screened arc: it lengthens a along its own circle
+// from end to the nearest crossing beyond it.
+func (s *Sketch) extendArc(a *Arc, end *Point) (*Arc, bool) {
+	if end != a.Start && end != a.End {
+		return nil, false
+	}
+	ga := a.Geometry()
+	sweep := ga.Sweep()
+	hits := s.circleCrossings(geom.NewCircle(ga.Center, ga.Radius()), a)
+
+	fromStart := end == a.Start
+	bestGap := math.Inf(1)
+	var best *crossing
+	for i := range hits {
+		h := &hits[i]
+		phi := ga.AngleFromStart(h.at)
+		// The gap is the angle swept beyond the chosen end to reach the hit:
+		// clockwise from Start, counter-clockwise from End.
+		gap := phi - sweep
+		if fromStart {
+			gap = 2*math.Pi - phi
+		}
+		if gap <= epsTool || gap >= 2*math.Pi-sweep-epsTool {
+			continue // on the arc itself, or only reachable past the other end
+		}
+		if gap < bestGap {
+			bestGap, best = gap, h
+		}
+	}
+	if best == nil {
+		return nil, false
+	}
+	s.moveEnd(a, end, s.pointOnCutter(*best))
+	return a, true
 }
 
 // extendLine is Extend for a screened line.

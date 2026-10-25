@@ -99,7 +99,9 @@ func CreateOffset(s *Sketch, ents []Entity, d float64) (*OffsetGroup, error)
   equal-radius constraints onto it.
 - **Extend** intersects the infinite line through `l` with the other entities,
   picks the nearest crossing *beyond* the chosen end, and moves that end of `l`
-  there in place.
+  there in place. An arc is extended along its own circle (`extendArc`); a
+  crossing reachable only past the arc's other end is refused, where Fusion would
+  return a circle.
 - **In-place edits refresh endpoint tangencies.** An endpoint tangency whose
   shared contact point is moved off one operand becomes a tangency anywhere on the
   two curves (`refreshSharedEndpoints`); a conic tangency in that state is
