@@ -9,7 +9,7 @@ gap-list items "Offset of arcs and circles" and "Trim, extend, fillet and chamfe
 
 The rule for every behaviour choice below is the user's: **work like Fusion as much as possible**. Each Fusion claim is
 marked **verified** (read in the Fusion API reference through the `fusion:query-api` skill) or **assumed** (not stated
-there; the least surprising behaviour was picked and is listed under "Assumptions to confirm").
+there; the least surprising behaviour was picked and is listed under "Assumptions to verify in Fusion").
 
 | Your question | Section |
 |---|---|
@@ -25,7 +25,8 @@ there; the least surprising behaviour was picked and is listed under "Assumption
 | Which new constraints are added? | The `PointOnNormal` constraint, The `RadialOffset` constraint |
 | What happens to Revision, JSON, reference geometry, foreign handles? | Interactions |
 | How is the work split into PRs? | Increments |
-| What is still unconfirmed? | Assumptions to confirm |
+| What is still unconfirmed? | Assumptions to verify in Fusion |
+| What are the exact implementation steps? | `docs/curve-modify-tools-tasks.md` |
 
 ## Current state
 
@@ -87,11 +88,11 @@ sweep, and no fillet math for anything but two lines (`geom.Fillet`, which also 
 | Pin trimmed and extended ends to the cutter | Ship | F5, F6. Decided by the user. |
 | Offset sides and pinned ends like Fusion | Ship | F12, F15. Decided by the user. |
 | Trim an arc, trim a circle, extend an arc | Ship | F1–F4, F7. `Trim`/`Extend` take a `*Line` today. |
-| Extend that merges two curves, or closes an arc into a circle | No | F8 returns a different entity type than the input. This API refuses those two cases (deviation, listed under "Assumptions to confirm"). |
+| Extend that merges two curves, or closes an arc into a circle | No | F8 returns a different entity type than the input. This API refuses those two cases (deviation, listed under "Assumptions to verify in Fusion"). |
 | Fillet line–arc and arc–arc | Ship | F9. A corner where a line meets an arc (a D-cut) cannot be filleted today. |
 | Chamfer on curves | No | F11. |
 | Offset circles, arcs and mixed chains | Ship | F12–F15. Today the tool skips non-lines without an error. |
-| One dimension for a whole offset | No | F14 needs a constraint spanning many members. This design keeps one dimension per member, tied by `OffsetGroup.Set` (deviation, listed under "Assumptions to confirm"). |
+| One dimension for a whole offset | No | F14 needs a constraint spanning many members. This design keeps one dimension per member, tied by `OffsetGroup.Set` (deviation, listed under "Assumptions to verify in Fusion"). |
 | Break a circle | No | Needs two break points; `Trim` on a circle covers the profile use. |
 | Ellipse, elliptical arc, spline, conic, NURBS | No | No closed-form split or fillet math exists for them in `geom`. The type constraint excludes them, and the slice-taking tools refuse them. |
 
@@ -191,9 +192,9 @@ Inside this repository (every one changes in increment 0):
 | `reference_test.go` | 5 calls. The `CreateMirror` refusal becomes `require.ErrorIs(t, err, ErrReferenceGeometry)`. |
 | `revision_internal_test.go` | 6 calls (internal package, unqualified names). |
 | `examples/sketch_fillet_example_test.go` | `s.CreateFillet(l1, l2, 3)` becomes `sketch.CreateFillet(s, l1, l2, corner, 3)`. The `// Output:` block does not change. |
-| `internal/cmd/genimages/main.go` | `s.CreateFillet(r.BC, r.CD, 40)` gains `s` first and the shared corner. `go generate ./...` must leave `docs/images/fillet-*.svg` byte-identical. |
+| `internal/cmd/genimages/main.go` | `s.CreateFillet(r.BC, r.CD, 40)` gains `s` first and the shared corner. `go run ./internal/cmd/genimages docs/images` must leave `docs/images/fillet-*.svg` byte-identical. |
 | `tools.go` | Calls between tools and comments. |
-| Godoc links | `sketch.go` (`ErrForeignEntity`'s comment), `compound.go` (`[Sketch.CreatePatternRect]`, `[Sketch.CreatePatternCircular]`), the sentinel comments in `tools.go`. |
+| Godoc links | `sketch.go` (`ErrForeignEntity`'s comment), the sentinel comments in `tools.go`. The two links in `compound.go` (`[Sketch.CreatePatternRect]`, `[Sketch.CreatePatternCircular]`) are fixed in increment 12 instead, because creation-variants increment 2 rewrites that comment. |
 
 Agent and design docs that name the methods:
 
@@ -205,8 +206,9 @@ Agent and design docs that name the methods:
   `docs/reference-geometry-design.md`, `docs/fusion-gap-analysis.md`.
 
 No generated block calls a tool: `README.md` includes only `examples/sketch_readme_example_test.go`, and the guide
-pages include the units, parametric, solving and goal examples. `go generate ./...` still runs in the PR to show the
-README blocks and the images come out unchanged.
+pages include the units, parametric, solving and goal examples. The PR still runs the README generator and the image
+generator to show both come out unchanged (increment 2 is the one that changes an image: the fillet keeps its legs,
+so `docs/images/fillet-after.svg` draws them in a different order).
 
 Outside this repository (searched read-only: `decad`, `decad-gallery`, `joints`, `kinetograph`, `mtilt`):
 
@@ -222,9 +224,9 @@ Each repository pins a sketch pseudo-version, so nothing breaks until it bumps t
 ## Modify in place, as Fusion does
 
 Increments 1 and 2. Where Fusion modifies the original curve (F1, F7, F10a, F10b), the tool moves that curve's end
-to a new point instead of replacing the curve. The handle stays live, its uid does not change, and every constraint that names
-the entity stays: a `Horizontal` on a trimmed line, a `Radius` on a filleted arc leg, a `Concentric` on an extended
-arc. This is how constraints carry across a trim, extend, fillet or chamfer, with no per-kind transfer code. Where
+to a new point instead of replacing the curve. The handle stays live, its uid does not change, and every constraint
+that names the entity stays: a `Horizontal` on a trimmed line, a `Radius` on a filleted arc leg, a `Concentric` on an
+extended arc. This is how constraints carry across a trim, extend, fillet or chamfer, with no per-kind transfer code. Where
 Fusion deletes the curve (F2, F3, F4), the tool deletes it and constraints that named it go with it (F16), except the
 circle-to-arc case in increment 6.
 
@@ -234,11 +236,12 @@ circle-to-arc case in increment 6.
    exported, so `entityPoints` and `Revision` read the new point at once).
 2. `RemovePoint` the old end point. It returns false and changes nothing while another entity still uses it.
    Constraints naming the old point go with it.
-3. Refresh cached shared points. Four constraint types record, at construction, the endpoint their two operands share:
-   `tangentLineCircle`, `tangentCircles`, `tangentEllipse` (line and elliptical arc) and the conic tangency
-   (`sharedConicEndpoint`). After the move, each such constraint that names the modified entity re-derives that point.
-   If the operands no longer share one, the constraint becomes an interior tangency: `shared` is cleared and
-   `allocVars` allocates its sweep slack, so the caller's handle stays valid (F17).
+3. Refresh cached shared points (`refreshSharedEndpoints`). Four constraint types record, at construction, the
+   endpoint their two operands share: `tangentLineCircle`, `tangentCircles`, `tangentLineEllipse` (line and
+   elliptical arc) and `tangentConics`. After the move, each re-derives that point. If the operands no longer share
+   one, the first three become an interior tangency: `shared` is cleared and `allocVars` allocates the sweep slack,
+   so the caller's handle stays valid (F17). A `tangentConics` in that state is removed instead, because its other
+   form needs contact-witness variables that only a fresh constraint allocates consistently.
 
 ### Effect per tool
 
@@ -576,7 +579,7 @@ joint at the intersection of the two offset carriers nearest `q` (`LineLineInter
 
 - **`Sketch.Revision`.** No change to `revision.go`. An in-place end move changes the entity's defining points, which
   `Revision` hashes, so a held `Profile` reads stale; the uid does not change. New entities enter through
-  `addEntity`. Each new tool path is added to `revision_internal_test.go`.
+  `addEntity`, so `revision_internal_test.go`'s uid invariant covers it with no new case.
 - **JSON.** Only `"point_on_normal"` and `"radial_offset"` are new on disk. `Fillet` and `OffsetGroup` are not
   serialized. Each `Offset`/`RadialOffset` keeps its signed target across a reload.
 - **Removal cascade.** In-place edits remove only the old end point. Deleting trims use `RemoveEntity`. Both new
@@ -627,136 +630,73 @@ Fixtures with closed-form answers:
   `TestOffsetChainMitresCorner` with `d = 2` puts the corner at (12,−2).
 - **RadialOffset:** concentric circles, `NewRadius(src, 10)`, `NewRadialOffset(src, dst, 2)`: `dst.R() = 12`; target −3
   gives 7.
-- **Offset chains:** a `CreateSlot` slot, a rounded rectangle (`CreateRectangle` + `CreateFillet` on four corners) and
-  a one-filleted-corner rectangle each solve to DOF 0 with `RedundantConstraints` empty before and after `Set(2)`.
-  Refusals with unchanged counts: a branch, a cusp, an all-tangent arc loop, offset radius `<= 0`.
+- **Offset chains:** a slot (two lines, two half circles), a rounded rectangle (four lines, four corner arcs), a
+  rectangle with one rounded corner, and an open line–arc chain, each built from raw entities with every source point
+  grounded, solve to DOF 0 before and after `Set`, and no constraint of the copy reads as redundant. Refusals with
+  unchanged counts: a branch, a cusp, a closed loop of only tangent arcs, an offset radius `<= 0`, an ellipse.
 
 ## Increments
 
-Each increment is one PR, mergeable alone. Every PR also updates the docs that describe the tools: the `tools.go` row
-in `CLAUDE.md`, `.claude/docs/sketch-core.md`'s tools section, `docs/modification-tools-design.md`, and the gap entries
-in `docs/fusion-gap-analysis.md`.
+Each increment is one PR, mergeable alone. The exact steps, code, tests and commands for each are in
+`docs/curve-modify-tools-tasks.md`; every increment there was built and tested in a prototype copy of this
+repository. Merge them in numeric order.
 
-| # | Increment | Depends on | Changes existing output |
-|---|---|---|---|
-| 0 | Tools become package-level functions | — | API only (plus nil-sketch refusal, `CreateMirror` errors) |
-| 1 | Trim and extend like Fusion on lines (in place, middle trim, delete on no crossing, shared-point refresh) | 0 | Yes |
-| 2 | Fillet and chamfer keep their legs | 1 | Yes |
-| 3 | Pin trimmed and extended ends to the cutter | 1 | Yes |
-| 4 | `PointOnNormal` constraint | 0 | No |
-| 5 | Line offset like Fusion (right-positive, list flow, pinned ends) | 0, 4 | Yes |
-| 6 | `Trim` on arcs, `TrimCircle` with constraint move | 3 | No |
-| 7 | `Extend` on arcs | 6 | No |
-| 8 | `geom` fillet helpers | — | No |
-| 9 | `CreateFillet` with arcs | 2, 8 | No |
-| 10 | `RadialOffset` constraint | — | No |
-| 11 | `CreateOffset` for circles and lone arcs | 5, 10 | Non-lines refused instead of skipped |
-| 12 | `CreateOffset` for mixed chains | 11 | Line chain flow follows list order |
+| # | Branch | Increment | Depends on | Changes existing output |
+|---|---|---|---|---|
+| 0 | `refactor-tools-package-functions` | Tools become package-level functions | — | API only (plus nil-sketch refusal, `CreateMirror` errors) |
+| 1 | `feat-trim-extend-in-place` | Trim and extend like Fusion on lines | 0 | Yes |
+| 2 | `feat-fillet-chamfer-keep-legs` | Fillet and chamfer keep their legs | 1 | Yes (and `docs/images/fillet-after.svg` draw order) |
+| 3 | `feat-trim-pin-to-cutter` | Pin trimmed and extended ends to the cutter | 2 | Yes |
+| 4 | `feat-point-on-normal` | `PointOnNormal` constraint | 3 | No |
+| 5 | `feat-offset-fusion-lines` | Line offset like Fusion (right-positive, list flow, pinned ends, branches refused) | 4 | Yes |
+| 6 | `feat-trim-arc-circle` | `Trim` on arcs, `TrimCircle` with constraint move | 5 | No |
+| 7 | `feat-extend-arc` | `Extend` on arcs | 6 | No |
+| 8 | `feat-geom-fillet-curves` | `geom` fillet helpers | 7 | No |
+| 9 | `feat-fillet-arcs` | `CreateFillet` with arcs | 8, and creation-variants increment 0 | No |
+| 10 | `feat-radial-offset` | `RadialOffset` constraint | 9 | No |
+| 11 | `feat-offset-circles-arcs` | `CreateOffset` for circles and lone arcs | 10 | Non-lines refused instead of skipped |
+| 12 | `feat-offset-chains` | `CreateOffset` for chains of lines and arcs | 11 | Joined arcs offset instead of refused |
 
-Increments 0, 8 and 10 have no dependencies and can be reviewed in parallel; 4 needs only 0's `OpenCurve`.
+The "Depends on" column is the merge order the task file is written against. The true code dependencies are looser
+(4, 8 and 10 touch nothing the increments before them change), but each task anchors its edits on the text the
+previous increment leaves, so the order is kept linear.
 
-### Increment 0 — tools become package-level functions
+Increment 9 needs the creation-variants fix `fix rank of shared-endpoint arc tangency`
+(`docs/creation-variants-tasks.md` on its branch, increment 0). Without it, a `NewTangentCircles` between two arcs
+that share their contact point reads as redundant, and the arc fillet's "DOF unchanged" test fails by one.
 
-- Adds `OpenCurve` and the generic `Fillet[A, B]`; moves all ten tools; removes the methods.
-- Files: `tools.go`, `sketch.go`, `compound.go`, every caller in "Callers of the old methods", `CLAUDE.md`,
-  `.claude/docs/sketch-core.md`, `.claude/docs/profiles-geom.md`, `docs/modification-tools-design.md`,
-  `docs/acceptance-tests.md`, `docs/reference-geometry-design.md`, `docs/fusion-gap-analysis.md`.
-- Acceptance: build, vet and `go test ./...` pass with every call site moved. A new test calls each tool with a nil
-  `*Sketch` and asserts the refusal with no panic. `go generate ./...` leaves the tree clean.
-  `TestEntityTypeSwitchesAreExhaustive` passes (the `(tools.go, "Break")` key keeps its name).
+## Assumptions to verify in Fusion
 
-### Increment 1 — trim and extend like Fusion on lines
+Every item below is implemented as written. Each line ends with the check in Fusion that settles it.
 
-- In-place end trim and extend, `RemovePoint` of the old end, middle trim into two, delete on no crossing, and the
-  shared-point refresh helper.
-- Files: `tools.go`, `tools_test.go`, `tools_ownership_test.go`, `reference_test.go`, `revision_internal_test.go`,
-  `.claude/docs/sketch-core.md` (the laundering list now says the trimmed-away point is replaced in place).
-- Acceptance: the line in-place, middle trim, no-crossing and shared-point refresh fixtures above.
+1. **F6 — a trimmed or extended end gets a point-on-curve constraint to its cutter.** Check: draw two crossing lines,
+   trim one, and list the constraints on the new end point.
+2. **F15 — an offset's free ends sit on the source normals, so the copy is fully determined.** Check: offset one open
+   line with the source fully constrained, and see whether the copy turns black (fully constrained).
+3. **F16 — trimming a circle moves its radius, diameter, concentric and equal-radius constraints to the arc, and
+   drops the rest; a middle trim drops the original's constraints.** Check: dimension a circle's diameter, make it
+   concentric with another, trim it, and list what remains.
+4. **F17 — a tangency survives when a trim moves the touching end off the curve.** Check: make a line tangent to an
+   arc at a shared end, trim that end off, and see whether the tangent glyph remains.
+5. **F18 — a single open curve flows from its start to its end, so positive offset goes to its right.** Check: offset
+   one line drawn left to right by +5 mm and see whether the copy lands below it.
+6. **Deviation from F8 — an extend that would merge two curves or close an arc into a circle is refused.** Check:
+   extend an arc toward its own other end and see that Fusion returns a circle.
+7. **Deviation from F14 — each offset member carries its own dimension, tied by `OffsetGroup.Set`.** Check: offset a
+   chain and see that Fusion shows one offset dimension.
+8. **`Break` keeps dropping constraints on the broken curve.** Check: break a horizontal line with the Break tool and
+   see whether both halves keep the horizontal constraint.
+9. **The corner of a fillet is named by an explicit point.** Fusion's `addFillet` picks the corner by two points near
+   the kept ends. Check: none needed; the API shape differs on purpose, and the result is the same fillet.
+10. **The arc chain refusals (a cusp, a point shared by three members, a closed loop of only tangent arcs).** Check:
+    try each offset in Fusion and see whether it fails or produces a result.
 
-### Increment 2 — fillet and chamfer keep their legs
+## API choices made without asking
 
-- Files: `tools.go`, `tools_test.go`, `tools_ownership_test.go`, `examples/sketch_fillet_example_test.go` (output
-  unchanged).
-- Acceptance: the fillet-keeps-legs fixture, the same for `CreateChamfer`, and the corner laundering case.
+These are not Fusion behaviour; each is listed so it can be overridden.
 
-### Increment 3 — pin trimmed and extended ends to the cutter
-
-- `lineCrossings` returns the cutter per hit; trim and extend add the constraint from the pin table, or reuse a cutter
-  end point.
-- Files: `tools.go`, `tools_test.go`, `entity_switches_test.go` (the `lineCrossings` exemption reason).
-- Acceptance: one test per cutter kind asserts the constraint kind, the DOF change from the DOF table, and that a
-  re-solve after moving the cutter keeps the end on it. A crossing at a cutter end point reuses that `*Point`.
-
-### Increment 4 — `PointOnNormal` constraint
-
-- Files: the site table under "The `PointOnNormal` constraint", plus a new `point_on_normal_test.go`.
-- Acceptance: the `PointOnNormal` fixture; JSON round trip for a line and an arc operand; `Verify` is `Trustworthy()`.
-
-### Increment 5 — line offset like Fusion
-
-- Files: `tools.go`, `tools_test.go`, `reference_test.go`.
-- Acceptance: the line offset fixtures; a reversed-orientation chain given in flow order offsets to one side; an open
-  chain reaches DOF 0.
-
-### Increment 6 — `Trim` on arcs, `TrimCircle`
-
-- Adds `geom.(*Arc).AngleFromStart`, `circleCrossings`, the arc path in `Trim`, and `TrimCircle` with the constraint
-  move.
-- Files: `geom/intersect.go`, `geom/geom_test.go`, `tools.go`, `tools_test.go`, `tools_ownership_test.go`,
-  `reference_test.go`, `revision_internal_test.go`, `entity_switches_test.go`.
-- Acceptance: the arc trim and `TrimCircle` fixtures; each refusal leaves counts unchanged.
-
-### Increment 7 — `Extend` on arcs
-
-- Files: `tools.go`, `tools_test.go`, `tools_ownership_test.go`, `reference_test.go`.
-- Acceptance: the arc extend fixture; the wrap case returns false with counts unchanged.
-
-### Increment 8 — `geom` fillet helpers
-
-- Files: `geom/modify.go`, `geom/geom_test.go`.
-- Acceptance: both closed-form fixtures to 1e-9; tangent-corner, `r <= 0` and too-large-`r` return false; inputs
-  unchanged after every call.
-
-### Increment 9 — `CreateFillet` with arcs
-
-- Files: `tools.go`, `tools_test.go`, `tools_ownership_test.go`, `reference_test.go`, `revision_internal_test.go`,
-  `entity_switches_test.go`.
-- Acceptance: solved `O`, `T1`, `T2` match the fixtures; `f.L2` is the input `*Arc`; DOF unchanged by the fillet; a
-  `Radius` on the arc leg survives; after `Radius.Set(3)` both tangency residuals are at most 1e-9.
-
-### Increment 10 — `RadialOffset` constraint
-
-- Files: the site table under "The `RadialOffset` constraint", plus a new `radial_offset_test.go`.
-- Acceptance: radii 12 and 7; JSON round trip keeps kind and target; `Verify` is `Trustworthy()`.
-
-### Increment 11 — `CreateOffset` for circles and lone arcs
-
-- Files: `tools.go`, `tools_test.go`, `tools_ownership_test.go`, `reference_test.go`, `entity_switches_test.go`.
-- Acceptance: a circle offset at DOF 0 follows `Set`; a lone arc copy on radius `R + d` at DOF 0; an ellipse in `ents`
-  returns `ErrUnsupportedEntity` with counts unchanged.
-
-### Increment 12 — `CreateOffset` for mixed chains
-
-- Files: `tools.go` (or a new `tools_offset.go` past about 1000 lines), `tools_test.go`, `entity_switches_test.go`.
-- Acceptance: the offset chain fixtures.
-
-## Assumptions to confirm
-
-Each item is a Fusion behaviour the API reference does not state, or a deliberate deviation from Fusion. Each is
-implemented as written unless overridden.
-
-1. **F6 — the trim pin is point-on-curve.** If Fusion instead creates a coincident to an existing point only, increment
-   3 adds constraints Fusion would not. Settled by trimming in Fusion and listing the sketch's constraints.
-2. **F15 — offset ends are fully determined.** If Fusion leaves offset ends free, increment 5's end pins over-determine
-   compared with Fusion. Settled by offsetting an open line in Fusion and checking whether its copy is fully
-   constrained.
-3. **F16 — constraints on a deleted curve.** A middle trim drops constraints on the original; a circle trim moves only
-   radius, diameter, concentric and equal radius. Settled by trimming a dimensioned, constrained circle and line in
-   Fusion.
-4. **F17 — tangency survives an end move as tangency anywhere on the curves.**
-5. **F18 — a single open curve flows start to end**, so positive `d` offsets a lone line to its right.
-6. **Deviation: extend that merges two curves or closes an arc into a circle is refused** (F8 returns a different
-   entity type than `Extend[T]` can).
-7. **Deviation: one dimension per offset member**, tied by `OffsetGroup.Set`, instead of Fusion's single offset
-   dimension (F14). After a JSON reload the members are independent dimensions.
-8. **Unchanged: `Break` drops constraints on the broken curve.** Fusion's API has no break call to compare with.
+- There is no chamfer on curves (Fusion's sketch chamfer takes lines only, F11).
+- `CreateMirror` returns an error instead of nil.
+- Every tool refuses a nil sketch instead of panicking.
+- `RadialOffset`'s positive direction is outward (it matches F12's "positive is outside" for a circle).
+- `Trim` returns `[]T` from increment 0, so the later Fusion behaviour (zero, one or two pieces) needs no second break.
