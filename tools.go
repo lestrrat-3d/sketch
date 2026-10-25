@@ -11,14 +11,14 @@ import (
 )
 
 // Sketch-modification tools are package-level functions that take the sketch
-// first. They mutate committed geometry by the build-then-replace pattern: they
-// read the current geometry via each entity's Geometry snapshot, compute the
-// replacement with the geom math layer, build the new geometry from sketch
-// points (reusing the originals' surviving points so neighbouring geometry stays
-// attached), and retire the originals with RemoveEntity. Constraints that
-// referenced a replaced entity by identity are dropped with it (the removal
-// cascade); constraints on the surviving shared points are kept. Replaced
-// handles are dead. Every tool refuses a nil sketch.
+// first. Where Fusion modifies the original curve (trimming or extending an end)
+// they move that curve's end point in place, so the handle and every constraint
+// that names it survive. Where Fusion deletes the curve (trimming its middle, or
+// a curve with no crossing) they build the replacement from sketch points
+// (reusing the originals' surviving points so neighbouring geometry stays
+// attached) and retire the original with RemoveEntity; constraints that
+// referenced it by identity are dropped with it (the removal cascade). Every
+// tool refuses a nil sketch.
 
 const epsTool = 1e-9
 
@@ -157,15 +157,17 @@ func Break[T OpenCurve](s *Sketch, e T, x, y float64) (T, T, bool) {
 	return zero, zero, false
 }
 
-// Trim shortens e by removing the portion adjacent to an endpoint up to its
-// nearest crossing with another entity, choosing the end nearest the pick point
-// (x, y). It returns the result, of the same type as e, and true. It returns nil
-// and false (changing nothing) when s is nil; when e is not a live entity of s
-// (nil, dead, or foreign) or has an endpoint that is not a live point of s; when
-// e is reference geometry; when e has no crossing on the picked side; or when
-// the pick sits on an interior portion bounded by crossings on both sides (use
-// [Break]). Lines are handled; an arc returns nil and false. The original handle
-// is dead.
+// Trim removes the portion of e between the two crossings with other entities
+// that bound the pick point (x, y), as Fusion's trim does; e's own end points
+// bound the portion where no crossing does. Picking an end portion moves that end
+// of e in place and returns []T{e}: the handle and the constraints that name it
+// survive, and the old end point is removed when nothing else uses it. Picking a
+// middle portion deletes e and returns the two remaining pieces, which share e's
+// far end points. If e crosses nothing, Trim deletes e (and its end points no
+// other entity uses) and returns an empty slice. It returns nil and false,
+// changing nothing, when s is nil, when e is not a live entity of s (nil, dead,
+// or foreign) or has an end point that is not a live point of s, or when e is
+// reference geometry. Lines are handled; an arc returns nil and false.
 func Trim[T OpenCurve](s *Sketch, e T, x, y float64) ([]T, bool) {
 	ent := asEntity(e)
 	if s.foreignInput(ent) {
@@ -178,15 +180,16 @@ func Trim[T OpenCurve](s *Sketch, e T, x, y float64) ([]T, bool) {
 	if !ok {
 		return nil, false // arcs are not trimmed yet
 	}
-	nl, ok := s.trimLine(l, x, y)
-	if !ok {
-		return nil, false
+	pieces := s.trimLine(l, x, y)
+	out := make([]T, len(pieces))
+	for i, p := range pieces {
+		out[i] = asCurve[T](p)
 	}
-	return []T{asCurve[T](nl)}, true
+	return out, true
 }
 
 // trimLine is Trim for a screened line.
-func (s *Sketch) trimLine(l *Line, x, y float64) (*Line, bool) {
+func (s *Sketch) trimLine(l *Line, x, y float64) []*Line {
 	sl := l.Geometry()
 	_, pick := geom.ClosestPointOnLine(sl, geom.NewPoint(x, y))
 	hits := s.lineCrossings(sl, l, true)
@@ -207,16 +210,96 @@ func (s *Sketch) trimLine(l *Line, x, y float64) (*Line, bool) {
 	}
 
 	switch {
-	case loP == nil && hiP != nil: // crossing only above the pick: cut the start stub
-		nl := s.CreateLine(s.CreatePoint(hiP.X, hiP.Y), l.End)
+	case loP == nil && hiP == nil: // nothing crosses the picked portion: delete the line
+		start, end := l.Start, l.End
 		s.RemoveEntity(l)
-		return nl, true
-	case hiP == nil && loP != nil: // crossing only below the pick: cut the end stub
-		nl := s.CreateLine(l.Start, s.CreatePoint(loP.X, loP.Y))
-		s.RemoveEntity(l)
-		return nl, true
+		s.RemovePoint(start)
+		s.RemovePoint(end)
+		return []*Line{}
+	case loP == nil: // crossing only above the pick: cut the start stub in place
+		s.moveEnd(l, l.Start, s.CreatePoint(hiP.X, hiP.Y))
+		return []*Line{l}
+	case hiP == nil: // crossing only below the pick: cut the end stub in place
+		s.moveEnd(l, l.End, s.CreatePoint(loP.X, loP.Y))
+		return []*Line{l}
 	}
-	return nil, false
+	// Crossings on both sides: delete the line and keep the two outer pieces.
+	first := s.CreateLine(l.Start, s.CreatePoint(loP.X, loP.Y))
+	second := s.CreateLine(s.CreatePoint(hiP.X, hiP.Y), l.End)
+	s.RemoveEntity(l)
+	return []*Line{first, second}
+}
+
+// replaceEnd points e's end old (its Start or End) at np instead. It is the
+// in-place edit Fusion makes when it trims, extends, fillets or chamfers a curve:
+// the entity keeps its identity, so every constraint that names it survives.
+func replaceEnd(e Entity, old, np *Point) {
+	if l, ok := e.(*Line); ok {
+		if l.Start == old {
+			l.Start = np
+		} else {
+			l.End = np
+		}
+		return
+	}
+	if a, ok := e.(*Arc); ok {
+		if a.Start == old {
+			a.Start = np
+		} else {
+			a.End = np
+		}
+	}
+}
+
+// moveEnd moves e's end old to np in place, removes old when no entity uses it
+// any more, and refreshes the endpoint tangencies that named old as their contact.
+func (s *Sketch) moveEnd(e Entity, old, np *Point) {
+	replaceEnd(e, old, np)
+	s.RemovePoint(old)
+	s.refreshSharedEndpoints()
+}
+
+// refreshSharedEndpoints re-derives the shared contact point of every endpoint
+// tangency after an in-place end move. A tangency whose operands no longer share
+// an end point becomes a tangency anywhere on the two curves: its cached point is
+// cleared and allocVars allocates the sweep slack that form needs, so the caller's
+// handle stays valid. A conic tangency in that state is removed instead, because
+// its other form needs contact-witness variables that only a fresh constraint
+// allocates consistently.
+func (s *Sketch) refreshSharedEndpoints() {
+	var stale []Constraint
+	for _, c := range s.cons {
+		switch t := c.(type) {
+		case *tangentLineCircle:
+			if a, ok := t.C.(*Arc); ok && t.shared != nil && sharedPointLineArc(t.L, a) != t.shared {
+				t.shared = sharedPointLineArc(t.L, a)
+				if t.shared == nil {
+					t.allocVars(s)
+				}
+			}
+		case *tangentCircles:
+			if t.shared != nil && sharedPointCirculars(t.C1, t.C2) != t.shared {
+				t.shared = sharedPointCirculars(t.C1, t.C2)
+				if t.shared == nil {
+					t.allocVars(s)
+				}
+			}
+		case *tangentLineEllipse:
+			if a, ok := t.E.(*EllipticalArc); ok && t.shared != nil && sharedPointLineEllipticalArc(t.L, a) != t.shared {
+				t.shared = sharedPointLineEllipticalArc(t.L, a)
+				if t.shared == nil {
+					t.allocVars(s)
+				}
+			}
+		case *tangentConics:
+			if t.shared != nil && sharedConicEndpoint(t.A, t.B) != t.shared {
+				stale = append(stale, c)
+			}
+		}
+	}
+	for _, c := range stale {
+		s.RemoveConstraint(c)
+	}
 }
 
 // Extend lengthens e from the given endpoint (its Start or End) to its nearest
@@ -224,8 +307,10 @@ func (s *Sketch) trimLine(l *Line, x, y float64) (*Line, bool) {
 // same type as e. It returns false (changing nothing) when end is neither
 // endpoint or no entity lies beyond it; when s is nil; when e is reference
 // geometry; and when e, either of its endpoints, or end is not a live handle of
-// s (nil, dead, or foreign). Lines are handled; an arc returns false. The
-// original handle is dead.
+// s (nil, dead, or foreign). As Fusion's extend does, it moves end in place and
+// returns e itself: the handle and the constraints that name it survive, and
+// the old end point is removed when nothing else uses it. Lines are handled; an
+// arc returns false.
 func Extend[T OpenCurve](s *Sketch, e T, end *Point) (T, bool) {
 	var zero T
 	ent := asEntity(e)
@@ -278,15 +363,8 @@ func (s *Sketch) extendLine(l *Line, end *Point) (*Line, bool) {
 	if best == nil {
 		return nil, false
 	}
-	np := s.CreatePoint(best.X, best.Y)
-	var nl *Line
-	if fromStart {
-		nl = s.CreateLine(np, l.End)
-	} else {
-		nl = s.CreateLine(l.Start, np)
-	}
-	s.RemoveEntity(l)
-	return nl, true
+	s.moveEnd(l, end, s.CreatePoint(best.X, best.Y))
+	return l, true
 }
 
 // lineCrossings returns the plane-local intersection points of sl with every
