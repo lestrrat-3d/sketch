@@ -1993,6 +1993,20 @@ func (c *tangentCircles) retireVars(s *Sketch) {
 
 func (c *tangentCircles) residual(out []float64) []float64 {
 	o1, o2 := c.C1.centerPt(), c.C2.centerPt()
+
+	// Endpoint tangency: the shared point is the contact (an arc endpoint, on
+	// both circles), and the circles are tangent there exactly when both centers
+	// lie on one line through it — on the same side for internal tangency, on
+	// opposite sides for external. One dimensionless row measures that as an
+	// angle. The center-distance row below is NOT usable here: with the shared
+	// point on both circles the triangle inequality makes it non-negative, so
+	// tangency is its minimum and its gradient vanishes at the solution — the
+	// row adds no rank and reads as redundant. The contact is in both sweeps by
+	// inclusivity, so no sweep slack row is needed.
+	if c.shared != nil {
+		return append(out, sharedTangentAngle(c.shared, o1, o2, c.Internal))
+	}
+
 	r1, r2 := c.C1.R(), c.C2.R()
 	dx, dy := o2.x()-o1.x(), o2.y()-o1.y()
 	base := norm(dx, dy) - (r1 + r2)
@@ -2006,14 +2020,6 @@ func (c *tangentCircles) residual(out []float64) []float64 {
 		}
 	}
 	out = append(out, base)
-
-	// Endpoint tangency: the shared point is the contact (an arc endpoint, on
-	// both circles). The base residual alone — which already honors internal vs
-	// external — pins both the tangency and the side there, and the contact is
-	// in the sweep by inclusivity, so no sweep slack row is needed.
-	if c.shared != nil {
-		return out
-	}
 
 	// Interior tangency: keep each arc operand's contact within its sweep. The
 	// arity is held constant (the contact directions stay finite for concentric
@@ -2029,6 +2035,26 @@ func (c *tangentCircles) residual(out []float64) []float64 {
 		out = append(out, arcInSweepExcess(a, g2x, g2y)-w*w)
 	}
 	return out
+}
+
+// sharedTangentAngle is the endpoint-tangency residual of two circular
+// entities that share the contact point x: the signed angle, wrapped into
+// (−π, π], from the radius direction x−o1 to x−o2 (internal) or to o2−x
+// (external). It is zero exactly when the two circles are tangent at x on the
+// requested side, and ±π on the wrong side. A zero-length radius or coincident
+// centers have no tangent direction, so they return 1 rather than an angle that
+// could read as satisfied.
+func sharedTangentAngle(x, o1, o2 *Point, internal bool) float64 {
+	u1x, u1y := x.x()-o1.x(), x.y()-o1.y()
+	u2x, u2y := x.x()-o2.x(), x.y()-o2.y()
+	if math.Hypot(u1x, u1y) < 1e-9 || math.Hypot(u2x, u2y) < 1e-9 ||
+		math.Hypot(o2.x()-o1.x(), o2.y()-o1.y()) < 1e-9 {
+		return 1
+	}
+	if !internal {
+		u2x, u2y = -u2x, -u2y
+	}
+	return math.Atan2(u1x*u2y-u1y*u2x, u1x*u2x+u1y*u2y)
 }
 
 // arcInSweepExcess returns dot(contactDir, midDir) − cos(sweep/2) for the unit

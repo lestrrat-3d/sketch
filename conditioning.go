@@ -353,10 +353,10 @@ func condRowKinds(c Constraint, out []rowKind) []rowKind {
 		}
 		return out
 	case *tangentCircles:
-		out = append(out, rowLength) // center-distance tangency
 		if t.shared != nil {
-			return out // endpoint: no sweep rows
+			return append(out, rowDimensionless) // endpoint: wrapped angle between the radii, no sweep rows
 		}
+		out = append(out, rowLength) // center-distance tangency
 		if _, ok := t.C1.(*Arc); ok && t.slack1 >= 0 {
 			out = append(out, rowDimensionless)
 		}
