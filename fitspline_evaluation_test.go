@@ -36,6 +36,10 @@ func TestFitSplineEvaluationFollowsFitEdits(t *testing.T) {
 		}
 	}
 	check()
+	sp.Fit[0] = s.CreatePoint(math.Copysign(0, -1), 0)
+	check()
+	sp.Fit[0] = a
+	check()
 	s.Fix(a)
 	s.Fix(b)
 	s.AddConstraint(sketch.NewVerticalDistance(a, middle, 5))
