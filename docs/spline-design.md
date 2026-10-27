@@ -206,9 +206,9 @@ follow-up (they need periodic-witness handling, not the clamped `t∈[0,1]` box)
 `FitSpline` (`CreateFitSpline`, ≥2 fit points) is a separate entity whose curve passes
 *through* its fit points, unlike the control-point `Spline` whose polygon only
 approximates. The load-bearing decision is that the **fit points are the durable
-solver handles** (ordinary sketch points), and the interpolating curve is recomputed
-from their current coordinates on every evaluation — so the curve keeps interpolating
-them even after the solver moves them, with no new solver vars and no internal
+solver handles** (ordinary sketch points). Each evaluation reads their current
+coordinates, so the curve keeps interpolating them even after the solver moves
+them, with no new solver vars and no internal
 constraints. (Deriving control points once at build time was rejected: the solver
 would then move the *controls*, and the interpolation invariant would drift.)
 
@@ -226,6 +226,15 @@ fit points join adjacent geometry by shared-`*Point` identity. Serialized as a
 distinct `"fit_spline"` type; exported as a sampled path (SVG/PNG) and an open
 `LWPOLYLINE` (DXF — the derived controls are not clamped-uniform, so no native
 `SPLINE`).
+
+`geom.NewFitEvaluator` builds an immutable coordinate snapshot for repeated
+`Eval` and `EvalDeriv` reads. It uses the same evaluator as the one-off
+functions and copies its inputs. Readers can share it across goroutines.
+`sketch.FitSpline.Eval` keeps one such snapshot per entity. Every call compares
+the full ordered fit-coordinate bits, including signed zero, and rebuilds on
+any change. An atomic pointer publishes each completed snapshot. This cache
+does not use a sketch revision or point identity, since the solver writes
+coordinates directly and callers can edit the public `Fit` slice.
 
 The built interpolant is **exported**, not only sampleable: `geom.FitInterpolant`
 (`geom.FitSpline.Interpolant`, `sketch.FitSpline.Interpolant`,

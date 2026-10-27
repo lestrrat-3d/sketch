@@ -467,12 +467,12 @@ never the reverse. Production code is standard-library-only (tests use
 ### `geom` constructors are value holders
 
 **`geom` constructors are value holders; the arrangement engine validates at
-the point of use.** Of the twelve package-level `New…` constructors, eight —
+the point of use.** Of the thirteen package-level `New…` constructors, eight —
 `NewPoint`, `NewLine`, `NewCircle`, `NewEllipse`, `NewArc`, `NewEllipticalArc`,
 `NewConic`, `NewNURBS` — validate nothing and have no error return; a nil
 point, a non-finite coordinate or a degenerate radius all construct cleanly.
-The other four are narrower than general input validation, not an exception to
-it: `NewSpline`/`NewClosedSpline`/`NewFitSpline` check only the point COUNT
+The other five are narrower than general input validation, not an exception to
+it: `NewSpline`/`NewClosedSpline`/`NewFitSpline`/`NewFitEvaluator` check only the point COUNT
 their kernel needs (`ErrTooFewControlPoints`/`ErrTooFewClosedControlPoints`/
 `ErrTooFewFitPoints`) — a precondition the evaluator itself cannot express,
 never a check on a point's coordinates — and `NewFitInterpolant` validates a

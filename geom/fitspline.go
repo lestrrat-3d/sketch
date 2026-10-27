@@ -632,3 +632,41 @@ func thomasSolve(sub, diag, sup, rhs []float64) []float64 {
 	}
 	return x
 }
+
+// FitEvaluator evaluates one immutable snapshot of fit coordinates. It can be
+// shared by concurrent readers. Its zero value evaluates as the point (0, 0)
+// with zero derivative.
+type FitEvaluator struct {
+	evaluator *fitEvaluator
+}
+
+// NewFitEvaluator builds the same natural cubic as [EvalFitSpline], retaining
+// the solved coefficients for repeated evaluations. It copies fit and returns
+// [ErrTooFewFitPoints] when fit contains fewer than two points. Like
+// EvalFitSpline, it does not validate coordinate finiteness.
+func NewFitEvaluator(fit [][2]float64) (*FitEvaluator, error) {
+	if err := tooFewPoints(len(fit), 2, ErrTooFewFitPoints); err != nil {
+		return nil, err
+	}
+	return &FitEvaluator{evaluator: newFitEvaluator(fit)}, nil
+}
+
+// Eval returns the curve point at normalized chord parameter t, clamped to
+// [0, 1], with the same float64 values as [EvalFitSpline] over the snapshot.
+func (f *FitEvaluator) Eval(t float64) (float64, float64) {
+	if f.evaluator == nil {
+		return 0, 0
+	}
+	p := f.evaluator.at(t)
+	return p[0], p[1]
+}
+
+// EvalDeriv returns dS/dt with the same float64 values as [EvalFitSplineDeriv]
+// over the snapshot, including its clamping and non-finite parameter behavior.
+func (f *FitEvaluator) EvalDeriv(t float64) (float64, float64) {
+	if f.evaluator == nil {
+		return 0, 0
+	}
+	d := f.evaluator.derivAt(t)
+	return d[0], d[1]
+}
