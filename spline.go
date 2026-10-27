@@ -2,6 +2,8 @@ package sketch
 
 import (
 	"fmt"
+	"math"
+	"sync/atomic"
 
 	"github.com/lestrrat-3d/sketch/geom"
 )
@@ -182,10 +184,10 @@ func (s *Sketch) CreateClosedSpline(control ...*Point) (*ClosedSpline, error) {
 
 // FitSpline is an open spline that INTERPOLATES its fit points: the curve passes
 // through every fit point. The fit points are ordinary sketch points and the
-// durable handles — the interpolating natural cubic is recomputed from their
-// current coordinates on every evaluation, so the curve keeps passing through them
-// as the solver moves them. It carries no extra unknowns and no internal
-// constraints.
+// durable handles. Evaluation checks their current coordinates and rebuilds the
+// interpolating natural cubic when any coordinate changes, so the curve keeps
+// passing through them as the solver moves them. It carries no extra unknowns
+// and no internal constraints.
 type FitSpline struct {
 	s            *Sketch
 	Fit          []*Point
@@ -193,6 +195,7 @@ type FitSpline struct {
 	construction bool
 	named        // optional label
 	refState     // reference fit splines are a follow-up; stale derived from fit points
+	evaluation   atomic.Pointer[fitSplineEvaluation]
 }
 
 func (sp *FitSpline) entity()              {}
@@ -229,8 +232,35 @@ func (sp *FitSpline) Geometry() *geom.FitSpline {
 // Eval returns the interpolated curve point at parameter t ∈ [0, 1] (normalized
 // chord length), using the solved fit-point coordinates.
 func (sp *FitSpline) Eval(t float64) (float64, float64) {
-	x, y, _ := geom.EvalFitSpline(sp.fitCoords(), t)
-	return x, y
+	if cached := sp.evaluation.Load(); cached != nil && len(cached.fit) == len(sp.Fit) {
+		match := true
+		for i, p := range sp.Fit {
+			if math.Float64bits(p.x()) != math.Float64bits(cached.fit[i][0]) ||
+				math.Float64bits(p.y()) != math.Float64bits(cached.fit[i][1]) {
+				match = false
+				break
+			}
+		}
+		if match {
+			return cached.evaluator.Eval(t)
+		}
+	}
+	fit := sp.fitCoords()
+	evaluator, err := geom.NewFitEvaluator(fit)
+	if err != nil {
+		x, y, _ := geom.EvalFitSpline(fit, t)
+		return x, y
+	}
+	sp.evaluation.Store(&fitSplineEvaluation{fit: fit, evaluator: evaluator})
+	return evaluator.Eval(t)
+}
+
+// fitSplineEvaluation owns the input bits and immutable evaluator of one read.
+// Fit is public and the solver writes coordinates directly, so every Eval
+// compares the full ordered coordinates before reusing this snapshot.
+type fitSplineEvaluation struct {
+	fit       [][2]float64
+	evaluator *geom.FitEvaluator
 }
 
 // Interpolant returns the natural-cubic interpolant [FitSpline.Eval] evaluates at
