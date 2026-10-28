@@ -393,6 +393,64 @@ func BenchmarkDXF(b *testing.B) {
 	})
 }
 
+// --- crank-rocker: an angle-driven four-bar for Enclose ---------------------
+
+// buildCrankRockerFixture returns decad's crank-rocker (ground 100, crank 30,
+// coupler 80, follower 70) with its crank angle as the driver and the
+// follower angle as a driven dimension, solved at crank angle 0. It mirrors
+// enclose_test.go's crankRocker but accepts testing.TB.
+func buildCrankRockerFixture(tb testing.TB) (*sketch.Sketch, *sketch.Angle) {
+	tb.Helper()
+	s := newFixtureSketch(tb)
+	o2 := s.CreatePoint(0, 0)
+	o4 := s.CreatePoint(100, 0)
+	a := s.CreatePoint(30, 0)
+	b := s.CreatePoint(60, 50)
+	ground := s.CreateLine(o2, o4)
+	crankLine := s.CreateLine(o2, a)
+	s.CreateLine(a, b)
+	followerLine := s.CreateLine(o4, b)
+	crank := sketch.NewAngle(ground, crankLine, 0)
+	follower := sketch.NewAngle(ground, followerLine, 0)
+	follower.SetDriven(true)
+	s.AddConstraint(
+		sketch.NewCoincident(o2, s.Origin()),
+		sketch.NewHorizontal(ground),
+		sketch.NewDistance(o2, o4, 100),
+		sketch.NewDistance(o2, a, 30),
+		sketch.NewDistance(a, b, 80),
+		sketch.NewDistance(o4, b, 70),
+		crank,
+		follower,
+	)
+	_, err := s.Solve(tb.Context())
+	require.NoError(tb, err)
+	return s, crank
+}
+
+// BenchmarkEnclose encloses a crank-rocker over a fifth of a turn, near the
+// start of the first turn and near the tenth, where the certified sine and
+// cosine sum their longest series. Every iteration moves the range by a
+// different sub-micro-radian offset, so the certified trigonometry meets new
+// arguments each time, as a long drive does, instead of a warm cache.
+func BenchmarkEnclose(b *testing.B) {
+	for _, tc := range []struct {
+		name string
+		lo   float64
+	}{{"turn0", 0.1}, {"turn10", 60}} {
+		b.Run(tc.name, func(b *testing.B) {
+			s, crank := buildCrankRockerFixture(b)
+			b.ReportAllocs()
+			for i := 0; b.Loop(); i++ {
+				lo := tc.lo + float64(i%997)*1e-7
+				if _, err := s.Enclose(b.Context(), crank, lo, lo+1.25); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
 // TestBenchFixtures asserts each benchmark fixture's basic health — DOF,
 // Converged, region count, non-empty exports — so a benchmark can never
 // silently measure a broken fixture.

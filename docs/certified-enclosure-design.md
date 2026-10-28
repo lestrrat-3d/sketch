@@ -195,15 +195,21 @@ forbid fusing a multiply and an add.
 - `sinCosPoint` sums the Taylor series of `sin x` and `cos x` in 256-bit
   fixed-point integers, tracking an integer bound on the error each term
   carries. It stops at a term past the series' peak that is below `2^-110`,
-  adds that term as the tail bound, and converts outward to float64. For
-  `|x| > 64` it first subtracts `2πk`, with `k` the integer nearest `x/2π`,
+  adds that term as the tail bound, and converts outward to float64. The
+  integers are 448-bit words (`seriesInt`), which hold every value the sums
+  reach for `|x| ≤ 64`; a product that does not fit sends the call to the
+  same sums in `math/big` (`sinCosSeriesBig`), which form the same integers.
+  For `|x| > 64` it first subtracts `2πk`, with `k` the integer nearest `x/2π`,
   in exact rationals over the 40-decimal bracket of `π`. The result is an
   interval about one float64 step wide that contains `x − 2πk` for the exact
   `π`, and `sinCosRange` encloses sine and cosine over it. It refuses `|x| > 2^40`. Below that bound the bracket's width
   adds under `10^-28` rad to the reduced argument.
 - `sinCosRange` encloses sine and cosine over an interval from the endpoint
   values, adding `±1` wherever a multiple of `π/2` might lie inside. That test
-  uses a 40-decimal bracket of `π`.
+  uses a 40-decimal bracket of `π`. For `|k| ≤ 128` it compares the range ends
+  with the float64 bounds of `k·π/2`'s bracket (`halfPiTable`), each rounded
+  outward once and flagged when exact, which gives the exact rational
+  comparison's answer. Larger `k` compare in exact rationals.
 - `atan2Point` brackets a direction instead of computing it. It takes
   `math.Atan2` as an estimate, encloses the cross product and its slope using
   certified sine and cosine at that estimate, and charges
@@ -217,7 +223,11 @@ forbid fusing a multiply and an add.
 `interval_trig_internal_test.go` checks the fixed-point sums against an
 exact-rational evaluation, and the interval operations against exact rational
 products. It checks the reduction against a rational oracle that uses Machin's
-formula for `π` instead of the bracket.
+formula for `π` instead of the bracket. It requires the word sums to return
+the `math/big` sums' intervals bit for bit, over chosen and random arguments
+and over every argument a set of crank-rocker `Enclose` runs leaves in the
+point cache, and requires `halfPiTable`'s answers to equal the rational
+comparison's.
 
 ## Pieces
 

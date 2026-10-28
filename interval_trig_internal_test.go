@@ -102,6 +102,142 @@ func TestSinCosPointEnclosesExactValue(t *testing.T) {
 	}
 }
 
+// requireSameSeries asserts that sinCosSeriesWords fits at x and returns
+// exactly sinCosSeriesBig's intervals, bit for bit.
+func requireSameSeries(t *testing.T, x float64) {
+	t.Helper()
+	sin, cos, fits := sinCosSeriesWords(x)
+	require.True(t, fits, "x=%v (%#x) fits the fixed width", x, math.Float64bits(x))
+	wantSin, wantCos := sinCosSeriesBig(x)
+	got := [4]uint64{math.Float64bits(sin.Lo), math.Float64bits(sin.Hi), math.Float64bits(cos.Lo), math.Float64bits(cos.Hi)}
+	want := [4]uint64{math.Float64bits(wantSin.Lo), math.Float64bits(wantSin.Hi), math.Float64bits(wantCos.Lo), math.Float64bits(wantCos.Hi)}
+	require.Equal(t, want, got, "x=%v (%#x): sin %v cos %v, want sin %v cos %v", x, math.Float64bits(x), sin, cos, wantSin, wantCos)
+}
+
+func TestSinCosSeriesWordsMatchesBig(t *testing.T) {
+	xs := []float64{
+		0, math.Copysign(0, -1), math.SmallestNonzeroFloat64, -math.SmallestNonzeroFloat64,
+		0x1p-1022, -0x1p-1022, 1e-300, -1e-300, 1e-20, -1e-20, 0x1p-60, 0x1p-53, 1e-8,
+		0.5, 1, -1, 2, math.Pi / 2, -math.Pi / 2, math.Pi, -math.Pi, 2 * math.Pi, 3, 10, -33.3,
+		63.99, -63.99, 64, -64, math.Nextafter(64, 0), -math.Nextafter(64, 0),
+	}
+	// Multiples of π/2 put a sine or cosine near zero, where the sums cancel
+	// and the outward conversion meets its smallest magnitudes.
+	for k := -40; k <= 40; k++ {
+		v := float64(k) * math.Pi / 2
+		xs = append(xs, v, math.Nextafter(v, math.Inf(1)), math.Nextafter(v, math.Inf(-1)))
+	}
+	rng := rand.New(rand.NewSource(4))
+	for range 3000 {
+		xs = append(xs, (rng.Float64()*2-1)*maxTaylorArg)
+	}
+	for range 1000 {
+		mag := math.Ldexp(1+rng.Float64(), -rng.Intn(1075))
+		if rng.Intn(2) == 0 {
+			mag = -mag
+		}
+		xs = append(xs, mag)
+	}
+	for _, x := range xs {
+		requireSameSeries(t, x)
+	}
+
+	// The arguments a run of Enclose meets, read back from the point cache it
+	// fills: crank-rocker drives near the start and near the tenth turn, in
+	// both senses, with the follower's driven angle bracketed piece by piece.
+	t.Run("arguments of Enclose runs", func(t *testing.T) {
+		for _, rng := range []Interval{{0.1, 1.6}, {-1.6, -0.1}, {60, 61}, {-61, -60}, {62.5, 64}} {
+			for i := range trigPointCache {
+				trigPointCache[i].Store(nil)
+			}
+			s, crank := internalCrankRocker(t, rng.Lo)
+			_, err := s.Enclose(t.Context(), crank, rng.Lo, rng.Hi)
+			require.NoError(t, err, "the crank-rocker encloses over %v", rng)
+			seen := 0
+			for i := range trigPointCache {
+				held := trigPointCache[i].Load()
+				if held == nil {
+					continue
+				}
+				seen++
+				x := math.Float64frombits(held.key)
+				requireSameSeries(t, x)
+				wantSin, wantCos := sinCosSeriesBig(x)
+				require.Equal(t, [2]Interval{wantSin, wantCos}, [2]Interval{held.sin, held.cos}, "x=%v as cached", x)
+			}
+			require.Greater(t, seen, 100, "the run over %v evaluated its trigonometry through the cache", rng)
+		}
+	})
+}
+
+// TestHalfPiMayLieInMatchesRats compares halfPiMayLieIn with the exact
+// rational comparison sinCosRange decides it by, at range ends on, beside and
+// away from every tabled bracket's float bounds, and past the table.
+func TestHalfPiMayLieInMatchesRats(t *testing.T) {
+	reference := func(k int, q Interval) bool {
+		a, b := halfPiRats(k)
+		return !(b.Cmp(ratOf(q.Lo)) < 0 || a.Cmp(ratOf(q.Hi)) > 0)
+	}
+	near := func(v float64) []float64 {
+		return []float64{v, math.Nextafter(v, math.Inf(-1)), math.Nextafter(v, math.Inf(1)), v - 1e-3, v + 1e-3}
+	}
+	rng := rand.New(rand.NewSource(5))
+	for k := -halfPiTableK - 3; k <= halfPiTableK+3; k++ {
+		ends := []float64{0, math.Copysign(0, -1), float64(k) * math.Pi / 2}
+		if k >= -halfPiTableK && k <= halfPiTableK {
+			br := halfPiTable[k+halfPiTableK]
+			ends = append(ends, near(br.lo)...)
+			ends = append(ends, near(br.hi)...)
+		}
+		for range 20 {
+			ends = append(ends, (float64(k)+rng.Float64()*4-2)*math.Pi/2)
+		}
+		for _, lo := range ends {
+			for _, hi := range ends {
+				if lo > hi {
+					continue
+				}
+				q := Interval{lo, hi}
+				require.Equal(t, reference(k, q), halfPiMayLieIn(k, q), "k=%d q=[%v, %v]", k, lo, hi)
+			}
+		}
+	}
+}
+
+// internalCrankRocker is enclose_test.go's crank-rocker (ground 100, crank 30,
+// coupler 80, follower 70, follower angle driven), solved with the crank at
+// theta radians.
+func internalCrankRocker(t *testing.T, theta float64) (*Sketch, *Angle) {
+	t.Helper()
+	w := NewWorld()
+	s, err := w.CreateSketch(w.XY())
+	require.NoError(t, err)
+	o2 := s.CreatePoint(0, 0)
+	o4 := s.CreatePoint(100, 0)
+	a := s.CreatePoint(30*math.Cos(theta), 30*math.Sin(theta))
+	b := s.CreatePoint(60, 50)
+	ground := s.CreateLine(o2, o4)
+	crankLine := s.CreateLine(o2, a)
+	s.CreateLine(a, b)
+	followerLine := s.CreateLine(o4, b)
+	crank := NewAngle(ground, crankLine, theta*180/math.Pi)
+	follower := NewAngle(ground, followerLine, 0)
+	follower.SetDriven(true)
+	s.AddConstraint(
+		NewCoincident(o2, s.Origin()),
+		NewHorizontal(ground),
+		NewDistance(o2, o4, 100),
+		NewDistance(o2, a, 30),
+		NewDistance(a, b, 80),
+		NewDistance(o4, b, 70),
+		crank,
+		follower,
+	)
+	_, err = s.Solve(t.Context())
+	require.NoError(t, err)
+	return s, crank
+}
+
 // machinPi encloses π as [lo, hi] from Machin's formula π = 16·atan(1/5) −
 // 4·atan(1/239), each arctangent summed in exact rationals until a term drops
 // below 2^-400 and that term taken as the tail bound. It shares nothing with
