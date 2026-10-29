@@ -490,6 +490,53 @@ func TestProfilesCoincidentLineCarrierSharedWall(t *testing.T) {
 	}
 }
 
+func TestProfilesCrossingBlindPocketThroughHoleSharedLine(t *testing.T) {
+	s := newSketch(t)
+	var lines []*sketch.Line
+	addLoop := func(points [][2]float64) {
+		vertices := make([]*sketch.Point, len(points))
+		for i, p := range points {
+			vertices[i] = s.CreatePoint(p[0], p[1])
+		}
+		for i := range vertices {
+			lines = append(lines, s.CreateLine(vertices[i], vertices[(i+1)%len(vertices)]))
+		}
+	}
+	addLoop([][2]float64{{-10, -10}, {10, -10}, {10, 10}, {-10, 10}})
+	addLoop([][2]float64{{0, -2}, {-4, -2}, {-4, 2}, {0, 2}})
+	addLoop([][2]float64{{-1, -2}, {3, -2}, {3, 2}, {-1, 2}})
+
+	profiles := s.Profiles()
+	require.Len(t, profiles, 4)
+	var selected *sketch.Profile
+	for _, profile := range profiles {
+		require.Truef(t, profile.Valid, "area=%g", profile.Area)
+		if math.Abs(profile.Area-372) < 1e-9 {
+			selected = profile
+		}
+	}
+	require.NotNil(t, selected)
+	require.Len(t, selected.Holes, 1)
+	hole := selected.Holes[0]
+	require.Len(t, hole, 6)
+	want := []struct {
+		source   int
+		lo, hi   float64
+		reversed bool
+	}{
+		{4, 0, 1, false}, {5, 0, 1, false}, {6, 0, 1, false},
+		{10, 0, 0.75, true}, {9, 0, 1, true}, {8, 0.25, 1, true},
+	}
+	for i, expected := range want {
+		edge := hole[i]
+		require.Same(t, lines[expected.source], edge.Entity)
+		require.Equal(t, expected.lo, edge.TStart)
+		require.Equal(t, expected.hi, edge.TEnd)
+		require.Equal(t, expected.reversed, edge.Reversed)
+		require.True(t, edge.TExact)
+	}
+}
+
 // TestProfilesHiddenCrossingIsInvalid is the sketch-level face of the near-miss
 // guard (geom/nearmiss.go): a curve whose bow between two consecutive samples is
 // larger than the thing it crosses hides the crossing from the planar map
