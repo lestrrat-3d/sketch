@@ -57,3 +57,9 @@ func TestWireGraphPreflightsHalfEdgePositions(t *testing.T) {
 		})
 	}
 }
+
+func TestArrangementHardCapsCoverGroupReplayUsage(t *testing.T) {
+	require.GreaterOrEqual(t, maxArrangementWork, 1_603_678)
+	require.GreaterOrEqual(t, maxArrangementRecords, 19_811)
+	require.GreaterOrEqual(t, maxArrangementBytes, 7_679_504)
+}

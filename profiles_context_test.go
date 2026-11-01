@@ -62,6 +62,29 @@ func TestProfilesContextChargesSharedBudget(t *testing.T) {
 	}
 }
 
+func TestProfilesContextHandlesGroupReplayBudget(t *testing.T) {
+	s := newSketch(t)
+	for i := range 32 {
+		angle := -0.9 + 1.8*float64(i)/31
+		offset := -30 + 60*float64(i)/31
+		dx, dy := math.Cos(angle), math.Sin(angle)
+		nx, ny := -dy, dx
+		start := s.CreatePoint(nx*offset-100*dx, ny*offset-100*dy)
+		end := s.CreatePoint(nx*offset+100*dx, ny*offset+100*dy)
+		s.CreateLine(start, end)
+	}
+	budget := &profileBudget{limits: [3]uint64{1 << 22, 1 << 16, 1 << 26}}
+	profiles, err := s.ProfilesContext(t.Context(), budget)
+	require.NoError(t, err)
+	require.NotEmpty(t, profiles)
+	require.Greater(t, budget.totals[0], uint64(1_603_678))
+	require.Greater(t, budget.totals[1], uint64(19_811))
+	require.Greater(t, budget.totals[2], uint64(7_679_504))
+	require.LessOrEqual(t, budget.totals[0], uint64(1<<22))
+	require.LessOrEqual(t, budget.totals[1], uint64(1<<16))
+	require.LessOrEqual(t, budget.totals[2], uint64(1<<26))
+}
+
 func TestProfilesContextStopsOnCancellation(t *testing.T) {
 	s := newSketch(t)
 	s.CreateRectangle(0, 0, 20, 12)

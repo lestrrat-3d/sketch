@@ -20,8 +20,8 @@ type ProfileBudget interface {
 var ErrProfileBudgetExceeded = errors.New("sketch: profile arrangement budget exceeded")
 
 const (
-	maxProfileWork    = 1 << 20
-	maxProfileRecords = 1 << 15
+	maxProfileWork    = 1 << 22
+	maxProfileRecords = 1 << 16
 	maxProfileBytes   = 1 << 26
 )
 
