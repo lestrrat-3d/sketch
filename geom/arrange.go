@@ -52,7 +52,54 @@ func Regions(curves []Curve, closed []ClosedCurve, opts ...Option) *Arrangement 
 	for _, o := range opts {
 		o(&cfg)
 	}
-	a := newArranger(curves, closed, cfg)
+	return regionsWithBudget(curves, closed, cfg, nil)
+}
+
+// RegionsBounded builds an arrangement while charging work, records, and
+// estimated allocation bytes before each unit begins. The shared caller budget
+// must be safe for all concurrent calls that use it. A refusal returns no
+// arrangement and preserves the callback's error.
+func RegionsBounded(ctx context.Context, curves []Curve, closed []ClosedCurve,
+	charge func(work, records, bytes uint64) error, opts ...Option) (*Arrangement, error) {
+	if ctx == nil || charge == nil {
+		return nil, ErrArrangementLimit
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	budget := &arrangeBudget{
+		contextErr: ctx.Err,
+		charge: func(n uint64) error {
+			return charge(n, 0, 0)
+		},
+		resources: func(records, bytes uint64) error {
+			return charge(0, records, bytes)
+		},
+		limitErr: ErrArrangementLimit,
+	}
+	cfg := arrangeConfig{}
+	for _, o := range opts {
+		o(&cfg)
+	}
+	var arr *Arrangement
+	var err error
+	func() {
+		defer func() {
+			if v := recover(); v != nil {
+				if abort, ok := v.(arrangeAbort); ok {
+					arr, err = nil, abort.err
+					return
+				}
+				panic(v)
+			}
+		}()
+		arr = regionsWithBudget(curves, closed, cfg, budget)
+	}()
+	return arr, err
+}
+
+func regionsWithBudget(curves []Curve, closed []ClosedCurve, cfg arrangeConfig, budget *arrangeBudget) *Arrangement {
+	a := newArrangerWithBudget(curves, closed, cfg, budget)
 	a.densify()
 	a.intersect()
 	a.nearMissGuard()
