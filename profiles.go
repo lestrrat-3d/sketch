@@ -2,9 +2,27 @@ package sketch
 
 import (
 	"context"
+	"errors"
 	"math"
 
 	"github.com/lestrrat-3d/sketch/geom"
+)
+
+// ProfileBudget receives work, record, and estimated byte charges before
+// profile arrangement work or its allocations begin. Implementations may share
+// the budget with other operations and MUST be safe for concurrent calls.
+type ProfileBudget interface {
+	Charge(work, records, bytes uint64) error
+}
+
+// ErrProfileBudgetExceeded reports that profile arrangement exceeded its
+// finite internal work, record, or memory allowance.
+var ErrProfileBudgetExceeded = errors.New("sketch: profile arrangement budget exceeded")
+
+const (
+	maxProfileWork    = 1 << 22
+	maxProfileRecords = 1 << 16
+	maxProfileBytes   = 1 << 26
 )
 
 type junctionPublication struct{ count int }
@@ -282,6 +300,62 @@ func (s *Sketch) Profiles() []*Profile {
 	return s.buildProfiles().profiles
 }
 
+// ProfilesContext builds profiles with cancellation and shared accounting.
+// The sketch, context, and budget MUST NOT be nil. A refusal or cancellation
+// returns no profiles.
+func (s *Sketch) ProfilesContext(ctx context.Context, budget ProfileBudget) ([]*Profile, error) {
+	if s == nil || ctx == nil || budget == nil {
+		return nil, ErrProfileBudgetExceeded
+	}
+	usedWork, usedRecords, usedBytes := uint64(0), uint64(0), uint64(0)
+	charge := func(work, records, bytes uint64) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if work > maxProfileWork-usedWork || records > maxProfileRecords-usedRecords ||
+			bytes > maxProfileBytes-usedBytes {
+			return ErrProfileBudgetExceeded
+		}
+		if err := budget.Charge(work, records, bytes); err != nil {
+			return err
+		}
+		usedWork += work
+		usedRecords += records
+		usedBytes += bytes
+		return nil
+	}
+	inputRecords := uint64(len(s.ents) + len(s.points) + 1)
+	inputBytes := inputRecords * 256
+	for _, ent := range s.ents {
+		if err := charge(1, 0, 0); err != nil {
+			return nil, err
+		}
+		var extra uint64
+		switch curve := ent.(type) {
+		case *Spline:
+			extra = uint64(len(curve.Control))
+		case *FitSpline:
+			extra = uint64(len(curve.Fit))
+		case *NURBS:
+			extra = uint64(len(curve.Control) + len(curve.knots) + len(curve.weights))
+		case *ClosedSpline:
+			extra = uint64(len(curve.Control))
+		case *Arc, *Circle, *Conic, *Ellipse, *EllipticalArc, *Line:
+			// These entities reference fixed-size geometry and own no input slices.
+		}
+		inputRecords += extra
+		inputBytes += extra * 64
+	}
+	if err := charge(0, inputRecords, inputBytes); err != nil {
+		return nil, err
+	}
+	result, err := s.buildProfilesAccounted(ctx, charge)
+	if err != nil {
+		return nil, err
+	}
+	return result.profiles, nil
+}
+
 // ProfilesLinesBounded builds profiles for a scene of at most 64 live lines.
 // charge authorizes work before it starts and may return a caller-owned budget
 // error. Cancellation and a refused charge return no profiles. Unsupported
@@ -362,6 +436,14 @@ func (s *Sketch) buildProfiles() sketchArrangement {
 }
 
 func (s *Sketch) buildProfilesWith(ctx context.Context, charge func(uint64) error) (sketchArrangement, error) {
+	if charge == nil {
+		return s.buildProfilesAccounted(ctx, nil)
+	}
+	return s.buildProfilesAccounted(ctx, func(work, _, _ uint64) error { return charge(work) })
+}
+
+func (s *Sketch) buildProfilesAccounted(ctx context.Context,
+	charge func(work, records, bytes uint64) error) (sketchArrangement, error) {
 	var used uint64
 	take := func(n uint64) error {
 		if charge == nil {
@@ -378,7 +460,7 @@ func (s *Sketch) buildProfilesWith(ctx context.Context, charge func(uint64) erro
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if err := charge(part); err != nil {
+			if err := charge(part, 0, 0); err != nil {
 				return err
 			}
 			used += part
@@ -502,8 +584,12 @@ func (s *Sketch) buildProfilesWith(ctx context.Context, charge func(uint64) erro
 			arr = geom.Regions(curves, closed)
 		}
 	} else {
+		var opts []geom.Option
+		if len(s.loops) > 0 {
+			opts = append(opts, geom.WithFaceGraph())
+		}
 		var err error
-		arr, err = geom.RegionsLinesBounded(ctx, curves, charge)
+		arr, err = geom.RegionsBounded(ctx, curves, closed, charge, opts...)
 		if err != nil {
 			return sketchArrangement{}, err
 		}
@@ -529,6 +615,11 @@ func (s *Sketch) buildProfilesWith(ctx context.Context, charge func(uint64) erro
 		if err := take(1); err != nil {
 			return sketchArrangement{}, err
 		}
+		if charge != nil {
+			if err := charge(0, 1, 256); err != nil {
+				return sketchArrangement{}, err
+			}
+		}
 		p := &Profile{
 			Area:                 r.Area,
 			SelfIntersecting:     r.SelfIntersecting,
@@ -541,6 +632,11 @@ func (s *Sketch) buildProfilesWith(ctx context.Context, charge func(uint64) erro
 		for _, ge := range r.Outer {
 			if err := take(1 + uint64(len(ge.Polyline))); err != nil {
 				return sketchArrangement{}, err
+			}
+			if charge != nil {
+				if err := charge(0, 1+uint64(len(ge.Polyline)), 128+uint64(len(ge.Polyline))*16); err != nil {
+					return sketchArrangement{}, err
+				}
 			}
 			be := mapBoundaryEdge(ge, entityFor, s, rev)
 			p.Outer = append(p.Outer, be)
@@ -565,6 +661,11 @@ func (s *Sketch) buildProfilesWith(ctx context.Context, charge func(uint64) erro
 			for _, ge := range hole {
 				if err := take(1 + uint64(len(ge.Polyline))); err != nil {
 					return sketchArrangement{}, err
+				}
+				if charge != nil {
+					if err := charge(0, 1+uint64(len(ge.Polyline)), 128+uint64(len(ge.Polyline))*16); err != nil {
+						return sketchArrangement{}, err
+					}
 				}
 				he = append(he, mapBoundaryEdge(ge, entityFor, s, rev))
 			}
