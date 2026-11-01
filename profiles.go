@@ -9,8 +9,9 @@ import (
 )
 
 // ProfileBudget receives work, record, and estimated byte charges before
-// profile arrangement work or its allocations begin. Implementations may share
-// the budget with other operations and MUST be safe for concurrent calls.
+// bounded sketch construction or profile arrangement work begins.
+// Implementations may share the budget with other operations and MUST be safe
+// for concurrent calls.
 type ProfileBudget interface {
 	Charge(work, records, bytes uint64) error
 }
@@ -20,9 +21,9 @@ type ProfileBudget interface {
 var ErrProfileBudgetExceeded = errors.New("sketch: profile arrangement budget exceeded")
 
 const (
-	maxProfileWork    = 1 << 22
-	maxProfileRecords = 1 << 16
-	maxProfileBytes   = 1 << 26
+	maxBoundedSketchWork    = 1 << 22
+	maxBoundedSketchRecords = 1 << 16
+	maxBoundedSketchBytes   = 1 << 26
 )
 
 type junctionPublication struct{ count int }
@@ -312,8 +313,8 @@ func (s *Sketch) ProfilesContext(ctx context.Context, budget ProfileBudget) ([]*
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if work > maxProfileWork-usedWork || records > maxProfileRecords-usedRecords ||
-			bytes > maxProfileBytes-usedBytes {
+		if work > maxBoundedSketchWork-usedWork || records > maxBoundedSketchRecords-usedRecords ||
+			bytes > maxBoundedSketchBytes-usedBytes {
 			return ErrProfileBudgetExceeded
 		}
 		if err := budget.Charge(work, records, bytes); err != nil {
