@@ -259,6 +259,7 @@ func TestEncloseCrankRockerRange(t *testing.T) {
 		e, err := fb.s.Enclose(t.Context(), fb.crank, 0, 2*math.Pi)
 		require.NoError(t, err, "a crank-rocker's full turn is certifiable")
 		requireContiguous(t, e)
+		require.Less(t, len(e.Pieces()), 1200, "step sizing from the measured looseness keeps the split coarse")
 		fol, ok := e.Driven(fb.follower)
 		require.True(t, ok, "the driven follower has an interval")
 		requireTableAngle(t, fol, 101.5370, "the follower's minimum")
@@ -492,7 +493,7 @@ type sliderCrank struct {
 	x     *sketch.HorizontalDistance
 }
 
-func newSliderCrank(t *testing.T, r, l, thetaDeg float64) *sliderCrank {
+func newSliderCrank(t testing.TB, r, l, thetaDeg float64) *sliderCrank {
 	t.Helper()
 	s := newSketch(t)
 	th := rad(thetaDeg)
