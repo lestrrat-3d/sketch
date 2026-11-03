@@ -619,12 +619,15 @@ func (r *encloseRun) run(ctx context.Context, lo, hi float64, prev *Enclosure) (
 		if b >= hi || hi-b < minStep {
 			b = hi
 		}
-		K, xb, pb, why, err := r.tryPiece(ctx, cur, b, xcur, pcur)
+		K, xb, pb, why, ratio, err := r.tryPiece(ctx, cur, b, xcur, pcur)
 		if err != nil {
 			return nil, err
 		}
 		if K == nil {
 			step = (b - cur) / 2
+			if ratio > 1 {
+				step = min(nextStep(b-cur, ratio), 0.9*(b-cur))
+			}
 			if step < minStep || !(cur+step > cur) {
 				fold, err := r.certifyFold(ctx, cur, xcur, pcur, hi)
 				switch {
@@ -642,7 +645,7 @@ func (r *encloseRun) run(ctx context.Context, lo, hi float64, prev *Enclosure) (
 			return nil, err
 		}
 		e.pieces = append(e.pieces, pc)
-		step = 2 * (b - cur)
+		step = nextStep(b-cur, ratio)
 		cur, xcur, pcur = b, xb, pb
 	}
 	e.endVars, e.endBox = xcur, pcur
@@ -652,40 +655,41 @@ func (r *encloseRun) run(ctx context.Context, lo, hi float64, prev *Enclosure) (
 // tryPiece attempts one piece over [a, b]. It returns the piece's box with the
 // float solution and certified point box at b, or a nil box and the reason the
 // attempt failed. Only a context error is returned as an error.
-func (r *encloseRun) tryPiece(ctx context.Context, a, b float64, xa []float64, pa []Interval) ([]Interval, []float64, []Interval, string, error) {
+func (r *encloseRun) tryPiece(ctx context.Context, a, b float64, xa []float64, pa []Interval) ([]Interval, []float64, []Interval, string, float64, error) {
 	mid := a + (b-a)/2
 	xm, err := r.solveAt(ctx, xa, mid)
 	if err != nil {
 		if errors.Is(err, ErrNotConverged) {
-			return nil, nil, nil, err.Error(), nil
+			return nil, nil, nil, err.Error(), 0, nil
 		}
-		return nil, nil, nil, "", err
+		return nil, nil, nil, "", 0, err
 	}
 	K, X, why := r.sys.krawczyk(xm, Interval{a, b}, mid, r.free, r.col)
 	if K == nil {
-		return nil, nil, nil, why, nil
+		return nil, nil, nil, why, 0, nil
 	}
 	if !boxWithin(pa, X) {
-		return nil, nil, nil, "the solution at the range start is outside the box", nil
+		return nil, nil, nil, "the solution at the range start is outside the box", 0, nil
 	}
 	xb, err := r.solveAt(ctx, xm, b)
 	if err != nil {
 		if errors.Is(err, ErrNotConverged) {
-			return nil, nil, nil, err.Error(), nil
+			return nil, nil, nil, err.Error(), 0, nil
 		}
-		return nil, nil, nil, "", err
+		return nil, nil, nil, "", 0, err
 	}
 	pb, _, why := r.sys.krawczyk(xb, pt(b), b, r.free, r.col)
 	if pb == nil {
-		return nil, nil, nil, why, nil
+		return nil, nil, nil, why, 0, nil
 	}
 	if !boxWithin(pb, X) {
-		return nil, nil, nil, "the solution at the range end is outside the box", nil
+		return nil, nil, nil, "the solution at the range end is outside the box", 0, nil
 	}
-	if !r.tightEnough(K, pa, pb, xm) {
-		return nil, nil, nil, "the box is looser than the motion it covers", nil
+	ratio := r.looseness(K, pa, pb, xm)
+	if ratio > 1 {
+		return nil, nil, nil, "the box is looser than the motion it covers", ratio, nil
 	}
-	return K, xb, pb, "", nil
+	return K, xb, pb, "", ratio, nil
 }
 
 // Piece tightness. A Krawczyk box over a sub-range overshoots the path the
@@ -702,19 +706,38 @@ const (
 	pieceSlackAbs = 1e-7
 )
 
-func (r *encloseRun) tightEnough(K, pa, pb []Interval, xm []float64) bool {
+// looseness measures how far K overshoots the hull of its endpoint boxes, as a
+// multiple of what the tightness rule allows: a value above 1 means the piece
+// must be split, and the overshoot of a piece shrinks with the square of its
+// width, so the width that would just pass is about 1/sqrt(looseness) times
+// this one.
+func (r *encloseRun) looseness(K, pa, pb []Interval, xm []float64) float64 {
 	scale := 1.0
 	for _, vi := range r.free {
 		scale = max(scale, 1+math.Abs(xm[vi]))
 	}
+	worst := 0.0
 	for _, vi := range r.free {
 		h := ihull(pa[vi], pb[vi])
 		excess := max(h.Lo-K[vi].Lo, 0) + max(K[vi].Hi-h.Hi, 0)
-		if excess > pieceSlackRel*(h.Hi-h.Lo)+pieceSlackAbs*scale {
-			return false
-		}
+		worst = max(worst, excess/(pieceSlackRel*(h.Hi-h.Lo)+pieceSlackAbs*scale))
 	}
-	return true
+	return worst
+}
+
+// Step sizing. A piece's looseness grows with the square of its width, so a
+// measured looseness ρ at width w predicts that width w·sqrt(target/ρ) lands
+// at looseness target. Aiming under 1 leaves room for the overshoot varying
+// along the range. A step never grows past double or shrinks below an eighth
+// of the width just tried, which keeps the loop moving when the measurement is
+// noisy or ρ is huge.
+const stepTarget = 0.85
+
+func nextStep(width, ratio float64) float64 {
+	if !(ratio > 0) {
+		return 2 * width
+	}
+	return width * min(2, max(0.125, math.Sqrt(stepTarget/ratio)))
 }
 
 func boxWithin(a, b []Interval) bool {

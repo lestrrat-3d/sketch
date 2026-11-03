@@ -236,9 +236,11 @@ current geometry, checks that the system is square and of full rank, and
 certifies a point box at `lo`. It then tries pieces left to right. Each
 attempt solves at the piece's midpoint (warm-started from the previous
 endpoint), runs the parametric test, and solves and certifies a point box at
-the piece's right end. A failed attempt halves the piece. A success doubles
-the next attempt. A piece narrower than `2^-30` of the range, or a piece count
-past the budget, refuses the call with `ErrNotCertified`.
+the piece's right end. A failed attempt halves the piece, except a tightness
+failure, which shrinks it to the width the measured looseness predicts will
+pass. A success sizes the next attempt the same way, up to double. A piece
+narrower than `2^-30` of the range, or a piece count past the budget, refuses
+the call with `ErrNotCertified`.
 
 ### Tying pieces together
 
@@ -254,22 +256,29 @@ piece's uniqueness box.
 
 A Krawczyk box over a sub-range overshoots the path the solution takes by a
 term that shrinks with the square of the sub-range's width. A consumer charges
-the whole width as travel, so `tightEnough` also splits a certified piece when
+the whole width as travel, so `looseness` also splits a certified piece when
 any free variable's box reaches beyond the hull of its two endpoint boxes by
 more than 5% of that hull's width plus `1e-7` of the coordinate scale. The
 excess also counts a variable's real excursion past its endpoints (a follower
 turning back inside the piece), which shrinks the same way, so the splitting
 ends.
 
+`looseness` reports the worst excess as a multiple of the allowance. The excess
+scales with the square of the width, so `nextStep` aims the next width at
+`sqrt(0.85 / looseness)` times the one just measured, within a factor of 8 down
+and 2 up. Plain halving and doubling wasted about half of all attempts on a
+tightness failure; sizing from the measurement removes most of them and also
+leaves fewer pieces.
+
 On decad's fixtures the rule costs pieces and buys width:
 
 | Fixture | Pieces | Hull width | Exact travel |
 |---|---|---|---|
-| slider-crank slider, `[30°, 60°]` (22.78 mm in 2 pieces without the rule) | 32 | 13.912 mm | 13.898 mm |
-| crank-rocker follower, `[0°, 90°]` | 389 | 11.788° | 11.788° |
-| crank-rocker follower, full turn | 1416 | 50.803° | 50.803° |
+| slider-crank slider, `[30°, 60°]` (22.78 mm in 2 pieces without the rule) | 25 | 13.914 mm | 13.898 mm |
+| crank-rocker follower, `[0°, 90°]` | 315 | 11.788° | 11.788° |
+| crank-rocker follower, full turn | 1120 | 50.803° | 50.803° |
 
-The full turn takes about 0.4 s.
+The full turn takes about 0.1 s.
 
 ## Folds
 
