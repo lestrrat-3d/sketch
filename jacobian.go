@@ -140,11 +140,12 @@ func (s *Sketch) constraintVarIndices(c Constraint, out []int) ([]int, bool) {
 		}
 		out = append(out, p.xi, p.yi)
 	}
+	var pointBuf [3]*Point
 	for _, e := range ents {
 		if !s.ownsEntity(e) {
 			return out, false
 		}
-		for _, p := range entityPoints(e) {
+		for _, p := range appendEntityPoints(pointBuf[:0], e) {
 			if !s.owns(p) {
 				return out, false
 			}
