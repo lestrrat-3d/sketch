@@ -542,7 +542,7 @@ func (sys *certSystem) foldKrawczyk(xt []float64, qt float64, k, ck int, S Inter
 		for i := range YFs {
 			acc := pt(0)
 			for j := range JS {
-				acc = iadd(acc, imul(pt(Y[i][j]), JS[j][ck]))
+				acc = iadd(acc, imulPt(Y[i][j], JS[j][ck]))
 			}
 			YFs[i] = acc
 		}
@@ -552,7 +552,7 @@ func (sys *certSystem) foldKrawczyk(xt []float64, qt float64, k, ck int, S Inter
 	for i := range c {
 		acc := pt(0)
 		for j := range F {
-			acc = iadd(acc, imul(pt(Y[i][j]), F[j]))
+			acc = iadd(acc, imulPt(Y[i][j], F[j]))
 		}
 		if YFs != nil {
 			acc = iadd(acc, imul(YFs[i], dS))
@@ -609,7 +609,7 @@ func (sys *certSystem) foldKrawczyk(xt []float64, qt float64, k, ck int, S Inter
 					cij = pt(1)
 				}
 				for l := 0; l < n; l++ {
-					cij = isub(cij, imul(pt(Y[i][l]), JX[l][j]))
+					cij = isub(cij, imulPt(Y[i][l], JX[l][j]))
 				}
 				acc = iadd(acc, imul(cij, D[j]))
 			}

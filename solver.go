@@ -442,6 +442,17 @@ func (ws *lmWorkspace) alloc(m, n int) {
 // residuals — and every refusal falls through to the dense build, so the mode
 // selects an optimization, never a different result.
 func (s *Sketch) lm(ctx context.Context, free []int, eval func([]float64) []float64, mode jacobianMode, maxIterations int, tolerance float64) (int, error) {
+	return s.lmPlanned(ctx, free, eval, mode, nil, maxIterations, tolerance)
+}
+
+// lmPlanned is [Sketch.lm] with a caller-held residual plan. A non-nil shared
+// plan, built by [Sketch.newResidualPlan] over this sketch's committed
+// constraints, replaces the per-call build, so a caller that runs many solves
+// over one unchanging constraint list pays for the plan once. It is only
+// honoured in localJacobian mode, and jacobianLocalInto still refuses it
+// wherever its row inventory no longer matches, so the result is bit-identical
+// to the per-call build. A plan carries scratch buffers: one lm call at a time.
+func (s *Sketch) lmPlanned(ctx context.Context, free []int, eval func([]float64) []float64, mode jacobianMode, shared *residualPlan, maxIterations int, tolerance float64) (int, error) {
 	n := len(free)
 	if err := ctx.Err(); err != nil {
 		return 0, err
@@ -481,7 +492,11 @@ func (s *Sketch) lm(ctx context.Context, free []int, eval func([]float64) []floa
 			// it will not use. Built ONCE per lm call — the constraint list and
 			// the variable indices cannot change while the loop runs — and a
 			// refusal is remembered by leaving plan nil rather than retried.
-			if mode == localJacobian {
+			switch {
+			case mode != localJacobian:
+			case shared != nil:
+				plan = shared
+			default:
 				plan, _ = s.newResidualPlan(m)
 			}
 		}

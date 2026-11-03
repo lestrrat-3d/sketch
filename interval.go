@@ -73,6 +73,14 @@ func imul(a, b Interval) Interval {
 	return Interval{down(min(p1, p2, p3, p4)), up(max(p1, p2, p3, p4))}
 }
 
+// imulPt is imul(pt(y), b) with the two duplicate products dropped; its result
+// is bit-identical to imul's because a degenerate factor repeats p1 and p2.
+func imulPt(y float64, b Interval) Interval {
+	p1 := float64(y * b.Lo)
+	p2 := float64(y * b.Hi)
+	return Interval{down(min(p1, p2)), up(max(p1, p2))}
+}
+
 // isqr is a·a with the dependency kept: the square of an interval straddling
 // zero starts at zero, which imul(a, a) would not see.
 func isqr(a Interval) Interval {

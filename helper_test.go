@@ -9,7 +9,7 @@ import (
 
 // newSketch returns an empty sketch on a fresh world's XY datum — the standard
 // way to obtain a sketch now that every sketch belongs to a World.
-func newSketch(t *testing.T) *sketch.Sketch {
+func newSketch(t testing.TB) *sketch.Sketch {
 	t.Helper()
 	w := sketch.NewWorld()
 	s, err := w.CreateSketch(w.XY())
