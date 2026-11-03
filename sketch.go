@@ -462,29 +462,48 @@ func (p *Point) IsFixed() bool { return p.s.fixed[p.xi] && p.s.fixed[p.yi] }
 // a foreign point, Revision stops moving, so a stale Profile reads fresh). A
 // new entity type MUST get a case here.
 func entityPoints(e Entity) []*Point {
+	return appendEntityPoints(nil, e)
+}
+
+// appendEntityPoints appends an entity's defining points to dst. Keeping the
+// entity switch here lets hot callers use stack storage without allocating a
+// fresh slice for each primitive entity.
+func appendEntityPoints(dst []*Point, e Entity) []*Point {
 	switch t := e.(type) {
 	case *Line:
-		return []*Point{t.Start, t.End}
+		return append(dst, t.Start, t.End)
 	case *Circle:
-		return []*Point{t.Center}
+		return append(dst, t.Center)
 	case *Arc:
-		return []*Point{t.Center, t.Start, t.End}
+		return append(dst, t.Center, t.Start, t.End)
 	case *Ellipse:
-		return []*Point{t.Center}
+		return append(dst, t.Center)
 	case *EllipticalArc:
-		return []*Point{t.Center, t.Start, t.End}
+		return append(dst, t.Center, t.Start, t.End)
 	case *Spline:
-		return t.Control
+		if dst == nil {
+			return t.Control
+		}
+		return append(dst, t.Control...)
 	case *ClosedSpline:
-		return t.Control
+		if dst == nil {
+			return t.Control
+		}
+		return append(dst, t.Control...)
 	case *FitSpline:
-		return t.Fit
+		if dst == nil {
+			return t.Fit
+		}
+		return append(dst, t.Fit...)
 	case *Conic:
-		return []*Point{t.Start, t.Apex, t.End}
+		return append(dst, t.Start, t.Apex, t.End)
 	case *NURBS:
-		return t.Control
+		if dst == nil {
+			return t.Control
+		}
+		return append(dst, t.Control...)
 	}
-	return nil
+	return dst
 }
 
 // varKind is the physical kind of the quantity a solver variable holds. The

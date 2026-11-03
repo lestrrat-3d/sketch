@@ -1015,9 +1015,13 @@ func (s *Sketch) committedRankAnalysis(free []int) (rankAnalysis, bool) {
 	if s.hasNonFiniteVars() {
 		return rankAnalysis{}, false
 	}
-	// The matrix is built for this call alone, so elimination may consume it
-	// without the clone rankAnalysisOn makes for a shared one.
-	return rankAnalysisOfMatrix(s.committedScaledJacobian(free), len(free)), true
+	L := s.lengthScale()
+	rowKinds := s.residualRowKinds()
+	colScale := s.condVarScales(L)
+	matrix := newMatrixScratch(len(rowKinds), len(free))
+	defer matrix.release()
+	s.scaledJacobianFill(matrix.Rows, localJacobian, free, s.residuals, rowKinds, colScale, L)
+	return rankAnalysisOfMatrix(matrix.Rows, len(free)), true
 }
 
 // rankAnalysisOn runs the same partial-pivot elimination as
