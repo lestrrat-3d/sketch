@@ -860,8 +860,13 @@ func bidiagonalize(W [][]float64) ([]float64, []float64) {
 // so σ_max is where the count first reaches 2n and σ_min where it first
 // reaches n+1, each found by bisection from a Gershgorin bound.
 func bidiagonalExtremes(d, e []float64) (float64, float64) {
+	var b, b2 []float64
+	return bidiagonalExtremesInto(d, e, &b, &b2)
+}
+
+func bidiagonalExtremesInto(d, e []float64, bbuf, b2buf *[]float64) (float64, float64) {
 	n := len(d)
-	b := make([]float64, 2*n-1)
+	b := resizeFloats(bbuf, 2*n-1)
 	for k := 0; k < n; k++ {
 		b[2*k] = d[k]
 		if k+1 < n {
@@ -885,7 +890,7 @@ func bidiagonalExtremes(d, e []float64) (float64, float64) {
 	pivmin := safeMin * math.Max(1, bmax2)
 	// Pad the bound past its own rounding so the count there is a full 2n.
 	hi = hi*(1+4*dblEps) + pivmin
-	b2 := make([]float64, len(b))
+	b2 := resizeFloats(b2buf, len(b))
 	for i, x := range b {
 		b2[i] = x * x
 	}
