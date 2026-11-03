@@ -4161,10 +4161,19 @@ func (a *arranger) buildGraph() {
 // does not change the existing mixed and sampled cases.
 func (a *arranger) sortChordPorts(ring []int) {
 	a.budget.reserveSort(len(ring))
-	sort.Slice(ring, func(i, j int) bool {
-		a.budget.step(1)
-		return a.halfs[ring[i]].angle < a.halfs[ring[j]].angle
-	})
+	switch len(ring) {
+	case 0, 1:
+		return
+	case 2:
+		if a.halfs[ring[1]].angle < a.halfs[ring[0]].angle {
+			ring[0], ring[1] = ring[1], ring[0]
+		}
+	default:
+		slices.SortFunc(ring, func(i, j int) int {
+			a.budget.step(1)
+			return cmp.Compare(a.halfs[i].angle, a.halfs[j].angle)
+		})
+	}
 	for lo := 0; lo < len(ring); {
 		a.budget.step(1)
 		hi := lo + 1
