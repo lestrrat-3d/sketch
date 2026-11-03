@@ -34,6 +34,10 @@ func (b *arrangeBudget) step(n uint64) {
 	if b == nil {
 		return
 	}
+	b.stepBounded(n)
+}
+
+func (b *arrangeBudget) stepBounded(n uint64) {
 	if err := b.contextErr(); err != nil {
 		panic(arrangeAbort{err})
 	}

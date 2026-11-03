@@ -63,3 +63,71 @@ func TestArrangementHardCapsCoverGroupReplayUsage(t *testing.T) {
 	require.GreaterOrEqual(t, maxArrangementRecords, 19_811)
 	require.GreaterOrEqual(t, maxArrangementBytes, 7_679_504)
 }
+
+func TestArrangeBudgetStepPreservesBoundedOrder(t *testing.T) {
+	t.Run("cancellation before zero step", func(t *testing.T) {
+		canceled := errors.New("canceled")
+		budget := &arrangeBudget{
+			contextErr: func() error { return canceled },
+			charge: func(uint64) error {
+				t.Fatal("zero step reached charge")
+				return nil
+			},
+		}
+
+		var stopped any
+		func() {
+			defer func() { stopped = recover() }()
+			budget.step(0)
+		}()
+
+		abort, ok := stopped.(arrangeAbort)
+		require.True(t, ok)
+		require.ErrorIs(t, abort.err, canceled)
+	})
+
+	t.Run("cap before charge", func(t *testing.T) {
+		calls := 0
+		budget := &arrangeBudget{
+			contextErr: func() error {
+				calls++
+				return nil
+			},
+			charge: func(uint64) error {
+				t.Fatal("over-cap step reached charge")
+				return nil
+			},
+		}
+
+		var stopped any
+		func() {
+			defer func() { stopped = recover() }()
+			budget.step(257)
+		}()
+
+		abort, ok := stopped.(arrangeAbort)
+		require.True(t, ok)
+		require.ErrorIs(t, abort.err, ErrUnsupportedLineScene)
+		require.Equal(t, 1, calls)
+		require.Zero(t, budget.spent)
+	})
+
+	t.Run("charge before spend", func(t *testing.T) {
+		refused := errors.New("charge refused")
+		budget := &arrangeBudget{
+			contextErr: func() error { return nil },
+			charge:     func(uint64) error { return refused },
+		}
+
+		var stopped any
+		func() {
+			defer func() { stopped = recover() }()
+			budget.step(3)
+		}()
+
+		abort, ok := stopped.(arrangeAbort)
+		require.True(t, ok)
+		require.ErrorIs(t, abort.err, refused)
+		require.Zero(t, budget.spent)
+	})
+}
