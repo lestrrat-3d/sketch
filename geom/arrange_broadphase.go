@@ -3,7 +3,6 @@ package geom
 import (
 	"cmp"
 	"slices"
-	"sort"
 )
 
 // broadPhaseRel is the relative reach added to every tiny segment's bounding box on
@@ -151,15 +150,68 @@ func (a *arranger) candidatePairs() [][]int {
 		order[i] = i
 	}
 	a.budget.reserveSort(len(order))
-	sort.Slice(order, func(x, y int) bool {
+	slices.SortFunc(order, func(x, y int) int {
 		a.budget.step(1)
-		bx, by := boxes[order[x]], boxes[order[y]]
+		bx, by := boxes[x], boxes[y]
 		if bx.minX != by.minX {
-			return bx.minX < by.minX
+			return cmp.Compare(bx.minX, by.minX)
 		}
-		return order[x] < order[y]
+		return cmp.Compare(x, y)
 	})
+	counts := make([]uint16, a.budget.preflight(n))
 	active := make([]int, 0, a.budget.preflight(n))
+	lastNonempty := -1
+	active = a.forEachCandidatePair(boxes, order, active, func(lo, _ int) {
+		counts[lo]++
+		lastNonempty = max(lastNonempty, lo)
+	})
+	total := 0
+	for i := range counts {
+		a.budget.step(1)
+		count := int(counts[i])
+		if count > maxArrangementRecords-total {
+			panic(arrangeAbort{a.budget.limitError()})
+		}
+		total += count
+		counts[i] = uint16(total)
+	}
+	pairs := make([]int, a.budget.preflight(total))
+	a.forEachCandidatePair(boxes, order, active, func(lo, hi int) {
+		counts[lo]--
+		pairs[counts[lo]] = hi
+	})
+	for i := range cand {
+		a.budget.step(1)
+		if i > lastNonempty {
+			continue
+		}
+		start := int(counts[i])
+		end := total
+		if i+1 < n {
+			if i < lastNonempty {
+				end = int(counts[i+1])
+			}
+		}
+		if start == end {
+			continue
+		}
+		cand[i] = pairs[start:end]
+		a.budget.reserveSort(len(cand[i]))
+		slices.SortFunc(cand[i], func(x, y int) int {
+			a.budget.step(1)
+			return cmp.Compare(x, y)
+		})
+	}
+	return cand
+}
+
+func (a *arranger) forEachCandidatePair(
+	boxes []segBox,
+	order []int,
+	active []int,
+	visit func(int, int),
+) []int {
+	active = active[:0]
 	for _, idx := range order {
 		a.budget.step(1)
 		b := boxes[idx]
@@ -181,17 +233,9 @@ func (a *arranger) candidatePairs() [][]int {
 			if lo > hi {
 				lo, hi = hi, lo
 			}
-			cand[lo] = chargedAppend(a.budget, cand[lo], hi)
+			visit(lo, hi)
 		}
 		active = chargedAppend(a.budget, active, idx)
 	}
-	for i := range cand {
-		a.budget.step(1)
-		a.budget.reserveSort(len(cand[i]))
-		slices.SortFunc(cand[i], func(x, y int) int {
-			a.budget.step(1)
-			return cmp.Compare(x, y)
-		})
-	}
-	return cand
+	return active
 }
