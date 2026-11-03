@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"math"
 	"slices"
+	"sync"
 )
 
 // The banded singular-value path behind [singularValueExtremes].
@@ -41,6 +42,31 @@ const (
 	bandedDropTol = 16 * dblEps
 )
 
+type bandedRowSpan struct{ lo, hi, idx int }
+
+type bandedWorkspace struct {
+	start    []int
+	cols     []int
+	adj      [][]int
+	mark     []int
+	queue    []int
+	visited  []bool
+	order    []int
+	nb       []int
+	pos      []int
+	spans    []bandedRowSpan
+	R        []float64
+	occupied []bool
+	t        []float64
+	B        []float64
+	d        []float64
+	e        []float64
+	b        []float64
+	b2       []float64
+}
+
+var bandedWorkspacePool = sync.Pool{New: func() any { return &bandedWorkspace{} }}
+
 // bandedSingularValueExtremes returns σ_max and σ_min of A exactly as
 // [singularValueExtremes] defines them, for a sparse, narrow-banded A with
 // m ≥ n ≥ [bandedMinCols]. The third result is false when A does not qualify;
@@ -56,10 +82,15 @@ func bandedSingularValueExtremes(A [][]float64) (float64, float64, bool) {
 		return 0, 0, false
 	}
 	n := len(A[0])
+	ws, ok := bandedWorkspacePool.Get().(*bandedWorkspace)
+	if !ok {
+		ws = &bandedWorkspace{}
+	}
+	defer bandedWorkspacePool.Put(ws)
 
 	// Row patterns. A non-finite entry is the dense kernel's NaN path.
-	start := make([]int, m+1)
-	var cols []int
+	start := resizeInts(&ws.start, m+1)
+	cols := ws.cols[:0]
 	for i, row := range A {
 		for j, v := range row {
 			if v == 0 {
@@ -75,8 +106,9 @@ func bandedSingularValueExtremes(A [][]float64) (float64, float64, bool) {
 			return 0, 0, false
 		}
 	}
+	ws.cols = cols
 
-	adj := make([][]int, n)
+	adj := resizeAdj(&ws.adj, n)
 	for i := 0; i < m; i++ {
 		rc := cols[start[i]:start[i+1]]
 		for _, a := range rc {
@@ -91,10 +123,9 @@ func bandedSingularValueExtremes(A [][]float64) (float64, float64, bool) {
 		slices.Sort(adj[j])
 		adj[j] = slices.Compact(adj[j])
 	}
-	pos := reverseCuthillMcKee(adj)
+	pos := reverseCuthillMcKeeInto(adj, ws)
 
-	type rowSpan struct{ lo, hi, idx int }
-	spans := make([]rowSpan, 0, m)
+	spans := ws.spans[:0]
 	beta := 0
 	for i := 0; i < m; i++ {
 		rc := cols[start[i]:start[i+1]]
@@ -105,7 +136,7 @@ func bandedSingularValueExtremes(A [][]float64) (float64, float64, bool) {
 		for _, c := range rc {
 			lo, hi = min(lo, pos[c]), max(hi, pos[c])
 		}
-		spans = append(spans, rowSpan{lo, hi, i})
+		spans = append(spans, bandedRowSpan{lo, hi, i})
 		beta = max(beta, hi-lo)
 	}
 	// Fewer nonzero rows than columns is rank deficient: the dense kernel reports
@@ -113,12 +144,13 @@ func bandedSingularValueExtremes(A [][]float64) (float64, float64, bool) {
 	if len(spans) < n || (beta+1)*bandedWidthDiv > n {
 		return 0, 0, false
 	}
-	slices.SortStableFunc(spans, func(a, b rowSpan) int {
+	slices.SortStableFunc(spans, func(a, b bandedRowSpan) int {
 		if c := cmp.Compare(a.lo, b.lo); c != 0 {
 			return c
 		}
 		return cmp.Compare(a.hi, b.hi)
 	})
+	ws.spans = spans
 
 	// Givens QR. R row c keeps columns c..c+β (window width w). A row is rotated
 	// against R rows from its first column on; it ends where it meets a column no
@@ -126,9 +158,12 @@ func bandedSingularValueExtremes(A [][]float64) (float64, float64, bool) {
 	// c+β when it reaches column c, because it starts within β of its first column
 	// and each rotation only mixes in a window that ends at c+β.
 	w := beta + 1
-	R := make([]float64, n*w)
-	occupied := make([]bool, n)
-	t := make([]float64, n+w)
+	R := resizeFloats(&ws.R, n*w)
+	clear(R)
+	occupied := resizeBools(&ws.occupied, n)
+	clear(occupied)
+	t := resizeFloats(&ws.t, n+w)
+	clear(t)
 	for _, sp := range spans {
 		row := A[sp.idx]
 		var norm2 float64
@@ -172,8 +207,8 @@ func bandedSingularValueExtremes(A [][]float64) (float64, float64, bool) {
 		}
 	}
 
-	d, e := bandToBidiagonal(R, n, beta)
-	smax, smin := bidiagonalExtremes(d, e)
+	d, e := bandToBidiagonalInto(R, n, beta, ws)
+	smax, smin := bidiagonalExtremesInto(d, e, &ws.b, &ws.b2)
 	return smax, smin, true
 }
 
@@ -185,10 +220,16 @@ func bandedSingularValueExtremes(A [][]float64) (float64, float64, bool) {
 // twice as wide as one row's reach, which is the case this order exists for.
 // Ties break by node index, so the order is deterministic.
 func reverseCuthillMcKee(adj [][]int) []int {
+	ws := &bandedWorkspace{}
+	return reverseCuthillMcKeeInto(adj, ws)
+}
+
+func reverseCuthillMcKeeInto(adj [][]int, ws *bandedWorkspace) []int {
 	n := len(adj)
-	mark := make([]int, n)
+	mark := resizeInts(&ws.mark, n)
+	clear(mark)
 	gen := 0
-	queue := make([]int, 0, n)
+	queue := ws.queue[:0]
 	// farthest returns a lowest-degree node on the last breadth-first level from
 	// root, and that level's depth.
 	farthest := func(root int) (int, int) {
@@ -220,9 +261,10 @@ func reverseCuthillMcKee(adj [][]int) []int {
 		}
 	}
 
-	visited := make([]bool, n)
-	order := make([]int, 0, n)
-	var nb []int
+	visited := resizeBools(&ws.visited, n)
+	clear(visited)
+	order := ws.order[:0]
+	nb := ws.nb[:0]
 	for s := 0; s < n; s++ {
 		if visited[s] {
 			continue
@@ -257,10 +299,11 @@ func reverseCuthillMcKee(adj [][]int) []int {
 			order = append(order, nb...)
 		}
 	}
-	pos := make([]int, n)
+	pos := resizeInts(&ws.pos, n)
 	for k, node := range order {
 		pos[node] = n - 1 - k
 	}
+	ws.queue, ws.order, ws.nb = queue, order, nb
 	return pos
 }
 
@@ -273,11 +316,12 @@ func reverseCuthillMcKee(adj [][]int) []int {
 // and pushes an entry out to superdiagonal k+1 further down, and the chase
 // repeats until it leaves the matrix. Orthogonal transforms, so the singular
 // values are those of R.
-func bandToBidiagonal(R []float64, n, beta int) ([]float64, []float64) {
+func bandToBidiagonalInto(R []float64, n, beta int, ws *bandedWorkspace) ([]float64, []float64) {
 	// Row i keeps columns i−1..i+beta+1: the one entry below the diagonal and the
 	// one beyond the band that the chase uses as scratch.
 	bw := beta + 3
-	B := make([]float64, n*bw)
+	B := resizeFloats(&ws.B, n*bw)
+	clear(B)
 	idx := func(i, j int) int { return i*bw + j - i + 1 }
 	w := beta + 1
 	for i := 0; i < n; i++ {
@@ -320,8 +364,8 @@ func bandToBidiagonal(R []float64, n, beta int) ([]float64, []float64) {
 			}
 		}
 	}
-	d := make([]float64, n)
-	e := make([]float64, n)
+	d := resizeFloats(&ws.d, n)
+	e := resizeFloats(&ws.e, n)
 	for i := 0; i < n; i++ {
 		d[i] = B[idx(i, i)]
 		if i+1 < n {
@@ -329,6 +373,45 @@ func bandToBidiagonal(R []float64, n, beta int) ([]float64, []float64) {
 		}
 	}
 	return d, e
+}
+
+func resizeInts(dst *[]int, n int) []int {
+	if cap(*dst) < n {
+		*dst = make([]int, n)
+	} else {
+		*dst = (*dst)[:n]
+	}
+	return *dst
+}
+
+func resizeFloats(dst *[]float64, n int) []float64 {
+	if cap(*dst) < n {
+		*dst = make([]float64, n)
+	} else {
+		*dst = (*dst)[:n]
+	}
+	return *dst
+}
+
+func resizeBools(dst *[]bool, n int) []bool {
+	if cap(*dst) < n {
+		*dst = make([]bool, n)
+	} else {
+		*dst = (*dst)[:n]
+	}
+	return *dst
+}
+
+func resizeAdj(dst *[][]int, n int) [][]int {
+	if cap(*dst) < n {
+		*dst = make([][]int, n)
+	} else {
+		*dst = (*dst)[:n]
+	}
+	for i := range *dst {
+		(*dst)[i] = (*dst)[i][:0]
+	}
+	return *dst
 }
 
 // bandHypot uses the hardware square-root path for the ordinary finite range

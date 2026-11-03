@@ -7,6 +7,8 @@ package sketch
 import (
 	"math"
 	"math/rand"
+	"runtime"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -86,6 +88,47 @@ func TestBandedExtremesAreDeterministic(t *testing.T) {
 	require.True(t, ok1 && ok2)
 	require.Equal(t, math.Float64bits(a1), math.Float64bits(a2))
 	require.Equal(t, math.Float64bits(b1), math.Float64bits(b2))
+}
+
+func TestBandedWorkspaceSurvivesForcedGC(t *testing.T) {
+	A := ringMatrix(rand.New(rand.NewSource(17)), 320, 2, 8, true)
+	wantMax, wantMin, ok := bandedSingularValueExtremes(A)
+	require.True(t, ok)
+	for i := 0; i < 5; i++ {
+		runtime.GC()
+		gotMax, gotMin, ok := bandedSingularValueExtremes(A)
+		require.True(t, ok)
+		require.Equal(t, math.Float64bits(wantMax), math.Float64bits(gotMax))
+		require.Equal(t, math.Float64bits(wantMin), math.Float64bits(gotMin))
+	}
+}
+
+func TestBandedWorkspaceConcurrentCalls(t *testing.T) {
+	A := ringMatrix(rand.New(rand.NewSource(19)), 320, 2, 8, true)
+	wantMax, wantMin, ok := bandedSingularValueExtremes(A)
+	require.True(t, ok)
+	type result struct {
+		max, min float64
+		ok       bool
+	}
+	const calls = 8
+	results := make(chan result, calls)
+	var wg sync.WaitGroup
+	for i := 0; i < calls; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			max, min, ok := bandedSingularValueExtremes(A)
+			results <- result{max: max, min: min, ok: ok}
+		}()
+	}
+	wg.Wait()
+	close(results)
+	for got := range results {
+		require.True(t, got.ok)
+		require.Equal(t, math.Float64bits(wantMax), math.Float64bits(got.max))
+		require.Equal(t, math.Float64bits(wantMin), math.Float64bits(got.min))
+	}
 }
 
 func TestBandHypotMatchesHypot(t *testing.T) {
