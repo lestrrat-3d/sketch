@@ -39,7 +39,7 @@ type fourBar struct {
 // newFourBar builds the scene seeded at crank angle theta2d (degrees) with B
 // seeded at (bx, by), and solves it, so the driven follower angle reads the
 // pose the seed selects.
-func newFourBar(t *testing.T, g, r, l, f, theta2d, bx, by float64) *fourBar {
+func newFourBar(t testing.TB, g, r, l, f, theta2d, bx, by float64) *fourBar {
 	t.Helper()
 	s := newSketch(t)
 	th := rad(theta2d)
@@ -160,7 +160,7 @@ func requireContiguous(t *testing.T, e *sketch.Enclosure) {
 
 // crankRocker is decad's crank-rocker (g=100, r=30, l=80, f=70), seeded at
 // theta2d with B on the requested side of the ground line.
-func crankRocker(t *testing.T, theta2d float64, above bool) *fourBar {
+func crankRocker(t testing.TB, theta2d float64, above bool) *fourBar {
 	t.Helper()
 	ref := &fourBar{g: 100, r: 30, l: 80, f: 70}
 	_, bx, by := ref.pose(rad(theta2d), above)

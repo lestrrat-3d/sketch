@@ -502,6 +502,13 @@ type encloseRun struct {
 	db        *dimBase
 	free, col []int
 	maxPieces int
+	// plan is the residual plan every float solve of the run shares: the
+	// constraint list and variable indices do not change during a run, only
+	// values do, and jacobianLocalInto refuses a plan whose rows moved.
+	// planned records that the build was attempted, so a refusal (nil plan) is
+	// not retried.
+	plan    *residualPlan
+	planned bool
 }
 
 // setDriver makes the driver's target exactly q in base units.
@@ -513,7 +520,11 @@ func (r *encloseRun) solveAt(ctx context.Context, seed []float64, q float64) ([]
 	s := r.s
 	copy(s.vars, seed)
 	r.setDriver(q)
-	if _, err := s.lm(ctx, r.free, s.residuals, localJacobian, 200, 1e-10); err != nil {
+	if !r.planned {
+		r.planned = true
+		r.plan, _ = s.newResidualPlan(len(s.residuals(nil)))
+	}
+	if _, err := s.lmPlanned(ctx, r.free, s.residuals, localJacobian, r.plan, 200, 1e-10); err != nil {
 		return nil, err
 	}
 	res := s.residuals(nil)

@@ -94,7 +94,7 @@ func (a *certAffine) rows() int { return 1 }
 func (a *certAffine) eval(e *certEnv, out []Interval) []Interval {
 	v := pt(0)
 	for _, t := range a.terms {
-		v = iadd(v, imul(pt(t.coef), e.box[t.vi]))
+		v = iadd(v, imulPt(t.coef, e.box[t.vi]))
 	}
 	if a.useQ {
 		return append(out, isub(v, e.q))
@@ -204,8 +204,8 @@ func (c *certDistance) eval(e *certEnv, out []Interval) []Interval {
 }
 
 func (c *certDistance) jac(e *certEnv, w *jacWriter) {
-	dx := imul(pt(2), isub(e.px(c.p1), e.px(c.p2)))
-	dy := imul(pt(2), isub(e.py(c.p1), e.py(c.p2)))
+	dx := imulPt(2, isub(e.px(c.p1), e.px(c.p2)))
+	dy := imulPt(2, isub(e.py(c.p1), e.py(c.p2)))
 	w.add(0, c.p1.xi, dx)
 	w.add(0, c.p2.xi, ineg(dx))
 	w.add(0, c.p1.yi, dy)
@@ -590,7 +590,7 @@ func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, co
 	for i := range c {
 		acc := pt(0)
 		for j := range F {
-			acc = iadd(acc, imul(pt(Y[i][j]), F[j]))
+			acc = iadd(acc, imulPt(Y[i][j], F[j]))
 		}
 		c[i] = ineg(acc)
 		if !c[i].isFinite() {
@@ -626,7 +626,7 @@ func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, co
 					cij = pt(1)
 				}
 				for k := 0; k < n; k++ {
-					cij = isub(cij, imul(pt(Y[i][k]), JX[k][j]))
+					cij = isub(cij, imulPt(Y[i][k], JX[k][j]))
 				}
 				acc = iadd(acc, imul(cij, D[j]))
 			}
