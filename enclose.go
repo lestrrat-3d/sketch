@@ -386,7 +386,10 @@ func (s *Sketch) Enclose(ctx context.Context, driver Dimension, lo, hi float64, 
 	for j, vi := range free {
 		col[vi] = j
 	}
-	r := &encloseRun{s: s, sys: sys, db: db, free: free, col: col, maxPieces: cfg.maxPieces}
+	r := &encloseRun{
+		s: s, sys: sys, db: db, free: free, col: col, maxPieces: cfg.maxPieces,
+		workspace: newKrawczykWorkspace(len(s.vars), sys.m, len(free)),
+	}
 	e, err := r.run(ctx, lo, hi, cfg.prev)
 	if err != nil {
 		return nil, err
@@ -502,6 +505,7 @@ type encloseRun struct {
 	db        *dimBase
 	free, col []int
 	maxPieces int
+	workspace *krawczykWorkspace
 	// plan is the residual plan every float solve of the run shares: the
 	// constraint list and variable indices do not change during a run, only
 	// values do, and jacobianLocalInto refuses a plan whose rows moved.
@@ -588,7 +592,7 @@ func (r *encloseRun) run(ctx context.Context, lo, hi float64, prev *Enclosure) (
 		return nil, err
 	}
 	if p0 == nil {
-		K, _, why := r.sys.krawczyk(x0, pt(lo), lo, r.free, r.col)
+		K, _, why := r.sys.krawczyk(x0, pt(lo), lo, r.free, r.col, r.workspace)
 		if K == nil {
 			return nil, fmt.Errorf("%w: at %v: %s", ErrNotCertified, lo, why)
 		}
@@ -664,7 +668,7 @@ func (r *encloseRun) tryPiece(ctx context.Context, a, b float64, xa []float64, p
 		}
 		return nil, nil, nil, "", 0, err
 	}
-	K, X, why := r.sys.krawczyk(xm, Interval{a, b}, mid, r.free, r.col)
+	K, X, why := r.sys.krawczyk(xm, Interval{a, b}, mid, r.free, r.col, r.workspace)
 	if K == nil {
 		return nil, nil, nil, why, 0, nil
 	}
@@ -678,7 +682,7 @@ func (r *encloseRun) tryPiece(ctx context.Context, a, b float64, xa []float64, p
 		}
 		return nil, nil, nil, "", 0, err
 	}
-	pb, _, why := r.sys.krawczyk(xb, pt(b), b, r.free, r.col)
+	pb, _, why := r.sys.krawczyk(xb, pt(b), b, r.free, r.col, r.workspace)
 	if pb == nil {
 		return nil, nil, nil, why, 0, nil
 	}
