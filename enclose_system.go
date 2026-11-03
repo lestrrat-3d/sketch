@@ -330,6 +330,67 @@ type certSystem struct {
 	params []paramVar
 }
 
+// krawczykWorkspace holds the temporary matrices and vectors for one Enclose
+// call. Result boxes are copied before they leave krawczyk, so later attempts
+// can reuse these buffers without changing an earlier piece.
+type krawczykWorkspace struct {
+	point, base []Interval
+	jac         [][]Interval
+	marks       []uint8
+	epoch       uint8
+	a, inverse  [][]float64
+	elim        [][]float64
+	f, c, z     []Interval
+	x, d, k     []Interval
+	result      []Interval
+}
+
+func newKrawczykWorkspace(nv, m, n int) *krawczykWorkspace {
+	return &krawczykWorkspace{
+		point:   make([]Interval, nv),
+		base:    make([]Interval, nv),
+		jac:     intervalMatrix(m, n),
+		marks:   make([]uint8, m*n),
+		epoch:   1,
+		a:       floatMatrix(n, n),
+		inverse: floatMatrix(n, n),
+		elim:    floatMatrix(n, 2*n),
+		f:       make([]Interval, m),
+		c:       make([]Interval, n),
+		z:       make([]Interval, n),
+		x:       make([]Interval, nv),
+		d:       make([]Interval, n),
+		k:       make([]Interval, n),
+		result:  make([]Interval, nv),
+	}
+}
+
+func intervalMatrix(rows, cols int) [][]Interval {
+	m := make([][]Interval, rows)
+	for i := range m {
+		m[i] = make([]Interval, cols)
+	}
+	return m
+}
+
+func floatMatrix(rows, cols int) [][]float64 {
+	m := make([][]float64, rows)
+	for i := range m {
+		m[i] = make([]float64, cols)
+	}
+	return m
+}
+
+func clearIntervals(v []Interval) {
+	clear(v)
+}
+
+func clearIntervalMatrix(m [][]Interval) {
+	for i := range m {
+		clearIntervals(m[i])
+	}
+}
+
 // paramVar is a fixed variable that reads a whole interval.
 type paramVar struct {
 	vi  int
@@ -492,6 +553,11 @@ func (sys *certSystem) trig(q Interval) (Interval, Interval, bool) {
 
 func (sys *certSystem) eval(e *certEnv) []Interval {
 	out := make([]Interval, 0, sys.m)
+	return sys.evalInto(out, e)
+}
+
+func (sys *certSystem) evalInto(out []Interval, e *certEnv) []Interval {
+	out = out[:0]
 	for _, eq := range sys.eqs {
 		out = eq.eval(e, out)
 	}
@@ -564,16 +630,17 @@ const krawczykMaxIter = 20
 // ε-inflation (each pass widens the previous image by 10% plus a relative
 // floor, always containing x̃) until the image falls strictly inside or the
 // pass budget runs out.
-func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, col []int) ([]Interval, []Interval, string) {
+func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, col []int, ws *krawczykWorkspace) ([]Interval, []Interval, string) {
 	n := len(free)
-	point := make([]Interval, len(xt))
+	point := ws.point
 	for i, v := range xt {
 		point[i] = pt(v)
 	}
 	// base is x̃ with every ranged fixed variable widened to its interval: the
 	// residual, the Jacobian over X and the published box read every value of
 	// the parameter, while Y is built at the float point alone.
-	base := slices.Clone(point)
+	base := ws.base
+	copy(base, point)
 	for _, p := range sys.params {
 		base[p.vi] = p.rng
 	}
@@ -591,21 +658,18 @@ func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, co
 		sinM, cosM = pt(s), pt(c)
 	}
 	e0 := &certEnv{box: point, q: pt(qMid), sinQ: sinM, cosQ: cosM}
-	J := make([][]Interval, sys.m)
-	for i := range J {
-		J[i] = make([]Interval, n)
-	}
-	marks := make([]uint8, sys.m*n)
-	epoch := uint8(1)
-	sys.jacobianInto(J, e0, col, marks, epoch)
-	A := make([][]float64, n)
+	J := ws.jac
+	clearIntervalMatrix(J)
+	clear(ws.marks)
+	ws.epoch = 1
+	sys.jacobianInto(J, e0, col, ws.marks, ws.epoch)
+	A := ws.a
 	for i := range A {
-		A[i] = make([]float64, n)
 		for j := range A[i] {
 			A[i][j] = J[i][j].mid()
 		}
 	}
-	Y, ok := invertMatrix(A)
+	Y, ok := invertMatrixInto(A, ws.elim, ws.inverse)
 	if !ok {
 		return nil, nil, "the Jacobian at the float solution is singular"
 	}
@@ -615,9 +679,9 @@ func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, co
 		return nil, nil, "the driving range is outside the certified trigonometric range"
 	}
 	eQ := &certEnv{box: base, q: Q, sinQ: sinQ, cosQ: cosQ}
-	F := sys.eval(eQ)
+	F := sys.evalInto(ws.f, eQ)
 	// c = −Y·F(x̃, Q): the Newton correction, spread over the driving range.
-	c := make([]Interval, n)
+	c := ws.c
 	for i := range c {
 		acc := pt(0)
 		for j := range F {
@@ -629,10 +693,12 @@ func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, co
 		}
 	}
 
-	Z := slices.Clone(c)
-	X := slices.Clone(base)
-	D := make([]Interval, n)
-	K := make([]Interval, n)
+	Z := ws.z
+	copy(Z, c)
+	X := ws.x
+	copy(X, base)
+	D := ws.d
+	K := ws.k
 	for iter := 0; iter < krawczykMaxIter; iter++ {
 		for j, vi := range free {
 			z := Z[j]
@@ -646,12 +712,13 @@ func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, co
 		if !sys.side(eX) {
 			return nil, nil, "an angle's direction condition does not hold over the box"
 		}
-		epoch++
-		if epoch == 0 {
-			clear(marks)
-			epoch = 1
+		ws.epoch++
+		if ws.epoch == 0 {
+			clear(ws.marks)
+			ws.epoch = 1
 		}
-		sys.jacobianInto(J, eX, col, marks, epoch)
+		clearIntervalMatrix(J)
+		sys.jacobianInto(J, eX, col, ws.marks, ws.epoch)
 		inside := true
 		for i := 0; i < n; i++ {
 			acc := c[i]
@@ -675,11 +742,12 @@ func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, co
 			}
 		}
 		if inside {
-			out := slices.Clone(base)
+			out := ws.result
+			copy(out, base)
 			for i, vi := range free {
 				out[vi] = K[i]
 			}
-			return out, slices.Clone(X), ""
+			return slices.Clone(out), slices.Clone(X), ""
 		}
 		for i, vi := range free {
 			Z[i] = isub(K[i], pt(xt[vi]))
@@ -731,6 +799,50 @@ func invertMatrix(A [][]float64) ([][]float64, bool) {
 			if math.IsNaN(v) || math.IsInf(v, 0) {
 				return nil, false
 			}
+		}
+	}
+	return Y, true
+}
+
+func invertMatrixInto(A, M, Y [][]float64) ([][]float64, bool) {
+	n := len(A)
+	for i := range n {
+		copy(M[i], A[i])
+		clear(M[i][n:])
+		M[i][n+i] = 1
+	}
+	for col := range n {
+		p := col
+		for r := col + 1; r < n; r++ {
+			if math.Abs(M[r][col]) > math.Abs(M[p][col]) {
+				p = r
+			}
+		}
+		if !(math.Abs(M[p][col]) > 0) {
+			return nil, false
+		}
+		M[col], M[p] = M[p], M[col]
+		inv := 1 / M[col][col]
+		for j := range M[col] {
+			M[col][j] *= inv
+		}
+		for r := 0; r < n; r++ {
+			if r == col || M[r][col] == 0 {
+				continue
+			}
+			f := M[r][col]
+			for j := range M[r] {
+				M[r][j] -= f * M[col][j]
+			}
+		}
+	}
+	for i := range n {
+		for j := range n {
+			v := M[i][n+j]
+			if math.IsNaN(v) || math.IsInf(v, 0) {
+				return nil, false
+			}
+			Y[i][j] = v
 		}
 	}
 	return Y, true
