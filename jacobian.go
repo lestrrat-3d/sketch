@@ -130,7 +130,9 @@ func (pl *residualPlan) evalRows(dst []float64, ks []int) bool {
 //     rewired-operand state the parameter model documents: the operands read
 //     local while the stored aux indices still address the donor's vector.
 func (s *Sketch) constraintVarIndices(c Constraint, out []int) ([]int, bool) {
-	pts, ents := constraintRefs(c)
+	var pointBuf [3]*Point
+	var entityBuf [3]Entity
+	pts, ents := constraintRefsInto(pointBuf[:0], entityBuf[:0], c)
 	if len(pts) == 0 && len(ents) == 0 {
 		return out, false
 	}
@@ -140,7 +142,6 @@ func (s *Sketch) constraintVarIndices(c Constraint, out []int) ([]int, bool) {
 		}
 		out = append(out, p.xi, p.yi)
 	}
-	var pointBuf [3]*Point
 	for _, e := range ents {
 		if !s.ownsEntity(e) {
 			return out, false
