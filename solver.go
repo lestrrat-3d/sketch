@@ -346,21 +346,19 @@ type lmWorkspace struct {
 // the pattern buffers by the pattern rebuild.
 var lmPool sync.Pool
 
-// getLMWorkspace returns a workspace for a lm call whose residual vector is r.
-func getLMWorkspace(r []float64) *lmWorkspace {
+// getLMWorkspace returns a workspace with reusable storage for one lm call.
+func getLMWorkspace() *lmWorkspace {
 	ws, _ := lmPool.Get().(*lmWorkspace)
 	if ws == nil {
 		ws = &lmWorkspace{}
 	}
-	ws.r = r
 	return ws
 }
 
-// release returns ws to the pool. It drops the residual vector, which the
-// caller owns, and every matrix row view, which aliases slabs that stay with the
-// workspace.
+// release returns ws to the pool. Its residual vector and every matrix row view
+// alias storage that stays with the workspace.
 func (ws *lmWorkspace) release() {
-	ws.r = nil
+	ws.r = ws.r[:0]
 	ws.rNew = ws.rNew[:0]
 	lmPool.Put(ws)
 }
@@ -457,16 +455,17 @@ func (s *Sketch) lmPlanned(ctx context.Context, free []int, eval func([]float64)
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
-	r := eval(nil)
+	ws := getLMWorkspace()
+	defer ws.release()
+	r := eval(ws.r[:0])
+	ws.r = r
 	m := len(r)
 	if m == 0 {
 		return 0, nil
 	}
 
-	// eval(nil) already returned a fresh buffer; no need to copy it in. The rest
-	// of the workspace is sized lazily below, once an iteration actually needs it.
-	ws := getLMWorkspace(r)
-	defer ws.release()
+	// The initial evaluation reuses the workspace's residual buffer. The rest of
+	// the workspace is sized lazily below, once an iteration actually needs it.
 	var plan *residualPlan
 	sized := false
 
