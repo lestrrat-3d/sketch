@@ -47,9 +47,12 @@ func (e *certEnv) py(p *Point) Interval { return e.box[p.yi] }
 // derivative is dropped; a variable named twice by one equation (a point shared
 // by both vectors of a cross product) accumulates.
 type jacWriter struct {
-	J   [][]Interval
-	col []int
-	row int
+	J     [][]Interval
+	col   []int
+	row   int
+	marks []uint8
+	epoch uint8
+	width int
 }
 
 func (w *jacWriter) add(r, vi int, v Interval) {
@@ -57,7 +60,18 @@ func (w *jacWriter) add(r, vi int, v Interval) {
 	if c < 0 {
 		return
 	}
-	w.J[w.row+r][c] = iadd(w.J[w.row+r][c], v)
+	row := w.row + r
+	if w.marks == nil {
+		w.J[row][c] = iadd(w.J[row][c], v)
+		return
+	}
+	cell := row*w.width + c
+	if w.marks[cell] != w.epoch {
+		w.J[row][c] = iadd(pt(0), v)
+		w.marks[cell] = w.epoch
+		return
+	}
+	w.J[row][c] = iadd(w.J[row][c], v)
 }
 
 // certEquation is one supported constraint in its certified form.
@@ -489,12 +503,23 @@ func (sys *certSystem) jacobian(e *certEnv, col []int, n int) [][]Interval {
 	for i := range J {
 		J[i] = make([]Interval, n)
 	}
-	w := &jacWriter{J: J, col: col}
+	sys.jacobianInto(J, e, col, nil, 0)
+	return J
+}
+
+// jacobianInto fills J with the certified Jacobian at e. marks lets a reused
+// matrix overwrite a cell on its first write in each epoch, without clearing
+// every interval. Duplicate terms in one equation still accumulate in order.
+func (sys *certSystem) jacobianInto(J [][]Interval, e *certEnv, col []int, marks []uint8, epoch uint8) {
+	width := 0
+	if len(J) > 0 {
+		width = len(J[0])
+	}
+	w := &jacWriter{J: J, col: col, marks: marks, epoch: epoch, width: width}
 	for _, eq := range sys.eqs {
 		eq.jac(e, w)
 		w.row += eq.rows()
 	}
-	return J
 }
 
 // dq encloses ∂F/∂q, the derivative of every equation in the driving value.
@@ -566,12 +591,18 @@ func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, co
 		sinM, cosM = pt(s), pt(c)
 	}
 	e0 := &certEnv{box: point, q: pt(qMid), sinQ: sinM, cosQ: cosM}
-	J0 := sys.jacobian(e0, col, n)
+	J := make([][]Interval, sys.m)
+	for i := range J {
+		J[i] = make([]Interval, n)
+	}
+	marks := make([]uint8, sys.m*n)
+	epoch := uint8(1)
+	sys.jacobianInto(J, e0, col, marks, epoch)
 	A := make([][]float64, n)
 	for i := range A {
 		A[i] = make([]float64, n)
 		for j := range A[i] {
-			A[i][j] = J0[i][j].mid()
+			A[i][j] = J[i][j].mid()
 		}
 	}
 	Y, ok := invertMatrix(A)
@@ -615,7 +646,12 @@ func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, co
 		if !sys.side(eX) {
 			return nil, nil, "an angle's direction condition does not hold over the box"
 		}
-		JX := sys.jacobian(eX, col, n)
+		epoch++
+		if epoch == 0 {
+			clear(marks)
+			epoch = 1
+		}
+		sys.jacobianInto(J, eX, col, marks, epoch)
 		inside := true
 		for i := 0; i < n; i++ {
 			acc := c[i]
@@ -626,7 +662,7 @@ func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, co
 					cij = pt(1)
 				}
 				for k := 0; k < n; k++ {
-					cij = isub(cij, imulPt(Y[i][k], JX[k][j]))
+					cij = isub(cij, imulPt(Y[i][k], J[k][j]))
 				}
 				acc = iadd(acc, imul(cij, D[j]))
 			}
