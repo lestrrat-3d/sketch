@@ -243,140 +243,147 @@ func (s *Sketch) entityUsesPoint(e Entity, p *Point) bool {
 // load-bearing: it is what removes the radius-consistency residual together
 // with its arc.
 func constraintRefs(c Constraint) ([]*Point, []Entity) {
+	return constraintRefsInto(nil, nil, c)
+}
+
+// constraintRefsInto appends a constraint's point and entity operands to the
+// provided buffers. The same switch serves the removal cascade and callers
+// that can keep the reference lists in stack storage.
+func constraintRefsInto(points []*Point, entities []Entity, c Constraint) ([]*Point, []Entity) {
 	switch t := c.(type) {
 	case *coincident:
-		return []*Point{t.P1, t.P2}, nil
+		return append(points, t.P1, t.P2), entities
 	case *horizontal:
-		return nil, []Entity{t.L}
+		return points, append(entities, t.L)
 	case *vertical:
-		return nil, []Entity{t.L}
+		return points, append(entities, t.L)
 	case *horizontalPoints:
-		return []*Point{t.P1, t.P2}, nil
+		return append(points, t.P1, t.P2), entities
 	case *verticalPoints:
-		return []*Point{t.P1, t.P2}, nil
+		return append(points, t.P1, t.P2), entities
 	case *parallel:
-		return nil, []Entity{t.L1, t.L2}
+		return points, append(entities, t.L1, t.L2)
 	case *perpendicular:
-		return nil, []Entity{t.L1, t.L2}
+		return points, append(entities, t.L1, t.L2)
 	case *pointOnLine:
-		return []*Point{t.P}, []Entity{t.L}
+		return append(points, t.P), append(entities, t.L)
 	case *pointOnNormal:
-		return []*Point{t.P, t.At}, []Entity{t.C}
+		return append(points, t.P, t.At), append(entities, t.C)
 	case *collinear:
-		return nil, []Entity{t.L1, t.L2}
+		return points, append(entities, t.L1, t.L2)
 	case *concentric:
-		return nil, []Entity{t.C1, t.C2}
+		return points, append(entities, t.C1, t.C2)
 	case *pointOnCircle:
-		return []*Point{t.P}, []Entity{t.C}
+		return append(points, t.P), append(entities, t.C)
 	case *pointOnArc:
-		return []*Point{t.P}, []Entity{t.A}
+		return append(points, t.P), append(entities, t.A)
 	case *pointOnEllipticalArc:
-		return []*Point{t.P}, []Entity{t.A}
+		return append(points, t.P), append(entities, t.A)
 	case *pointOnEllipse:
-		return []*Point{t.P}, []Entity{t.E}
+		return append(points, t.P), append(entities, t.E)
 	case *pointOnSpline:
-		return []*Point{t.P}, []Entity{t.Sp}
+		return append(points, t.P), append(entities, t.Sp)
 	case *pointOnClosedSpline:
-		return []*Point{t.P}, []Entity{t.Sp}
+		return append(points, t.P), append(entities, t.Sp)
 	case *pointOnFitSpline:
-		return []*Point{t.P}, []Entity{t.Sp}
+		return append(points, t.P), append(entities, t.Sp)
 	case *tangentToSpline:
-		return nil, []Entity{t.L, t.Sp}
+		return points, append(entities, t.L, t.Sp)
 	case *tangentToClosedSpline:
-		return nil, []Entity{t.L, t.Sp}
+		return points, append(entities, t.L, t.Sp)
 	case *tangentToFitSpline:
-		return nil, []Entity{t.L, t.Sp}
+		return points, append(entities, t.L, t.Sp)
 	case *pointOnConic:
-		return []*Point{t.P}, []Entity{t.C}
+		return append(points, t.P), append(entities, t.C)
 	case *tangentToConic:
-		return nil, []Entity{t.L, t.C}
+		return points, append(entities, t.L, t.C)
 	case *pointOnNURBS:
-		return []*Point{t.P}, []Entity{t.C}
+		return append(points, t.P), append(entities, t.C)
 	case *tangentToNURBS:
-		return nil, []Entity{t.L, t.C}
+		return points, append(entities, t.L, t.C)
 	case *tangentConics:
 		// The cached shared endpoint (shared) is a point this constraint reads, so
 		// it must be enumerated for the removal cascade and reachability check.
 		if t.shared != nil {
-			return []*Point{t.shared}, []Entity{t.A.ent(), t.B.ent()}
+			return append(points, t.shared), append(entities, t.A.ent(), t.B.ent())
 		}
-		return nil, []Entity{t.A.ent(), t.B.ent()}
+		return points, append(entities, t.A.ent(), t.B.ent())
 	case *midpoint:
-		return []*Point{t.P}, []Entity{t.L}
+		return append(points, t.P), append(entities, t.L)
 	case *midpointOf:
-		return []*Point{t.Mid, t.P1, t.P2}, nil
+		return append(points, t.Mid, t.P1, t.P2), entities
 	case *symmetric:
-		return []*Point{t.P1, t.P2}, []Entity{t.Axis}
+		return append(points, t.P1, t.P2), append(entities, t.Axis)
 	case *symmetricLines:
-		return nil, []Entity{t.L1, t.L2, t.Axis}
+		return points, append(entities, t.L1, t.L2, t.Axis)
 	case *symmetricCircles:
-		return nil, []Entity{t.C1, t.C2, t.Axis}
+		return points, append(entities, t.C1, t.C2, t.Axis)
 	case *symmetricArcs:
-		return nil, []Entity{t.A1, t.A2, t.Axis}
+		return points, append(entities, t.A1, t.A2, t.Axis)
 	case *equalLines:
-		return nil, []Entity{t.L1, t.L2}
+		return points, append(entities, t.L1, t.L2)
 	case *equalRadii:
-		return nil, []Entity{t.C1, t.C2}
+		return points, append(entities, t.C1, t.C2)
 	case *equalLineArc:
-		return nil, []Entity{t.L, t.A}
+		return points, append(entities, t.L, t.A)
 	case *tangentLineCircle:
 		// The cached endpoint-tangency contact (shared) is a point this
 		// constraint reads, so it must be enumerated for the removal cascade and
 		// the Verify reachability check.
 		if t.shared != nil {
-			return []*Point{t.shared}, []Entity{t.L, t.C}
+			return append(points, t.shared), append(entities, t.L, t.C)
 		}
-		return nil, []Entity{t.L, t.C}
+		return points, append(entities, t.L, t.C)
 	case *tangentLineEllipse:
 		if t.shared != nil {
-			return []*Point{t.shared}, []Entity{t.L, t.E}
+			return append(points, t.shared), append(entities, t.L, t.E)
 		}
-		return nil, []Entity{t.L, t.E}
+		return points, append(entities, t.L, t.E)
 	case *tangentCircles:
 		if t.shared != nil {
-			return []*Point{t.shared}, []Entity{t.C1, t.C2}
+			return append(points, t.shared), append(entities, t.C1, t.C2)
 		}
-		return nil, []Entity{t.C1, t.C2}
+		return points, append(entities, t.C1, t.C2)
 	case *arcRadius:
-		return nil, []Entity{t.a}
+		return points, append(entities, t.a)
 	case *ellipticalArcOn:
-		return []*Point{t.p}, []Entity{t.ea}
+		return append(points, t.p), append(entities, t.ea)
 	case *Distance:
-		return []*Point{t.P1, t.P2}, nil
+		return append(points, t.P1, t.P2), entities
 	case *HorizontalDistance:
-		return []*Point{t.P1, t.P2}, nil
+		return append(points, t.P1, t.P2), entities
 	case *VerticalDistance:
-		return []*Point{t.P1, t.P2}, nil
+		return append(points, t.P1, t.P2), entities
 	case *DistancePointLine:
-		return []*Point{t.P}, []Entity{t.L}
+		return append(points, t.P), append(entities, t.L)
 	case *DistancePointCircle:
-		return []*Point{t.P}, []Entity{t.C}
+		return append(points, t.P), append(entities, t.C)
 	case *DistanceLineCircle:
-		return nil, []Entity{t.L, t.C}
+		return points, append(entities, t.L, t.C)
 	case *DistancePointArc:
-		return []*Point{t.P}, []Entity{t.A}
+		return append(points, t.P), append(entities, t.A)
 	case *DistanceLineArc:
-		return nil, []Entity{t.L, t.A}
+		return points, append(entities, t.L, t.A)
 	case *DistanceLines:
-		return nil, []Entity{t.L1, t.L2}
+		return points, append(entities, t.L1, t.L2)
 	case *Offset:
-		return nil, []Entity{t.Src, t.Dst}
+		return points, append(entities, t.Src, t.Dst)
 	case *RadialOffset:
-		return nil, []Entity{t.Src, t.Dst}
+		return points, append(entities, t.Src, t.Dst)
 	case *Radius:
-		return nil, []Entity{t.C}
+		return points, append(entities, t.C)
 	case *Diameter:
-		return nil, []Entity{t.C}
+		return points, append(entities, t.C)
 	case *ArcLength:
-		return nil, []Entity{t.A}
+		return points, append(entities, t.A)
 	case *Angle:
-		return nil, []Entity{t.L1, t.L2}
+		return points, append(entities, t.L1, t.L2)
 	case *SemiMajor:
-		return nil, []Entity{t.E}
+		return points, append(entities, t.E)
 	case *SemiMinor:
-		return nil, []Entity{t.E}
+		return points, append(entities, t.E)
 	case *EllipseRotation:
-		return nil, []Entity{t.E}
+		return points, append(entities, t.E)
 	}
-	return nil, nil
+	return points, entities
 }
