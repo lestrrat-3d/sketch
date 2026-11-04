@@ -646,6 +646,22 @@ func TestNormalEquationsSparseMatchesReference(t *testing.T) {
 				t.Logf("%s: %dx%d Jacobian, %d of %d entries zero", tc.name, m, n, zeros, m*n)
 
 				requireSparseMatchesBoth(t, tc.name, ws.J, r, m, n)
+				plan, ok := tc.s.newResidualPlan(m)
+				require.True(t, ok, "%s: local residual plan was refused", tc.name)
+				require.True(t, tc.s.jacobianLocalInto(ws.J, free, m, plan, r),
+					"%s: local Jacobian was refused", tc.name)
+				require.True(t, buildStructuralSupport(ws, plan, free, m, n),
+					"%s: structural support was refused", tc.name)
+				loadWorkspace(ws, ws.J, r, m, n)
+				wantA, wantG := referenceNormalEquations(ws.J, r, m, n)
+				normalEquationsStructuralInto(ws, m, n)
+				for i := 0; i < n; i++ {
+					for j := 0; j < n; j++ {
+						requireSameBitsf(t, wantA[i][j], ws.A[i][j],
+							"%s: structural A[%d][%d]", tc.name, i, j)
+					}
+					requireSameBitsf(t, wantG[i], ws.g[i], "%s: structural g[%d]", tc.name, i)
+				}
 			})
 		}
 	})
@@ -667,6 +683,121 @@ func TestNormalEquationsSparseNoAllocation(t *testing.T) {
 		normalEquationsSparseInto(ws, m, n)
 	})
 	require.Zero(t, allocs, "the sparse kernel allocated on a warmed workspace")
+}
+
+func TestNormalEquationsStructuralMatchesDenseAcrossNumericPatternChanges(t *testing.T) {
+	const m, n = 5, 3
+	plan := &residualPlan{
+		offset:   []int{0, 2},
+		count:    []int{2, 3},
+		varStart: []int{0, 2, 3, 4},
+		varCons:  []int{0, 1, 1, 1},
+	}
+	free := []int{0, 1, 2}
+	ws := &lmWorkspace{}
+	ws.alloc(m, n)
+	require.True(t, buildStructuralSupport(ws, plan, free, m, n))
+
+	cases := []struct {
+		name string
+		cols [][]float64
+		r    []float64
+	}{
+		{
+			name: "initial nonzeros",
+			cols: [][]float64{{1, 2, 0, 0, 0}, {0, 0, 3, 4, 0}, {0, 0, 0, 5, 6}},
+			r:    []float64{2, -1, 3, 4, -5},
+		},
+		{
+			name: "zeros become nonzeros and nonzeros become zeros",
+			cols: [][]float64{{0, 7, 0, 0, 0}, {0, 0, 0, -8, 0}, {0, 0, 9, 0, 0}},
+			r:    []float64{-2, 3, -4, 5, 6},
+		},
+		{
+			name: "signed zeros",
+			cols: [][]float64{{math.Copysign(0, -1), 0, 0, 0, 0}, {0, 0, 0, math.Copysign(0, -1), 0}, {0, 0, 0, 0, math.Copysign(0, -1)}},
+			r:    []float64{1, -2, 3, -4, 5},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			j := matrixFromColumns(m, tc.cols)
+			loadWorkspace(ws, j, tc.r, m, n)
+			wantA, wantG := referenceNormalEquations(j, tc.r, m, n)
+			normalEquationsStructuralInto(ws, m, n)
+			for i := 0; i < n; i++ {
+				for j := 0; j < n; j++ {
+					requireSameBitsf(t, wantA[i][j], ws.A[i][j], "A[%d][%d]", i, j)
+				}
+				requireSameBitsf(t, wantG[i], ws.g[i], "g[%d]", i)
+			}
+		})
+	}
+}
+
+func TestNormalEquationsStructuralNonfiniteUsesDenseFallback(t *testing.T) {
+	const m, n = 4, 2
+	plan := &residualPlan{
+		offset:   []int{0, 2},
+		count:    []int{2, 2},
+		varStart: []int{0, 1, 2},
+		varCons:  []int{0, 1},
+	}
+	ws := &lmWorkspace{}
+	ws.alloc(m, n)
+	require.True(t, buildStructuralSupport(ws, plan, []int{0, 1}, m, n))
+	for _, tc := range []struct {
+		name string
+		j    [][]float64
+		r    []float64
+	}{
+		{
+			name: "jacobian infinity",
+			j:    matrixFromColumns(m, [][]float64{{math.Inf(1), 2, 0, 0}, {0, 0, 3, 4}}),
+			r:    []float64{1, 2, 3, 4},
+		},
+		{
+			name: "residual nan",
+			j:    matrixFromColumns(m, [][]float64{{1, 2, 0, 0}, {0, 0, 3, 4}}),
+			r:    []float64{1, math.NaN(), 3, 4},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			loadWorkspace(ws, tc.j, tc.r, m, n)
+			wantA, wantG := referenceNormalEquations(tc.j, tc.r, m, n)
+			normalEquationsStructuralInto(ws, m, n)
+			for i := 0; i < n; i++ {
+				for j := 0; j < n; j++ {
+					requireSameBitsf(t, wantA[i][j], ws.A[i][j], "A[%d][%d]", i, j)
+				}
+				requireSameBitsf(t, wantG[i], ws.g[i], "g[%d]", i)
+			}
+		})
+	}
+}
+
+func TestBuildStructuralSupportRefusesInvalidPlan(t *testing.T) {
+	const m, n = 2, 1
+	ws := &lmWorkspace{}
+	ws.alloc(m, n)
+	plan := &residualPlan{varStart: []int{0, 1}, varCons: []int{1}, offset: []int{0}, count: []int{3}}
+	require.False(t, buildStructuralSupport(ws, plan, []int{0}, m, n))
+	require.False(t, ws.structuralReady)
+}
+
+func TestNormalEquationsStructuralNoAllocation(t *testing.T) {
+	const m, n = 64, 48
+	tc := randomDensityMatrix("structural-allocation", m, n, 0.05, 0x415b)
+	plan, free := benchmarkStructuralPlan(tc.j, m, n)
+	ws := &lmWorkspace{}
+	ws.alloc(m, n)
+	loadWorkspace(ws, tc.j, tc.r, m, n)
+	require.True(t, buildStructuralSupport(ws, plan, free, m, n))
+
+	allocs := testing.AllocsPerRun(100, func() {
+		normalEquationsStructuralInto(ws, m, n)
+	})
+	require.Zero(t, allocs, "the structural kernel allocated after support setup")
 }
 
 // sparseSketchCase is one solved sketch whose real Jacobian the sparse kernel is
@@ -844,6 +975,47 @@ func BenchmarkNormalEquationsLayout(b *testing.B) {
 					normalEquationsSink += ws.A[size.n-1][size.n-1] + ws.g[size.n-1]
 				}
 			})
+
+			b.Run(fmt.Sprintf("structural-%s/%dx%d", label, size.m, size.n), func(b *testing.B) {
+				ws := &lmWorkspace{}
+				ws.alloc(size.m, size.n)
+				loadWorkspace(ws, dj, dr, size.m, size.n)
+				plan, free := benchmarkStructuralPlan(dj, size.m, size.n)
+				if !buildStructuralSupport(ws, plan, free, size.m, size.n) {
+					b.Fatal("benchmark structural plan was refused")
+				}
+				b.ReportAllocs()
+				b.ResetTimer()
+				for range b.N {
+					normalEquationsStructuralInto(ws, size.m, size.n)
+					normalEquationsSink += ws.A[size.n-1][size.n-1] + ws.g[size.n-1]
+				}
+			})
 		}
 	}
+}
+
+func benchmarkStructuralPlan(j [][]float64, m, n int) (*residualPlan, []int) {
+	plan := &residualPlan{
+		offset:   make([]int, m),
+		count:    make([]int, m),
+		varStart: make([]int, n+1),
+		varCons:  make([]int, 0, m*n),
+	}
+	for row := range m {
+		plan.offset[row] = row
+		plan.count[row] = 1
+	}
+	free := make([]int, n)
+	for col := range n {
+		free[col] = col
+		plan.varStart[col] = len(plan.varCons)
+		for row := range m {
+			if j[row][col] != 0 {
+				plan.varCons = append(plan.varCons, row)
+			}
+		}
+	}
+	plan.varStart[n] = len(plan.varCons)
+	return plan, free
 }
