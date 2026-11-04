@@ -119,6 +119,25 @@ func TestChordDeviationBoundsHold(t *testing.T) {
 	}
 }
 
+func TestChordDeviationKeepsPinnedEllipticalArcEndpointSlip(t *testing.T) {
+	curve := NewEllipticalArc(NewPoint(0, 0), NewPoint(4, 0.1), NewPoint(-4, 0.1), 4, 2, 0)
+	a := newArranger([]Curve{curve}, nil, arrangeConfig{})
+	a.densify()
+	require.NotEmpty(t, a.segs)
+
+	for _, index := range []int{0, len(a.segs) - 1} {
+		seg := a.segs[index]
+		s := &a.sources[seg.src]
+		base, ok := spanDeviation(s, seg.pa, seg.pb, seg.ax, seg.ay, seg.bx, seg.by)
+		require.True(t, ok)
+		q0, q1 := s.at(seg.pa), s.at(seg.pb)
+		slip := math.Max(math.Hypot(q0[0]-seg.ax, q0[1]-seg.ay), math.Hypot(q1[0]-seg.bx, q1[1]-seg.by))
+		require.Greater(t, slip, 1e-3, "the pinned endpoint must be off its evaluated ellipse")
+		require.InDelta(t, base+slip, a.segDev[index], 1e-12,
+			"the chord bound must include the pinned endpoint's displacement")
+	}
+}
+
 // guardPairs runs the near-miss guard on a fresh arranger of the scene and returns the
 // source pairs it flags, with the point it reports for each.
 func guardPairs(curves []Curve, closed []ClosedCurve, reference bool) map[[2]int][2]float64 {
