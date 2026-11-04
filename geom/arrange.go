@@ -1221,7 +1221,14 @@ func (a *arranger) densify() {
 				src: si, pa: params[i-1], pb: params[i],
 				ax: prev[0], ay: prev[1], bx: cur[0], by: cur[1],
 			})
-			dev, ok := chordDeviation(s, params[i-1], params[i], prev[0], prev[1], cur[0], cur[1])
+			q0, q1 := prev, cur
+			if s.pinEnds && i == 1 {
+				q0 = s.at(params[i-1])
+			}
+			if s.pinEnds && i == last {
+				q1 = s.at(params[i])
+			}
+			dev, ok := chordDeviation(s, params[i-1], params[i], prev[0], prev[1], cur[0], cur[1], q0, q1)
 			if !ok {
 				dev = math.Inf(1)
 			}

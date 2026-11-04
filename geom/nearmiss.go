@@ -35,7 +35,7 @@ import (
 // source s over its natural-parameter span [p0,p1] to the straight chord
 // (ax,ay)→(bx,by) the sampler put there. ok is false when no bound can be proven
 // for the family, in which case the span is unbounded.
-func chordDeviation(s *source, p0, p1, ax, ay, bx, by float64) (float64, bool) {
+func chordDeviation(s *source, p0, p1, ax, ay, bx, by float64, q0, q1 [2]float64) (float64, bool) {
 	dev, ok := spanDeviation(s, p0, p1, ax, ay, bx, by)
 	if !ok || math.IsNaN(dev) {
 		return math.Inf(1), false
@@ -44,7 +44,6 @@ func chordDeviation(s *source, p0, p1, ax, ay, bx, by float64) (float64, bool) {
 	// at that parameter — an elliptical arc pins its ends to its exact boundary
 	// points. Displacing an endpoint by d moves every point of the chord by at
 	// most d, so the bound carries it additively.
-	q0, q1 := s.at(p0), s.at(p1)
 	slip := math.Max(math.Hypot(q0[0]-ax, q0[1]-ay), math.Hypot(q1[0]-bx, q1[1]-by))
 	return dev + slip, true
 }
