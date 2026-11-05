@@ -662,19 +662,120 @@ func requireSameEnclosure(t *testing.T, s *sketch.Sketch, want, got *sketch.Encl
 	pw, pg := want.Pieces(), got.Pieces()
 	require.Len(t, pg, len(pw), "the same piece split")
 	for i := range pw {
-		require.Equal(t, pw[i].Range(), pg[i].Range(), "the same sub-range")
+		requireIntervalBitsEqual(t, pw[i].Range(), pg[i].Range(), "the same sub-range")
 		for _, p := range s.Points() {
 			xw, yw, _ := pw[i].PointBox(p)
 			xg, yg, _ := pg[i].PointBox(p)
-			require.Equal(t, xw, xg, "bit-identical boxes")
-			require.Equal(t, yw, yg, "bit-identical boxes")
+			requireIntervalBitsEqual(t, xw, xg, "bit-identical boxes")
+			requireIntervalBitsEqual(t, yw, yg, "bit-identical boxes")
 		}
 		for _, d := range driven {
 			vw, _ := pw[i].Driven(d)
 			vg, _ := pg[i].Driven(d)
-			require.Equal(t, vw, vg, "bit-identical driven intervals")
+			requireIntervalBitsEqual(t, vw, vg, "bit-identical driven intervals")
 		}
 	}
+}
+
+func requireIntervalBitsEqual(t *testing.T, want, got sketch.Interval, msg string) {
+	t.Helper()
+	require.Equal(t, [2]uint64{math.Float64bits(want.Lo), math.Float64bits(want.Hi)},
+		[2]uint64{math.Float64bits(got.Lo), math.Float64bits(got.Hi)}, msg)
+}
+
+func TestEncloseWorkspaceReuseIsBitIdentical(t *testing.T) {
+	t.Run("point", func(t *testing.T) {
+		fb := crankRocker(t, 90, true)
+		want, err := fb.s.Enclose(t.Context(), fb.crank, math.Pi/2, math.Pi/2)
+		require.NoError(t, err)
+		got, err := fb.s.Enclose(t.Context(), fb.crank, math.Pi/2, math.Pi/2)
+		require.NoError(t, err)
+		requireSameEnclosure(t, fb.s, want, got, fb.follower)
+	})
+
+	t.Run("full turn", func(t *testing.T) {
+		fb := crankRocker(t, 0, true)
+		want, err := fb.s.Enclose(t.Context(), fb.crank, 0, 2*math.Pi)
+		require.NoError(t, err)
+		got, err := fb.s.Enclose(t.Context(), fb.crank, 0, 2*math.Pi)
+		require.NoError(t, err)
+		requireSameEnclosure(t, fb.s, want, got, fb.follower)
+	})
+
+	t.Run("continuation", func(t *testing.T) {
+		fb := crankRocker(t, 0, true)
+		start, err := fb.s.Enclose(t.Context(), fb.crank, 0, 0)
+		require.NoError(t, err)
+		want, err := fb.s.Enclose(t.Context(), fb.crank, 0, math.Pi/2, sketch.WithContinuation(start))
+		require.NoError(t, err)
+		got, err := fb.s.Enclose(t.Context(), fb.crank, 0, math.Pi/2, sketch.WithContinuation(start))
+		require.NoError(t, err)
+		requireSameEnclosure(t, fb.s, want, got, fb.follower)
+	})
+
+	t.Run("target range", func(t *testing.T) {
+		fb := crankRocker(t, 90, true)
+		opt := sketch.WithTargetRange(fb.bars[2], 80-1e-12, 80+1e-12)
+		want, err := fb.s.Enclose(t.Context(), fb.crank, math.Pi/2, math.Pi/2, opt)
+		require.NoError(t, err)
+		got, err := fb.s.Enclose(t.Context(), fb.crank, math.Pi/2, math.Pi/2, opt)
+		require.NoError(t, err)
+		requireSameEnclosure(t, fb.s, want, got, fb.follower)
+	})
+
+	t.Run("fixed box", func(t *testing.T) {
+		fb := fixedGroundFourBar(t)
+		opt := sketch.WithFixedBox(fb.o4,
+			sketch.Interval{Lo: 100 - 1e-12, Hi: 100 + 1e-12},
+			sketch.Interval{Lo: -1e-12, Hi: 1e-12})
+		want, err := fb.s.Enclose(t.Context(), fb.crank, math.Pi/2, math.Pi/2, opt)
+		require.NoError(t, err)
+		got, err := fb.s.Enclose(t.Context(), fb.crank, math.Pi/2, math.Pi/2, opt)
+		require.NoError(t, err)
+		requireSameEnclosure(t, fb.s, want, got, fb.follower)
+	})
+
+	t.Run("fold and contraction refusal", func(t *testing.T) {
+		fb := nonGrashof(t)
+		start, err := fb.s.Enclose(t.Context(), fb.crank, rad(80), rad(87))
+		require.NoError(t, err)
+		fold := func() *sketch.FoldError {
+			_, err := fb.s.Enclose(t.Context(), fb.crank, rad(87), rad(90), sketch.WithContinuation(start))
+			var got *sketch.FoldError
+			require.ErrorAs(t, err, &got)
+			require.ErrorIs(t, err, sketch.ErrNotCertified)
+			return got
+		}
+		want, got := fold(), fold()
+		requireIntervalBitsEqual(t, want.Fold, got.Fold, "the fold bounds are bit-identical")
+		require.Equal(t, math.Float64bits(want.Reached), math.Float64bits(got.Reached))
+	})
+
+	t.Run("target-range and fixed-box refusals", func(t *testing.T) {
+		fb := crankRocker(t, 90, true)
+		refuse := func(opts ...sketch.EncloseOption) error {
+			e, err := fb.s.Enclose(t.Context(), fb.crank, math.Pi/2, math.Pi/2, opts...)
+			require.Nil(t, e)
+			require.ErrorIs(t, err, sketch.ErrNotCertified)
+			return err
+		}
+		wantTarget := refuse(sketch.WithTargetRange(fb.bars[2], 20, 80))
+		gotTarget := refuse(sketch.WithTargetRange(fb.bars[2], 20, 80))
+		require.Equal(t, wantTarget.Error(), gotTarget.Error())
+
+		fixed := fixedGroundFourBar(t)
+		badBox := sketch.WithFixedBox(fixed.o4,
+			sketch.Interval{Lo: 90, Hi: 110}, sketch.Interval{Lo: -10, Hi: 10})
+		refuseBox := func() error {
+			e, err := fixed.s.Enclose(t.Context(), fixed.crank, math.Pi/2, math.Pi/2, badBox)
+			require.Nil(t, e)
+			require.ErrorIs(t, err, sketch.ErrNotCertified)
+			return err
+		}
+		wantBox := refuseBox()
+		gotBox := refuseBox()
+		require.Equal(t, wantBox.Error(), gotBox.Error())
+	})
 }
 
 func TestEncloseTargetRange(t *testing.T) {
