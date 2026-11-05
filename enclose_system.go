@@ -336,6 +336,8 @@ type certSystem struct {
 type krawczykWorkspace struct {
 	point, base []Interval
 	jac         [][]Interval
+	writer      jacWriter
+	e0, eQ, eX  certEnv
 	marks       []uint8
 	epoch       uint8
 	a, inverse  [][]float64
@@ -569,19 +571,25 @@ func (sys *certSystem) jacobian(e *certEnv, col []int, n int) [][]Interval {
 	for i := range J {
 		J[i] = make([]Interval, n)
 	}
-	sys.jacobianInto(J, e, col, nil, 0)
+	var writer jacWriter
+	sys.jacobianInto(J, e, col, nil, 0, &writer)
 	return J
 }
 
 // jacobianInto fills J with the certified Jacobian at e. marks lets a reused
 // matrix overwrite a cell on its first write in each epoch, without clearing
 // every interval. Duplicate terms in one equation still accumulate in order.
-func (sys *certSystem) jacobianInto(J [][]Interval, e *certEnv, col []int, marks []uint8, epoch uint8) {
+func (sys *certSystem) jacobianInto(J [][]Interval, e *certEnv, col []int, marks []uint8, epoch uint8, w *jacWriter) {
 	width := 0
 	if len(J) > 0 {
 		width = len(J[0])
 	}
-	w := &jacWriter{J: J, col: col, marks: marks, epoch: epoch, width: width}
+	w.J = J
+	w.col = col
+	w.marks = marks
+	w.epoch = epoch
+	w.width = width
+	w.row = 0
 	for _, eq := range sys.eqs {
 		eq.jac(e, w)
 		w.row += eq.rows()
@@ -657,12 +665,13 @@ func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, co
 		s, c := math.Sincos(qMid)
 		sinM, cosM = pt(s), pt(c)
 	}
-	e0 := &certEnv{box: point, q: pt(qMid), sinQ: sinM, cosQ: cosM}
+	e0 := &ws.e0
+	e0.box, e0.q, e0.sinQ, e0.cosQ = point, pt(qMid), sinM, cosM
 	J := ws.jac
 	clearIntervalMatrix(J)
 	clear(ws.marks)
 	ws.epoch = 1
-	sys.jacobianInto(J, e0, col, ws.marks, ws.epoch)
+	sys.jacobianInto(J, e0, col, ws.marks, ws.epoch, &ws.writer)
 	A := ws.a
 	for i := range A {
 		for j := range A[i] {
@@ -678,7 +687,8 @@ func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, co
 	if !ok {
 		return nil, nil, "the driving range is outside the certified trigonometric range"
 	}
-	eQ := &certEnv{box: base, q: Q, sinQ: sinQ, cosQ: cosQ}
+	eQ := &ws.eQ
+	eQ.box, eQ.q, eQ.sinQ, eQ.cosQ = base, Q, sinQ, cosQ
 	F := sys.evalInto(ws.f, eQ)
 	// c = −Y·F(x̃, Q): the Newton correction, spread over the driving range.
 	c := ws.c
@@ -708,7 +718,8 @@ func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, co
 			X[vi] = Interval{down(xt[vi] + z.Lo), up(xt[vi] + z.Hi)}
 			D[j] = isub(X[vi], pt(xt[vi]))
 		}
-		eX := &certEnv{box: X, q: Q, sinQ: sinQ, cosQ: cosQ}
+		eX := &ws.eX
+		eX.box, eX.q, eX.sinQ, eX.cosQ = X, Q, sinQ, cosQ
 		if !sys.side(eX) {
 			return nil, nil, "an angle's direction condition does not hold over the box"
 		}
@@ -718,7 +729,7 @@ func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, co
 			ws.epoch = 1
 		}
 		clearIntervalMatrix(J)
-		sys.jacobianInto(J, eX, col, ws.marks, ws.epoch)
+		sys.jacobianInto(J, eX, col, ws.marks, ws.epoch, &ws.writer)
 		inside := true
 		for i := 0; i < n; i++ {
 			acc := c[i]
