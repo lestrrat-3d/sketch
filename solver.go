@@ -336,9 +336,12 @@ type lmWorkspace struct {
 	// structRows/structStart/structBits describe the structural superset of
 	// each Jacobian column for a successful local residual plan. They are built
 	// once per lm call and remain separate from the numeric-pattern buffers so
-	// a refused local Jacobian cannot overwrite them.
+	// a refused local Jacobian cannot overwrite them. structPairCols/Start hold
+	// the ascending supported upper-triangle column pairs for that superset.
 	structRows, structStart []int
 	structBits              []uint64
+	structPairCols          []int
+	structPairStart         []int
 	structDensity           int
 	structuralReady         bool
 
@@ -436,6 +439,11 @@ func (ws *lmWorkspace) alloc(m, n int) {
 		ws.structBits = make([]uint64, n*ws.colWords)
 	}
 	ws.structBits = ws.structBits[:n*ws.colWords]
+	if cap(ws.structPairStart) < n+1 {
+		ws.structPairStart = make([]int, n+1)
+	}
+	ws.structPairStart = ws.structPairStart[:n+1]
+	ws.structPairCols = ws.structPairCols[:0]
 }
 
 // lm runs the Levenberg–Marquardt loop on the residual vector produced by
@@ -978,6 +986,8 @@ func normalEquationsSparseInto(ws *lmWorkspace, m, n int) {
 // in these slots, but it writes exact zeros outside them. The support therefore
 // remains valid as the numeric values change during this one lm call.
 func buildStructuralSupport(ws *lmWorkspace, plan *residualPlan, free []int, m, n int) bool {
+	ws.structuralReady = false
+	ws.structPairCols = ws.structPairCols[:0]
 	rows := ws.structRows[:0]
 	starts := ws.structStart[:n+1]
 	for col, vi := range free {
@@ -1013,6 +1023,26 @@ func buildStructuralSupport(ws *lmWorkspace, plan *residualPlan, free []int, m, 
 		}
 	}
 	ws.structuralReady = true
+	if ws.structDensity*2 >= m*n {
+		return true
+	}
+
+	pairCols, pairStart := ws.structPairCols[:0], ws.structPairStart
+	for i := 0; i < n; i++ {
+		pairStart[i] = len(pairCols)
+		bi := bits[i*words : (i+1)*words]
+		for j := i; j < n; j++ {
+			bj := bits[j*words : (j+1)*words]
+			for w := range bi {
+				if bi[w]&bj[w] != 0 {
+					pairCols = append(pairCols, j)
+					break
+				}
+			}
+		}
+	}
+	pairStart[n] = len(pairCols)
+	ws.structPairCols = pairCols
 	return true
 }
 
@@ -1021,10 +1051,12 @@ func buildStructuralSupport(ws *lmWorkspace, plan *residualPlan, free []int, m, 
 // slot and every residual for nonfinite values before doing arithmetic; an
 // exceptional input keeps the existing dense fallback. Every row inside the
 // superset is accumulated, including finite numeric zeros, in ascending row
-// order so the result matches normalEquationsInto bit for bit.
+// order so the result matches normalEquationsInto bit for bit. Supported pairs
+// are precomputed once from structBits; the kernel clears A and visits only
+// those pairs in ascending order.
 func normalEquationsStructuralInto(ws *lmWorkspace, m, n int) {
 	jt, r := ws.JT, ws.r
-	rows, starts, bits := ws.structRows, ws.structStart, ws.structBits
+	rows, starts := ws.structRows, ws.structStart
 	for col := 0; col < n; col++ {
 		for _, row := range rows[starts[col]:starts[col+1]] {
 			if nonFinite(jt[col*m+row]) {
@@ -1044,25 +1076,12 @@ func normalEquationsStructuralInto(ws *lmWorkspace, m, n int) {
 		return
 	}
 
-	words := ws.colWords
+	clear(ws.aBack[:n*n])
+	pairCols, pairStart := ws.structPairCols, ws.structPairStart
 	for i := 0; i < n; i++ {
 		ci := jt[i*m : (i+1)*m]
 		rowsI := rows[starts[i]:starts[i+1]]
-		bi := bits[i*words : (i+1)*words]
-		for j := i; j < n; j++ {
-			bj := bits[j*words : (j+1)*words]
-			shares := false
-			for w := range bi {
-				if bi[w]&bj[w] != 0 {
-					shares = true
-					break
-				}
-			}
-			if !shares {
-				ws.A[i][j] = 0
-				ws.A[j][i] = 0
-				continue
-			}
+		for _, j := range pairCols[pairStart[i]:pairStart[i+1]] {
 			cj := jt[j*m : (j+1)*m]
 			var sum float64
 			for _, row := range rowsI {
