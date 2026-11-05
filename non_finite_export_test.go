@@ -98,7 +98,7 @@ func TestExportersUnaffectedByHealthyGeometry(t *testing.T) {
 }
 
 // The bounding-box guard (bbox.finite, and its non-finite-knot regression in
-// nonfinite_export_test.go) is a PRECONDITION over the geometry that produced
+// non_finite_export_test.go) is a PRECONDITION over the geometry that produced
 // the box, not a postcondition over what an exporter actually writes. A
 // bounding box can be finite by that check while the value the exporter
 // writes still is not: the box's own SPAN can overflow after the check ran

@@ -645,7 +645,7 @@ control `TestRegionsLargeFiniteSceneIsUnchanged` holds a `1e154` triangle and a
 
 `intersect` (`geom/arrange.go`) does not test every pair of tiny segments against
 `segParams`/`collinearOverlap`/`forEachMergedEnd`. It first asks `candidatePairs`
-(`geom/arrange_broadphase.go`) for, per segment `i`, the ascending list of `j > i`
+(`geom/arrange_broad_phase.go`) for, per segment `i`, the ascending list of `j > i`
 whose bounding boxes — each expanded by that segment's own **reach** — overlap.
 `candidatePairs` may only ever return a SUPERSET of the pairs those three
 predicates fire on; they remain the sole deciders of what actually happens once a
@@ -689,7 +689,7 @@ indices) on a y-axis overlap once the x-overlap is implied by the sweep order. E
 visits pairs in the same relative order the exhaustive `(i, j)` scan did — this
 matters because `splitFragments` dedups near-equal cut parameters keeping the
 first, and `sort.Slice` is unstable. `TestBroadPhaseIsSuperset`
-(`geom/arrange_broadphase_internal_test.go`) checks the superset property against
+(`geom/arrange_broad_phase_internal_test.go`) checks the superset property against
 `segParams`/`collinearOverlap`/`forEachMergedEnd` directly, the ascending-order
 contract, and agreement with a naive box-overlap scan, over representative fixtures
 and 200 seeded random scenes.
@@ -735,7 +735,7 @@ are a superset of everything `segParams` accepts — so they are necessarily als
 superset of `segsCrossInteriorAt`'s stricter interior-only set, with no new constant
 and no new proof needed.
 `TestSampledCrossingsExplainedBoxRejectAgrees`
-(`geom/arrange_broadphase_internal_test.go`) checks the box-guarded verdict against an
+(`geom/arrange_broad_phase_internal_test.go`) checks the box-guarded verdict against an
 unguarded brute-force reference over representative fixtures and 300 seeded random
 scenes.
 
@@ -842,7 +842,7 @@ ring is sorted exactly, EVERY straight port in it is sorted that way, so gating 
 ties may OPEN the door never protected the straight ports inside an already-open one.
 Two rounds of review found faces lost that way: first a rectangle collapsing to no
 region at all, then a mixed tie of one arc and one welded line losing a `1.33e-12`
-face while keeping its neighbour. Both are pinned in `geom/arrange_chordtie_test.go`.
+face while keeping its neighbour. Both are pinned in `geom/arrange_chord_tie_test.go`.
 **A CURVED port is keyed the same way, by a direction anchored at its graph vertex.**
 `portKey`'s exact tangent is taken at the PARAMETRIC endpoint, and welding moves the
 vertex off that point, so the tangent describes a departure from somewhere the walk
@@ -1258,7 +1258,7 @@ as public `ExactFitSpan` values (power-basis `big.Rat` coefficients in the span'
 `u`). NEVER build a second exact form of a fit span elsewhere. A change to the exact
 piece formula changes the public coefficients and the pair-ledger certificates together.
 
-### Loop containment (`loops.go`, `geom/facegraph.go`)
+### Loop containment (`loops.go`, `geom/face_graph.go`)
 
 Design, reasons and the test table are in `docs/loop-containment-design.md`. Read it before changing either file.
 
@@ -1279,7 +1279,7 @@ are transient: not serialized, not in `Revision`; `RemoveEntity` removes the loo
   is self-crossing; a loop whose edges disagree around a cycle is inconsistent.
 - `loopClosed` (in `loops.go`) checks the chain from current coordinates, bit-for-bit. A loop with a span skips it.
 - `Sketch.DeclareLoopSpans(LoopSpan{Entity, TStart, TEnd}...)` declares sub-range elements (`geom.LoopElement`,
-  `FaceGraph.WalkLoopElements`, `geom/facegraph_spans.go`). A span covers the edges its own source emits with both
+  `FaceGraph.WalkLoopElements`, `geom/face_graph_spans.go`). A span covers the edges its own source emits with both
   parameters inside the range (`FaceEdge.Src`, `PU`, `PV`); NEVER widen it to `Covers`. Its ends must be exact bounds
   (`ExactU`, `ExactV`) and the loop must form one cycle by vertex ids, never by coordinates. Span from 0 to 1 is the
   whole entity. Design: "Sub-range elements" in `docs/loop-containment-design.md`.
@@ -1287,7 +1287,7 @@ are transient: not serialized, not in `Revision`; `RemoveEntity` removes the loo
 ### Chord-deviation degeneracy bounds (`nearMissGuard`)
 
 **The DEGENERACY half is answered by proven per-family chord-deviation bounds**
-(`geom/nearmiss.go`; design in `docs/analytic-arrangement-design.md`): every tiny
+(`geom/near_miss.go`; design in `docs/analytic-arrangement-design.md`): every tiny
 segment carries an upper bound on how far its source departs from that segment's own
 chord (`arranger.segDev`, filled by `densify`) — the exact sagitta for a circle/arc, the
 `h²·M/8` linear-interpolation bound for the ellipse family (whose second derivative is

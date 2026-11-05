@@ -539,7 +539,7 @@ func TestProfilesCrossingBlindPocketThroughHoleSharedLine(t *testing.T) {
 }
 
 // TestProfilesHiddenCrossingIsInvalid is the sketch-level face of the near-miss
-// guard (geom/nearmiss.go): a curve whose bow between two consecutive samples is
+// guard (geom/near_miss.go): a curve whose bow between two consecutive samples is
 // larger than the thing it crosses hides the crossing from the planar map
 // entirely, and before the guard the resulting profile set was published with
 // Valid, ProfilesValid and Trustworthy() all reading clean.

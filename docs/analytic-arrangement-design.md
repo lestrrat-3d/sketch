@@ -436,7 +436,7 @@ The gallery's embedded gear uses this certificate for 30 or 60 pairs of original
 involute fit splines, their tip arcs and one root circle. An unrelated source
 disables it; Sketch then withholds exact bounds.
 
-**The near-miss guard** (`geom/nearmiss.go`, `nearMissGuard`). The gate above
+**The near-miss guard** (`geom/near_miss.go`, `nearMissGuard`). The gate above
 withholds *exactness* from a scene whose map may be missing a crossing; this
 reports the missing crossing itself as `Degenerate`, so `Region.Degenerate`,
 `Arrangement.Degenerate`, `Profile.Valid`, `VerificationReport.ProfilesValid` and

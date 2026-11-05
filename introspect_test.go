@@ -219,7 +219,7 @@ func TestIntrospectionNilSafetyContract(t *testing.T) {
 		// types, not trusted as a count. The unexported *tangentConics is the one
 		// constraint type this table cannot express — it has no exported handle and
 		// both its constructors return a non-nil pointer — so its typed nil is pinned
-		// separately in constraintkind_typed_nil_test.go.
+		// separately in constraint_kind_typed_nil_test.go.
 		cases := []struct {
 			name string
 			c    sketch.Constraint

@@ -152,7 +152,7 @@ with `git log`.
 - **Design section:** "Increment 0 — tools become package-level functions".
 - **Merge after:** — (first in the order)
 - **Files:** `tools.go`, `sketch.go`, `tools_test.go`, `tools_ownership_test.go`, `tools_guard_test.go`,
-  `tools_fitspline_test.go`, `reference_test.go`, `revision_internal_test.go`,
+  `tools_fit_spline_test.go`, `reference_test.go`, `revision_internal_test.go`,
   `examples/sketch_fillet_example_test.go`, `internal/cmd/genimages/main.go`, `tools_guard_test.go`, `CLAUDE.md`,
   `.claude/docs/sketch-core.md`, `docs/modification-tools-design.md`, `docs/acceptance-tests.md` (edits;
   `tools_guard_test.go` is new).
@@ -858,15 +858,15 @@ files named below; other files are edited by hand in the next steps.
 Run exactly:
 
 ```sh
-gofmt -r 'x.Break(a, b, c) -> sketch.Break(x, a, b, c)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fitspline_test.go reference_test.go
-gofmt -r 'x.Trim(a, b, c) -> sketch.Trim(x, a, b, c)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fitspline_test.go reference_test.go
-gofmt -r 'x.Extend(a, b) -> sketch.Extend(x, a, b)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fitspline_test.go reference_test.go
-gofmt -r 'x.CreateChamfer(a, b, c) -> sketch.CreateChamfer(x, a, b, c)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fitspline_test.go reference_test.go
-gofmt -r 'x.CreateMirror(a, b) -> sketch.CreateMirror(x, a, b)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fitspline_test.go reference_test.go
-gofmt -r 'x.CreatePatternRect(a, b, c, d, e) -> sketch.CreatePatternRect(x, a, b, c, d, e)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fitspline_test.go reference_test.go
-gofmt -r 'x.CreatePatternCircular(a, b, c) -> sketch.CreatePatternCircular(x, a, b, c)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fitspline_test.go reference_test.go
-gofmt -r 'x.CreatePatternCircularRing(a, b, c, d, e) -> sketch.CreatePatternCircularRing(x, a, b, c, d, e)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fitspline_test.go reference_test.go
-gofmt -r 'x.CreateOffset(a, b) -> sketch.CreateOffset(x, a, b)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fitspline_test.go reference_test.go
+gofmt -r 'x.Break(a, b, c) -> sketch.Break(x, a, b, c)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fit_spline_test.go reference_test.go
+gofmt -r 'x.Trim(a, b, c) -> sketch.Trim(x, a, b, c)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fit_spline_test.go reference_test.go
+gofmt -r 'x.Extend(a, b) -> sketch.Extend(x, a, b)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fit_spline_test.go reference_test.go
+gofmt -r 'x.CreateChamfer(a, b, c) -> sketch.CreateChamfer(x, a, b, c)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fit_spline_test.go reference_test.go
+gofmt -r 'x.CreateMirror(a, b) -> sketch.CreateMirror(x, a, b)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fit_spline_test.go reference_test.go
+gofmt -r 'x.CreatePatternRect(a, b, c, d, e) -> sketch.CreatePatternRect(x, a, b, c, d, e)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fit_spline_test.go reference_test.go
+gofmt -r 'x.CreatePatternCircular(a, b, c) -> sketch.CreatePatternCircular(x, a, b, c)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fit_spline_test.go reference_test.go
+gofmt -r 'x.CreatePatternCircularRing(a, b, c, d, e) -> sketch.CreatePatternCircularRing(x, a, b, c, d, e)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fit_spline_test.go reference_test.go
+gofmt -r 'x.CreateOffset(a, b) -> sketch.CreateOffset(x, a, b)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fit_spline_test.go reference_test.go
 ```
 
 The commands print nothing. The calls whose result changed shape (`Break`, `Trim`, `CreateMirror`, `CreateFillet`)
@@ -1416,12 +1416,12 @@ with:
 		require.NoError(t, err)
 ```
 
-### Step 0.7 — `tools_fitspline_test.go`
+### Step 0.7 — `tools_fit_spline_test.go`
 
 Check first (each count must print exactly as shown, else stop and report):
 
 ```sh
-grep -c -F -- 'm := sketch.CreateMirror(s, []sketch.Entity{seed}, axis)' tools_fitspline_test.go   # expect 1
+grep -c -F -- 'm := sketch.CreateMirror(s, []sketch.Entity{seed}, axis)' tools_fit_spline_test.go   # expect 1
 ```
 
 Edit 1. Replace exactly:
@@ -1844,7 +1844,7 @@ Then the common "Verify" commands.
 
 - **Commit message:** `move modification tools to package functions`
 - **Files to add:** `tools.go`, `sketch.go`, `tools_test.go`, `tools_ownership_test.go`, `tools_guard_test.go`,
-  `tools_fitspline_test.go`, `reference_test.go`, `revision_internal_test.go`,
+  `tools_fit_spline_test.go`, `reference_test.go`, `revision_internal_test.go`,
   `examples/sketch_fillet_example_test.go`, `internal/cmd/genimages/main.go`, `tools_guard_test.go`, `CLAUDE.md`,
   `.claude/docs/sketch-core.md`, `docs/modification-tools-design.md`, `docs/acceptance-tests.md`
 - **PR title:** `move modification tools to package functions`

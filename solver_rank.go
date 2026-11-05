@@ -138,7 +138,7 @@ func (s *Sketch) rank(free []int, m int) (int, bool) {
 // constraint rows (residuals(), driven dims skipped).
 //
 // It is one of the three primitives that CARRY the non-finite-geometry screen
-// (see nonfinite.go): the second result is false — and the analysis is not run —
+// (see non_finite.go): the second result is false — and the analysis is not run —
 // when [Sketch.hasNonFiniteVars] holds, so a caller cannot read a rank built from
 // a poisoned Jacobian without handling the refusal. No rank from such a matrix is
 // trustworthy in either direction: a non-finite pivot is neither correctly

@@ -107,7 +107,7 @@ func (pl *residualPlan) evalRows(dst []float64, ks []int) bool {
 // new constraint type cannot reach here unlisted), [entityPoints] and
 // [entityShapeVars] for the variables an entity operand owns (sketch.go — the
 // single definitions of both), and [auxVars] for the constraint's own auxiliary
-// unknowns (nonfinite.go — the single definition of those). Every residual in
+// unknowns (non_finite.go — the single definition of those). Every residual in
 // constraint.go reads its variables through exactly these: it reaches point
 // coordinates and entity shape variables through its operand handles, and reads
 // s.vars directly ONLY at its own aux indices.

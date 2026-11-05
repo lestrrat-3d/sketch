@@ -55,7 +55,7 @@ collapses to 0 on an all-grounded sketch — the same two-branch shape `DOF` use
 
 **`DOF` has no error return and so cannot refuse on
 non-finite geometry** (a NaN/Inf point coordinate, entity shape variable,
-dimension target, or constraint-owned auxiliary variable — see `nonfinite.go`,
+dimension target, or constraint-owned auxiliary variable — see `non_finite.go`,
 the `verify.go` row): its rank pass otherwise depends on the partial-pivot
 elimination in `rankAnalysisOfMatrix`, which reads a non-finite pivot two
 different ways depending on where it lands — never selected (an undercount,
@@ -149,7 +149,7 @@ an optimization, never a different result**.
 `Sketch.constraintVarIndices` is assembled from the definitions that already own
 each half of the question — `constraintRefs` (`removal.go`) for the operands,
 `entityPoints`/`entityShapeVars` (`sketch.go`) for what an entity operand owns,
-`auxVars` (`nonfinite.go`) for the constraint's own unknowns. It **refuses**
+`auxVars` (`non_finite.go`) for the constraint's own unknowns. It **refuses**
 rather than guesses on a constraint `constraintRefs` does not list (the shape a
 new constraint type added without its removal.go case takes — an empty
 dependency set would zero every entry of a real row), on an operand this sketch
@@ -231,7 +231,7 @@ while still COMMITTING a live candidate with a nil operand, skipping only its
 ever probing the candidate, when the CANDIDATE's own target is non-finite, or
 when THIS sketch's own geometry — independent of the candidate — already holds a
 non-finite point coordinate, entity shape variable, dimension target, or
-constraint-owned auxiliary variable (`Sketch.nonFiniteVars`, `nonfinite.go`):
+constraint-owned auxiliary variable (`Sketch.nonFiniteVars`, `non_finite.go`):
 the probe's rank pass runs the same partial-pivot comparisons
 `rankAnalysisOfMatrix` (`solver_rank.go`) does, so a non-finite pivot can rank a
 genuine duplicate's row as independent and accept it. The CANDIDATE screen
@@ -252,7 +252,7 @@ properties of the candidate itself and hold whatever it drives: a driven
 candidate is still refused for them, and a candidate the sketch cannot read or
 does not own is named as such rather than reported non-finite.
 `TestCheckConstraintDrivenCandidateSkipsNonFiniteScreen`
-(`nurbs_nonfinite_test.go`) pins both halves: the driven candidate passes and
+(`nurbs_non_finite_test.go`) pins both halves: the driven candidate passes and
 the same candidate left driving is still refused),
 `FreePoints`/`Point.IsFullyConstrained` (per-point free-DOF attribution) +
 `Sketch.EntityIsFullyConstrained` (per-entity: an entity is free when any
@@ -307,7 +307,7 @@ handle, so the two conditions share one answer. The screen applies uniformly,
 origin only because it is not in `s.points`, which is a statement about which
 slice is walked and not an exemption.
 `TestNonFinitePerHandleReadsAreMaximumIgnorance` and its finite control
-`TestFinitePerHandleReadsAreUnchanged` (`nurbs_nonfinite_test.go`) pin both
+`TestFinitePerHandleReadsAreUnchanged` (`nurbs_non_finite_test.go`) pin both
 halves over the all-grounded and the constrained fixture.
 
 ### `EntityIsFullyConstrained` screens its handle first
@@ -525,7 +525,7 @@ true for a sound sketch (`verify_check_test.go` pins it).
 ### Non-finite geometry is screened on the geometry
 
 **Non-finite geometry
-(`nonfinite.go`) is screened on the GEOMETRY, never on a Jacobian built from
+(`non_finite.go`) is screened on the GEOMETRY, never on a Jacobian built from
 it** — a Jacobian-level guard cannot catch the sharpest case, a DOF-0 candidate
 whose every point is fixed, which builds a perfectly finite zero-column matrix
 and hits `conditioning`'s own `len(free)==0` shortcut (+Inf, maximal trust)
@@ -533,7 +533,7 @@ without ever looking at a value. `Sketch.nonFiniteVars` scans `s.vars` directly
 for a NaN or infinite point coordinate, entity shape variable, dimension target,
 or constraint-owned auxiliary variable (a spline foot parameter, a tangency
 slack, a conic-tangency contact witness — enumerated per constraint type by
-`auxVars`, `nonfinite.go`, mirroring `entityShapeVars`), regardless of
+`auxVars`, `non_finite.go`, mirroring `entityShapeVars`), regardless of
 `s.fixed`: a FIXED poisoned point still poisons the finite-difference centroid
 every rank/DOF/conditioning pass subtracts (`positionShift`'s centroid is taken
 over ALL points), so it still corrupts the analysis of every OTHER point's
@@ -575,7 +575,7 @@ redundant or conflicting constraints are present, and `Conflicts`/`Redundant`
 both read empty on the same report.
 `TestCheckSkippedAnalysisReportsOnlyWhatRan`'s foreign-handle subtest and
 `TestAllFixedNaNPointIsNoLongerFalselyBlessed`'s non-finite fixture
-(`nurbs_nonfinite_test.go`) both pin `Status` at the zero value,
+(`nurbs_non_finite_test.go`) both pin `Status` at the zero value,
 `Underconstrained`, on the skipped path. `Sketch.CheckConstraint`
 (`diagnose.go`) refuses the same candidate-independent way, before ever probing
 the candidate, since its rank probe is exactly as vulnerable to a non-finite
