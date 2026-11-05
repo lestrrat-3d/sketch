@@ -80,7 +80,7 @@ collapse that way — every sketch owns an origin contributing two variables —
 it stays a non-negative count inside `DOF`'s documented domain, which a `-1`
 sentinel would not: a caller writing `if DOF() > 0 { warn }` reads `-1` as no
 warning, the blessing direction again.
-`FreePoints`/`Diagnose`/`RedundantConstraints` (`diagnose.go`, `solver.go`) take
+`FreePoints`/`Diagnose`/`RedundantConstraints` (`diagnose.go`, `solver_rank.go`) take
 the same stance; `Sketch.CheckConstraint` (`diagnose.go`) and `Sketch.Verify`
 (`verify.go`) instead refuse outright, since both have an error return / a
 report field to record the skip on.
@@ -155,7 +155,7 @@ new constraint type added without its removal.go case takes — an empty
 dependency set would zero every entry of a real row), on an operand this sketch
 does not own, and on auxiliary variables another sketch allocated.
 `jacobian_inventory_test.go` carries the checked-in inventory of all 57 kinds,
-anchored against `constraint.go`'s constructor list, and — the load-bearing half
+anchored against `constraint*.go`'s constructor list, and — the load-bearing half
 — pins that perturbing any variable a kind does NOT name leaves its residual
 rows bit-identical.
 
@@ -233,7 +233,7 @@ when THIS sketch's own geometry — independent of the candidate — already hol
 non-finite point coordinate, entity shape variable, dimension target, or
 constraint-owned auxiliary variable (`Sketch.nonFiniteVars`, `nonfinite.go`):
 the probe's rank pass runs the same partial-pivot comparisons
-`rankAnalysisOfMatrix` (`solver.go`) does, so a non-finite pivot can rank a
+`rankAnalysisOfMatrix` (`solver_rank.go`) does, so a non-finite pivot can rank a
 genuine duplicate's row as independent and accept it. The CANDIDATE screen
 closes a second, independent false-accept: a `NewDistance(a, b, NaN)` on a
 constraint-free sketch passes the probe, since the candidate's own NaN row is
@@ -264,11 +264,11 @@ or the spline families — is in the null-space support). Design in
 ### Maximum-ignorance answers for the bare reads
 
 **`FreePoints`, `Diagnose` and
-`RedundantConstraints` (`solver.go`) have no error return and so cannot refuse;
+`RedundantConstraints` (`solver_rank.go`) have no error return and so cannot refuse;
 on non-finite geometry each answers with a documented MAXIMUM-IGNORANCE value
 rather than one computed from a poisoned Jacobian, and the three agree with
 `DOF` and with each other.** `FreePoints` reports EVERY point of the sketch,
-grounded ones included — mirroring `DOF`'s total variable count (`solver.go`)
+grounded ones included — mirroring `DOF`'s total variable count (`solver_rank.go`)
 exactly — rather than the null-space support `movableVars` would otherwise
 compute. Excluding the grounded points is NOT that value, for the same reason
 the free-variable count is not `DOF`'s: it collapses to EMPTY on an all-grounded
@@ -588,7 +588,7 @@ matrix.
 
 **THE SCREEN IS CARRIED BY THE THREE PRIMITIVES EVERY VERDICT IN THIS
 FAMILY DERIVES FROM, never by each reader calling it**: `Sketch.movableVars`
-(`diagnose.go`), `Sketch.rank`/`committedRankAnalysis` (`solver.go`) and
+(`diagnose.go`), `Sketch.rank`/`committedRankAnalysis` (`solver_rank.go`) and
 `Sketch.conflictAnalysis` (`diagnose.go`, the dependency pass behind
 `Diagnose`/`RedundantConstraints`/`Verify`'s `Redundant`/`Conflicts`) each
 return a final `ok`, false exactly when `hasNonFiniteVars` holds, so **a new

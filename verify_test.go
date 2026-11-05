@@ -1,6 +1,8 @@
 package sketch_test
 
 import (
+	"context"
+	"math"
 	"testing"
 
 	"github.com/lestrrat-3d/sketch"
@@ -256,4 +258,183 @@ func TestVerifyToleranceOption(t *testing.T) {
 	require.False(t, sketchtest.Verify(t, s).Solvable, "5e-7 exceeds the default 1e-10 tolerance")
 	require.True(t, sketchtest.Verify(t, s, sketch.WithTolerance(1e-6)).Solvable,
 		"5e-7 is within a 1e-6 tolerance")
+}
+
+func TestVerifyWithoutConditioningKeepsStatusAndFailsCheck(t *testing.T) {
+	s := newSketch(t)
+	r := s.CreateRectangle(0, 0, 20, 12)
+	s.Fix(r.A)
+	s.AddConstraint(sketch.NewDistance(r.A, r.B, 20), sketch.NewDistance(r.A, r.D, 12))
+	sketchtest.Solve(t, s)
+
+	full := s.Verify(t.Context())
+	rep := s.Verify(t.Context(), sketch.WithoutConditioning())
+
+	require.Equal(t, full.Status, rep.Status)
+	require.Equal(t, full.DOF, rep.DOF)
+	require.Equal(t, sketch.FullyConstrained, rep.Status)
+	require.True(t, math.IsNaN(rep.Conditioning))
+	require.ErrorIs(t, rep.Check(), sketch.ErrConditioningUnmeasured)
+	require.NoError(t, full.Check())
+}
+
+func TestVerifyFullRankStillReportsRedundancy(t *testing.T) {
+	s := newSketch(t)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(10, 0)
+	s.Fix(a)
+	s.CreateLine(a, b)
+	s.AddConstraint(sketch.NewDistance(a, b, 10), sketch.NewHorizontalPoints(a, b),
+		sketch.NewHorizontalPoints(a, b))
+	sketchtest.Solve(t, s)
+
+	rep := s.Verify(t.Context(), sketch.WithoutConditioning())
+
+	require.Equal(t, sketch.Overconstrained, rep.Status)
+	require.NotEmpty(t, rep.Redundant)
+	require.Empty(t, rep.Conflicts)
+}
+
+// TestVerifyReuseMatchesIndependentReads proves that Verify's shared committed
+// Jacobian (CLAUDE.md's "a single Verify call builds that Jacobian once and
+// shares it among its own analyses") produces exactly the same answers the
+// independently-rebuilding public methods do: DOF, FreePoints, and the
+// redundant/conflicting constraint sets. It also proves Verify does not mutate
+// the sketch — two consecutive calls agree, and Revision is unchanged — since
+// sharing a Jacobian across a call's own analyses is only sound if nothing
+// between building it and the last consumer moves the geometry (see
+// committedJacobian's doc comment in conditioning.go).
+func TestVerifyReuseMatchesIndependentReads(t *testing.T) {
+	for _, f := range solveFixtures() {
+		t.Run(f.name, func(t *testing.T) {
+			s := f.build(t)
+			_, err := s.Solve(t.Context())
+			if err != nil {
+				require.ErrorIs(t, err, sketch.ErrNotConverged)
+			}
+
+			revBefore := s.Revision()
+			rep := s.Verify(t.Context())
+			require.True(t, rep.Analysed(), "fixtures carry no non-finite/foreign geometry")
+
+			require.Equal(t, s.DOF(), rep.DOF, "Verify's shared-Jacobian DOF must match Sketch.DOF's own build")
+			require.Equal(t, s.FreePoints(), rep.FreePoints, "Verify's FreePoints must match Sketch.FreePoints element-wise")
+
+			diag := s.Diagnose()
+			require.Equal(t, diag.Redundant, rep.Redundant, "Verify's Redundant must match Sketch.Diagnose")
+			var conflicting []sketch.Constraint
+			for _, cs := range rep.Conflicts {
+				conflicting = append(conflicting, cs.Constraint)
+			}
+			require.Equal(t, diag.Conflicting, conflicting, "Verify's Conflicts must name the same constraints as Sketch.Diagnose")
+
+			require.Equal(t, revBefore, s.Revision(), "Verify must not mutate the sketch")
+
+			rep2 := s.Verify(t.Context())
+			require.True(t, rep2.Analysed())
+			require.Equal(t, snapshotVerify(s, rep), snapshotVerify(s, rep2), "two consecutive Verify calls must agree")
+			require.Equal(t, revBefore, s.Revision(), "a second Verify call must not mutate the sketch either")
+		})
+	}
+}
+
+// horizontalBarSketch is fully constrained (DOF 0): a grounded origin and a
+// second point placed 10 to the right by a distance + horizontal pair. The two
+// solutions (±10) make it a legitimate target for the ambiguity probe.
+func horizontalBarSketch(t *testing.T) *sketch.Sketch {
+	t.Helper()
+	s := newSketch(t)
+	a := s.CreatePoint(0, 0)
+	b := s.CreatePoint(7, 3)
+	ab := s.CreateLine(a, b)
+	a.MoveTo(0, 0)
+	s.Fix(a)
+	s.AddConstraint(sketch.NewDistance(a, b, 10))
+	s.AddConstraint(sketch.NewHorizontal(ab))
+	return s
+}
+
+func TestProbeConfigurationsContext(t *testing.T) {
+	s := horizontalBarSketch(t)
+	_, err := s.Solve(t.Context())
+	require.NoError(t, err)
+
+	t.Run("already-cancelled context aborts the probe", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		_, err := s.ProbeConfigurations(ctx)
+		require.ErrorIs(t, err, context.Canceled)
+	})
+
+	t.Run("live context probes normally", func(t *testing.T) {
+		pr, err := s.ProbeConfigurations(t.Context())
+		require.NoError(t, err)
+		require.GreaterOrEqual(t, len(pr.Configurations), 1)
+	})
+
+	t.Run("cancellation after the baseline solve reports the context error", func(t *testing.T) {
+		// An under-constrained sketch (DOF 1: one free point pinned only by a
+		// distance to the grounded origin, authored already satisfying it) makes
+		// the probe's post-baseline precondition return ErrUnderconstrained — a
+		// non-context verdict. A context that goes done only once every earlier
+		// poll has passed exercises the guard added after the baseline rank/DOF
+		// pass: it must surface the cancellation, not the ErrUnderconstrained
+		// precondition. Without the guard the probe never polls ctx again after
+		// the rank pass, so it returns ErrUnderconstrained and the trip never fires.
+		u := newSketch(t)
+		a := u.CreatePoint(0, 0)
+		b := u.CreatePoint(10, 0) // already 10 from a, so lm converges at iteration 0
+		a.MoveTo(0, 0)
+		u.Fix(a)
+		u.AddConstraint(sketch.NewDistance(a, b, 10))
+		fc := &tripContext{tripAfterN: probeBaselineRankTripCount}
+
+		_, err := u.ProbeConfigurations(fc)
+		require.ErrorIs(t, err, context.Canceled)
+		require.NotErrorIs(t, err, sketch.ErrUnderconstrained)
+		require.True(t, fc.tripped, "context never reached the post-baseline-rank guard")
+	})
+}
+
+// probeBaselineRankTripCount is the number of live ctx.Err() polls the probe of
+// an already-converged, DOF-1 sketch makes before the guard that follows the
+// baseline rank/DOF pass: the entry check, lm's entry + first-iteration checks,
+// and the post-lm check are the first four; the post-rank guard is the fifth. If
+// the probe's pre-DOF poll cadence changes this test fails loudly (the guard is
+// never reached and ErrUnderconstrained leaks through), which is the intended
+// tripwire.
+const probeBaselineRankTripCount = 5
+
+func TestVerifyContext(t *testing.T) {
+	s := horizontalBarSketch(t)
+	_, err := s.Solve(t.Context())
+	require.NoError(t, err)
+
+	t.Run("cancelled context discards the probe but still reports", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		rep := s.Verify(ctx, sketch.WithProbe())
+		// Verify has no error result: it still returns a populated report, but
+		// the requested probe could not run, so it is marked incomplete and must
+		// not be blessed as trustworthy (the ambiguity check never happened).
+		require.Nil(t, rep.Probe)
+		require.True(t, rep.ProbeIncomplete)
+		require.False(t, rep.Trustworthy())
+		require.Equal(t, 0, rep.DOF)
+		require.True(t, rep.Solvable)
+	})
+
+	t.Run("cancelled context without WithProbe is not marked incomplete", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		rep := s.Verify(ctx)
+		// No probe was requested, so cancellation does not make the report
+		// incomplete on the probe axis.
+		require.False(t, rep.ProbeIncomplete)
+	})
+
+	t.Run("live context runs the probe", func(t *testing.T) {
+		rep := s.Verify(t.Context(), sketch.WithProbe())
+		require.NotNil(t, rep.Probe)
+	})
 }

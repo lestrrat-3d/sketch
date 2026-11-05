@@ -187,7 +187,7 @@ Inside this repository (every one changes in increment 0):
 |---|---|
 | `tools_test.go` | 32 calls to all ten tools. |
 | `tools_ownership_test.go` | 40 calls. Foreign, removed and typed-nil handles are typed variables, so inference works; an untyped `nil` needs `Break[*Line](s, nil, …)`. |
-| `tools_unsupported_test.go` | 11 calls. `require.Nil(t, s.CreateMirror(…))` becomes `require.ErrorIs(t, err, ErrUnsupportedEntity)`. |
+| `tools_guard_test.go` | 11 calls. `require.Nil(t, s.CreateMirror(…))` becomes `require.ErrorIs(t, err, ErrUnsupportedEntity)`. |
 | `tools_fitspline_test.go` | 11 calls (patterns, mirror, ring). |
 | `reference_test.go` | 5 calls. The `CreateMirror` refusal becomes `require.ErrorIs(t, err, ErrReferenceGeometry)`. |
 | `revision_internal_test.go` | 6 calls (internal package, unqualified names). |

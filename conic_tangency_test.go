@@ -185,3 +185,206 @@ func TestTangentConicsInternalExternalDistinct(t *testing.T) {
 	require.ErrorIs(t, err, sketch.ErrNotConverged)
 	require.False(t, si.Verify(t.Context()).Solvable, "the wrong internal/external branch is rejected")
 }
+
+// A first-quadrant elliptical arc (rx=6, ry=3) starting at its right vertex
+// S=(6,0) and a circular arc that also has S as an endpoint share the point S.
+// The ellipse normal at S is +x; a circle centered on the x-axis at (8,0) has
+// outward normal −x at S — so the two curves are externally tangent at the
+// shared corner. The shared-endpoint branch enforces tangency *at S*.
+
+func TestTangentConicsSharedEndpoint(t *testing.T) {
+	s := newSketch(t)
+	ec := s.CreatePoint(0, 0)
+	shared := s.CreatePoint(6, 0) // the shared corner (ellipse right vertex)
+	eaEnd := s.CreatePoint(0, 3)
+	ea := s.CreateEllipticalArc(ec, shared, eaEnd, 6, 3, 0)
+	s.FixEntity(ea)
+
+	cc := s.CreatePoint(8, 0)
+	caEnd := s.CreatePoint(8, 2) // on the radius-2 circle around (8,0)
+	ca := s.CreateArc(cc, shared, caEnd)
+	s.FixEntity(ca)
+
+	s.AddConstraint(sketch.NewTangentEllipseCircular(ea, ca, false)) // external
+	_, err := s.Solve(t.Context())
+	require.NoError(t, err)
+	require.True(t, s.Verify(t.Context()).Solvable, "tangent at the shared corner S")
+}
+
+func TestTangentConicsSharedEndpointNotTangentRejected(t *testing.T) {
+	// Same shared corner, but the circle's center is OFF the x-axis, so the circle
+	// normal at S is not parallel to the ellipse normal — the curves meet at S but
+	// are not tangent there. With everything rigid the shared-endpoint tangency is
+	// infeasible and the oracle must report unsolvable.
+	s := newSketch(t)
+	ec := s.CreatePoint(0, 0)
+	shared := s.CreatePoint(6, 0)
+	eaEnd := s.CreatePoint(0, 3)
+	ea := s.CreateEllipticalArc(ec, shared, eaEnd, 6, 3, 0)
+	s.FixEntity(ea)
+
+	cc := s.CreatePoint(8, 1)                 // off the x-axis: normal at S not ±x
+	caEnd := s.CreatePoint(8, 1+math.Sqrt(5)) // on the radius-√5 circle around (8,1)
+	ca := s.CreateArc(cc, shared, caEnd)
+	s.FixEntity(ca)
+
+	s.AddConstraint(sketch.NewTangentEllipseCircular(ea, ca, false))
+	_, err := s.Solve(t.Context())
+	require.ErrorIs(t, err, sketch.ErrNotConverged)
+	require.False(t, s.Verify(t.Context()).Solvable, "curves meeting at S but not tangent there are not blessed")
+}
+
+func TestTangentConicsSharedEndpointDOFAndRemoval(t *testing.T) {
+	// A fixed elliptical arc; a circular arc sharing the corner S has a free center
+	// and free far endpoint (3 DOF after its intrinsic radius constraint). The
+	// shared-endpoint tangency removes exactly one (it pins the circle's normal at S
+	// parallel to the ellipse's).
+	s := newSketch(t)
+	ec := s.CreatePoint(0, 0)
+	shared := s.CreatePoint(6, 0)
+	eaEnd := s.CreatePoint(0, 3)
+	ea := s.CreateEllipticalArc(ec, shared, eaEnd, 6, 3, 0)
+	s.FixEntity(ea)
+
+	cc := s.CreatePoint(8, 0)
+	caEnd := s.CreatePoint(8, 2)
+	s.CreateArc(cc, shared, caEnd) // cc, caEnd free; shared fixed by the elliptical arc
+	require.Equal(t, 3, s.DOF(), "free center + far endpoint, minus the arc's radius constraint")
+
+	con := sketch.NewTangentEllipseCircular(ea, s.Entities()[1].(*sketch.Arc), false)
+	s.AddConstraint(con)
+	require.Equal(t, 2, s.DOF(), "shared-endpoint tangency removes one DOF")
+
+	require.True(t, s.RemoveConstraint(con))
+	require.Equal(t, 3, s.DOF(), "removal restores the DOF (the branch slack is retired)")
+}
+
+func TestTangentConicsSharedEndpointRoundTrip(t *testing.T) {
+	s := newSketch(t)
+	ec := s.CreatePoint(0, 0)
+	shared := s.CreatePoint(6, 0)
+	eaEnd := s.CreatePoint(0, 3)
+	ea := s.CreateEllipticalArc(ec, shared, eaEnd, 6, 3, 0)
+	s.FixEntity(ea)
+	cc := s.CreatePoint(8, 0)
+	caEnd := s.CreatePoint(8, 2)
+	ca := s.CreateArc(cc, shared, caEnd)
+	s.FixEntity(ca)
+	s.AddConstraint(sketch.NewTangentEllipseCircular(ea, ca, false))
+	_, err := s.Solve(t.Context())
+	require.NoError(t, err)
+
+	data, err := json.Marshal(s)
+	require.NoError(t, err)
+	var s2 sketch.Sketch
+	require.NoError(t, json.Unmarshal(data, &s2))
+	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraint survives reload")
+	_, err = s2.Solve(t.Context())
+	require.NoError(t, err)
+	require.True(t, s2.Verify(t.Context()).Solvable, "shared-endpoint branch reconstructed on load")
+}
+
+// A radius-3 circle centered at (7,0) is externally tangent to a fixed rx=4,ry=2
+// ellipse at the ellipse's right vertex (4,0) — which is angle π on the circle.
+// Building it as an ARC whose sweep includes or excludes that contact exercises
+// the sweep confinement: the tangent must touch the swept portion, not just the
+// underlying full circle.
+
+func arcStraddlingContact(s *sketch.Sketch) *sketch.Arc {
+	c := s.CreatePoint(7, 0)
+	start := s.CreatePoint(7+3*math.Cos(3*math.Pi/4), 3*math.Sin(3*math.Pi/4)) // angle 3π/4
+	end := s.CreatePoint(7+3*math.Cos(5*math.Pi/4), 3*math.Sin(5*math.Pi/4))   // angle 5π/4 (sweep straddles π)
+	arc := s.CreateArc(c, start, end)
+	s.FixEntity(arc)
+	return arc
+}
+
+func arcAwayFromContact(s *sketch.Sketch) *sketch.Arc {
+	c := s.CreatePoint(7, 0)
+	start := s.CreatePoint(10, 0) // angle 0
+	end := s.CreatePoint(7, 3)    // angle π/2 (sweep [0,π/2] excludes the angle-π contact)
+	arc := s.CreateArc(c, start, end)
+	s.FixEntity(arc)
+	return arc
+}
+
+func TestTangentEllipseArcInSweep(t *testing.T) {
+	s := newSketch(t)
+	e := s.CreateEllipse(s.CreatePoint(0, 0), 4, 2, 0)
+	s.FixEntity(e)
+	arc := arcStraddlingContact(s)
+	s.AddConstraint(sketch.NewTangentEllipseCircular(e, arc, false))
+
+	_, err := s.Solve(t.Context())
+	require.NoError(t, err)
+	require.True(t, s.Verify(t.Context()).Solvable, "the contact (4,0) lies within the arc's sweep")
+}
+
+func TestTangentEllipseArcOffSweepRejected(t *testing.T) {
+	// Same tangent circle, but the arc spans the far side: the only tangent contact
+	// with the ellipse is outside the sweep, so the oracle must report unsolvable.
+	s := newSketch(t)
+	e := s.CreateEllipse(s.CreatePoint(0, 0), 4, 2, 0)
+	s.FixEntity(e)
+	arc := arcAwayFromContact(s)
+	s.AddConstraint(sketch.NewTangentEllipseCircular(e, arc, false))
+
+	_, err := s.Solve(t.Context())
+	require.ErrorIs(t, err, sketch.ErrNotConverged)
+	require.False(t, s.Verify(t.Context()).Solvable, "a tangent to the full circle off the arc is not blessed")
+}
+
+func TestTangentEllipticalArcCircle(t *testing.T) {
+	// An elliptical arc (first-quadrant sweep of an rx=6,ry=3 ellipse) tangent to a
+	// circle that touches its right vertex (6,0): exercises the ellipticalArcConic
+	// operand (Sampson membership + eccentric-sweep confinement). The contact (6,0)
+	// is eccentric angle 0, within the [0,π/2] sweep.
+	s := newSketch(t)
+	ec := s.CreatePoint(0, 0)
+	estart := s.CreatePoint(6, 0) // eccentric 0
+	eend := s.CreatePoint(0, 3)   // eccentric π/2
+	ea := s.CreateEllipticalArc(ec, estart, eend, 6, 3, 0)
+	s.FixEntity(ea)
+	c := s.CreateCircle(s.CreatePoint(8, 0), 2) // left point (6,0) meets the arc vertex
+	s.FixEntity(c)
+	s.AddConstraint(sketch.NewTangentEllipseCircular(ea, c, false))
+
+	_, err := s.Solve(t.Context())
+	require.NoError(t, err)
+	require.True(t, s.Verify(t.Context()).Solvable, "elliptical arc externally tangent to the circle at (6,0)")
+}
+
+func TestTangentConicsArcDOFAndRemoval(t *testing.T) {
+	// A free ellipse tangent to a fixed arc: tangency removes one DOF; the arc's
+	// sweep slack adds a var and a row that net to zero.
+	s := newSketch(t)
+	arc := arcStraddlingContact(s)
+	e := s.CreateEllipse(s.CreatePoint(0, 0), 4, 2, 0) // free: 5 DOF
+	require.Equal(t, 5, s.DOF())
+
+	con := sketch.NewTangentEllipseCircular(e, arc, false)
+	s.AddConstraint(con)
+	require.Equal(t, 4, s.DOF(), "tangency removes one DOF (the sweep slack nets out)")
+
+	require.True(t, s.RemoveConstraint(con))
+	require.Equal(t, 5, s.DOF(), "removal restores the DOF (all aux vars retired)")
+}
+
+func TestTangentConicsArcRoundTrip(t *testing.T) {
+	s := newSketch(t)
+	e := s.CreateEllipse(s.CreatePoint(0, 0), 4, 2, 0)
+	s.FixEntity(e)
+	arc := arcStraddlingContact(s)
+	s.AddConstraint(sketch.NewTangentEllipseCircular(e, arc, false))
+	_, err := s.Solve(t.Context())
+	require.NoError(t, err)
+
+	data, err := json.Marshal(s)
+	require.NoError(t, err)
+	var s2 sketch.Sketch
+	require.NoError(t, json.Unmarshal(data, &s2))
+	require.Len(t, s2.Constraints(), len(s.Constraints()), "constraint survives reload")
+	_, err = s2.Solve(t.Context())
+	require.NoError(t, err)
+	require.True(t, s2.Verify(t.Context()).Solvable)
+}

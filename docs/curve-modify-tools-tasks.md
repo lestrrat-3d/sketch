@@ -151,11 +151,11 @@ with `git log`.
 - **Branch:** `refactor-tools-package-functions`
 - **Design section:** "Increment 0 — tools become package-level functions".
 - **Merge after:** — (first in the order)
-- **Files:** `tools.go`, `sketch.go`, `tools_test.go`, `tools_ownership_test.go`, `tools_unsupported_test.go`,
+- **Files:** `tools.go`, `sketch.go`, `tools_test.go`, `tools_ownership_test.go`, `tools_guard_test.go`,
   `tools_fitspline_test.go`, `reference_test.go`, `revision_internal_test.go`,
-  `examples/sketch_fillet_example_test.go`, `internal/cmd/genimages/main.go`, `tools_nil_sketch_test.go`, `CLAUDE.md`,
+  `examples/sketch_fillet_example_test.go`, `internal/cmd/genimages/main.go`, `tools_guard_test.go`, `CLAUDE.md`,
   `.claude/docs/sketch-core.md`, `docs/modification-tools-design.md`, `docs/acceptance-tests.md` (edits;
-  `tools_nil_sketch_test.go` is new).
+  `tools_guard_test.go` is new).
 
 This increment changes about 105 call sites. Do them in the order of the steps: the production code first (Steps 0.1
 and 0.2), then one mechanical `gofmt -r` rewrite (Step 0.3), then the hand edits for the calls whose result changed
@@ -858,15 +858,15 @@ files named below; other files are edited by hand in the next steps.
 Run exactly:
 
 ```sh
-gofmt -r 'x.Break(a, b, c) -> sketch.Break(x, a, b, c)' -w tools_test.go tools_ownership_test.go tools_unsupported_test.go tools_fitspline_test.go reference_test.go
-gofmt -r 'x.Trim(a, b, c) -> sketch.Trim(x, a, b, c)' -w tools_test.go tools_ownership_test.go tools_unsupported_test.go tools_fitspline_test.go reference_test.go
-gofmt -r 'x.Extend(a, b) -> sketch.Extend(x, a, b)' -w tools_test.go tools_ownership_test.go tools_unsupported_test.go tools_fitspline_test.go reference_test.go
-gofmt -r 'x.CreateChamfer(a, b, c) -> sketch.CreateChamfer(x, a, b, c)' -w tools_test.go tools_ownership_test.go tools_unsupported_test.go tools_fitspline_test.go reference_test.go
-gofmt -r 'x.CreateMirror(a, b) -> sketch.CreateMirror(x, a, b)' -w tools_test.go tools_ownership_test.go tools_unsupported_test.go tools_fitspline_test.go reference_test.go
-gofmt -r 'x.CreatePatternRect(a, b, c, d, e) -> sketch.CreatePatternRect(x, a, b, c, d, e)' -w tools_test.go tools_ownership_test.go tools_unsupported_test.go tools_fitspline_test.go reference_test.go
-gofmt -r 'x.CreatePatternCircular(a, b, c) -> sketch.CreatePatternCircular(x, a, b, c)' -w tools_test.go tools_ownership_test.go tools_unsupported_test.go tools_fitspline_test.go reference_test.go
-gofmt -r 'x.CreatePatternCircularRing(a, b, c, d, e) -> sketch.CreatePatternCircularRing(x, a, b, c, d, e)' -w tools_test.go tools_ownership_test.go tools_unsupported_test.go tools_fitspline_test.go reference_test.go
-gofmt -r 'x.CreateOffset(a, b) -> sketch.CreateOffset(x, a, b)' -w tools_test.go tools_ownership_test.go tools_unsupported_test.go tools_fitspline_test.go reference_test.go
+gofmt -r 'x.Break(a, b, c) -> sketch.Break(x, a, b, c)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fitspline_test.go reference_test.go
+gofmt -r 'x.Trim(a, b, c) -> sketch.Trim(x, a, b, c)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fitspline_test.go reference_test.go
+gofmt -r 'x.Extend(a, b) -> sketch.Extend(x, a, b)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fitspline_test.go reference_test.go
+gofmt -r 'x.CreateChamfer(a, b, c) -> sketch.CreateChamfer(x, a, b, c)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fitspline_test.go reference_test.go
+gofmt -r 'x.CreateMirror(a, b) -> sketch.CreateMirror(x, a, b)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fitspline_test.go reference_test.go
+gofmt -r 'x.CreatePatternRect(a, b, c, d, e) -> sketch.CreatePatternRect(x, a, b, c, d, e)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fitspline_test.go reference_test.go
+gofmt -r 'x.CreatePatternCircular(a, b, c) -> sketch.CreatePatternCircular(x, a, b, c)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fitspline_test.go reference_test.go
+gofmt -r 'x.CreatePatternCircularRing(a, b, c, d, e) -> sketch.CreatePatternCircularRing(x, a, b, c, d, e)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fitspline_test.go reference_test.go
+gofmt -r 'x.CreateOffset(a, b) -> sketch.CreateOffset(x, a, b)' -w tools_test.go tools_ownership_test.go tools_guard_test.go tools_fitspline_test.go reference_test.go
 ```
 
 The commands print nothing. The calls whose result changed shape (`Break`, `Trim`, `CreateMirror`, `CreateFillet`)
@@ -1348,14 +1348,14 @@ with:
 		require.NoError(t, err)
 ```
 
-### Step 0.6 — `tools_unsupported_test.go`
+### Step 0.6 — `tools_guard_test.go`
 
 Check first (each count must print exactly as shown, else stop and report):
 
 ```sh
-grep -c -F -- 'require.Nil(t, sketch.CreateMirror(s, seed, axis))' tools_unsupported_test.go   # expect 2
-grep -c -F -- 'm := sketch.CreateMirror(s, []sketch.Entity{a}, axis)' tools_unsupported_test.go   # expect 1
-grep -c -F -- 'm := sketch.CreateMirror(s, []sketch.Entity{seed}, axis)' tools_unsupported_test.go   # expect 1
+grep -c -F -- 'require.Nil(t, sketch.CreateMirror(s, seed, axis))' tools_guard_test.go   # expect 2
+grep -c -F -- 'm := sketch.CreateMirror(s, []sketch.Entity{a}, axis)' tools_guard_test.go   # expect 1
+grep -c -F -- 'm := sketch.CreateMirror(s, []sketch.Entity{seed}, axis)' tools_guard_test.go   # expect 1
 ```
 
 Edit 1. Replace exactly:
@@ -1563,9 +1563,9 @@ with:
 	f, err := sketch.CreateFillet(s, r.BC, r.CD, r.C, 40)
 ```
 
-### Step 0.12 — new file `tools_nil_sketch_test.go`
+### Step 0.12 — new file `tools_guard_test.go`
 
-This file must not exist yet: `test -e tools_nil_sketch_test.go && echo EXISTS` prints nothing.
+This file must not exist yet: `test -e tools_guard_test.go && echo EXISTS` prints nothing.
 
 ```go
 package sketch_test
@@ -1843,9 +1843,9 @@ Then the common "Verify" commands.
 ### Step 0.18 — commit and PR
 
 - **Commit message:** `move modification tools to package functions`
-- **Files to add:** `tools.go`, `sketch.go`, `tools_test.go`, `tools_ownership_test.go`, `tools_unsupported_test.go`,
+- **Files to add:** `tools.go`, `sketch.go`, `tools_test.go`, `tools_ownership_test.go`, `tools_guard_test.go`,
   `tools_fitspline_test.go`, `reference_test.go`, `revision_internal_test.go`,
-  `examples/sketch_fillet_example_test.go`, `internal/cmd/genimages/main.go`, `tools_nil_sketch_test.go`, `CLAUDE.md`,
+  `examples/sketch_fillet_example_test.go`, `internal/cmd/genimages/main.go`, `tools_guard_test.go`, `CLAUDE.md`,
   `.claude/docs/sketch-core.md`, `docs/modification-tools-design.md`, `docs/acceptance-tests.md`
 - **PR title:** `move modification tools to package functions`
 - **PR body:**
@@ -2332,7 +2332,7 @@ Then the common "Verify" commands.
 - **Design section:** "Modify in place, as Fusion does".
 - **Merge after:** 1
 - **Files:** `tools.go`, `internal/cmd/genimages/main.go`, `docs/modification-tools-design.md`,
-  `docs/images/fillet-after.svg` (edits); `tools_in_place_corner_test.go` (new).
+  `docs/images/fillet-after.svg` (edits); `tools_in_place_test.go` (new).
 
 ### Step 2.0 — sync and check the base
 
@@ -2535,9 +2535,9 @@ with:
 	}
 ```
 
-### Step 2.3 — new file `tools_in_place_corner_test.go`
+### Step 2.3 — new file `tools_in_place_test.go`
 
-This file must not exist yet: `test -e tools_in_place_corner_test.go && echo EXISTS` prints nothing.
+This file must not exist yet: `test -e tools_in_place_test.go && echo EXISTS` prints nothing.
 
 ```go
 package sketch_test
@@ -2679,7 +2679,7 @@ Then the common "Verify" commands.
 ### Step 2.7 — commit and PR
 
 - **Commit message:** `keep fillet and chamfer legs in place`
-- **Files to add:** `tools.go`, `internal/cmd/genimages/main.go`, `tools_in_place_corner_test.go`,
+- **Files to add:** `tools.go`, `internal/cmd/genimages/main.go`, `tools_in_place_test.go`,
   `docs/modification-tools-design.md`, `docs/images/fillet-after.svg`
 - **PR title:** `keep fillet and chamfer legs in place`
 - **PR body:**
@@ -2694,7 +2694,7 @@ Then the common "Verify" commands.
 - **Design section:** "Pin trimmed and extended ends to the cutter".
 - **Merge after:** 2
 - **Files:** `tools.go`, `entity_switches_test.go`, `tools_in_place_test.go`, `docs/modification-tools-design.md`
-  (edits); `tools_trim_pin_test.go` (new).
+  (edits); `tools_trim_extend_test.go` (new).
 
 ### Step 3.0 — sync and check the base
 
@@ -2947,9 +2947,9 @@ with:
 	require.Equal(t, dof-1, s.DOF(), "a fresh end replaces the removed one, less the pin")
 ```
 
-### Step 3.4 — new file `tools_trim_pin_test.go`
+### Step 3.4 — new file `tools_trim_extend_test.go`
 
-This file must not exist yet: `test -e tools_trim_pin_test.go && echo EXISTS` prints nothing.
+This file must not exist yet: `test -e tools_trim_extend_test.go && echo EXISTS` prints nothing.
 
 ```go
 package sketch_test
@@ -3091,7 +3091,7 @@ Then the common "Verify" commands.
 ### Step 3.7 — commit and PR
 
 - **Commit message:** `pin trimmed and extended ends to cutters`
-- **Files to add:** `tools.go`, `entity_switches_test.go`, `tools_in_place_test.go`, `tools_trim_pin_test.go`,
+- **Files to add:** `tools.go`, `entity_switches_test.go`, `tools_in_place_test.go`, `tools_trim_extend_test.go`,
   `docs/modification-tools-design.md`
 - **PR title:** `pin trimmed and extended ends to cutters`
 - **PR body:**
@@ -3545,7 +3545,7 @@ Then the common "Verify" commands.
 - **Branch:** `feat-offset-fusion-lines`
 - **Design section:** "Offset like Fusion".
 - **Merge after:** 4
-- **Files:** `tools.go`, `tools_test.go`, `docs/modification-tools-design.md` (edits); `tools_offset_flow_test.go`
+- **Files:** `tools.go`, `tools_test.go`, `docs/modification-tools-design.md` (edits); `tools_offset_test.go`
   (new).
 
 ### Step 5.0 — sync and check the base
@@ -3875,9 +3875,9 @@ with:
 	require.Equal(t, 0, s.DOF())
 ```
 
-### Step 5.3 — new file `tools_offset_flow_test.go`
+### Step 5.3 — new file `tools_offset_test.go`
 
-This file must not exist yet: `test -e tools_offset_flow_test.go && echo EXISTS` prints nothing.
+This file must not exist yet: `test -e tools_offset_test.go && echo EXISTS` prints nothing.
 
 ```go
 package sketch_test
@@ -4000,7 +4000,7 @@ Then the common "Verify" commands.
 ### Step 5.6 — commit and PR
 
 - **Commit message:** `offset line chains the way Fusion does`
-- **Files to add:** `tools.go`, `tools_test.go`, `tools_offset_flow_test.go`, `docs/modification-tools-design.md`
+- **Files to add:** `tools.go`, `tools_test.go`, `tools_offset_test.go`, `docs/modification-tools-design.md`
 - **PR title:** `offset line chains the way Fusion does`
 - **PR body:**
 
@@ -4015,7 +4015,7 @@ Then the common "Verify" commands.
 - **Design section:** "Trim on arcs and circles".
 - **Merge after:** 5
 - **Files:** `geom/intersect.go`, `tools.go`, `entity_switches_test.go`, `docs/modification-tools-design.md` (edits);
-  `geom/arc_angle_test.go`, `tools_trim_arc_test.go` (new).
+  `geom/arc_angle_test.go`, `tools_trim_extend_test.go` (new).
 
 ### Step 6.0 — sync and check the base
 
@@ -4387,9 +4387,9 @@ with:
 	{"tools.go", "lineCrossings"}:            "only line/circle/arc cutters have a closed-form line intersection in geom; a curve contributes no crossing",
 ```
 
-### Step 6.5 — new file `tools_trim_arc_test.go`
+### Step 6.5 — new file `tools_trim_extend_test.go`
 
-This file must not exist yet: `test -e tools_trim_arc_test.go && echo EXISTS` prints nothing.
+This file must not exist yet: `test -e tools_trim_extend_test.go && echo EXISTS` prints nothing.
 
 ```go
 package sketch_test
@@ -4591,7 +4591,7 @@ Then the common "Verify" commands.
 
 - **Commit message:** `trim arcs and circles`
 - **Files to add:** `geom/intersect.go`, `geom/arc_angle_test.go`, `tools.go`, `entity_switches_test.go`,
-  `tools_trim_arc_test.go`, `docs/modification-tools-design.md`
+  `tools_trim_extend_test.go`, `docs/modification-tools-design.md`
 - **PR title:** `trim arcs and circles`
 - **PR body:**
 
@@ -4604,7 +4604,7 @@ Then the common "Verify" commands.
 - **Branch:** `feat-extend-arc`
 - **Design section:** "Extend on arcs".
 - **Merge after:** 6
-- **Files:** `tools.go`, `docs/modification-tools-design.md` (edits); `tools_extend_arc_test.go` (new).
+- **Files:** `tools.go`, `docs/modification-tools-design.md` (edits); `tools_trim_extend_test.go` (new).
 
 ### Step 7.0 — sync and check the base
 
@@ -4709,9 +4709,9 @@ func (s *Sketch) extendArc(a *Arc, end *Point) (*Arc, bool) {
 	return a, true
 ```
 
-### Step 7.2 — new file `tools_extend_arc_test.go`
+### Step 7.2 — new file `tools_trim_extend_test.go`
 
-This file must not exist yet: `test -e tools_extend_arc_test.go && echo EXISTS` prints nothing.
+This file must not exist yet: `test -e tools_trim_extend_test.go && echo EXISTS` prints nothing.
 
 ```go
 package sketch_test
@@ -4805,7 +4805,7 @@ Then the common "Verify" commands.
 ### Step 7.5 — commit and PR
 
 - **Commit message:** `extend arcs along their circle`
-- **Files to add:** `tools.go`, `tools_extend_arc_test.go`, `docs/modification-tools-design.md`
+- **Files to add:** `tools.go`, `tools_trim_extend_test.go`, `docs/modification-tools-design.md`
 - **PR title:** `extend arcs along their circle`
 - **PR body:**
 
@@ -5121,7 +5121,7 @@ Then the common "Verify" commands.
 - **Branch:** `feat-fillet-arcs`
 - **Design section:** "Fillet on curves", subsection "`CreateFillet` with arcs".
 - **Merge after:** 8, and the creation-variants PR `fix rank of shared-endpoint arc tangency`
-- **Files:** `tools.go`, `tools_nil_sketch_test.go`, `docs/modification-tools-design.md`,
+- **Files:** `tools.go`, `tools_guard_test.go`, `docs/modification-tools-design.md`,
   `docs/fusion-gap-analysis.md` (edits); `tools_fillet_arc_test.go` (new).
 
 This increment needs the creation-variants fix `fix rank of shared-endpoint arc tangency`: without it the tangency
@@ -5314,12 +5314,12 @@ func tangentToFillet(leg Entity, fillet *Arc, inside bool) Constraint {
 }
 ```
 
-### Step 9.2 — `tools_nil_sketch_test.go`
+### Step 9.2 — `tools_guard_test.go`
 
 Check first (each count must print exactly as shown, else stop and report):
 
 ```sh
-grep -c -F -- 'require.ErrorIs(t, err, sketch.ErrUnsupportedEntity, "arc fillets are no' tools_nil_sketch_test.go   # expect 1
+grep -c -F -- 'require.ErrorIs(t, err, sketch.ErrUnsupportedEntity, "arc fillets are no' tools_guard_test.go   # expect 1
 ```
 
 Edit 1. Replace exactly:
@@ -5508,7 +5508,7 @@ Then the common "Verify" commands.
 ### Step 9.7 — commit and PR
 
 - **Commit message:** `fillet corners between lines and arcs`
-- **Files to add:** `tools.go`, `tools_nil_sketch_test.go`, `tools_fillet_arc_test.go`,
+- **Files to add:** `tools.go`, `tools_guard_test.go`, `tools_fillet_arc_test.go`,
   `docs/modification-tools-design.md`, `docs/fusion-gap-analysis.md`
 - **PR title:** `fillet corners between lines and arcs`
 - **PR body:**
@@ -5951,7 +5951,7 @@ Then the common "Verify" commands.
 - **Design section:** "Offset of arcs and circles", subsection "Circles and lone arcs".
 - **Merge after:** 10
 - **Files:** `tools.go`, `entity_switches_test.go`, `docs/modification-tools-design.md` (edits);
-  `tools_offset_curve_test.go` (new).
+  `tools_offset_test.go` (new).
 
 ### Step 11.0 — sync and check the base
 
@@ -6193,9 +6193,9 @@ with:
 	{"tools.go", "lineCrossings"}:            "only line/circle/arc cutters have a closed-form line intersection in geom; a curve contributes no crossing",
 ```
 
-### Step 11.3 — new file `tools_offset_curve_test.go`
+### Step 11.3 — new file `tools_offset_test.go`
 
-This file must not exist yet: `test -e tools_offset_curve_test.go && echo EXISTS` prints nothing.
+This file must not exist yet: `test -e tools_offset_test.go && echo EXISTS` prints nothing.
 
 ```go
 package sketch_test
@@ -6334,7 +6334,7 @@ Then the common "Verify" commands.
 ### Step 11.6 — commit and PR
 
 - **Commit message:** `offset circles and lone arcs`
-- **Files to add:** `tools.go`, `entity_switches_test.go`, `tools_offset_curve_test.go`,
+- **Files to add:** `tools.go`, `entity_switches_test.go`, `tools_offset_test.go`,
   `docs/modification-tools-design.md`
 - **PR title:** `offset circles and lone arcs`
 - **PR body:**
@@ -6348,8 +6348,8 @@ Then the common "Verify" commands.
 - **Branch:** `feat-offset-chains`
 - **Design section:** "Offset of arcs and circles", subsection "Offset chains".
 - **Merge after:** 11
-- **Files:** `tools.go`, `tools_offset_curve_test.go`, `docs/modification-tools-design.md`,
-  `docs/fusion-gap-analysis.md`, `compound.go` (edits); `tools_offset_chain_test.go` (new).
+- **Files:** `tools.go`, `tools_offset_test.go`, `docs/modification-tools-design.md`,
+  `docs/fusion-gap-analysis.md`, `compound.go` (edits); `tools_offset_test.go` (new).
 
 Step 12.6 fixes two doc links in `compound.go` that increment 0 left pointing at the removed methods. It is done last
 because the creation-variants increment 2 rewrites the same comment; its anchors are the two link texts alone, which
@@ -7050,12 +7050,12 @@ with:
 			exit, entry = e[0], e[1]
 ```
 
-### Step 12.2 — `tools_offset_curve_test.go`
+### Step 12.2 — `tools_offset_test.go`
 
 Check first (each count must print exactly as shown, else stop and report):
 
 ```sh
-grep -c -F -- 'return []sketch.Entity{s.CreateLine(s.CreatePoint(20, 0), p), arc}' tools_offset_curve_test.go   # expect 1
+grep -c -F -- 'return []sketch.Entity{s.CreateLine(s.CreatePoint(20, 0), p), arc}' tools_offset_test.go   # expect 1
 ```
 
 Edit 1. Replace exactly:
@@ -7079,9 +7079,9 @@ with:
 			return []sketch.Entity{s.CreateArc(c, a, b), s.CreateArc(c, b, a)}
 ```
 
-### Step 12.3 — new file `tools_offset_chain_test.go`
+### Step 12.3 — new file `tools_offset_test.go`
 
-This file must not exist yet: `test -e tools_offset_chain_test.go && echo EXISTS` prints nothing.
+This file must not exist yet: `test -e tools_offset_test.go && echo EXISTS` prints nothing.
 
 ```go
 package sketch_test
@@ -7353,7 +7353,7 @@ Then the common "Verify" commands.
 ### Step 12.8 — commit and PR
 
 - **Commit message:** `offset chains of lines and arcs`
-- **Files to add:** `tools.go`, `tools_offset_curve_test.go`, `tools_offset_chain_test.go`,
+- **Files to add:** `tools.go`, `tools_offset_test.go`, `tools_offset_test.go`,
   `docs/modification-tools-design.md`, `docs/fusion-gap-analysis.md`, `compound.go`
 - **PR title:** `offset chains of lines and arcs`
 - **PR body:**

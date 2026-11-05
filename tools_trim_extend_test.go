@@ -143,3 +143,141 @@ func TestTrimArcAndCircleRefusals(t *testing.T) {
 	require.Nil(t, res)
 	require.Len(t, s.Entities(), 2)
 }
+
+// A trimmed end is tied to the cutter it was cut at, one constraint kind per
+// cutter kind, so moving the cutter moves the end with it.
+func TestTrimPinsEndToCutter(t *testing.T) {
+	t.Run("line", func(t *testing.T) {
+		s := newSketch(t)
+		h := s.CreateLine(s.CreatePoint(-5, 0), s.CreatePoint(5, 0))
+		cutter := s.CreateLine(s.CreatePoint(2, -5), s.CreatePoint(2, 5))
+		dof := s.DOF()
+
+		_, ok := sketch.Trim(s, h, 4, 0)
+		require.True(t, ok)
+		require.Equal(t, 1, countKind(s, "point_on_line"))
+		require.Equal(t, dof-1, s.DOF())
+
+		s.Fix(cutter.Start)
+		s.Fix(cutter.End)
+		cutter.Start.MoveTo(3, -5)
+		cutter.End.MoveTo(3, 5)
+		_, err := s.Solve(t.Context())
+		require.NoError(t, err)
+		require.InDelta(t, 3, h.End.X(), 1e-6, "the end follows the cutter")
+	})
+
+	t.Run("circle", func(t *testing.T) {
+		s := newSketch(t)
+		h := s.CreateLine(s.CreatePoint(-10, 0), s.CreatePoint(0, 0))
+		s.CreateCircle(s.CreatePoint(0, 0), 5) // crosses h at (-5, 0)
+		dof := s.DOF()
+
+		_, ok := sketch.Trim(s, h, -2, 0)
+		require.True(t, ok)
+		require.InDelta(t, -5, h.End.X(), 1e-9)
+		require.Equal(t, 1, countKind(s, "point_on_circle"))
+		require.Equal(t, dof-1, s.DOF())
+	})
+
+	t.Run("arc", func(t *testing.T) {
+		s := newSketch(t)
+		h := s.CreateLine(s.CreatePoint(0, 0), s.CreatePoint(10, 0))
+		s.CreateArc(s.CreatePoint(0, 0), s.CreatePoint(5, -5), s.CreatePoint(5, 5)) // crosses h at (7.07, 0)
+		dof := s.DOF()
+
+		_, ok := sketch.Trim(s, h, 9, 0)
+		require.True(t, ok)
+		require.InDelta(t, 7.0710678118654755, h.End.X(), 1e-9)
+		require.Equal(t, 1, countKind(s, "point_on_arc"))
+		require.Equal(t, dof-1, s.DOF(), "two rows and one sweep slack variable: one degree of freedom less")
+	})
+
+	t.Run("cutter end point is shared", func(t *testing.T) {
+		s := newSketch(t)
+		h := s.CreateLine(s.CreatePoint(-5, 0), s.CreatePoint(5, 0))
+		foot := s.CreatePoint(2, 0)
+		s.CreateLine(foot, s.CreatePoint(2, 5)) // a T: the cutter ends on h
+		dof := s.DOF()
+
+		_, ok := sketch.Trim(s, h, 4, 0)
+		require.True(t, ok)
+		require.Same(t, foot, h.End, "the trim reuses the cutter's end point")
+		require.Equal(t, 0, countKind(s, "point_on_line"))
+		require.Equal(t, dof-2, s.DOF())
+	})
+}
+
+// An extended end is tied to its cutter the same way.
+func TestExtendPinsEndToCutter(t *testing.T) {
+	s := newSketch(t)
+	l := s.CreateLine(s.CreatePoint(0, 0), s.CreatePoint(3, 0))
+	s.CreateLine(s.CreatePoint(6, -5), s.CreatePoint(6, 5))
+	dof := s.DOF()
+
+	_, ok := sketch.Extend(s, l, l.End)
+	require.True(t, ok)
+	require.Equal(t, 1, countKind(s, "point_on_line"))
+	require.Equal(t, dof-1, s.DOF())
+}
+
+// A middle trim pins both new ends.
+func TestTrimMiddlePinsBothEnds(t *testing.T) {
+	s := newSketch(t)
+	h := s.CreateLine(s.CreatePoint(-5, 0), s.CreatePoint(5, 0))
+	s.CreateLine(s.CreatePoint(-2, -5), s.CreatePoint(-2, 5))
+	s.CreateLine(s.CreatePoint(2, -5), s.CreatePoint(2, 5))
+	dof := s.DOF()
+
+	res, ok := sketch.Trim(s, h, 0, 0)
+	require.True(t, ok)
+	require.Len(t, res, 2)
+	require.Equal(t, 2, countKind(s, "point_on_line"))
+	require.Equal(t, dof+2, s.DOF(), "two fresh points (+4), two pins (-2)")
+}
+
+// Extending an arc's End moves it in place along the arc's circle to the
+// nearest crossing beyond it, tied to the cutter.
+func TestExtendArcToCutter(t *testing.T) {
+	s := newSketch(t)
+	center, start := s.CreatePoint(0, 0), s.CreatePoint(5, 0)
+	arc := s.CreateArc(center, start, s.CreatePoint(0, 5))
+	s.CreateLine(s.CreatePoint(-3, 0), s.CreatePoint(-3, 10)) // meets the circle at (-3, 4)
+
+	got, ok := sketch.Extend(s, arc, arc.End)
+	require.True(t, ok)
+	require.Same(t, arc, got)
+	require.Same(t, center, arc.Center)
+	require.Same(t, start, arc.Start)
+	require.InDelta(t, -3, arc.End.X(), 1e-9)
+	require.InDelta(t, 4, arc.End.Y(), 1e-9)
+	require.Equal(t, 1, countKind(s, "point_on_line"))
+}
+
+// Extending the Start runs clockwise.
+func TestExtendArcStart(t *testing.T) {
+	s := newSketch(t)
+	arc := s.CreateArc(s.CreatePoint(0, 0), s.CreatePoint(5, 0), s.CreatePoint(0, 5))
+	s.CreateLine(s.CreatePoint(0, -3), s.CreatePoint(10, -3)) // meets the circle at (4, -3)
+
+	_, ok := sketch.Extend(s, arc, arc.Start)
+	require.True(t, ok)
+	require.InDelta(t, 4, arc.Start.X(), 1e-9)
+	require.InDelta(t, -3, arc.Start.Y(), 1e-9)
+}
+
+// A cutter reachable only by wrapping past the other end is refused: Fusion
+// would close the arc into a circle, which Extend cannot return.
+func TestExtendArcRefusesWrap(t *testing.T) {
+	s := newSketch(t)
+	arc := s.CreateArc(s.CreatePoint(0, 0), s.CreatePoint(5, 0), s.CreatePoint(0, 5))
+	s.CreateLine(s.CreatePoint(2, 2), s.CreatePoint(6, 6)) // crosses inside the sweep at 45°
+	pts, cons := len(s.Points()), len(s.Constraints())
+
+	got, ok := sketch.Extend(s, arc, arc.End)
+	require.False(t, ok)
+	require.Nil(t, got)
+	require.Len(t, s.Points(), pts)
+	require.Len(t, s.Constraints(), cons)
+	require.InDelta(t, 5, arc.End.Y(), 1e-12, "the arc is unchanged")
+}

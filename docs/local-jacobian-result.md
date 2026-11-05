@@ -96,7 +96,7 @@ variable counts its residual reaches, whether those are static or aux-gated, and
 whether the local evaluator supports it. **All 57 are supported**; none routes to
 the dense fallback.
 
-The list is anchored against `constraint.go`'s constructor declarations by
+The list is anchored against `constraint*.go`'s constructor declarations by
 `TestConstraintDependencyTableCoversEveryKind`, so a constructor added later
 fails the suite until it is classified.
 

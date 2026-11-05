@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/lestrrat-3d/sketch"
+	"github.com/lestrrat-3d/sketch/geom"
 	"github.com/lestrrat-3d/sketch/sketchtest"
 	"github.com/stretchr/testify/require"
 )
@@ -635,4 +636,125 @@ func TestProfilesNonFiniteMagnitudeIsInvalid(t *testing.T) {
 		require.Empty(t, rep.InvalidProfiles)
 		require.NotErrorIs(t, rep.Check(), sketch.ErrInvalidProfile)
 	})
+}
+
+func TestProfileEllipseAreaExact(t *testing.T) {
+	// A sketch ellipse's profile area is exact (pi*rx*ry), not a sampled approx —
+	// so the oracle's reported area and validity rest on an exact number.
+	s := newSketch(t)
+	c := s.CreatePoint(1, 2)
+	e := s.CreateEllipse(c, 7, 3, 0.5)
+	profiles := s.Profiles()
+	require.Len(t, profiles, 1)
+	require.True(t, profiles[0].Valid)
+	require.InDelta(t, math.Pi*7*3, profiles[0].Area, 1e-9, "exact ellipse profile area")
+	_ = e
+}
+
+// A closed-spline profile reports the exact enclosed area through Sketch.Profiles
+// — the area now flows from the analytic ½∫(x·y′−y·x′) integral, matching a
+// dense-polyline reference rather than the old sampled bulge.
+func TestProfileClosedSplineAreaExact(t *testing.T) {
+	s := newSketch(t)
+	pts := []*sketch.Point{
+		s.CreatePoint(0, 0), s.CreatePoint(4, 0), s.CreatePoint(5, 3),
+		s.CreatePoint(2, 5), s.CreatePoint(-1, 3),
+	}
+	_, err := s.CreateClosedSpline(pts...)
+	require.NoError(t, err)
+
+	profiles := s.Profiles()
+	require.Len(t, profiles, 1)
+	require.True(t, profiles[0].Valid)
+
+	ctrl := [][2]float64{{0, 0}, {4, 0}, {5, 3}, {2, 5}, {-1, 3}}
+	ring, err := geom.SamplePeriodicCubicBSpline(ctrl, 200000)
+	require.NoError(t, err)
+	var sum float64
+	n := len(ring) - 1 // drop the repeated closing point
+	for i := 0; i < n; i++ {
+		j := (i + 1) % n
+		sum += ring[i][0]*ring[j][1] - ring[j][0]*ring[i][1]
+	}
+	require.InDelta(t, math.Abs(sum/2), profiles[0].Area, 1e-6)
+}
+
+// profileAreaScaleSides spans the old, now-removed absolute area floor
+// (areaEps = 1e-9 mm²) that profiles.go layered on top of geom's own
+// scale-relative one: an equilateral triangle of the two smaller side lengths
+// used to read Valid=false/Trustworthy=false, and the two larger ones true —
+// the same shape flipping verdict on physical size alone.
+var profileAreaScaleSides = []float64{3.2e-6, 3.2e-5, 3.2e-4, 3.2e-3}
+
+// TestProfileAreaFloorIsScaleInvariant pins that a fully constrained
+// equilateral triangle reports the same Profile.Valid, ProfilesValid and
+// Trustworthy() verdict at every physical size: the trust verdict must depend
+// on the triangle's shape, never on how large it is drawn.
+func TestProfileAreaFloorIsScaleInvariant(t *testing.T) {
+	build := func(side float64) *sketch.VerificationReport {
+		s := newSketch(t)
+		a := s.CreatePoint(0, 0)
+		b := s.CreatePoint(side, 0)
+		c := s.CreatePoint(side/2, side*math.Sqrt(3)/2)
+		ab := s.CreateLine(a, b)
+		bc := s.CreateLine(b, c)
+		ca := s.CreateLine(c, a)
+		s.AddConstraint(sketch.NewCoincident(a, s.Origin()))
+		s.AddConstraint(sketch.NewHorizontal(ab))
+		s.AddConstraint(sketch.NewDistance(a, b, side))
+		s.AddConstraint(sketch.NewEqual(ab, bc))
+		s.AddConstraint(sketch.NewEqual(ab, ca))
+		_, err := s.Solve(t.Context())
+		require.NoErrorf(t, err, "side=%v", side)
+		return s.Verify(t.Context())
+	}
+	for _, side := range profileAreaScaleSides {
+		rep := build(side)
+		require.Lenf(t, rep.Profiles, 1, "side=%v", side)
+		require.Truef(t, rep.Profiles[0].Valid, "side=%v: triangle profile must be valid regardless of scale", side)
+		require.Truef(t, rep.ProfilesValid, "side=%v", side)
+		require.Truef(t, rep.Trustworthy(), "side=%v", side)
+	}
+}
+
+// TestProfilesArcLensDoesNotAdoptDisjointCircleAsHole reaches the same defect
+// geom's TestRegionsArcLensDoesNotAdoptDisjointCircleAsHole pins, through the
+// public Sketch.Profiles() API with no options: two arcs forming a small lens,
+// plus a circle whose bounding box is fully disjoint from the lens's. Before
+// the fix, angInFragment's wrap aliased a ray-cast crossing onto the wrong arc
+// fragment, and Sketch.Profiles() published the lens with the far circle
+// subtracted as its hole (Area=0.0037486246867295143, Valid=true) and the
+// circle published a second time as its own region — reachable with no
+// options at all, so nothing in Sketch.Verify's profile trust gate caught it.
+func TestProfilesArcLensDoesNotAdoptDisjointCircleAsHole(t *testing.T) {
+	s := newSketch(t)
+
+	c1 := s.CreatePoint(0.35092155472478259, -0.92392819187699393)
+	s1 := s.CreatePoint(0.91737230032440398, -1.1556555089536711)
+	e1 := s.CreatePoint(-0.17199298451132139, -0.6059275923092966)
+	s.CreateArc(c1, s1, e1)
+
+	c2 := s.CreatePoint(0.34326886354944652, -0.6557519008634316)
+	s2 := s.CreatePoint(0.32461533217526556, -1.0464592649851203)
+	e2 := s.CreatePoint(-0.022307692217990949, -0.51663331660933887)
+	s.CreateArc(c2, s2, e2)
+
+	circCenter := s.CreatePoint(-0.81323037456758496, -0.91951610002249584)
+	s.CreateCircle(circCenter, 0.068365088974454882)
+
+	report := sketchtest.Verify(t, s)
+	require.True(t, report.ProfilesValid, "no invalid profile from this scene")
+	profiles := s.Profiles()
+	require.Len(t, profiles, 2, "the lens and the circle, each its own profile")
+
+	var lens *sketch.Profile
+	for _, p := range profiles {
+		if len(p.Outer) == 2 { // the lens has two arc edges; the circle has one
+			lens = p
+		}
+	}
+	require.NotNil(t, lens, "the two-arc lens must be one of the published profiles")
+	require.Empty(t, lens.Holes, "the disjoint circle must never be adopted as the lens's hole")
+	sketchtest.MeasuresProfileArea(t, lens, 0.01843175453393291, sketchtest.Within(1e-9))
+	sketchtest.IsValidProfile(t, lens)
 }
