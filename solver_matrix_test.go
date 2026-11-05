@@ -735,6 +735,66 @@ func TestNormalEquationsStructuralMatchesDenseAcrossNumericPatternChanges(t *tes
 	}
 }
 
+func TestNormalEquationsStructuralPairCSRAndClearsStaleA(t *testing.T) {
+	const m, n = 4, 3
+	plan := &residualPlan{
+		offset:   []int{0, 1},
+		count:    []int{1, 1},
+		varStart: []int{0, 1, 2, 3},
+		varCons:  []int{0, 0, 1},
+	}
+	ws := &lmWorkspace{}
+	ws.alloc(m, n)
+	require.True(t, buildStructuralSupport(ws, plan, []int{0, 1, 2}, m, n))
+	require.Equal(t, []int{0, 1, 1, 2}, ws.structPairCols)
+	require.Equal(t, []int{0, 2, 3, 4}, ws.structPairStart)
+
+	first := matrixFromColumns(m, [][]float64{{2, 0, 0, 0}, {3, 0, 0, 0}, {0, 4, 0, 0}})
+	loadWorkspace(ws, first, []float64{5, 6, 7, 8}, m, n)
+	normalEquationsStructuralInto(ws, m, n)
+	require.NotZero(t, ws.A[0][1])
+
+	second := matrixFromColumns(m, [][]float64{{1, 0, 0, 0}, {0, 0, 0, 0}, {0, 3, 0, 0}})
+	loadWorkspace(ws, second, []float64{1, 2, 3, 4}, m, n)
+	for i := range ws.aBack[:n*n] {
+		ws.aBack[i] = 17
+	}
+	wantA, wantG := referenceNormalEquations(second, []float64{1, 2, 3, 4}, m, n)
+	normalEquationsStructuralInto(ws, m, n)
+	for i := 0; i < n; i++ {
+		for j := 0; j < n; j++ {
+			requireSameBitsf(t, wantA[i][j], ws.A[i][j], "A[%d][%d]", i, j)
+		}
+		requireSameBitsf(t, wantG[i], ws.g[i], "g[%d]", i)
+	}
+}
+
+func TestBuildStructuralSupportSkipsPairCSRAtDenseThreshold(t *testing.T) {
+	const m, n = 2, 2
+	plan := &residualPlan{
+		offset:   []int{0, 1},
+		count:    []int{1, 1},
+		varStart: []int{0, 2, 4},
+		varCons:  []int{0, 1, 0, 1},
+	}
+	ws := &lmWorkspace{}
+	ws.alloc(m, n)
+	require.True(t, buildStructuralSupport(ws, plan, []int{0, 1}, m, n))
+	require.Empty(t, ws.structPairCols)
+
+	j := matrixFromColumns(m, [][]float64{{2, 3}, {4, 5}})
+	r := []float64{6, 7}
+	loadWorkspace(ws, j, r, m, n)
+	wantA, wantG := referenceNormalEquations(j, r, m, n)
+	normalEquationsStructuralInto(ws, m, n)
+	for i := 0; i < n; i++ {
+		for j := 0; j < n; j++ {
+			requireSameBitsf(t, wantA[i][j], ws.A[i][j], "A[%d][%d]", i, j)
+		}
+		requireSameBitsf(t, wantG[i], ws.g[i], "g[%d]", i)
+	}
+}
+
 func TestNormalEquationsStructuralNonfiniteUsesDenseFallback(t *testing.T) {
 	const m, n = 4, 2
 	plan := &residualPlan{
