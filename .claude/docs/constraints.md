@@ -36,7 +36,7 @@ call on a handle that did not come from `Sketch.Constraints`.
 ### Nil-safety is recorded per constraint type
 
 **Everything finer is per constraint TYPE, decided in that type's `residual`
-method (`constraint.go`) and its `constraintRefs` case (`removal.go`) — neither
+method (`constraint*.go`) and its `constraintRefs` case (`removal.go`) — neither
 of them in `introspect.go` — so it is RECORDED rather than stated as a rule**:
 `TestIntrospectionNilOperandOutcomes` (`introspect_nil_contract_test.go`) builds
 one constraint from every public `New…` constructor with nil operands — two rows
@@ -44,9 +44,9 @@ for a sealed-interface (`Circular`/`Elliptical`) operand, since an untyped and a
 typed nil behave differently — calls all four functions under `recover` and
 asserts each outcome against a checked-in table.
 
-### The constructor list is parsed from `constraint.go`
+### The constructor list is parsed from `constraint*.go`
 
-**The constructor list is PARSED from `constraint.go`** (top-level `func New…`,
+**The constructor list is PARSED from `constraint*.go`** (top-level `func New…`,
 the way `entity_switches_test.go` parses for `entity()`), so a constructor added
 later fails the test until its outcomes are recorded; without that anchor it
 escapes the contract silently, which is how the empty-residual families below
@@ -194,11 +194,11 @@ accepted cost of adding no new state — the alternative, a set on the sketch re
 `constraint_ownership_test.go` pins the donor's DOF, status and residuals across both index
 regimes, the `CheckConstraint` refusal, the receiving sketch's surviving `ErrForeignHandle`,
 and the unchanged allocate/solve/retire behaviour of own-geometry aux-var owners;
-`constraint_retire_ownership_test.go` pins the removal half — DOF back to its pre-add value
+`constraint_ownership_test.go` pins the removal half — DOF back to its pre-add value
 after a rewire to a foreign handle, to a dead one, and through the `RemoveEntity` cascade on
 an unrewired operand, over all three externally reachable aux-var constraints (`ArcLength`,
 `DistancePointArc`, `DistanceLineArc`), plus the converse that a constraint foreign when
-ADDED is still not retired. `constraint_alloc_ownership_test.go` pins the allocation half —
+ADDED is still not retired. `constraint_ownership_test.go` pins the allocation half —
 the drop and both sketches' unchanged state at both index regimes, the receiver's own point
 left unmoved by a solve where the stale index aliased it, the `CheckConstraint` refusal, the
 two `clearAuxOwner` guards (a removed constraint and a probed candidate both still

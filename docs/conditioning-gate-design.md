@@ -1,7 +1,7 @@
 # Scale-Invariant Conditioning Gate — Design
 
 Status: **implemented** (`conditioning.go`; tests in `conditioning_test.go` and
-`rankmargin_test.go`). Resolves the "scale-invariant conditioning gate" open
+`rank_test.go`). Resolves the "scale-invariant conditioning gate" open
 item under "Solver evolution" in `.claude/docs/open-questions.md`.
 
 ## The problem

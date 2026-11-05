@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -319,11 +320,20 @@ func constraintConstructorsFromSource(t *testing.T) map[string]constraintConstru
 	t.Helper()
 
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "constraint.go", nil, 0)
-	require.NoError(t, err, `failed to parse constraint.go`)
+	paths, err := filepath.Glob("constraint*.go")
+	require.NoError(t, err, `failed to list constraint*.go`)
+	var decls []ast.Decl
+	for _, path := range paths {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		require.NoError(t, err, `failed to parse `+path)
+		decls = append(decls, file.Decls...)
+	}
 
 	ctors := make(map[string]constraintConstructor)
-	for _, decl := range file.Decls {
+	for _, decl := range decls {
 		fn, ok := decl.(*ast.FuncDecl)
 		if !ok || fn.Recv != nil || !strings.HasPrefix(fn.Name.Name, "New") || !fn.Name.IsExported() {
 			continue

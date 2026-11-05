@@ -63,7 +63,7 @@ is honest rather than lazy.** They live in `labelWeights`
 (`defaultLabelWeights()`) as a value on `labelPlacer` rather than as constants
 read straight from `score`, so a test can switch one off and measure the drawing
 that comes out. `TestLabelWeightsEarnTheirPlace`
-(`labels_scoring_internal_test.go`) does exactly that: it places 80 names on a
+(`labels_internal_test.go`) does exactly that: it places 80 names on a
 crowded cloud, zeroes one weight, and requires the collisions that weight exists
 to prevent to go UP. With every weight on, 0 names land on another name, 1 on
 someone else's vertex and 9 on a leader; zeroing them one at a time gives 33, 20

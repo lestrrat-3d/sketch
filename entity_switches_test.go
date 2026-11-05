@@ -42,21 +42,21 @@ type entitySwitchSite struct{ File, Func string }
 // already-exempted function is reported rather than riding on the first one's
 // reason.
 var entitySwitchExempt = map[entitySwitchSite]string{
-	{"tools.go", "Break"}:                    "splitting is defined for a line and an arc only; every other type is the documented false return",
-	{"tools.go", "cutterEnds"}:               "only a line or an arc cutter has end points a trimmed end can reuse; a circle has none",
-	{"tools.go", "pinToCutter"}:              "only line/circle/arc cutters produce a crossing (lineCrossings), so only they are pinned to",
-	{"tools.go", "circleCrossings"}:          "only line/circle/arc cutters have a closed-form circle intersection in geom; a curve contributes no crossing",
-	{"tools.go", "unsupportedOffset"}:        "an allow-list with a refusing default: only line, arc and circle are offset, and an entity type not named here is REFUSED by CreateOffset rather than skipped",
-	{"tools.go", "lineCrossings"}:            "only line/circle/arc cutters have a closed-form line intersection in geom; a curve contributes no crossing",
-	{"tools.go", "instantiate"}:              "mirror/pattern copies need the transform applied to a shape the point-relinking interface does not carry, so only line/circle/arc/fit spline are copied (a fit spline is defined by its fit points alone); every caller screens the seed with unsupportedSeed first, so an unhandled type is refused before anything is committed rather than dropped here",
-	{"tools.go", "unsupportedSeed"}:          "an allow-list with a refusing default: only line/circle/arc/fit spline can be copied by instantiate, and an entity type not named here is REFUSED by the pattern/mirror builders rather than dropped",
-	{"sketch.go", "entityShapeVars"}:         "intrinsic shape variables only; line/arc and the spline family own no scalar variable beyond their points",
-	{"constraint.go", "conicOf"}:             "adapts the sealed Circular/Elliptical operands only; the spline family and the conic entity are not conic-adaptable operands",
-	{"cone_side.go", "IsStale"}:              "the cone-side certificate is issued only for a whole Line, FitSpline, or Arc; every other entity is refused at certification",
-	{"cone_side.go", "ownsConeCurve"}:        "only whole Line, FitSpline, and Arc sources have implemented cone-side proofs; every other entity is refused",
-	{"loops.go", "loopEnds"}:                 "a loop chains only lines, arcs and fit splines by their two end points; a circle is closed on its own and every other type is refused by loopKindOK before loopEnds is asked",
-	{"loops.go", "loopKindOK"}:               "an allow-list with a refusing default: only line, circle, arc and fit spline are certified loop members, and an entity type not named here is ReasonKind",
-	{"cone_side.go", "CertifyConeCurveSide"}: "only whole Line, FitSpline, and Arc sources have implemented cone-side proofs; ownsConeCurve refuses every other entity first",
+	{"tools_curve.go", "Break"}:               "splitting is defined for a line and an arc only; every other type is the documented false return",
+	{"tools_curve.go", "cutterEnds"}:          "only a line or an arc cutter has end points a trimmed end can reuse; a circle has none",
+	{"tools_curve.go", "pinToCutter"}:         "only line/circle/arc cutters produce a crossing (lineCrossings), so only they are pinned to",
+	{"tools_curve.go", "circleCrossings"}:     "only line/circle/arc cutters have a closed-form circle intersection in geom; a curve contributes no crossing",
+	{"tools_offset.go", "unsupportedOffset"}:  "an allow-list with a refusing default: only line, arc and circle are offset, and an entity type not named here is REFUSED by CreateOffset rather than skipped",
+	{"tools_curve.go", "lineCrossings"}:       "only line/circle/arc cutters have a closed-form line intersection in geom; a curve contributes no crossing",
+	{"tools_replicate.go", "instantiate"}:     "mirror/pattern copies need the transform applied to a shape the point-relinking interface does not carry, so only line/circle/arc/fit spline are copied (a fit spline is defined by its fit points alone); every caller screens the seed with unsupportedSeed first, so an unhandled type is refused before anything is committed rather than dropped here",
+	{"tools_replicate.go", "unsupportedSeed"}: "an allow-list with a refusing default: only line/circle/arc/fit spline can be copied by instantiate, and an entity type not named here is REFUSED by the pattern/mirror builders rather than dropped",
+	{"sketch.go", "entityShapeVars"}:          "intrinsic shape variables only; line/arc and the spline family own no scalar variable beyond their points",
+	{"constraint_conic.go", "conicOf"}:        "adapts the sealed Circular/Elliptical operands only; the spline family and the conic entity are not conic-adaptable operands",
+	{"cone_side.go", "IsStale"}:               "the cone-side certificate is issued only for a whole Line, FitSpline, or Arc; every other entity is refused at certification",
+	{"cone_side.go", "ownsConeCurve"}:         "only whole Line, FitSpline, and Arc sources have implemented cone-side proofs; every other entity is refused",
+	{"loops.go", "loopEnds"}:                  "a loop chains only lines, arcs and fit splines by their two end points; a circle is closed on its own and every other type is refused by loopKindOK before loopEnds is asked",
+	{"loops.go", "loopKindOK"}:                "an allow-list with a refusing default: only line, circle, arc and fit spline are certified loop members, and an entity type not named here is ReasonKind",
+	{"cone_side.go", "CertifyConeCurveSide"}:  "only whole Line, FitSpline, and Arc sources have implemented cone-side proofs; ownsConeCurve refuses every other entity first",
 }
 
 // TestEntityTypeSwitchesAreExhaustive audits every entity type switch in the

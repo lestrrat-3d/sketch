@@ -125,7 +125,7 @@ tangency, source-end contact, another source at the vertex, and a stale or
 changed edge return no certificate. `ctx.Err()` and
 `ErrJunctionWorkLimit` are errors; a provably over-width bracket is a normal
 miss. The exact width and arithmetic caps are in
-`profile_line_circle_junction.go`. A proof checks at most 256 other source
+`profile_junction_line_circle.go`. A proof checks at most 256 other source
 boxes, with cancellation checks during copying and each scan. A larger scene
 returns `ErrJunctionWorkLimit` before any source can be skipped.
 
@@ -141,7 +141,7 @@ Use `s.CertifyQuarterArcJunctions(ctx, raw, work)` on the complete slice
 from one live `Sketch.Profiles()` call. Keep the raw profiles unchanged
 throughout the proof. `work` charges the two source categories described
 by `JunctionCharge`; the arithmetic and raw-publication caps are in
-`profile_line_arc_quarter_junction.go`.
+`profile_junction_line_arc_quarter.go`.
 
 Check returned contact count and source roles before using a witness.
 `(empty, true, nil)` means no retained proper-secant Line/Arc token was
