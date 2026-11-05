@@ -133,6 +133,7 @@ func analyticKind(k srcKind) bool {
 type operand struct {
 	isLine         bool
 	ax, ay, bx, by float64 // line endpoints (also used as the source param frame)
+	lineBox        analyticLineBox
 	cx, cy, r      float64 // circle center + radius
 	phi0, sweep    float64 // arc start angle + signed sweep; full circle: 0, 2π
 	fullCircle     bool
@@ -141,7 +142,9 @@ type operand struct {
 func operandOf(s *source) operand {
 	switch s.kind {
 	case srcLine:
-		return operand{isLine: true, ax: s.ax, ay: s.ay, bx: s.bx, by: s.by}
+		o := operand{isLine: true, ax: s.ax, ay: s.ay, bx: s.bx, by: s.by}
+		o.lineBox = analyticLineBoxOf(o)
+		return o
 	case srcCircle:
 		return operand{cx: s.cx, cy: s.cy, r: s.r, phi0: 0, sweep: 2 * math.Pi, fullCircle: true}
 	default: // srcArc
