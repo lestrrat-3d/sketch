@@ -219,7 +219,7 @@ func (s *Sketch) computeOverlaySets(cfg svgConfig) overlaySets {
 		// shape vars entityShapeVars reports for its type, a circle's radius being
 		// one example.
 		//
-		// On non-finite geometry movableVars refuses (see nonfinite.go) and EVERY
+		// On non-finite geometry movableVars refuses (see non_finite.go) and EVERY
 		// point and entity is marked free. Two choices were open — a distinct
 		// "incomplete" appearance, or this — and this one is taken because the
 		// overlay's own vocabulary already has a value meaning "not proven

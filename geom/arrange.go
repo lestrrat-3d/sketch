@@ -356,7 +356,7 @@ type arranger struct {
 	// segDev is the PROVEN upper bound, per tiny segment, on how far its source
 	// departs from that segment's own chord over the segment's parameter span —
 	// +Inf for a span no bound could be proven for. densify fills it; nearMissGuard
-	// is its only reader. See geom/nearmiss.go.
+	// is its only reader. See geom/near_miss.go.
 	segDev []float64
 	cfg    arrangeConfig
 	scale  float64
@@ -400,7 +400,7 @@ type arranger struct {
 	circleBoundsReady, circleBoundsValid bool
 
 	// segBoxes is every tiny segment's reach-expanded bounding box (see
-	// arrange_broadphase.go), computed once on first use and shared by
+	// arrange_broad_phase.go), computed once on first use and shared by
 	// candidatePairs' sweep and sampledCrossingsExplained's box reject so neither
 	// pays for it twice. sourceBoxes is their union per source, used to reject a
 	// whole source pair before sampledCrossingsExplained scans its segment pairs.
@@ -1802,7 +1802,7 @@ func isCurvedKind(k srcKind) bool {
 // unsafe "false" into a wrongly-blessed "true". A pair whose segments cannot
 // possibly cross at all contributes nothing to the conjunction either way, so it is
 // the only kind of pair safe to skip. The reach-expanded boxes candidatePairs uses
-// for exactly this reason (geom/arrange_broadphase.go, broadPhaseRel) are a proven
+// for exactly this reason (geom/arrange_broad_phase.go, broadPhaseRel) are a proven
 // superset of every pair segParams can accept — segsCrossInteriorAt's interior-only
 // hit set is a subset of that, so the same box reject is safe here too: it can only
 // ever skip a pair segsCrossInteriorAt would have refused anyway.
@@ -2144,7 +2144,7 @@ func (a *arranger) noteSampledContact(i, j int, x, y float64) {
 // crossing the same way. Its exactness is answered a whole level up, by the exactAllowed
 // scene gate (such a pair only exists in a scene that publishes no exact bound at all),
 // and its DEGENERACY by nearMissGuard. Nothing here estimates how far a chord runs from
-// its curve; the bounds that do are in geom/nearmiss.go and are read only there.
+// its curve; the bounds that do are in geom/near_miss.go and are read only there.
 //
 // The unit is the CONNECTED COMPONENT, not the offending pair: a fused crossing moves
 // the face boundaries of every cycle it takes part in, so a fragment of ANY source

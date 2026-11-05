@@ -1,6 +1,6 @@
 # Loop Containment — Design
 
-Status: **implemented** (`loops.go`, `geom/facegraph.go`, `geom` option `WithFaceGraph`). It builds on the pair ledger in
+Status: **implemented** (`loops.go`, `geom/face_graph.go`, `geom` option `WithFaceGraph`). It builds on the pair ledger in
 `docs/pair-certificate-design.md`: a face is certified only where the ledger's planar-map certificate holds.
 
 ## The problem
@@ -251,7 +251,7 @@ already pays it.
 
 ## Tests
 
-`loops_test.go` and `loops_oracle_test.go` (package `sketch_test`), `geom/facegraph_test.go` (package `geom_test`):
+`loops_test.go` and `loops_oracle_test.go` (package `sketch_test`), `geom/face_graph_test.go` (package `geom_test`):
 
 | Scene | Checked |
 |---|---|
@@ -275,7 +275,7 @@ and the faithfulness skip. (The parity consistency check has no failing test, as
 
 ### Span loops
 
-`loops_spans_test.go` (package `sketch_test`) and `geom/facegraph_spans_test.go` (package `geom_test`). The scenes need
+`loops_spans_test.go` (package `sketch_test`) and `geom/face_graph_spans_test.go` (package `geom_test`). The scenes need
 the spline/circle crossing certificate (`docs/pair-certificate-design.md`, Stage 2a).
 
 | Scene | Checked |

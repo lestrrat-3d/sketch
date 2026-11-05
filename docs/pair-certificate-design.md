@@ -102,7 +102,7 @@ sampled map agrees with it. `auditPairLedger` runs inside `refuseExactOnFusedMap
 
 Hidden crossings, the reason the kind gate exists, cannot occur in a pair whose verdict is `Disjoint` or
 `EndpointOnly`, because those verdicts account for every point the exact curves share. The near-miss guard
-(`geom/nearmiss.go`) stays active.
+(`geom/near_miss.go`) stays active.
 
 ## Stage 1 — `Disjoint`, `EndpointOnly` and `Simple` (implemented)
 

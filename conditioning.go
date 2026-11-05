@@ -700,7 +700,7 @@ const (
 // The third result is false when A has no rows or no columns. A
 // non-finite entry yields NaN for both values, which the trust gate reads as
 // untrustworthy (NaN ≥ τ is false) — defence in depth behind the geometry
-// screen in nonfinite.go, which stops Verify before a matrix is ever built.
+// screen in non_finite.go, which stops Verify before a matrix is ever built.
 //
 // The measure needs only the two extreme singular values, never the full
 // spectrum, so this is Householder bidiagonalization (one O(m·n²) pass)

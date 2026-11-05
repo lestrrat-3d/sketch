@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// quarterArc (defined in pointonarc_test.go) builds a fixed first-quadrant arc:
+// quarterArc (defined in point_on_arc_test.go) builds a fixed first-quadrant arc:
 // center at the origin, radius 5, sweeping CCW from (5,0) to (0,5).
 
 func radius(p *sketch.Point, c *sketch.Point) float64 {
