@@ -99,9 +99,13 @@ func RegionsBounded(ctx context.Context, curves []Curve, closed []ClosedCurve,
 }
 
 func regionsWithBudget(curves []Curve, closed []ClosedCurve, cfg arrangeConfig, budget *arrangeBudget) *Arrangement {
+	return regionsWithBudgetPairFilter(curves, closed, cfg, budget, true)
+}
+
+func regionsWithBudgetPairFilter(curves []Curve, closed []ClosedCurve, cfg arrangeConfig, budget *arrangeBudget, filter bool) *Arrangement {
 	a := newArrangerWithBudget(curves, closed, cfg, budget)
 	a.densify()
-	a.intersect()
+	a.intersectWithLinePairFilter(filter)
 	a.nearMissGuard()
 	a.split()
 	a.certifyLineLineCrossings()
@@ -1333,7 +1337,11 @@ func (a *arranger) sampleParams(s *source) []float64 {
 // what actually happens — candidatePairs decides only which pairs are worth
 // asking.
 func (a *arranger) intersect() {
-	a.analyticPrepass()
+	a.intersectWithLinePairFilter(true)
+}
+
+func (a *arranger) intersectWithLinePairFilter(filter bool) {
+	a.analyticPrepassWithLinePairFilter(filter)
 	cand := a.candidatePairs()
 	for i := range a.segs {
 		a.budget.step(1)
@@ -1470,6 +1478,10 @@ func (a *arranger) intersect() {
 // rare pair that needs it: events for a pair that meets, deferredCross for a
 // refused crossing. A pair that is merely handled leaves no record.
 func (a *arranger) analyticPrepass() {
+	a.analyticPrepassWithLinePairFilter(true)
+}
+
+func (a *arranger) analyticPrepassWithLinePairFilter(filter bool) {
 	a.events = make(map[[2]int][]xEvent)
 	a.deferredCross = make(map[[2]int][]xEvent)
 	a.sampledContacts = make(map[[2]int][][2]float64)
@@ -1484,6 +1496,19 @@ func (a *arranger) analyticPrepass() {
 			operands[i] = operandOf(&a.sources[i])
 		}
 	}
+	linePairMargin, linePairFilterOK := 0.0, false
+	if filter {
+		linePairMargin, linePairFilterOK = analyticLineBoxMargin(a.sources, a.scale, a.merge, a.budget)
+		if linePairFilterOK {
+			for i := range operands {
+				if !operands[i].isLine {
+					continue
+				}
+				a.budget.step(1)
+				operands[i].lineBox = analyticLineBoxExpand(operands[i].lineBox, linePairMargin)
+			}
+		}
+	}
 	for i := 0; i < len(a.sources); i++ {
 		a.budget.step(1)
 		si := &a.sources[i]
@@ -1494,6 +1519,9 @@ func (a *arranger) analyticPrepass() {
 			a.budget.step(1)
 			sj := &a.sources[j]
 			if !analyticKind(sj.kind) {
+				continue
+			}
+			if linePairFilterOK && analyticLineBoxesDisjoint(operands[i].lineBox, operands[j].lineBox) {
 				continue
 			}
 			events, ambiguous, ok := analyticEventsOf(si, sj, operands[i], operands[j], a.scale)
