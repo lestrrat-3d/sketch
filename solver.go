@@ -533,8 +533,10 @@ func (s *Sketch) lmPlanned(ctx context.Context, free []int, eval func([]float64)
 		if !localBuilt {
 			s.jacobianInto(ws.J, free, m, eval, ws.rp, ws.rm)
 		}
+		structuralNormalEquations := false
 		if localBuilt && ws.structuralReady {
-			if !normalEquationsStructuralRowMajorInto(ws, m, n) {
+			structuralNormalEquations = normalEquationsStructuralRowMajorInto(ws, m, n)
+			if !structuralNormalEquations {
 				transposeInto(ws.JT, ws.J, m, n)
 				normalEquationsStructuralInto(ws, m, n)
 			}
@@ -543,6 +545,11 @@ func (s *Sketch) lmPlanned(ctx context.Context, free []int, eval func([]float64)
 			normalEquationsSparseInto(ws, m, n)
 		}
 		A, g := ws.A, ws.g
+		bandwidth, bandedSupport := 0, false
+		if structuralNormalEquations {
+			bandwidth, bandedSupport = structuralUpperBandwidth(ws, n)
+			bandedSupport = bandedSupport && bandwidth <= maxBandedEliminationBandwidth
+		}
 
 		// Absolute damping scale. Using λ·max(diag) rather than λ·A[i][i]
 		// regularizes every direction by the same amount, which keeps the
@@ -569,17 +576,8 @@ func (s *Sketch) lmPlanned(ctx context.Context, free []int, eval func([]float64)
 				return iter, err
 			}
 			mu := lambda * maxDiag
-			noNegZero := true
-			for i := 0; i < n; i++ {
-				row := ws.M[i]
-				copy(row, A[i])
-				row[i] += mu + 1e-12 // Levenberg damping + numerical floor
-				row[n] = -g[i]
-				if noNegZero && hasNegZero(row[:n]) {
-					noNegZero = false
-				}
-			}
-			if !eliminateInto(ws.M, n, noNegZero, ws.delta, ws.nz) {
+			eliminated := eliminateLMSystemInto(ws.M, A, g, n, mu, bandwidth, bandedSupport, ws.delta, ws.nz)
+			if !eliminated {
 				lambda *= 10
 				continue
 			}
@@ -614,6 +612,133 @@ func (s *Sketch) lmPlanned(ctx context.Context, free []int, eval func([]float64)
 		}
 	}
 	return iter, nil
+}
+
+const maxBandedEliminationBandwidth = 7
+
+// fillDampedSystem copies the normal equations into M and adds the current LM
+// damping. It reports whether M contains no negative zero in its matrix part,
+// matching the guard used by [eliminateInto].
+func fillDampedSystem(M, A [][]float64, g []float64, n int, mu float64) bool {
+	noNegZero := true
+	for i := 0; i < n; i++ {
+		row := M[i]
+		copy(row, A[i])
+		row[i] += mu + 1e-12
+		row[n] = -g[i]
+		if noNegZero && hasNegZero(row[:n]) {
+			noNegZero = false
+		}
+	}
+	return noNegZero
+}
+
+// eliminateLMSystemInto tries the banded kernel only after finite structural
+// assembly with a safe zero-sign pattern. Any attempted banded failure rebuilds
+// M from A and g before the general kernel pivots it.
+func eliminateLMSystemInto(M, A [][]float64, g []float64, n int, mu float64, bandwidth int, bandedSupport bool, x []float64, nz []int) bool {
+	noNegZero := fillDampedSystem(M, A, g, n, mu)
+	if bandedSupport && noNegZero {
+		if eliminateBandedNoSwapInto(M, n, bandwidth, noNegZero, x, nz) {
+			return true
+		}
+		fillDampedSystem(M, A, g, n, mu)
+	}
+	return eliminateInto(M, n, noNegZero, x, nz)
+}
+
+// structuralUpperBandwidth derives the upper bandwidth from the structural
+// normal-equation pairs. The pair rows and columns are ascending by construction.
+func structuralUpperBandwidth(ws *lmWorkspace, n int) (int, bool) {
+	if len(ws.structPairStart) < n+1 {
+		return 0, false
+	}
+	bandwidth := 0
+	for i := 0; i < n; i++ {
+		start, end := ws.structPairStart[i], ws.structPairStart[i+1]
+		if start < 0 || end < start || end > len(ws.structPairCols) {
+			return 0, false
+		}
+		for _, j := range ws.structPairCols[start:end] {
+			if j < i || j >= n {
+				return 0, false
+			}
+			if d := j - i; d > bandwidth {
+				bandwidth = d
+			}
+		}
+	}
+	return bandwidth, true
+}
+
+// eliminateBandedNoSwapInto handles a finite, narrow-band damped system when
+// no pivot row swap is needed. It returns false without promising an untouched
+// M if a precondition fails; the caller must restore M before using the general
+// pivoting kernel.
+func eliminateBandedNoSwapInto(M [][]float64, n, bandwidth int, noNegZero bool, x []float64, nz []int) bool {
+	if !noNegZero || bandwidth < 0 || bandwidth > maxBandedEliminationBandwidth {
+		return false
+	}
+	if cap(nz) < n+1 {
+		nz = make([]int, 0, n+1)
+	}
+	nz = nz[:0]
+	for col := 0; col < n; col++ {
+		piv := col
+		best := math.Abs(M[col][col])
+		for r := col + 1; r < n; r++ {
+			if v := math.Abs(M[r][col]); v > best {
+				best = v
+				piv = r
+			}
+		}
+		if best < 1e-15 || piv != col {
+			return false
+		}
+
+		pivot := M[col][col : n+1]
+		last := len(pivot) - 1
+		nz = nz[:0]
+		for c, v := range pivot[:last] {
+			if nonFinite(v) {
+				return false
+			}
+			if v != 0 {
+				nz = append(nz, c)
+			}
+		}
+		end := col + bandwidth
+		if end >= n {
+			end = n - 1
+		}
+		for r := col + 1; r < n; r++ {
+			row := M[r][col : n+1]
+			f := row[0] / pivot[0]
+			if r > end {
+				if f != 0 || nonFinite(f) {
+					return false
+				}
+				row[last] -= f * pivot[last]
+				continue
+			}
+			if !nonFinite(f) {
+				if f != 0 {
+					subtractScaledAt(row, pivot, nz, f)
+				}
+				row[last] -= f * pivot[last]
+				continue
+			}
+			return false
+		}
+	}
+	for i := n - 1; i >= 0; i-- {
+		sum := M[i][n]
+		for c := i + 1; c < n; c++ {
+			sum -= M[i][c] * x[c]
+		}
+		x[i] = sum / M[i][i]
+	}
+	return true
 }
 
 func (s *Sketch) freeVars() []int {
