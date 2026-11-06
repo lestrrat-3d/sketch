@@ -65,13 +65,17 @@ func (s *Sketch) DXF(opts ...DXFOption) (string, error) {
 	}
 
 	var samples [][][2]float64
+	capacity := addExportBuilderCapacity(512, len(s.ents), 96)
+	capacity = addExportBuilderCapacity(capacity, len(s.points), 12)
 	for i, e := range s.ents {
 		var pts [][2]float64
 		switch t := e.(type) {
 		case *ClosedSpline:
 			pts = t.Polyline(exportSegments)
+			capacity = addExportBuilderCapacity(capacity, 64, 16)
 		case *FitSpline:
 			pts = t.Polyline(exportSegments)
+			capacity = addExportBuilderCapacity(capacity, 64, 16)
 		}
 		if pts != nil {
 			if samples == nil {
@@ -86,6 +90,10 @@ func (s *Sketch) DXF(opts ...DXFOption) (string, error) {
 	}
 
 	var sb strings.Builder
+	if cfg.worldSpace {
+		capacity = addExportBuilderCapacity(capacity, len(s.ents), 48)
+	}
+	sb.Grow(capacity)
 
 	// nonFinite is set by pairf, the ONE funnel every numeric DXF field writes
 	// through (pairL/putWCS/putOCS/… all resolve to it) — a POSTCONDITION over

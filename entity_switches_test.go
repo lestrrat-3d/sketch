@@ -59,6 +59,7 @@ var entitySwitchExempt = map[entitySwitchSite]string{
 	{"loops.go", "loopEnds"}:                  "a loop chains only lines, arcs and fit splines by their two end points; a circle is closed on its own and every other type is refused by loopKindOK before loopEnds is asked",
 	{"loops.go", "loopKindOK"}:                "an allow-list with a refusing default: only line, circle, arc and fit spline are certified loop members, and an entity type not named here is ReasonKind",
 	{"cone_side.go", "CertifyConeCurveSide"}:  "only whole Line, FitSpline, and Arc sources have implemented cone-side proofs; ownsConeCurve refuses every other entity first",
+	{"svg.go", "SVG"}:                         "capacity sizing adds sampled-point headroom only for sampled path entities; all entity kinds are handled by the output switch below",
 }
 
 // TestEntityTypeSwitchesAreExhaustive audits every entity type switch in the
