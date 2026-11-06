@@ -1163,6 +1163,7 @@ func (a *arranger) densify() {
 	}
 	a.segs = slices.Grow(a.segs, nSegs)
 	a.segDev = slices.Grow(a.segDev, nSegs)
+	var splineScratch splineHullScratch
 	for si := range a.sources {
 		a.budget.step(1)
 		s := &a.sources[si]
@@ -1232,7 +1233,7 @@ func (a *arranger) densify() {
 			if s.pinEnds && i == last {
 				q1 = s.at(params[i])
 			}
-			dev, ok := chordDeviation(s, params[i-1], params[i], prev[0], prev[1], cur[0], cur[1], q0, q1)
+			dev, ok := chordDeviationWithScratch(s, params[i-1], params[i], prev[0], prev[1], cur[0], cur[1], q0, q1, &splineScratch)
 			if !ok {
 				dev = math.Inf(1)
 			}
