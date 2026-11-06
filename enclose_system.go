@@ -740,6 +740,10 @@ func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, co
 					cij = pt(1)
 				}
 				for k := 0; k < n; k++ {
+					// An unmarked Jacobian cell is an exact structural zero.
+					if ws.marks[k*n+j] != ws.epoch {
+						continue
+					}
 					cij = isub(cij, imulPt(Y[i][k], J[k][j]))
 				}
 				acc = iadd(acc, imul(cij, D[j]))

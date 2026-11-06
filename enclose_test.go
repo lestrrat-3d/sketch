@@ -626,6 +626,9 @@ func TestEncloseContinuation(t *testing.T) {
 	require.NoError(t, err, "and over the second")
 	requirePieceHolds(t, fb, first, rad(30), true)
 	requirePieceHolds(t, fb, second, rad(80), true)
+	secondAgain, err := fb.s.Enclose(t.Context(), fb.crank, math.Pi/4, math.Pi/2, sketch.WithContinuation(first))
+	require.NoError(t, err, "the previous enclosure remains usable after a continuation")
+	requireSameEnclosure(t, fb.s, second, secondAgain, fb.follower)
 
 	_, err = fb.s.Enclose(t.Context(), fb.crank, math.Pi/3, math.Pi/2, sketch.WithContinuation(first))
 	require.ErrorIs(t, err, sketch.ErrNotCertified, "a continuation must start where the previous enclosure ended")
