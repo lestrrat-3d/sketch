@@ -77,7 +77,8 @@ func TestProfilesContextHandlesGroupReplayBudget(t *testing.T) {
 	profiles, err := s.ProfilesContext(t.Context(), budget)
 	require.NoError(t, err)
 	require.NotEmpty(t, profiles)
-	require.Greater(t, budget.totals[0], uint64(1_603_678))
+	// Keep this above 1.5M so the fixture still exercises substantial work after sort deduplication.
+	require.Greater(t, budget.totals[0], uint64(1_500_000))
 	require.Greater(t, budget.totals[1], uint64(19_811))
 	require.Greater(t, budget.totals[2], uint64(7_679_504))
 	require.LessOrEqual(t, budget.totals[0], uint64(1<<22))

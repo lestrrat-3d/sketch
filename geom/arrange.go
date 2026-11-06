@@ -3264,6 +3264,9 @@ func (a *arranger) splitFragments() []splitFrag {
 			pts = chargedAppend(a.budget, pts, [2]float64{b.px, b.py})
 		}
 	}
+	if !math.IsNaN(a.merge) {
+		pts = dedupBoundaryPoints(a.budget, pts)
+	}
 	// The sort algorithm is unstable, so anything this comparator leaves tied is
 	// ordered at the sorter's discretion, and that order can still come out of the
 	// order it was collected in — the authoring order the pre-pass exists to remove.
@@ -3285,22 +3288,12 @@ func (a *arranger) splitFragments() []splitFrag {
 			a.verts.canon(p[0], p[1])
 		}
 	} else {
-		unique := 0
-		for i, p := range pts {
-			a.budget.step(1)
-			if i == 0 || !samePointBits(pts[i-1], p) {
-				unique++
-			}
-		}
-		a.verts.xs = slices.Grow(a.verts.xs, unique)
-		a.verts.ys = slices.Grow(a.verts.ys, unique)
-		a.verts.nextID = slices.Grow(a.verts.nextID, unique)
+		a.verts.xs = slices.Grow(a.verts.xs, len(pts))
+		a.verts.ys = slices.Grow(a.verts.ys, len(pts))
+		a.verts.nextID = slices.Grow(a.verts.nextID, len(pts))
 		a.verts.reserveCells(nPts)
-		for i, p := range pts {
+		for _, p := range pts {
 			a.budget.step(1)
-			if i > 0 && samePointBits(pts[i-1], p) {
-				continue
-			}
 			a.verts.canon(p[0], p[1])
 		}
 	}
@@ -3321,6 +3314,27 @@ func (a *arranger) splitFragments() []splitFrag {
 		}
 	}
 	return frags
+}
+
+// dedupBoundaryPoints keeps the first occurrence of each bit-identical point. The
+// caller sorts the result by canonPointCompare, so this preserves canonical insertion
+// order while avoiding sort work for repeated segment boundaries.
+func dedupBoundaryPoints(budget *arrangeBudget, points [][2]float64) [][2]float64 {
+	if budget != nil {
+		budget.reserveBytes(uint64(len(points)) * 32)
+	}
+	seen := make(map[[2]uint64]struct{}, len(points))
+	unique := points[:0]
+	for _, p := range points {
+		budget.step(1)
+		key := [2]uint64{math.Float64bits(p[0]), math.Float64bits(p[1])}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		unique = append(unique, p)
+	}
+	return unique
 }
 
 // canonPointCompare is the TOTAL order splitFragments canonicalizes boundary points in:
