@@ -378,6 +378,7 @@ func TestCheckSentinelsAreDistinct(t *testing.T) {
 		sketch.ErrBrokenReference,
 		sketch.ErrForeignHandle,
 		sketch.ErrVerificationIncomplete,
+		sketch.ErrProfilesUnmeasured,
 		sketch.ErrInvalidProfile,
 		sketch.ErrInvalidParameter,
 		sketch.ErrNearSingular,

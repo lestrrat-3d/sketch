@@ -3,6 +3,7 @@ package sketch
 import (
 	"math"
 	"slices"
+	"sync"
 )
 
 // The local residual Jacobian.
@@ -22,10 +23,10 @@ import (
 // refuses (returning false, so the caller runs the dense pass) on every input
 // where that equality is not provable — see jacobianLocalInto.
 //
-// The plan is per-CALL state. It is built inside one [Sketch.lm] call, from the
-// constraint list and the variable indices as they stand then, and is never
-// stored on the Sketch and never reused across public calls — the same rule the
-// shared committed Jacobian follows (see committedJacobian in conditioning.go).
+// A populated plan belongs to one operation and one constraint configuration.
+// Solve and Enclose hold call-owned plans for their current optimization. Verify
+// borrows and clears a pooled plan only while it builds its scaled Jacobian; the
+// plan is never stored on the Sketch or shared with another operation.
 
 // jacobianMode says which Jacobian builder one [Sketch.lm] call may use. It is
 // passed EXPLICITLY by each call site rather than inferred from the eval
@@ -58,7 +59,8 @@ type residualPlan struct {
 	cons   []Constraint
 	offset []int
 	count  []int
-	m      int // total rows, == the row count residuals() produced at build time
+	m      int       // total rows, == the row count residuals() produced at build time
+	base   []float64 // the measured rows, retained by the pooled verification path
 
 	// varCons is a compressed index over the sketch's variable vector: the
 	// positions in cons that variable vi reaches are
@@ -71,6 +73,36 @@ type residualPlan struct {
 	// written on any one pass, so the rest hold values from an earlier variable
 	// — which is why the derivative loop reads only those same rows.
 	rp, rm []float64
+
+	// Pooled build scratch; call-owned plans leave these nil.
+	buildCounts    []int
+	buildFlat      []int
+	buildFlatStart []int
+}
+
+// residualPlanPool lends scratch to one scaled-Jacobian build at a time.
+var residualPlanPool = sync.Pool{New: func() any { return &residualPlan{} }}
+
+func getResidualPlan() *residualPlan {
+	pl, ok := residualPlanPool.Get().(*residualPlan)
+	if ok && pl != nil {
+		return pl
+	}
+	return &residualPlan{}
+}
+
+func putResidualPlan(pl *residualPlan) {
+	clear(pl.cons)
+	pl.cons = pl.cons[:0]
+	pl.offset = pl.offset[:0]
+	pl.count = pl.count[:0]
+	pl.varStart = pl.varStart[:0]
+	pl.varCons = pl.varCons[:0]
+	pl.rp = pl.rp[:0]
+	pl.rm = pl.rm[:0]
+	pl.base = pl.base[:0]
+	pl.m = 0
+	residualPlanPool.Put(pl)
 }
 
 // consFor returns the ascending positions in pl.cons whose constraint reads
@@ -187,22 +219,44 @@ func (s *Sketch) constraintVarIndices(c Constraint, out []int) ([]int, bool) {
 // every buffer is sized once from the constraint and variable counts, the
 // per-constraint variable list is sorted and deduplicated IN PLACE, and the
 // occurrence counts double as the fill cursors — because it is paid once per
-// [Sketch.lm] call, including on the small sketches where one dense Jacobian is
-// only a few microseconds and a careless plan would cost more than it saves.
+// local-Jacobian call, including on small sketches where a careless plan would
+// cost more than the dense Jacobian it replaces.
 func (s *Sketch) newResidualPlan(rows int) (*residualPlan, bool) {
-	nc := len(s.cons)
-	pl := &residualPlan{
-		cons:   make([]Constraint, 0, nc),
-		offset: make([]int, 0, nc),
-		count:  make([]int, 0, nc),
+	pl := &residualPlan{}
+	if !s.buildResidualPlan(pl, rows, false) {
+		return nil, false
 	}
-	counts := make([]int, len(s.vars))
+	return pl, true
+}
+
+func (s *Sketch) buildResidualPlan(pl *residualPlan, rows int, reuse bool) bool {
+	nc := len(s.cons)
+	pl.cons = slices.Grow(pl.cons[:0], nc)
+	pl.offset = slices.Grow(pl.offset[:0], nc)
+	pl.count = slices.Grow(pl.count[:0], nc)
+	var counts []int
+	var flat []int
+	var flatStart []int
+	if reuse {
+		counts = slices.Grow(pl.buildCounts[:0], len(s.vars))[:len(s.vars)]
+		clear(counts)
+		flat = slices.Grow(pl.buildFlat[:0], 4*nc)
+		flatStart = slices.Grow(pl.buildFlatStart[:0], nc+1)
+		defer func() {
+			pl.buildCounts, pl.buildFlat, pl.buildFlatStart = counts, flat, flatStart
+		}()
+	} else {
+		counts = make([]int, len(s.vars))
+		flat = make([]int, 0, 4*nc)
+		flatStart = make([]int, 0, nc+1)
+	}
 	// flat holds each constraint's deduplicated variable indices, concatenated;
 	// flatStart[k] is where cons[k]'s run begins. Four indices per constraint is
 	// the commonest shape (two points), so it is the growth seed.
-	flat := make([]int, 0, 4*nc)
-	flatStart := make([]int, 0, nc+1)
 	buf := make([]float64, 0, rows)
+	if reuse {
+		buf = slices.Grow(pl.base[:0], rows)
+	}
 	for _, c := range s.cons {
 		if d, ok := c.(Dimension); ok && d.Driven() {
 			continue // mirrors residuals(): a driven dimension contributes no row
@@ -210,7 +264,7 @@ func (s *Sketch) newResidualPlan(rows int) (*residualPlan, bool) {
 		start := len(flat)
 		vs, ok := s.constraintVarIndices(c, flat)
 		if !ok {
-			return nil, false
+			return false
 		}
 		// One entry per variable: a constraint naming the same variable twice
 		// (a zero-length line, a distance from a point to itself) would
@@ -220,7 +274,7 @@ func (s *Sketch) newResidualPlan(rows int) (*residualPlan, bool) {
 		flat = flat[:start+len(slices.Compact(flat[start:]))]
 		for _, vi := range flat[start:] {
 			if vi < 0 || vi >= len(counts) {
-				return nil, false // an index outside this sketch's vector
+				return false // an index outside this sketch's vector
 			}
 			counts[vi]++
 		}
@@ -234,10 +288,15 @@ func (s *Sketch) newResidualPlan(rows int) (*residualPlan, bool) {
 	}
 	flatStart = append(flatStart, len(flat))
 	pl.m = len(buf)
+	if reuse {
+		pl.base = buf
+	} else {
+		pl.base = nil
+	}
 
 	// counts becomes the per-variable fill cursor once the row starts are known,
 	// so the compressed index needs no second array to build.
-	pl.varStart = make([]int, len(counts)+1)
+	pl.varStart = slices.Grow(pl.varStart[:0], len(counts)+1)[:len(counts)+1]
 	sum := 0
 	for i, n := range counts {
 		pl.varStart[i] = sum
@@ -245,7 +304,7 @@ func (s *Sketch) newResidualPlan(rows int) (*residualPlan, bool) {
 		sum += n
 	}
 	pl.varStart[len(counts)] = sum
-	pl.varCons = make([]int, sum)
+	pl.varCons = slices.Grow(pl.varCons[:0], sum)[:sum]
 	for k := range pl.cons {
 		for _, vi := range flat[flatStart[k]:flatStart[k+1]] {
 			pl.varCons[counts[vi]] = k
@@ -253,9 +312,9 @@ func (s *Sketch) newResidualPlan(rows int) (*residualPlan, bool) {
 		}
 	}
 
-	pl.rp = make([]float64, pl.m)
-	pl.rm = make([]float64, pl.m)
-	return pl, true
+	pl.rp = slices.Grow(pl.rp[:0], pl.m)[:pl.m]
+	pl.rm = slices.Grow(pl.rm[:0], pl.m)[:pl.m]
+	return true
 }
 
 // jacobianLocalInto fills the m×n matrix J with the same Jacobian
@@ -336,8 +395,7 @@ func (s *Sketch) jacobianLocalInto(J [][]float64, free []int, m int, pl *residua
 // [Sketch.scaledJacobianMode] by reevaluating, per free variable, only the
 // constraints that variable reaches, and reports whether it did. On false A may
 // hold partial values and the caller MUST run the dense pass, which overwrites
-// every entry. It is called with the geometry already shifted to the centroid,
-// and eval MUST be [Sketch.residuals].
+// every entry. It is called with the geometry already shifted to the centroid.
 //
 // The result is bit-identical to the dense pass for the reason
 // [Sketch.jacobianLocalInto] gives: an unaffected row is computed from identical
@@ -347,10 +405,11 @@ func (s *Sketch) jacobianLocalInto(J [][]float64, free []int, m int, pl *residua
 // free column's scale is not a finite positive number, or when 1/(2h) is not
 // finite. A plan whose measured row count differs from len(rowScale) is refused
 // too, as is a constraint whose row count moves under perturbation.
-func (s *Sketch) scaledJacobianLocal(A [][]float64, free []int, eval func([]float64) []float64, rowScale, colScale []float64) bool {
+func (s *Sketch) scaledJacobianLocal(A [][]float64, free []int, rowScale, colScale []float64) bool {
 	m := len(rowScale)
-	pl, ok := s.newResidualPlan(m)
-	if !ok || pl.m != m {
+	pl := getResidualPlan()
+	defer putResidualPlan(pl)
+	if !s.buildResidualPlan(pl, m, true) || pl.m != m {
 		return false
 	}
 	for _, v := range rowScale {
@@ -358,7 +417,7 @@ func (s *Sketch) scaledJacobianLocal(A [][]float64, free []int, eval func([]floa
 			return false
 		}
 	}
-	for _, v := range eval(nil) {
+	for _, v := range pl.base {
 		if nonFinite(v) {
 			return false
 		}

@@ -82,12 +82,20 @@ func (st Status) String() string {
 // [VerificationReport.Check] reports such a report as [ErrVerificationIncomplete]
 // and asserts none of the conditions the skipped passes decide.
 //
+// Passing [WithoutProfiles] skips only the profile and chain arrangement.
+// [VerificationReport.Analysed] remains true when the constraint and parameter
+// passes ran, while [VerificationReport.ProfilesAnalysed] is false. The report
+// then carries [ErrProfilesUnmeasured]. If verification stops before those
+// passes, [VerificationReport.Check] reports [ErrVerificationIncomplete]
+// instead.
+//
 // [VerificationReport.Analysed] is how a consumer tells the two paths apart. A
 // report is not self-describing: every unevaluated field holds a value that is
 // also a legitimate analysed one, so a reader that renders or gates on DOF,
-// Status, Solvable, Residual, Conditioning, RankMargin, FreePoints, Profiles,
-// InvalidProfiles, ProfilesValid, Chains, InvalidChains, Probe, ProbeIncomplete,
-// Redundant, Conflicts or the parameter fields must ask Analysed first.
+// Status, Solvable, Residual, Conditioning, RankMargin, FreePoints, Probe,
+// ProbeIncomplete, Redundant, Conflicts or the parameter fields must ask
+// Analysed first. Profile and chain fields also require
+// [VerificationReport.ProfilesAnalysed].
 type VerificationReport struct {
 	// Solvable reports whether every (non-driven) constraint holds within the
 	// tolerance at the current configuration (the same default as [Sketch.Solve],
@@ -181,8 +189,8 @@ type VerificationReport struct {
 	FreePoints []*Point
 	// Profiles lists the closed-region boundaries detected in the sketch's
 	// non-construction geometry (see [Sketch.Profiles]). Meaningful only when
-	// [VerificationReport.Analysed] is true: the unevaluated nil value reads the
-	// same as a sketch with no closed regions.
+	// [VerificationReport.ProfilesAnalysed] is true: the unevaluated nil value
+	// reads the same as a sketch with no closed regions.
 	Profiles []*Profile
 	// InvalidProfiles lists the detected profiles that failed region validity —
 	// self-intersecting, or reached by an unresolvable arrangement condition. A
@@ -192,16 +200,16 @@ type VerificationReport struct {
 	// region and so lists them all. A subset of Profiles. Such a region
 	// cannot be extruded. It can be empty while ProfilesValid is false: a condition
 	// that produced no region, or one that destroyed one, has no profile to list.
-	// Meaningful only when [VerificationReport.Analysed] is true: the unevaluated
-	// nil value reads the same as a sketch with no invalid profiles.
+	// Meaningful only when [VerificationReport.ProfilesAnalysed] is true: the
+	// unevaluated nil value reads the same as a sketch with no invalid profiles.
 	InvalidProfiles []*Profile
 	// Chains lists the OPEN connected runs detected in the same arrangement the
 	// profiles come from (see [Sketch.Chains]) — the geometry that encloses
 	// nothing, which an open-curve operation (a swept surface) consumes. Verify
 	// already runs that arrangement, so reading them here spares a caller that
 	// wants both publications a second arrangement pass. Meaningful only when
-	// [VerificationReport.Analysed] is true: the unevaluated nil value reads the
-	// same as a sketch whose geometry is all closed.
+	// [VerificationReport.ProfilesAnalysed] is true: the unevaluated nil value
+	// reads the same as a sketch whose geometry is all closed.
 	Chains []*Chain
 	// InvalidChains lists the detected chains that failed chain validity — a walk
 	// that crosses or touches itself, or one reached by an unresolvable
@@ -216,17 +224,21 @@ type VerificationReport struct {
 	// anyway: a degenerate arrangement already fails the verdict through
 	// ProfilesValid, and a self-touching walk is a property of the ONE chain a
 	// consumer is about to sweep, which it reads off [Chain.Valid] at that point.
-	// Meaningful only when [VerificationReport.Analysed] is true: the unevaluated
-	// nil value reads the same as a sketch with no invalid chains.
+	// Meaningful only when [VerificationReport.ProfilesAnalysed] is true: the
+	// unevaluated nil value reads the same as a sketch with no invalid chains.
 	InvalidChains []*Chain
 	// ProfilesValid is true when every detected region is a valid profile and the
 	// arrangement resolved cleanly. It is vacuously true when no geometry forms a
 	// region (an open sketch has no regions, which is not itself invalid), but
 	// false when the arrangement was degenerate even if that produced no region.
 	// Mirrors the Stale trust-signal shape. Meaningful only when
-	// [VerificationReport.Analysed] is true: the unevaluated zero value is false,
-	// which reads as an invalid arrangement rather than as "not evaluated".
+	// [VerificationReport.ProfilesAnalysed] is true: the unevaluated zero value
+	// is false, which reads as an invalid arrangement rather than as "not
+	// evaluated".
 	ProfilesValid bool
+	// profilesSkipped records that Verify did not build the profile and chain
+	// arrangement because the caller passed [WithoutProfiles].
+	profilesSkipped bool
 	// Probe holds the discrete-ambiguity probe result, populated only when
 	// [WithProbe] is passed and the sketch is solvable with DOF 0 (the probe's
 	// preconditions). It is nil otherwise; a nil Probe is not a uniqueness
@@ -352,6 +364,9 @@ var (
 	// near-singularity check was not run and its verdict is unknown rather than
 	// passed.
 	ErrConditioningUnmeasured = errors.New("sketch: conditioning not measured")
+	// ErrProfilesUnmeasured: the caller passed [WithoutProfiles], so profile
+	// validity was not checked and its verdict is unknown rather than passed.
+	ErrProfilesUnmeasured = errors.New("sketch: profiles not measured")
 	// ErrInvalidProfile: the region set cannot be trusted as extrudable profiles —
 	// see [VerificationReport.InvalidProfiles], which can be empty when the
 	// arrangement was unresolvable without producing a region.
@@ -487,7 +502,9 @@ func (r *VerificationReport) Check() Reasons {
 	if n := len(r.Redundant); n > 0 {
 		add(fmt.Errorf("%w: %d", ErrRedundant, n))
 	}
-	if !r.ProfilesValid {
+	if r.profilesSkipped {
+		add(fmt.Errorf("%w: profile and chain arrangement was not built", ErrProfilesUnmeasured))
+	} else if !r.ProfilesValid {
 		add(fmt.Errorf("%w: %d of %d regions", ErrInvalidProfile,
 			len(r.InvalidProfiles), len(r.Profiles)))
 	}
@@ -540,30 +557,44 @@ func (r *VerificationReport) Check() Reasons {
 // reason: a nil, corrupt, foreign, or non-finite handle stopped [Sketch.Verify]
 // before those conditions could be established at all, so the verdict fails on
 // [ErrVerificationIncomplete] alongside the handle reason.
+// A report produced with [WithoutProfiles] also fails because the arrangement's
+// validity was not established. When the core analysis ran,
+// [VerificationReport.Check] reports [ErrProfilesUnmeasured]; an earlier
+// analysis stop reports [ErrVerificationIncomplete] instead.
 //
 // It is exactly [VerificationReport.Check] returning nil, and is defined that way
 // rather than restated, so the boolean and the reasons cannot drift apart. Use
 // Check to learn WHICH condition failed, or to waive one deliberately.
 func (r *VerificationReport) Trustworthy() bool { return r.Check() == nil }
 
-// Analysed reports whether [Sketch.Verify] ran its analysis passes — solvability,
-// rank/DOF, conditioning, the constraint dependency analysis, profiles and
-// parameters — or stopped at the scans that precede them because a nil, corrupt
-// or foreign handle, or non-finite geometry, would have made those passes panic
-// or answer from poisoned input.
+// Analysed reports whether [Sketch.Verify] ran the solvability, rank/DOF,
+// conditioning, constraint dependency and parameter passes, or stopped at the
+// scans that precede them because a nil, corrupt or foreign handle, or
+// non-finite geometry, would have made those passes panic or answer from
+// poisoned input. It does not report whether profile and chain construction
+// ran; use [VerificationReport.ProfilesAnalysed] for those fields.
 //
 // It is false exactly when [ErrVerificationIncomplete] is among the reasons, and
-// it is the ONLY way to tell the two paths apart from a report alone: every
-// field the skipped passes never wrote holds its zero value, and each of those
-// zero values is also a legitimate analysed reading — DOF 0 is fully
-// constrained, Status is [Underconstrained], Solvable is false, ProfilesValid is
-// false, Conditioning is 0. A consumer that renders, logs or gates on any of
-// them must branch on this first; the fields' own doc comments say which ones.
+// it distinguishes an analysed report from one stopped before those passes.
+// The fields the skipped passes never wrote hold zero values, and each zero
+// value is also a legitimate analysed reading — DOF 0 is fully constrained,
+// Status is [Underconstrained], Solvable is false, and Conditioning is 0. A
+// consumer that reads those fields must branch on this first; the field docs
+// say which ones.
 //
 // [VerificationReport.Trustworthy] already fails on that path, so a caller that
 // only gates on the verdict needs nothing here. This is for the reader that
 // wants the numbers.
 func (r *VerificationReport) Analysed() bool { return !r.analysisSkipped }
+
+// ProfilesAnalysed reports whether [Sketch.Verify] built the profile and chain
+// arrangement. It is false when the caller passed [WithoutProfiles] or when
+// verification stopped before the arrangement could run. Read Profiles,
+// InvalidProfiles, ProfilesValid, Chains and InvalidChains only when this
+// method returns true.
+func (r *VerificationReport) ProfilesAnalysed() bool {
+	return !r.analysisSkipped && !r.profilesSkipped
+}
 
 // VerifyOption tunes [Sketch.Verify]. Construct values with the With… helpers.
 type VerifyOption interface {
@@ -579,6 +610,8 @@ type identProbe struct{}
 
 type identSkipConditioning struct{}
 
+type identSkipProfiles struct{}
+
 // WithoutConditioning skips the singular-value pass that measures
 // [VerificationReport.Conditioning]. That pass costs O(n³) in the number of
 // free variables and dominates Verify on large sketches. The status, DOF,
@@ -587,6 +620,17 @@ type identSkipConditioning struct{}
 // near-singularity condition was not tested; read Status and DOF instead.
 func WithoutConditioning() VerifyOption {
 	return verifyOption{option.New(identSkipConditioning{}, true)}
+}
+
+// WithoutProfiles skips building the profile and chain arrangement. The
+// report still includes solvability, DOF, status, constraint diagnostics and
+// parameter validity. [VerificationReport.Check] reports
+// [ErrProfilesUnmeasured] when the core analysis ran. If verification stopped
+// before the arrangement, [VerificationReport.Check] reports
+// [ErrVerificationIncomplete]. Neither path can pass the trust verdict. Use
+// [VerificationReport.ProfilesAnalysed] before reading profile or chain fields.
+func WithoutProfiles() VerifyOption {
+	return verifyOption{option.New(identSkipProfiles{}, true)}
 }
 
 // WithProbe enables the discrete-ambiguity probe ([Sketch.ProbeConfigurations])
@@ -750,11 +794,10 @@ func (s *Sketch) verifyCore(rep *VerificationReport, tolerance float64) (committ
 // at the current configuration (never reusing a solve's stale one), so the
 // counts are consistent with the geometry as it stands.
 //
-// The ctx argument bounds any probe run triggered by [WithProbe] (the only
-// potentially expensive, re-solving work Verify performs); pass
+// The ctx argument bounds any probe run triggered by [WithProbe]; pass
 // context.Background() when no bound is needed.
 func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *VerificationReport {
-	var probe, skipConditioning bool
+	var probe, skipConditioning, skipProfiles bool
 	var probeOpts []ProbeOption
 	tolerance := defaultSolveConfig().tolerance
 	for _, opt := range options {
@@ -766,10 +809,15 @@ func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *Verificat
 			tolerance = option.MustGet[float64](opt)
 		case identSkipConditioning:
 			skipConditioning = true
+		case identSkipProfiles:
+			skipProfiles = true
 		}
 	}
 
-	rep := &VerificationReport{condGate: conditioningGate(tolerance)}
+	rep := &VerificationReport{
+		condGate:        conditioningGate(tolerance),
+		profilesSkipped: skipProfiles,
+	}
 	cj, ok := s.verifyCore(rep, tolerance)
 	if !ok {
 		return rep
@@ -814,24 +862,26 @@ func (s *Sketch) Verify(ctx context.Context, options ...VerifyOption) *Verificat
 		}
 	}
 
-	arrangement, _ := s.buildProfilesWith(ctx, nil)
-	rep.Profiles = arrangement.profiles
-	rep.ProfilesValid = !arrangement.degenerate
-	for _, p := range arrangement.profiles {
-		if !p.Valid {
-			rep.InvalidProfiles = append(rep.InvalidProfiles, p)
-			rep.ProfilesValid = false
-		}
-	}
-	// The same arrangement's open publication. An invalid chain is reported and
-	// nothing more: it is not a condition Check asserts — see InvalidChains.
-	rep.Chains = arrangement.chains
-	for _, c := range arrangement.chains {
-		if !c.Valid {
-			rep.InvalidChains = append(rep.InvalidChains, c)
-		}
-	}
 	rep.Status = classifyStatus(rep)
+	if !skipProfiles {
+		arrangement, _ := s.buildProfilesWith(ctx, nil)
+		rep.Profiles = arrangement.profiles
+		rep.ProfilesValid = !arrangement.degenerate
+		for _, p := range arrangement.profiles {
+			if !p.Valid {
+				rep.InvalidProfiles = append(rep.InvalidProfiles, p)
+				rep.ProfilesValid = false
+			}
+		}
+		// The same arrangement's open publication. An invalid chain is reported
+		// and nothing more: it is not a condition Check asserts — see InvalidChains.
+		rep.Chains = arrangement.chains
+		for _, c := range arrangement.chains {
+			if !c.Valid {
+				rep.InvalidChains = append(rep.InvalidChains, c)
+			}
+		}
+	}
 
 	// The probe's preconditions are exactly solvable && DOF 0; guarding here
 	// keeps the (expensive) probe from running when it would only error. ctx

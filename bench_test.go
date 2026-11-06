@@ -328,6 +328,16 @@ func BenchmarkVerify(b *testing.B) {
 			s.Verify(b.Context())
 		}
 	})
+	b.Run("largeWithoutProfiles", func(b *testing.B) {
+		s, _ := buildLargeFixture(b)
+		if _, err := s.Solve(b.Context()); err != nil {
+			b.Fatal(err)
+		}
+		b.ReportAllocs()
+		for b.Loop() {
+			s.Verify(b.Context(), sketch.WithoutProfiles())
+		}
+	})
 }
 
 func BenchmarkProfiles(b *testing.B) {

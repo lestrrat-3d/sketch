@@ -390,7 +390,10 @@ conditioning), the **scale-invariant** `Conditioning` (`conditioning.go`: the
 reciprocal condition number of the nondimensionalized Jacobian — this one DOES
 gate `Trustworthy()`, below a tolerance-derived `max(1e-6, 4·√tol)` threshold),
 `Trustworthy()`, and (opt-in via `WithProbe`) discrete ambiguity. A pure
-consumer of the diagnostic building blocks.
+consumer of the diagnostic building blocks. `WithoutProfiles` skips only the
+profile and chain arrangement. `ProfilesAnalysed` reports whether those fields
+were measured. When core analysis runs, `Check` reports `ErrProfilesUnmeasured`;
+an earlier stop reports `ErrVerificationIncomplete` instead.
 
 ### `Chains`/`InvalidChains` are reported, never asserted
 
@@ -521,6 +524,13 @@ constraint operand is the only finding, since `ErrVerificationIncomplete` is
 itself a failed condition. `Check` returns a **literal nil** on the clean path —
 never a nil `*reasons` inside a non-nil interface, which would make `err != nil`
 true for a sound sketch (`verify_check_test.go` pins it).
+
+`WithoutProfiles` skips only the arrangement pass. `Analysed` stays true for the
+solvability, constraint, conditioning and parameter passes, while
+`ProfilesAnalysed` is false. When those passes run, `Check` reports
+`ErrProfilesUnmeasured` instead of asserting `ErrInvalidProfile`. If verification
+stops earlier, `Check` reports `ErrVerificationIncomplete`. Neither report can
+pass `Trustworthy` without a profile validity result.
 
 ### Non-finite geometry is screened on the geometry
 

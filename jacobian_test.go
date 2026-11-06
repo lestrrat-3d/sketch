@@ -686,3 +686,41 @@ func TestScaledJacobianLocalIsBitIdentical(t *testing.T) {
 		})
 	}
 }
+
+func TestResidualPlanPoolClearsConstraintsAcrossSketches(t *testing.T) {
+	makeSketch := func(rectangles int) *Sketch {
+		w := NewWorld()
+		s, err := w.CreateSketch(w.XY())
+		require.NoError(t, err)
+		var prev *Rectangle
+		for i := range rectangles {
+			x := float64(i * 30)
+			r := s.CreateRectangle(x, 0, x+20, 12)
+			s.AddConstraint(NewDistance(r.A, r.B, 20), NewDistance(r.A, r.D, 12))
+			if prev == nil {
+				s.AddConstraint(NewCoincident(r.A, s.Origin()))
+			} else {
+				s.AddConstraint(NewCoincident(r.A, prev.B))
+			}
+			prev = r
+		}
+		return s
+	}
+
+	first := makeSketch(3)
+	second := makeSketch(1)
+	pl := getResidualPlan()
+	require.True(t, first.buildResidualPlan(pl, len(first.residuals(nil)), true))
+	firstConstraint := pl.cons[0]
+	require.Greater(t, cap(pl.cons), 1)
+	putResidualPlan(pl)
+
+	for _, c := range pl.cons[:cap(pl.cons)] {
+		require.Nil(t, c, "the pool must not retain constraints from its prior sketch")
+	}
+	require.True(t, second.buildResidualPlan(pl, len(second.residuals(nil)), true))
+	require.NotSame(t, firstConstraint, pl.cons[0])
+	require.Same(t, second.cons[0], pl.cons[0])
+	require.Equal(t, second.residuals(nil), pl.base)
+	putResidualPlan(pl)
+}

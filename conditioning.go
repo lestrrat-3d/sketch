@@ -624,7 +624,7 @@ func (s *Sketch) scaledJacobianFill(A [][]float64, mode jacobianMode, free []int
 		}
 	}()
 
-	if mode == localJacobian && len(extraPos) == 0 && s.scaledJacobianLocal(A, free, eval, rowScale, colScale) {
+	if mode == localJacobian && len(extraPos) == 0 && s.scaledJacobianLocal(A, free, rowScale, colScale) {
 		return
 	}
 	rp := make([]float64, 0, m)
