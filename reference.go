@@ -263,7 +263,7 @@ func (s *Sketch) scanReferenceIntegrity(rep *VerificationReport) bool {
 			// Keep reading control points directly from the entity. These lists can
 			// be large, and entityPoints intentionally returns them without copying.
 			pts = appendEntityPoints(nil, e)
-		default:
+		case *Line, *Circle, *Arc, *Ellipse, *EllipticalArc, *Conic:
 			pts = appendEntityPoints(pts, e)
 		}
 		if s.referenceBroken(e, pts) {
