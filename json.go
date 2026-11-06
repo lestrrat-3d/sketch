@@ -265,7 +265,11 @@ func (s *Sketch) MarshalJSON() ([]byte, error) {
 
 // marshalBody builds the shared, placement-free payload of a sketch.
 func (s *Sketch) marshalBody() (jsonSketchBody, error) {
-	var body jsonSketchBody
+	body := jsonSketchBody{
+		Points:      make([]jsonPoint, 0, len(s.points)),
+		Entities:    make([]jsonEntity, 0, len(s.ents)),
+		Constraints: make([]jsonConstraint, 0, len(s.cons)),
+	}
 
 	for _, p := range s.points {
 		body.Points = append(body.Points, jsonPoint{
