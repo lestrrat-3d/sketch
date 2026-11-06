@@ -47,6 +47,8 @@ var entitySwitchExempt = map[entitySwitchSite]string{
 	{"tools_curve.go", "pinToCutter"}:         "only line/circle/arc cutters produce a crossing (lineCrossings), so only they are pinned to",
 	{"tools_curve.go", "circleCrossings"}:     "only line/circle/arc cutters have a closed-form circle intersection in geom; a curve contributes no crossing",
 	{"tools_offset.go", "unsupportedOffset"}:  "an allow-list with a refusing default: only line, arc and circle are offset, and an entity type not named here is REFUSED by CreateOffset rather than skipped",
+	{"dxf.go", "DXF"}:                         "only sampled spline entities need cached points for DXF bounds and output; straight, circular, and elliptical entities use direct geometry",
+	{"svg.go", "sampleEntityPolyline"}:        "only entities represented by sampled polylines need reusable samples; lines, circles, and ellipses use direct geometry",
 	{"tools_curve.go", "lineCrossings"}:       "only line/circle/arc cutters have a closed-form line intersection in geom; a curve contributes no crossing",
 	{"tools_replicate.go", "instantiate"}:     "mirror/pattern copies need the transform applied to a shape the point-relinking interface does not carry, so only line/circle/arc/fit spline are copied (a fit spline is defined by its fit points alone); every caller screens the seed with unsupportedSeed first, so an unhandled type is refused before anything is committed rather than dropped here",
 	{"tools_replicate.go", "unsupportedSeed"}: "an allow-list with a refusing default: only line/circle/arc/fit spline can be copied by instantiate, and an entity type not named here is REFUSED by the pattern/mirror builders rather than dropped",

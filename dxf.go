@@ -64,7 +64,24 @@ func (s *Sketch) DXF(opts ...DXFOption) (string, error) {
 		}
 	}
 
-	if b, ok := s.bounds(); ok && !b.finite() {
+	var samples [][][2]float64
+	for i, e := range s.ents {
+		var pts [][2]float64
+		switch t := e.(type) {
+		case *ClosedSpline:
+			pts = t.Polyline(exportSegments)
+		case *FitSpline:
+			pts = t.Polyline(exportSegments)
+		}
+		if pts != nil {
+			if samples == nil {
+				samples = make([][][2]float64, len(s.ents))
+			}
+			samples[i] = pts
+		}
+	}
+	b, hasBounds := s.boundsWithSamples(samples)
+	if hasBounds && !b.finite() {
 		return "", ErrNonFiniteGeometry
 	}
 
@@ -207,7 +224,7 @@ func (s *Sketch) DXF(opts ...DXFOption) (string, error) {
 	pair(70, fmt.Sprintf("%d", dxfInsUnits(s.sys.Length)))
 	pair(9, "$MEASUREMENT")
 	pair(70, fmt.Sprintf("%d", dxfMeasurement(s.sys.Length)))
-	if b, ok := s.bounds(); ok {
+	if hasBounds {
 		pair(9, "$EXTMIN")
 		pairL(10, b.minX)
 		pairL(20, b.minY)
@@ -222,7 +239,7 @@ func (s *Sketch) DXF(opts ...DXFOption) (string, error) {
 	pair(0, "SECTION")
 	pair(2, "ENTITIES")
 
-	for _, e := range s.ents {
+	for i, e := range s.ents {
 		layer := "0"
 		switch {
 		case e.IsReference():
@@ -321,7 +338,7 @@ func (s *Sketch) DXF(opts ...DXFOption) (string, error) {
 		case *ClosedSpline:
 			// No periodic SPLINE form is honored uniformly across readers; emit a
 			// closed LWPOLYLINE of the sampled ring (the same loop SVG/PNG draw).
-			pts := t.Polyline(64)
+			pts := samples[i]
 			if len(pts) > 1 {
 				pts = pts[:len(pts)-1] // drop the duplicate closing vertex; flag 70=1 wraps
 			}
@@ -340,7 +357,7 @@ func (s *Sketch) DXF(opts ...DXFOption) (string, error) {
 			// The fit spline's control points are a derived interpolation artifact,
 			// not clamped-uniform B-spline controls, so emit the sampled
 			// interpolating curve as an OPEN LWPOLYLINE rather than a native SPLINE.
-			pts := t.Polyline(64)
+			pts := samples[i]
 			pair(0, "LWPOLYLINE")
 			pair(8, layer)
 			pair(90, fmt.Sprintf("%d", len(pts)))
