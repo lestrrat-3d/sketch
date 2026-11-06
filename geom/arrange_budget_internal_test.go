@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -143,4 +144,48 @@ func TestSplitFragmentsKeepsNaNMergeInsertionPath(t *testing.T) {
 
 	require.Len(t, frags, len(a.segs))
 	require.Len(t, a.verts.xs, nBoundaries+2*len(frags))
+}
+
+func TestDedupBoundaryPointsKeepsBitwiseDistinctPointsAndChargesWork(t *testing.T) {
+	negZero := math.Copysign(0, -1)
+	nan1 := math.Float64frombits(0x7ff8000000000001)
+	nan2 := math.Float64frombits(0x7ff8000000000002)
+	points := [][2]float64{
+		{0, 0},
+		{negZero, 0},
+		{0, negZero},
+		{nan1, 1},
+		{nan2, 1},
+		{nan1, 1},
+		{0, 0},
+	}
+	var charged, reservedBytes uint64
+	budget := &arrangeBudget{
+		contextErr: func() error { return nil },
+		charge: func(n uint64) error {
+			charged += n
+			return nil
+		},
+		resources: func(_ uint64, bytes uint64) error {
+			reservedBytes += bytes
+			return nil
+		},
+	}
+
+	unique := dedupBoundaryPoints(budget, points)
+	require.Len(t, unique, 5)
+	require.Equal(t, uint64(len(points)), budget.spent)
+	require.Equal(t, budget.spent, charged)
+	require.Equal(t, uint64(len(points))*32, reservedBytes)
+	require.True(t, samePointBits(unique[0], [2]float64{0, 0}))
+	require.True(t, samePointBits(unique[1], [2]float64{negZero, 0}))
+	require.True(t, samePointBits(unique[2], [2]float64{0, negZero}))
+	require.True(t, samePointBits(unique[3], [2]float64{nan1, 1}))
+	require.True(t, samePointBits(unique[4], [2]float64{nan2, 1}))
+
+	slices.SortFunc(unique, canonPointCompare)
+	require.Less(t, canonPointCompare(unique[0], unique[1]), 0,
+		"cmp.Compare keeps NaNs before finite x values and payload bits break the NaN tie")
+	require.Less(t, canonPointCompare(unique[3], unique[4]), 0,
+		"raw coordinate bits keep the two signed-zero points distinct in canonical order")
 }
