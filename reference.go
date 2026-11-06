@@ -204,8 +204,7 @@ func isNilEntity(e Entity) bool { return e == nil || e.isNil() }
 // entity with a foreign/dead defining point, or a reference entity that is also
 // construction, has a non-reference or unlocked defining point, an unfixed owned
 // var, or a topology that no longer matches its construction-time seal.
-func (s *Sketch) referenceBroken(e Entity) bool {
-	pts := entityPoints(e)
+func (s *Sketch) referenceBroken(e Entity, pts []*Point) bool {
 	for _, p := range pts {
 		if !s.owns(p) {
 			return true
@@ -256,11 +255,21 @@ func (s *Sketch) referenceBroken(e Entity) bool {
 // that analysis.
 func (s *Sketch) scanReferenceIntegrity(rep *VerificationReport) bool {
 	nilCorrupt := false
+	var pointBuf [3]*Point
 	for _, e := range s.ents {
-		if s.referenceBroken(e) {
+		pts := pointBuf[:0]
+		switch e.(type) {
+		case *Spline, *ClosedSpline, *FitSpline, *NURBS:
+			// Keep reading control points directly from the entity. These lists can
+			// be large, and entityPoints intentionally returns them without copying.
+			pts = appendEntityPoints(nil, e)
+		case *Line, *Circle, *Arc, *Ellipse, *EllipticalArc, *Conic:
+			pts = appendEntityPoints(pts, e)
+		}
+		if s.referenceBroken(e, pts) {
 			rep.BrokenReferences = append(rep.BrokenReferences, e)
 		}
-		for _, p := range entityPoints(e) {
+		for _, p := range pts {
 			switch {
 			case p == nil:
 				nilCorrupt = true
@@ -269,8 +278,10 @@ func (s *Sketch) scanReferenceIntegrity(rep *VerificationReport) bool {
 			}
 		}
 	}
+	var constraintPointBuf [3]*Point
+	var constraintEntityBuf [3]Entity
 	for _, c := range s.cons {
-		pts, ents := constraintRefs(c)
+		pts, ents := constraintRefsInto(constraintPointBuf[:0], constraintEntityBuf[:0], c)
 		for _, p := range pts {
 			switch {
 			case p == nil:
