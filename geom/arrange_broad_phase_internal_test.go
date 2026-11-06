@@ -108,6 +108,45 @@ func checkBroadPhase(t *testing.T, a *arranger) {
 	require.Equal(t, bruteForcePairs(a), cand, "sweep must agree with a naive box-overlap scan")
 }
 
+func TestDisjointCircleSourcesOnlyForSeparatedCircleScenes(t *testing.T) {
+	tests := []struct {
+		name   string
+		closed []ClosedCurve
+		curves []Curve
+		want   bool
+	}{
+		{
+			name:   "disjoint",
+			closed: []ClosedCurve{bpCircle(0, 0, 10), bpCircle(30, 0, 10)},
+			want:   true,
+		},
+		{
+			name:   "overlapping",
+			closed: []ClosedCurve{bpCircle(0, 0, 10), bpCircle(15, 0, 10)},
+		},
+		{
+			name:   "tangent",
+			closed: []ClosedCurve{bpCircle(0, 0, 10), bpCircle(20, 0, 10)},
+		},
+		{
+			name:   "mixed source types",
+			closed: []ClosedCurve{bpCircle(0, 0, 10)},
+			curves: []Curve{bpLine(30, 0, 40, 0)},
+		},
+		{
+			name:   "single circle",
+			closed: []ClosedCurve{bpCircle(0, 0, 10)},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := scenePairArranger(tt.curves, tt.closed, 0)
+			a.analyticPrepass()
+			require.Equal(t, tt.want, a.disjointCircleSources())
+		})
+	}
+}
+
 // --- fixtures ---------------------------------------------------------------
 
 func bpLine(x1, y1, x2, y2 float64) *Line {

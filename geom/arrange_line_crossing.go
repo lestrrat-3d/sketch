@@ -31,6 +31,18 @@ func crossingAtVertex(b cut, exact bool, verts *vertexTable, v int) *LineLineCro
 // A sampled cut, source endpoint, third line, or nearby analytic event merged by
 // the vertex table removes the token from every incident edge.
 func (a *arranger) certifyLineLineCrossings() {
+	anyCrossing := false
+	for _, e := range a.edges {
+		a.budget.step(1)
+		if e.crossU != nil || e.crossV != nil {
+			anyCrossing = true
+			break
+		}
+	}
+	if !anyCrossing {
+		return
+	}
+
 	type vertexContact struct {
 		cross  *LineLineCrossing
 		seen   int
