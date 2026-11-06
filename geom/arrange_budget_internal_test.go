@@ -3,6 +3,7 @@ package geom
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -130,4 +131,16 @@ func TestArrangeBudgetStepPreservesBoundedOrder(t *testing.T) {
 		require.ErrorIs(t, abort.err, refused)
 		require.Zero(t, budget.spent)
 	})
+}
+
+func TestSplitFragmentsKeepsNaNMergeInsertionPath(t *testing.T) {
+	a := newArranger(nil, []ClosedCurve{NewCircle(NewPoint(0, 0), 10)},
+		arrangeConfig{vertexMerge: math.NaN()})
+	a.densify()
+	nBoundaries := 2 * len(a.segs)
+
+	frags := a.splitFragments()
+
+	require.Len(t, frags, len(a.segs))
+	require.Len(t, a.verts.xs, nBoundaries+2*len(frags))
 }

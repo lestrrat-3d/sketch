@@ -101,6 +101,31 @@ func (a *arranger) sourceBoxCache() []segBox {
 	return a.sourceBoxes
 }
 
+// disjointCircleSources reports whether every source is a circle and no two
+// sources' reach-expanded boxes overlap. Simple circles cannot self-intersect,
+// so this proves the sampled pair walk has no work to do.
+func (a *arranger) disjointCircleSources() bool {
+	if len(a.sources) < 2 {
+		return false
+	}
+	for i := range a.sources {
+		a.budget.step(1)
+		if a.sources[i].kind != srcCircle {
+			return false
+		}
+	}
+	boxes := a.sourceBoxCache()
+	for i := range boxes {
+		for j := i + 1; j < len(boxes); j++ {
+			a.budget.step(1)
+			if boxesOverlap(boxes[i], boxes[j]) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // boxesOverlap reports whether two boxes overlap, treating a touch (shared edge or
 // corner) as an overlap: the pair tests intersect's loop body guards on are
 // tolerance-bounded equalities, so a box touch is exactly the boundary case those

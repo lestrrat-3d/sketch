@@ -126,6 +126,18 @@ func circleCrossingAtVertex(b cut, exact bool, verts *vertexTable, v int) *LineC
 // certifyLineCircleCrossings removes a token unless its final vertex has
 // exactly four incident fragments, two from each source and none from another.
 func (a *arranger) certifyLineCircleCrossings() {
+	anyCrossing := false
+	for _, e := range a.edges {
+		a.budget.step(1)
+		if e.circleU != nil || e.circleV != nil {
+			anyCrossing = true
+			break
+		}
+	}
+	if !anyCrossing {
+		return
+	}
+
 	type contact struct {
 		cross  *LineCircleCrossing
 		seen   int

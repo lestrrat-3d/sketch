@@ -1342,9 +1342,16 @@ func (a *arranger) intersect() {
 
 func (a *arranger) intersectWithLinePairFilter(filter bool) {
 	a.analyticPrepassWithLinePairFilter(filter)
-	cand := a.candidatePairs()
+	skipPairs := a.disjointCircleSources()
+	var cand [][]int
+	if !skipPairs {
+		cand = a.candidatePairs()
+	}
 	for i := range a.segs {
 		a.budget.step(1)
+		if skipPairs {
+			continue
+		}
 		for _, j := range cand[i] {
 			a.budget.step(1)
 			si, sj := &a.segs[i], &a.segs[j]
@@ -3249,11 +3256,7 @@ func (a *arranger) splitFragments() []splitFrag {
 		nPts += len(bs)
 		nFrags += max(len(bs)-1, 0)
 	}
-	pts := make([][2]float64, 0, nPts)
-	a.verts.xs = slices.Grow(a.verts.xs, nPts)
-	a.verts.ys = slices.Grow(a.verts.ys, nPts)
-	a.verts.nextID = slices.Grow(a.verts.nextID, nPts)
-	a.verts.reserveCells(nPts)
+	pts := make([][2]float64, 0, a.budget.preflight(nPts))
 	for i := range a.segs {
 		for _, b := range bounds[i] {
 			a.budget.step(1)
@@ -3270,9 +3273,35 @@ func (a *arranger) splitFragments() []splitFrag {
 		a.budget.step(1)
 		return canonPointCompare(p, q)
 	})
-	for _, p := range pts {
-		a.budget.step(1)
-		a.verts.canon(p[0], p[1])
+	if math.IsNaN(a.merge) {
+		// A NaN merge tolerance never welds points, so keep every insertion.
+		a.verts.xs = slices.Grow(a.verts.xs, nPts)
+		a.verts.ys = slices.Grow(a.verts.ys, nPts)
+		a.verts.nextID = slices.Grow(a.verts.nextID, nPts)
+		a.verts.reserveCells(nPts)
+		for _, p := range pts {
+			a.budget.step(1)
+			a.verts.canon(p[0], p[1])
+		}
+	} else {
+		unique := 0
+		for i, p := range pts {
+			a.budget.step(1)
+			if i == 0 || !samePointBits(pts[i-1], p) {
+				unique++
+			}
+		}
+		a.verts.xs = slices.Grow(a.verts.xs, unique)
+		a.verts.ys = slices.Grow(a.verts.ys, unique)
+		a.verts.nextID = slices.Grow(a.verts.nextID, unique)
+		a.verts.reserveCells(nPts)
+		for i, p := range pts {
+			a.budget.step(1)
+			if i > 0 && samePointBits(pts[i-1], p) {
+				continue
+			}
+			a.verts.canon(p[0], p[1])
+		}
 	}
 
 	frags := make([]splitFrag, 0, nFrags)
@@ -3346,6 +3375,11 @@ func canonPointCompare(p, q [2]float64) int {
 		return c
 	}
 	return cmp.Compare(math.Float64bits(p[1]), math.Float64bits(q[1]))
+}
+
+func samePointBits(p, q [2]float64) bool {
+	return math.Float64bits(p[0]) == math.Float64bits(q[0]) &&
+		math.Float64bits(p[1]) == math.Float64bits(q[1])
 }
 
 // segBoundaries returns tiny segment i's boundaries in increasing local parameter,
@@ -3538,7 +3572,7 @@ func (a *arranger) prune() {
 			deg[e.u]++
 			deg[e.v]++
 		}
-		kept := make([]arrEdge, 0, len(a.edges))
+		kept := a.edges[:0]
 		removed := false
 		for _, e := range a.edges {
 			a.budget.step(1)
