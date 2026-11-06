@@ -275,6 +275,49 @@ func buildStructuralSupport(ws *lmWorkspace, plan *residualPlan, free []int, m, 
 	return true
 }
 
+// normalEquationsStructuralRowMajorInto accumulates normal equations directly
+// from the row-major Jacobian when the structural support is sparse and finite.
+// It returns false when the caller must transpose and use the existing dense
+// fallback, such as for dense support or non-finite values.
+func normalEquationsStructuralRowMajorInto(ws *lmWorkspace, m, n int) bool {
+	rows, starts := ws.structRows, ws.structStart
+	for col := 0; col < n; col++ {
+		for _, row := range rows[starts[col]:starts[col+1]] {
+			if nonFinite(ws.J[row][col]) {
+				return false
+			}
+		}
+	}
+	for row := 0; row < m; row++ {
+		if nonFinite(ws.r[row]) {
+			return false
+		}
+	}
+	if ws.structDensity*2 >= m*n {
+		return false
+	}
+
+	clear(ws.aBack[:n*n])
+	pairCols, pairStart := ws.structPairCols, ws.structPairStart
+	for i := 0; i < n; i++ {
+		rowsI := rows[starts[i]:starts[i+1]]
+		for _, j := range pairCols[pairStart[i]:pairStart[i+1]] {
+			var sum float64
+			for _, row := range rowsI {
+				sum += ws.J[row][i] * ws.J[row][j]
+			}
+			ws.A[i][j] = sum
+			ws.A[j][i] = sum
+		}
+		var gs float64
+		for _, row := range rowsI {
+			gs += ws.J[row][i] * ws.r[row]
+		}
+		ws.g[i] = gs
+	}
+	return true
+}
+
 // normalEquationsStructuralInto uses the structural superset built from a
 // successful local residual plan. It checks every potentially nonzero Jacobian
 // slot and every residual for nonfinite values before doing arithmetic; an
