@@ -538,6 +538,18 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 	}
 
 	sb := newSVGWriter()
+	capacity := addExportBuilderCapacity(256, len(s.ents), 160)
+	capacity = addExportBuilderCapacity(capacity, len(s.points), 80)
+	for _, e := range s.ents {
+		switch e.(type) {
+		case *Arc, *EllipticalArc, *Spline, *ClosedSpline, *FitSpline, *Conic, *NURBS:
+			capacity = addExportBuilderCapacity(capacity, cfg.arcSegments, 12)
+		}
+	}
+	if cfg.dimensions || cfg.constraints || cfg.labels {
+		capacity = addExportBuilderCapacity(capacity, len(s.cons), 256)
+	}
+	sb.Grow(capacity)
 	fmt.Fprintf(sb,
 		`<svg xmlns="http://www.w3.org/2000/svg" width="%s" height="%s" viewBox="0 0 %s %s">`,
 		sb.f(outW), sb.f(outH), sb.f(canvasW), sb.f(canvasH))

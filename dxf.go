@@ -86,6 +86,18 @@ func (s *Sketch) DXF(opts ...DXFOption) (string, error) {
 	}
 
 	var sb strings.Builder
+	capacity := addExportBuilderCapacity(512, len(s.ents), 96)
+	capacity = addExportBuilderCapacity(capacity, len(s.points), 12)
+	for _, e := range s.ents {
+		switch e.(type) {
+		case *ClosedSpline, *FitSpline:
+			capacity = addExportBuilderCapacity(capacity, 64, 16)
+		}
+	}
+	if cfg.worldSpace {
+		capacity = addExportBuilderCapacity(capacity, len(s.ents), 48)
+	}
+	sb.Grow(capacity)
 
 	// nonFinite is set by pairf, the ONE funnel every numeric DXF field writes
 	// through (pairL/putWCS/putOCS/… all resolve to it) — a POSTCONDITION over
