@@ -119,6 +119,32 @@ func TestChordDeviationBoundsHold(t *testing.T) {
 	}
 }
 
+func TestSplineHullScratchMatchesConservativeBounds(t *testing.T) {
+	ctrl := [][2]float64{{-40, 30}, {-20, -20}, {0, -34}, {20, -20}, {40, 30}}
+	points := []*Point{NewPoint(-40, 30), NewPoint(-20, -20), NewPoint(0, -34), NewPoint(20, -20), NewPoint(40, 30)}
+	nurbs := NewNURBS(3, points, ClampedUniformKnots(len(points), 3), []float64{1, 2, 0.75, 3, 1})
+	sources := []struct {
+		name string
+		src  source
+	}{
+		{name: "open spline", src: source{kind: srcSpline, ctrl: ctrl}},
+		{name: "closed spline", src: source{kind: srcClosedSpline, ctrl: ctrl}},
+		{name: "rational NURBS", src: source{kind: srcNURBS, nurbs: nurbs}},
+	}
+	spans := [][2]float64{{0, 0.01}, {0.2, 0.25}, {0.1, 0.8}, {0.99, 1}, {0.4, 0.4}}
+	for _, tc := range sources {
+		t.Run(tc.name, func(t *testing.T) {
+			var scratch splineHullScratch
+			for _, span := range spans {
+				want, wantOK := spanDeviation(&tc.src, span[0], span[1], -10, -5, 10, 5)
+				got, gotOK := spanDeviationWithScratch(&tc.src, span[0], span[1], -10, -5, 10, 5, &scratch)
+				require.Equal(t, wantOK, gotOK)
+				require.Equal(t, want, got)
+			}
+		})
+	}
+}
+
 func TestChordDeviationKeepsPinnedEllipticalArcEndpointSlip(t *testing.T) {
 	curve := NewEllipticalArc(NewPoint(0, 0), NewPoint(4, 0.1), NewPoint(-4, 0.1), 4, 2, 0)
 	a := newArranger([]Curve{curve}, nil, arrangeConfig{})

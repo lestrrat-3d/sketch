@@ -36,7 +36,11 @@ import (
 // (ax,ay)→(bx,by) the sampler put there. ok is false when no bound can be proven
 // for the family, in which case the span is unbounded.
 func chordDeviation(s *source, p0, p1, ax, ay, bx, by float64, q0, q1 [2]float64) (float64, bool) {
-	dev, ok := spanDeviation(s, p0, p1, ax, ay, bx, by)
+	return chordDeviationWithScratch(s, p0, p1, ax, ay, bx, by, q0, q1, nil)
+}
+
+func chordDeviationWithScratch(s *source, p0, p1, ax, ay, bx, by float64, q0, q1 [2]float64, scratch *splineHullScratch) (float64, bool) {
+	dev, ok := spanDeviationWithScratch(s, p0, p1, ax, ay, bx, by, scratch)
 	if !ok || math.IsNaN(dev) {
 		return math.Inf(1), false
 	}
@@ -51,6 +55,10 @@ func chordDeviation(s *source, p0, p1, ax, ay, bx, by float64, q0, q1 [2]float64
 // spanDeviation is chordDeviation without the endpoint-slip correction: the
 // per-family bound on the curve's departure from the chord.
 func spanDeviation(s *source, p0, p1, ax, ay, bx, by float64) (float64, bool) {
+	return spanDeviationWithScratch(s, p0, p1, ax, ay, bx, by, nil)
+}
+
+func spanDeviationWithScratch(s *source, p0, p1, ax, ay, bx, by float64, scratch *splineHullScratch) (float64, bool) {
 	switch s.kind {
 	case srcLine:
 		// A line's polyline IS the line.
@@ -67,29 +75,41 @@ func spanDeviation(s *source, p0, p1, ax, ay, bx, by float64) (float64, bool) {
 		hull := conicSpanHull(s, p0, p1)
 		return hullDeviation(hull, ax, ay, bx, by), true
 	case srcSpline:
-		hull, ok := bsplineSpanHull(3, s.ctrl, nil, ClampedKnots(len(s.ctrl)), p0, p1)
+		if scratch == nil {
+			hull, ok := bsplineSpanHull(3, s.ctrl, nil, ClampedKnots(len(s.ctrl)), p0, p1)
+			if !ok {
+				return 0, false
+			}
+			return hullDeviation(hull, ax, ay, bx, by), true
+		}
+		knots := scratch.clampedKnots(len(s.ctrl))
+		dev, ok := bsplineSpanDeviation(3, s.ctrl, nil, knots, p0, p1, ax, ay, bx, by, scratch)
 		if !ok {
 			return 0, false
 		}
-		return hullDeviation(hull, ax, ay, bx, by), true
+		return dev, true
 	case srcNURBS:
 		nb := s.nurbs
 		lo, hi := nb.domain()
-		ctrl := make([][2]float64, len(nb.Control))
-		for i, p := range nb.Control {
-			ctrl[i] = [2]float64{p.X, p.Y}
+		if scratch == nil {
+			ctrl := make([][2]float64, len(nb.Control))
+			for i, p := range nb.Control {
+				ctrl[i] = [2]float64{p.X, p.Y}
+			}
+			hull, ok := bsplineSpanHull(nb.Degree, ctrl, nb.Weights, nb.Knots, lo+(hi-lo)*p0, lo+(hi-lo)*p1)
+			if !ok {
+				return 0, false
+			}
+			return hullDeviation(hull, ax, ay, bx, by), true
 		}
-		hull, ok := bsplineSpanHull(nb.Degree, ctrl, nb.Weights, nb.Knots, lo+(hi-lo)*p0, lo+(hi-lo)*p1)
+		ctrl := scratch.nurbsControls(nb.Control)
+		dev, ok := bsplineSpanDeviation(nb.Degree, ctrl, nb.Weights, nb.Knots, lo+(hi-lo)*p0, lo+(hi-lo)*p1, ax, ay, bx, by, scratch)
 		if !ok {
 			return 0, false
 		}
-		return hullDeviation(hull, ax, ay, bx, by), true
+		return dev, true
 	case srcClosedSpline:
-		hull, ok := closedSplineSpanHull(s.ctrl, p0, p1)
-		if !ok {
-			return 0, false
-		}
-		return hullDeviation(hull, ax, ay, bx, by), true
+		return closedSplineSpanDeviation(s.ctrl, p0, p1, ax, ay, bx, by)
 	case srcFitSpline:
 		return fitSplineSpanDeviation(s.fitEval, p0, p1, ax, ay, bx, by)
 	}
@@ -224,6 +244,54 @@ func closedSplineSpanHull(ctrl [][2]float64, p0, p1 float64) ([][2]float64, bool
 	return out, true
 }
 
+// closedSplineSpanDeviation computes the hull bound as the largest projected
+// control distance, without materializing the projected control-point slices.
+func closedSplineSpanDeviation(ctrl [][2]float64, p0, p1, ax, ay, bx, by float64) (float64, bool) {
+	n := len(ctrl)
+	if n < 3 {
+		return 0, false
+	}
+	u0, u1 := p0*float64(n), p1*float64(n)
+	if u1 < u0 {
+		u0, u1 = u1, u0
+	}
+	lo := int(math.Floor(u0))
+	hi := int(math.Ceil(u1)) - 1
+	if hi < lo {
+		hi = lo
+	}
+	var sa, sb [maxSubSpanDegree][3]float64
+	worst := 0.0
+	found := false
+	for i := lo; i <= hi; i++ {
+		if i < 0 || i >= n {
+			continue
+		}
+		p := [4][2]float64{ctrl[i], ctrl[(i+1)%n], ctrl[(i+2)%n], ctrl[(i+3)%n]}
+		cp := [4][3]float64{
+			{(p[0][0] + 4*p[1][0] + p[2][0]) / 6, (p[0][1] + 4*p[1][1] + p[2][1]) / 6, 1},
+			{(2*p[1][0] + p[2][0]) / 3, (2*p[1][1] + p[2][1]) / 3, 1},
+			{(p[1][0] + 2*p[2][0]) / 3, (p[1][1] + 2*p[2][1]) / 3, 1},
+			{(p[1][0] + 4*p[2][0] + p[3][0]) / 6, (p[1][1] + 4*p[2][1] + p[3][1]) / 6, 1},
+		}
+		lv := math.Max(u0-float64(i), 0)
+		hv := math.Min(u1-float64(i), 1)
+		if hv < lv {
+			continue
+		}
+		for _, c := range bezierSubSpanScratch(cp[:], lv, hv, &sa, &sb) {
+			if c[2] == 0 {
+				continue
+			}
+			found = true
+			if d := distPointSeg(c[0]/c[2], c[1]/c[2], ax, ay, bx, by); d > worst {
+				worst = d
+			}
+		}
+	}
+	return worst, found
+}
+
 // fitSplineSpanDeviation returns the largest control-point distance from the
 // chord over all natural-cubic pieces intersecting the normalized span [s0,s1].
 //
@@ -296,33 +364,122 @@ func fitSplineSpanDeviation(e *fitEvaluator, s0, s1, ax, ay, bx, by float64) (fl
 // property then holds for the rational curve itself, since every point of it is a
 // convex combination of the projected controls (weights are positive by the
 // NURBS validity check).
+type splineHullScratch struct {
+	controls [][2]float64
+	hom      [][3]float64
+	knots    []float64
+}
+
+func (s *splineHullScratch) clampedKnots(n int) []float64 {
+	need := n + 4
+	if cap(s.knots) < need {
+		s.knots = make([]float64, need)
+	} else {
+		s.knots = s.knots[:need]
+	}
+	spans := float64(n - 3)
+	for i := range s.knots {
+		switch {
+		case i < 4:
+			s.knots[i] = 0
+		case i >= n:
+			s.knots[i] = 1
+		default:
+			s.knots[i] = float64(i-3) / spans
+		}
+	}
+	return s.knots
+}
+
+func (s *splineHullScratch) nurbsControls(points []*Point) [][2]float64 {
+	if cap(s.controls) < len(points) {
+		s.controls = make([][2]float64, len(points))
+	} else {
+		s.controls = s.controls[:len(points)]
+	}
+	for i, p := range points {
+		s.controls[i] = [2]float64{p.X, p.Y}
+	}
+	return s.controls
+}
+
 func bsplineSpanHull(degree int, ctrl [][2]float64, weights, knots []float64, u0, u1 float64) ([][2]float64, bool) {
+	var scratch splineHullScratch
+	refined, first, last, ok := refineBSplineSpan(degree, ctrl, weights, knots, u0, u1, &scratch)
+	if !ok {
+		return nil, false
+	}
+	out := make([][2]float64, 0, last-first+1)
+	for i := first; i <= last; i++ {
+		w := refined[i][2]
+		if !(w > 0) {
+			return nil, false
+		}
+		out = append(out, [2]float64{refined[i][0] / w, refined[i][1] / w})
+	}
+	return out, len(out) > 0
+}
+
+// bsplineSpanDeviation measures projected controls directly. The curve is inside
+// their convex hull, and distance to a segment is convex, so their maximum still
+// bounds the entire curve span.
+func bsplineSpanDeviation(degree int, ctrl [][2]float64, weights, knots []float64, u0, u1, ax, ay, bx, by float64, scratch *splineHullScratch) (float64, bool) {
+	refined, first, last, ok := refineBSplineSpan(degree, ctrl, weights, knots, u0, u1, scratch)
+	if !ok {
+		return 0, false
+	}
+	worst := 0.0
+	for i := first; i <= last; i++ {
+		w := refined[i][2]
+		if !(w > 0) {
+			return 0, false
+		}
+		if d := distPointSeg(refined[i][0]/w, refined[i][1]/w, ax, ay, bx, by); d > worst {
+			worst = d
+		}
+	}
+	return worst, last >= first
+}
+
+func refineBSplineSpan(degree int, ctrl [][2]float64, weights, knots []float64, u0, u1 float64, scratch *splineHullScratch) ([][3]float64, int, int, bool) {
 	p := degree
 	if p < 1 || len(ctrl) < p+1 || len(knots) != len(ctrl)+p+1 {
-		return nil, false
+		return nil, 0, 0, false
 	}
 	if u1 < u0 {
 		u0, u1 = u1, u0
 	}
 	lo, hi := knots[p], knots[len(ctrl)]
 	if !(hi > lo) {
-		return nil, false
+		return nil, 0, 0, false
 	}
 	u0 = math.Max(u0, lo)
 	u1 = math.Min(u1, hi)
 	// Room for the up-to-2p knot insertions below, which refine in place.
-	pw := make([][3]float64, len(ctrl), len(ctrl)+2*p+2)
+	need := len(ctrl) + 2*p + 2
+	if cap(scratch.hom) < need {
+		scratch.hom = make([][3]float64, len(ctrl), need)
+	} else {
+		scratch.hom = scratch.hom[:len(ctrl)]
+	}
+	pw := scratch.hom
 	for i, c := range ctrl {
 		w := 1.0
 		if i < len(weights) {
 			w = weights[i]
 		}
 		if !(w > 0) {
-			return nil, false
+			return nil, 0, 0, false
 		}
 		pw[i] = [3]float64{w * c[0], w * c[1], w}
 	}
-	u := append(make([]float64, 0, len(knots)+2*p+2), knots...)
+	if cap(scratch.knots) < len(knots)+2*p+2 {
+		scratch.knots = make([]float64, len(knots), len(knots)+2*p+2)
+	} else {
+		scratch.knots = scratch.knots[:len(knots)]
+	}
+	u := scratch.knots
+	copy(u, knots)
 	for _, x := range [2]float64{u0, u1} {
 		if x <= lo || x >= hi {
 			continue // a clamped end already carries multiplicity p+1
@@ -331,6 +488,7 @@ func bsplineSpanHull(degree int, ctrl [][2]float64, weights, knots []float64, u0
 			u, pw = insertKnotHom(p, u, pw, x)
 		}
 	}
+	scratch.hom, scratch.knots = pw, u
 	// Span k of the refined curve is supported by control points k−p..k. The
 	// sub-curve runs from the span STARTING at u0 to the one ENDING at u1, so the
 	// supporting set is [findSpan(u0)−p, findSpan(u1)−p] — the upper bound reads a
@@ -354,18 +512,7 @@ func bsplineSpanHull(degree int, ctrl [][2]float64, weights, knots []float64, u0
 	if last > n {
 		last = n
 	}
-	out := make([][2]float64, 0, last-first+1)
-	for i := first; i <= last; i++ {
-		w := pw[i][2]
-		if !(w > 0) {
-			return nil, false
-		}
-		out = append(out, [2]float64{pw[i][0] / w, pw[i][1] / w})
-	}
-	if len(out) == 0 {
-		return nil, false
-	}
-	return out, true
+	return pw, first, last, last >= first
 }
 
 // knotMultiplicity counts how many times x appears in the knot vector.
