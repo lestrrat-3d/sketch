@@ -369,6 +369,37 @@ func TestJSONFixedPoint(t *testing.T) {
 	require.Equal(t, string(data1), string(data2), "marshal∘unmarshal is a fixed point")
 }
 
+func TestJSONGalleryMarshalPreservesOrderAndFiltersInternalConstraints(t *testing.T) {
+	s := buildGalleryFixture(t)
+	data, err := json.Marshal(s)
+	require.NoError(t, err, "marshal")
+
+	var doc struct {
+		Entities []struct {
+			Type string `json:"type"`
+		} `json:"entities"`
+		Constraints []struct {
+			Type string `json:"type"`
+		} `json:"constraints"`
+	}
+	require.NoError(t, json.Unmarshal(data, &doc), "unmarshal document arrays")
+	entityTypes := make([]string, len(doc.Entities))
+	for i, entity := range doc.Entities {
+		entityTypes[i] = entity.Type
+	}
+	require.Equal(t, []string{
+		"line", "line", "line", "line", "circle", "arc", "ellipse", "elliptical_arc",
+		"spline", "closed_spline", "fit_spline", "conic", "nurbs", "line",
+	}, entityTypes)
+	constraintTypes := make([]string, len(doc.Constraints))
+	for i, constraint := range doc.Constraints {
+		constraintTypes[i] = constraint.Type
+	}
+	require.Equal(t, []string{
+		"horizontal", "horizontal", "vertical", "vertical", "horizontal", "distance", "radius",
+	}, constraintTypes)
+}
+
 // TestRoundTripPreservesSolvedState verifies that a document stores solved
 // coordinates, not just structure: the reloaded sketch is already on the
 // constraint manifold and a zero-iteration solve reports convergence.
