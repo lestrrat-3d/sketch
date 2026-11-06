@@ -42,6 +42,7 @@ type entitySwitchSite struct{ File, Func string }
 // already-exempted function is reported rather than riding on the first one's
 // reason.
 var entitySwitchExempt = map[entitySwitchSite]string{
+	{"dxf.go", "DXF"}:                         "capacity sizing adds sampled-point headroom only for closed and fit splines; all entity kinds are handled by the output switch below",
 	{"tools_curve.go", "Break"}:               "splitting is defined for a line and an arc only; every other type is the documented false return",
 	{"tools_curve.go", "cutterEnds"}:          "only a line or an arc cutter has end points a trimmed end can reuse; a circle has none",
 	{"tools_curve.go", "pinToCutter"}:         "only line/circle/arc cutters produce a crossing (lineCrossings), so only they are pinned to",
@@ -59,6 +60,7 @@ var entitySwitchExempt = map[entitySwitchSite]string{
 	{"loops.go", "loopEnds"}:                  "a loop chains only lines, arcs and fit splines by their two end points; a circle is closed on its own and every other type is refused by loopKindOK before loopEnds is asked",
 	{"loops.go", "loopKindOK"}:                "an allow-list with a refusing default: only line, circle, arc and fit spline are certified loop members, and an entity type not named here is ReasonKind",
 	{"cone_side.go", "CertifyConeCurveSide"}:  "only whole Line, FitSpline, and Arc sources have implemented cone-side proofs; ownsConeCurve refuses every other entity first",
+	{"svg.go", "SVG"}:                         "capacity sizing adds sampled-point headroom only for sampled path entities; all entity kinds are handled by the output switch below",
 }
 
 // TestEntityTypeSwitchesAreExhaustive audits every entity type switch in the
