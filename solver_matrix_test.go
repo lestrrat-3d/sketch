@@ -735,6 +735,65 @@ func TestNormalEquationsStructuralMatchesDenseAcrossNumericPatternChanges(t *tes
 	}
 }
 
+func TestNormalEquationsStructuralRowMajorMatchesDenseBits(t *testing.T) {
+	const m, n = 8, 3
+	plan := &residualPlan{
+		offset:   []int{0, 2},
+		count:    []int{2, 2},
+		varStart: []int{0, 1, 2, 3},
+		varCons:  []int{0, 0, 1},
+	}
+	free := []int{0, 1, 2}
+	j := matrixFromColumns(m, [][]float64{
+		{1, -2, 0, 0, 0, 0, 0, 0},
+		{3, 4, 0, 0, 0, 0, 0, 0},
+		{0, 0, 5, 6, 0, 0, 0, 0},
+	})
+	r := []float64{2, -1, 3, 4, -5, 6, 7, 8}
+	ws := &lmWorkspace{}
+	ws.alloc(m, n)
+	loadWorkspace(ws, j, r, m, n)
+	require.True(t, buildStructuralSupport(ws, plan, free, m, n))
+	wantA, wantG := referenceNormalEquations(j, r, m, n)
+
+	require.True(t, normalEquationsStructuralRowMajorInto(ws, m, n),
+		"sparse finite support should use the row-major path")
+	for i := 0; i < n; i++ {
+		for col := 0; col < n; col++ {
+			requireSameBitsf(t, wantA[i][col], ws.A[i][col], "A[%d][%d]", i, col)
+		}
+		requireSameBitsf(t, wantG[i], ws.g[i], "g[%d]", i)
+	}
+}
+
+func TestNormalEquationsStructuralRowMajorRequestsTransposeForFallbacks(t *testing.T) {
+	const m, n = 2, 2
+	plan := &residualPlan{
+		offset:   []int{0, 1},
+		count:    []int{1, 1},
+		varStart: []int{0, 2, 4},
+		varCons:  []int{0, 1, 0, 1},
+	}
+	for _, tc := range []struct {
+		name string
+		j    [][]float64
+		r    []float64
+	}{
+		{name: "dense support", j: [][]float64{{1, 2}, {3, 4}}, r: []float64{5, 6}},
+		{name: "non-finite Jacobian", j: [][]float64{{math.Inf(1), 2}, {3, 4}}, r: []float64{5, 6}},
+		{name: "non-finite residual", j: [][]float64{{1, 2}, {3, 4}}, r: []float64{math.NaN(), 6}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ws := &lmWorkspace{}
+			ws.alloc(m, n)
+			loadWorkspace(ws, tc.j, tc.r, m, n)
+			require.True(t, buildStructuralSupport(ws, plan, []int{0, 1}, m, n))
+			require.False(t, normalEquationsStructuralRowMajorInto(ws, m, n),
+				"fallback inputs must keep the transpose path")
+		})
+	}
+}
+
 func TestNormalEquationsStructuralPairCSRAndClearsStaleA(t *testing.T) {
 	const m, n = 4, 3
 	plan := &residualPlan{

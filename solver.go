@@ -533,10 +533,13 @@ func (s *Sketch) lmPlanned(ctx context.Context, free []int, eval func([]float64)
 		if !localBuilt {
 			s.jacobianInto(ws.J, free, m, eval, ws.rp, ws.rm)
 		}
-		transposeInto(ws.JT, ws.J, m, n)
 		if localBuilt && ws.structuralReady {
-			normalEquationsStructuralInto(ws, m, n)
+			if !normalEquationsStructuralRowMajorInto(ws, m, n) {
+				transposeInto(ws.JT, ws.J, m, n)
+				normalEquationsStructuralInto(ws, m, n)
+			}
 		} else {
+			transposeInto(ws.JT, ws.J, m, n)
 			normalEquationsSparseInto(ws, m, n)
 		}
 		A, g := ws.A, ws.g
