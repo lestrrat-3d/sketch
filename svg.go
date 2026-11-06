@@ -1,7 +1,6 @@
 package sketch
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"math"
@@ -332,6 +331,16 @@ func (w *svgWriter) f(v float64) string {
 	return trimFloat(v, 4)
 }
 
+// writeF formats v compactly into the SVG document without allocating a
+// string. It also flags non-finite values, matching f.
+func (w *svgWriter) writeF(v float64) {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		*w.nonFinite = true
+	}
+	var buf [32]byte
+	w.Write(appendTrimFloat(buf[:0], v, 4))
+}
+
 // note raises w's shared nonFinite bit when v is NaN or infinite, without
 // writing any bytes. It exists for a value that never itself becomes SVG
 // output text but whose non-finiteness must still refuse the document: a
@@ -523,9 +532,9 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 			} else {
 				sb.WriteString(" L")
 			}
-			sb.WriteString(sb.f(tx(p[0])))
+			sb.writeF(tx(p[0]))
 			sb.WriteByte(' ')
-			sb.WriteString(sb.f(ty(p[1])))
+			sb.writeF(ty(p[1]))
 		}
 		fmt.Fprintf(sb, `" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n", stroke, sb.f(sw), dasharray)
 	}
@@ -657,8 +666,21 @@ func radToDeg(r float64) float64 { return r * 180 / math.Pi }
 // string parsing.
 func trimFloat(v float64, prec int) string {
 	var buf [32]byte
-	b := strconv.AppendFloat(buf[:0], v, 'f', prec, 64)
-	b = bytes.TrimRight(b, "0")
-	b = bytes.TrimRight(b, ".")
+	b := appendTrimFloat(buf[:0], v, prec)
 	return string(b)
+}
+
+// appendTrimFloat appends v with prec decimals and removes trailing zeros and
+// a bare decimal point, matching trimFloat without creating an intermediate
+// string.
+func appendTrimFloat(dst []byte, v float64, prec int) []byte {
+	start := len(dst)
+	dst = strconv.AppendFloat(dst, v, 'f', prec, 64)
+	for len(dst) > start && dst[len(dst)-1] == '0' {
+		dst = dst[:len(dst)-1]
+	}
+	if len(dst) > start && dst[len(dst)-1] == '.' {
+		dst = dst[:len(dst)-1]
+	}
+	return dst
 }

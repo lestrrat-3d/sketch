@@ -93,7 +93,11 @@ func (s *Sketch) DXF(opts ...DXFOption) (string, error) {
 		if math.IsNaN(value) || math.IsInf(value, 0) {
 			nonFinite = true
 		}
-		pair(code, dxff(value))
+		var buf [32]byte
+		sb.Write(strconv.AppendInt(buf[:0], int64(code), 10))
+		sb.WriteByte('\n')
+		sb.Write(appendTrimFloat(buf[:0], value, 6))
+		sb.WriteByte('\n')
 	}
 	// lengthMag converts a base-unit (millimetre) length into the sketch's
 	// display length unit through the units library — never by relabelling a

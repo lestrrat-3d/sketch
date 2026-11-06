@@ -56,6 +56,8 @@ func requireTrimFloatMatches(t *testing.T, v float64) {
 		want := refTrimFloat(v, prec)
 		got := trimFloat(v, prec)
 		require.Equal(t, want, got, "trimFloat(%v, %d)", v, prec)
+		appended := appendTrimFloat([]byte("prefix:"), v, prec)
+		require.Equal(t, "prefix:"+want, string(appended), "appendTrimFloat(%v, %d)", v, prec)
 	}
 }
 
