@@ -511,8 +511,9 @@ type encloseRun struct {
 	// values do, and jacobianLocalInto refuses a plan whose rows moved.
 	// planned records that the build was attempted, so a refusal (nil plan) is
 	// not retried.
-	plan    *residualPlan
-	planned bool
+	plan     *residualPlan
+	planned  bool
+	residual []float64
 }
 
 // setDriver makes the driver's target exactly q in base units.
@@ -520,23 +521,25 @@ func (r *encloseRun) setDriver(q float64) { setBase(r.db, q) }
 
 // solveAt runs the float solver at driving value q from seed and returns the
 // solved variables, or an error wrapping ErrNotConverged (or the context's).
-func (r *encloseRun) solveAt(ctx context.Context, seed []float64, q float64) ([]float64, error) {
+func (r *encloseRun) solveAt(ctx context.Context, seed []float64, q float64, dst []float64) error {
 	s := r.s
 	copy(s.vars, seed)
 	r.setDriver(q)
 	if !r.planned {
 		r.planned = true
-		r.plan, _ = s.newResidualPlan(len(s.residuals(nil)))
+		r.residual = s.residuals(r.residual)
+		r.plan, _ = s.newResidualPlan(len(r.residual))
 	}
 	if _, err := s.lmPlanned(ctx, r.free, s.residuals, localJacobian, r.plan, 200, 1e-10); err != nil {
-		return nil, err
+		return err
 	}
-	res := s.residuals(nil)
-	norm := math.Sqrt(dot(res, res))
+	r.residual = s.residuals(r.residual)
+	norm := math.Sqrt(dot(r.residual, r.residual))
 	if !(norm <= 1e-10) {
-		return nil, fmt.Errorf("%w: residual %g at driving value %v", ErrNotConverged, norm, q)
+		return fmt.Errorf("%w: residual %g at driving value %v", ErrNotConverged, norm, q)
 	}
-	return slices.Clone(s.vars), nil
+	copy(dst, s.vars)
+	return nil
 }
 
 // checkStructure refuses a system that is not square and of full rank at the
@@ -576,15 +579,16 @@ func (r *encloseRun) checkStructure(x []float64, q float64) error {
 // holds. A piece that fails is halved; a piece narrower than 2^-30 of the
 // range refuses the call. A piece that succeeds doubles the next attempt.
 func (r *encloseRun) run(ctx context.Context, lo, hi float64, prev *Enclosure) (*Enclosure, error) {
-	var x0 []float64
+	x0 := make([]float64, len(r.s.vars))
+	xmid := make([]float64, len(r.s.vars))
+	xtrial := make([]float64, len(r.s.vars))
 	var p0 []Interval
 	refs := r.drivenRefs(prev)
 	if prev != nil {
-		x0, p0 = slices.Clone(prev.endVars), prev.endBox
+		copy(x0, prev.endVars)
+		p0 = slices.Clone(prev.endBox)
 	} else {
-		var err error
-		x0, err = r.solveAt(ctx, r.s.vars, lo)
-		if err != nil {
+		if err := r.solveAt(ctx, r.s.vars, lo, x0); err != nil {
 			return nil, err
 		}
 	}
@@ -623,7 +627,7 @@ func (r *encloseRun) run(ctx context.Context, lo, hi float64, prev *Enclosure) (
 		if b >= hi || hi-b < minStep {
 			b = hi
 		}
-		K, xb, pb, why, ratio, err := r.tryPiece(ctx, cur, b, xcur, pcur)
+		K, xb, pb, why, ratio, err := r.tryPiece(ctx, cur, b, xcur, xmid, xtrial, pcur)
 		if err != nil {
 			return nil, err
 		}
@@ -650,7 +654,7 @@ func (r *encloseRun) run(ctx context.Context, lo, hi float64, prev *Enclosure) (
 		}
 		e.pieces = append(e.pieces, pc)
 		step = nextStep(b-cur, ratio)
-		cur, xcur, pcur = b, xb, pb
+		cur, xcur, pcur, xtrial = b, xb, pb, xcur
 	}
 	e.endVars, e.endBox = xcur, pcur
 	return e, nil
@@ -659,10 +663,9 @@ func (r *encloseRun) run(ctx context.Context, lo, hi float64, prev *Enclosure) (
 // tryPiece attempts one piece over [a, b]. It returns the piece's box with the
 // float solution and certified point box at b, or a nil box and the reason the
 // attempt failed. Only a context error is returned as an error.
-func (r *encloseRun) tryPiece(ctx context.Context, a, b float64, xa []float64, pa []Interval) ([]Interval, []float64, []Interval, string, float64, error) {
+func (r *encloseRun) tryPiece(ctx context.Context, a, b float64, xa, xm, xb []float64, pa []Interval) ([]Interval, []float64, []Interval, string, float64, error) {
 	mid := a + (b-a)/2
-	xm, err := r.solveAt(ctx, xa, mid)
-	if err != nil {
+	if err := r.solveAt(ctx, xa, mid, xm); err != nil {
 		if errors.Is(err, ErrNotConverged) {
 			return nil, nil, nil, err.Error(), 0, nil
 		}
@@ -675,8 +678,7 @@ func (r *encloseRun) tryPiece(ctx context.Context, a, b float64, xa []float64, p
 	if !boxWithin(pa, X) {
 		return nil, nil, nil, "the solution at the range start is outside the box", 0, nil
 	}
-	xb, err := r.solveAt(ctx, xm, b)
-	if err != nil {
+	if err := r.solveAt(ctx, xm, b, xb); err != nil {
 		if errors.Is(err, ErrNotConverged) {
 			return nil, nil, nil, err.Error(), 0, nil
 		}
