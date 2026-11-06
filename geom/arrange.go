@@ -4845,6 +4845,14 @@ func appendBoundaryFrag(frags []boundaryFrag, src int, pStart, pEnd float64,
 	exStart, exEnd, enStart, enEnd bool, crossStart, crossEnd *LineLineCrossing,
 	circleStart, circleEnd *LineCircleCrossing,
 	from, to [2]float64, budget *arrangeBudget) []boundaryFrag {
+	return appendBoundaryFragWithCapacity(frags, src, pStart, pEnd, exStart, exEnd, enStart, enEnd,
+		crossStart, crossEnd, circleStart, circleEnd, from, to, 0, budget)
+}
+
+func appendBoundaryFragWithCapacity(frags []boundaryFrag, src int, pStart, pEnd float64,
+	exStart, exEnd, enStart, enEnd bool, crossStart, crossEnd *LineLineCrossing,
+	circleStart, circleEnd *LineCircleCrossing,
+	from, to [2]float64, denseCapacity int, budget *arrangeBudget) []boundaryFrag {
 	if n := len(frags); n > 0 && frags[n-1].src == src && approx(frags[n-1].pEnd, pStart, 1e-9) {
 		frags[n-1].pEnd = pEnd
 		frags[n-1].exactEnd = exEnd
@@ -4854,12 +4862,17 @@ func appendBoundaryFrag(frags []boundaryFrag, src int, pStart, pEnd float64,
 		frags[n-1].dense = chargedAppend(budget, frags[n-1].dense, to)
 		return frags
 	}
+	dense := make([][2]float64, 0, denseCapacity)
+	if denseCapacity > 0 && budget != nil {
+		budget.reserveBytes(uint64(denseCapacity) * 256)
+	}
+	dense = chargedAppend(budget, dense, from, to)
 	return chargedAppend(budget, frags, boundaryFrag{src: src, pStart: pStart, pEnd: pEnd,
 		exactStart: exStart, exactEnd: exEnd,
 		endStart: enStart, endEnd: enEnd,
 		crossStart: crossStart, crossEnd: crossEnd,
 		circleStart: circleStart, circleEnd: circleEnd,
-		dense: [][2]float64{from, to}})
+		dense: dense})
 }
 
 // boundaryEdgeOf publishes one coalesced fragment as a [BoundaryEdge]: the
@@ -4919,8 +4932,49 @@ type cycFrag struct {
 func (a *arranger) makeCycle(hs []int) cycle {
 	var c cycle
 	c.rawEdges = make([]int, 0, a.budget.preflight(len(hs)))
+	// Count each source-contiguous run first so its sampled points fit in one
+	// backing array instead of growing once per half-edge.
+	denseCapacities := make([]int, 0, len(hs))
+	a.budget.reserveBytes(uint64(len(hs)) * 256)
+	var previousSrc int
+	var previousEnd float64
+	for i, hi := range hs {
+		a.budget.step(1)
+		h := a.halfs[hi]
+		e := a.edges[h.edge]
+		pStart, pEnd := e.pu, e.pv
+		if !h.forward {
+			pStart, pEnd = pEnd, pStart
+		}
+		if i == 0 || previousSrc != e.src || !approx(previousEnd, pStart, 1e-9) {
+			denseCapacities = chargedAppend(a.budget, denseCapacities, 2)
+		} else {
+			denseCapacities[len(denseCapacities)-1]++
+		}
+		previousSrc, previousEnd = e.src, pEnd
+	}
+	if n := len(denseCapacities); n > 1 && len(hs) > 0 {
+		first := a.halfs[hs[0]]
+		last := a.halfs[hs[len(hs)-1]]
+		firstEdge := a.edges[first.edge]
+		lastEdge := a.edges[last.edge]
+		firstStart := firstEdge.pu
+		lastEnd := lastEdge.pv
+		if !first.forward {
+			firstStart = firstEdge.pv
+		}
+		if !last.forward {
+			lastEnd = lastEdge.pu
+		}
+		if firstEdge.src == lastEdge.src && approx(lastEnd, firstStart, 1e-9) {
+			denseCapacities[n-1] += denseCapacities[0] - 1
+		}
+	}
+	a.budget.reserveBytes(uint64(len(hs)) * 256)
+	c.dense = make([][2]float64, 0, len(hs))
 	// Coalesce consecutive half-edges that share a source into one BoundaryEdge.
 	var frags []boundaryFrag
+	run := 0
 	for _, hi := range hs {
 		a.budget.step(1)
 		h := a.halfs[hi]
@@ -4944,10 +4998,17 @@ func (a *arranger) makeCycle(hs []int) cycle {
 		}
 		fx, fy := a.verts.coord(h.from)
 		tx, ty := a.verts.coord(h.to)
-		frags = appendBoundaryFrag(frags, e.src, pStart, pEnd, exStart, exEnd, enStart, enEnd,
+		startsRun := len(frags) == 0 || frags[len(frags)-1].src != e.src ||
+			!approx(frags[len(frags)-1].pEnd, pStart, 1e-9)
+		capacity := 0
+		if startsRun {
+			capacity = denseCapacities[run]
+			run++
+		}
+		frags = appendBoundaryFragWithCapacity(frags, e.src, pStart, pEnd, exStart, exEnd, enStart, enEnd,
 			crossStart, crossEnd,
 			circleStart, circleEnd,
-			[2]float64{fx, fy}, [2]float64{tx, ty}, a.budget)
+			[2]float64{fx, fy}, [2]float64{tx, ty}, capacity, a.budget)
 		if cm := a.comp[e.src]; cm >= 0 {
 			if _, ok := a.selfXc[cm]; ok {
 				c.selfX = true
