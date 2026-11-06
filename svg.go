@@ -192,9 +192,44 @@ func (b *bbox) add(x, y float64) {
 	b.maxX, b.maxY = math.Max(b.maxX, x), math.Max(b.maxY, y)
 }
 
+const boundsSegments = 32
+const exportSegments = 64
+
+func sampleEntityPolyline(e Entity, segments int) [][2]float64 {
+	switch t := e.(type) {
+	case *Arc:
+		return arcPolyline(t, segments)
+	case *EllipticalArc:
+		return ellipticalArcPolyline(t, segments)
+	case *Spline:
+		return t.Polyline(segments)
+	case *ClosedSpline:
+		return t.Polyline(segments)
+	case *FitSpline:
+		return t.Polyline(segments)
+	case *Conic:
+		return t.Polyline(segments)
+	case *NURBS:
+		return t.Polyline(segments)
+	default:
+		return nil
+	}
+}
+
+func svgSamples(samples [][][2]float64, i int, e Entity, segments int) [][2]float64 {
+	if i < len(samples) && samples[i] != nil {
+		return samples[i]
+	}
+	return sampleEntityPolyline(e, segments)
+}
+
 // bounds returns the axis-aligned bounding box of all geometry. ok is false
 // when the sketch has nothing to draw.
 func (s *Sketch) bounds() (bbox, bool) {
+	return s.boundsWithSamples(nil)
+}
+
+func (s *Sketch) boundsWithSamples(samples [][][2]float64) (bbox, bool) {
 	b := bbox{math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)}
 	any := false
 	addAll := func(pts [][2]float64) {
@@ -207,7 +242,22 @@ func (s *Sketch) bounds() (bbox, bool) {
 		b.add(p.x(), p.y())
 		any = true
 	}
-	for _, e := range s.ents {
+	for i, e := range s.ents {
+		addSampled := func() {
+			if i < len(samples) && samples[i] != nil {
+				if len(samples[i]) == exportSegments+1 {
+					for j := 0; j < len(samples[i]); j += 2 {
+						p := samples[i][j]
+						b.add(p[0], p[1])
+					}
+					any = true
+					return
+				}
+				addAll(samples[i])
+				return
+			}
+			addAll(sampleEntityPolyline(e, boundsSegments))
+		}
 		switch t := e.(type) {
 		case *Line:
 			// A line lies within its two endpoints, and an OWNED endpoint was
@@ -223,9 +273,9 @@ func (s *Sketch) bounds() (bbox, bool) {
 			b.add(t.Center.x()+t.r(), t.Center.y()+t.r())
 			any = true
 		case *Arc:
-			addAll(arcPolyline(t, 32))
+			addSampled()
 		case *EllipticalArc:
-			addAll(ellipticalArcPolyline(t, 32))
+			addSampled()
 		case *Ellipse:
 			// Axis-aligned extents of a rotated ellipse.
 			cosr, sinr := math.Cos(t.rot()), math.Sin(t.rot())
@@ -235,15 +285,15 @@ func (s *Sketch) bounds() (bbox, bool) {
 			b.add(t.Center.x()+ex, t.Center.y()+ey)
 			any = true
 		case *Spline:
-			addAll(t.Polyline(32))
+			addSampled()
 		case *ClosedSpline:
-			addAll(t.Polyline(32))
+			addSampled()
 		case *FitSpline:
-			addAll(t.Polyline(32))
+			addSampled()
 		case *Conic:
-			addAll(t.Polyline(32))
+			addSampled()
 		case *NURBS:
-			addAll(t.Polyline(32))
+			addSampled()
 		}
 	}
 	return b, any
@@ -360,7 +410,11 @@ func (w *svgWriter) note(v float64) {
 // width/height shared by the SVG and PNG exporters: an empty sketch falls back
 // to a unit box, and a non-positive span is clamped to 1.
 func (s *Sketch) renderBounds(margin float64) (bbox, float64, float64) {
-	b, ok := s.bounds()
+	return s.renderBoundsWithSamples(margin, nil)
+}
+
+func (s *Sketch) renderBoundsWithSamples(margin float64, samples [][][2]float64) (bbox, float64, float64) {
+	b, ok := s.boundsWithSamples(samples)
 	if !ok {
 		b = bbox{0, 0, 1, 1}
 	}
@@ -445,7 +499,20 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 		applyRenderOption(&cfg, o)
 	}
 
-	b, w, h := s.renderBounds(cfg.margin)
+	var samples [][][2]float64
+	if cfg.arcSegments == exportSegments {
+		for i, e := range s.ents {
+			pts := sampleEntityPolyline(e, cfg.arcSegments)
+			if pts == nil {
+				continue
+			}
+			if samples == nil {
+				samples = make([][][2]float64, len(s.ents))
+			}
+			samples[i] = pts
+		}
+	}
+	b, w, h := s.renderBoundsWithSamples(cfg.margin, samples)
 	if !b.finite() {
 		return "", ErrNonFiniteGeometry
 	}
@@ -539,7 +606,7 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 		fmt.Fprintf(sb, `" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n", stroke, sb.f(sw), dasharray)
 	}
 
-	for _, e := range s.ents {
+	for i, e := range s.ents {
 		switch t := e.(type) {
 		case *Line:
 			fmt.Fprintf(sb,
@@ -552,9 +619,9 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 				sb.f(tx(t.Center.x())), sb.f(ty(t.Center.y())), sb.f(t.r()),
 				color(t), sb.f(cfg.strokeWidth), dash(t))
 		case *Arc:
-			writePath(arcPolyline(t, cfg.arcSegments), color(t), cfg.strokeWidth, dash(t))
+			writePath(svgSamples(samples, i, t, cfg.arcSegments), color(t), cfg.strokeWidth, dash(t))
 		case *EllipticalArc:
-			writePath(ellipticalArcPolyline(t, cfg.arcSegments), color(t), cfg.strokeWidth, dash(t))
+			writePath(svgSamples(samples, i, t, cfg.arcSegments), color(t), cfg.strokeWidth, dash(t))
 		case *Ellipse:
 			// The y-flip mirrors the plane, so a CCW sketch rotation becomes
 			// CW in SVG coordinates: negate the angle.
@@ -566,20 +633,20 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 				color(t), sb.f(cfg.strokeWidth), dash(t))
 		case *Spline:
 			// Sampled polyline, like arcs; cfg.arcSegments governs fidelity.
-			writePath(t.Polyline(cfg.arcSegments), color(t), cfg.strokeWidth, dash(t))
+			writePath(svgSamples(samples, i, t, cfg.arcSegments), color(t), cfg.strokeWidth, dash(t))
 		case *ClosedSpline:
 			// The sampled ring already closes (last point == first), so the same
 			// M/L path draws a closed loop.
-			writePath(t.Polyline(cfg.arcSegments), color(t), cfg.strokeWidth, dash(t))
+			writePath(svgSamples(samples, i, t, cfg.arcSegments), color(t), cfg.strokeWidth, dash(t))
 		case *FitSpline:
 			// Sampled interpolating polyline through the fit points.
-			writePath(t.Polyline(cfg.arcSegments), color(t), cfg.strokeWidth, dash(t))
+			writePath(svgSamples(samples, i, t, cfg.arcSegments), color(t), cfg.strokeWidth, dash(t))
 		case *Conic:
 			// Sampled polyline, like arcs/splines; cfg.arcSegments governs fidelity.
-			writePath(t.Polyline(cfg.arcSegments), color(t), cfg.strokeWidth, dash(t))
+			writePath(svgSamples(samples, i, t, cfg.arcSegments), color(t), cfg.strokeWidth, dash(t))
 		case *NURBS:
 			// Sampled polyline, like the spline/conic; cfg.arcSegments governs fidelity.
-			writePath(t.Polyline(cfg.arcSegments), color(t), cfg.strokeWidth, dash(t))
+			writePath(svgSamples(samples, i, t, cfg.arcSegments), color(t), cfg.strokeWidth, dash(t))
 		}
 	}
 
