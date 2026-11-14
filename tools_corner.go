@@ -55,10 +55,11 @@ func CreateFillet[A, B OpenCurve](s *Sketch, e1 A, e2 B, corner *Point, r float6
 	ctr := s.CreatePoint(fg.center.X, fg.center.Y)
 	replaceEnd(ent1, corner, t1)
 	replaceEnd(ent2, corner, t2)
-	nArc := s.CreateArc(ctr, t1, t2)
+	start, end := t1, t2
 	if !fg.startsAtP1 { // the minor arc runs from the second contact
-		nArc = s.CreateArc(ctr, t2, t1)
+		start, end = t2, t1
 	}
+	nArc := s.CreateArc(ctr, start, end)
 
 	s.AddConstraint(tangentToFillet(ent1, nArc, fg.inside1), tangentToFillet(ent2, nArc, fg.inside2))
 	rad := NewDistance(nArc.Center, nArc.Start, r)
@@ -178,10 +179,11 @@ func CreateChamfer(s *Sketch, l1, l2 *Line, d float64) (*Chamfer, error) {
 	t1, t2 := s.CreatePoint(c1.X, c1.Y), s.CreatePoint(c2.X, c2.Y)
 	replaceEnd(l1, corner, t1)
 	replaceEnd(l2, corner, t2)
-	nCut := s.CreateLine(t1, t2)
+	from, to := t1, t2
 	if cut.Start != c1 {
-		nCut = s.CreateLine(t2, t1)
+		from, to = t2, t1
 	}
+	nCut := s.CreateLine(from, to)
 
 	d1, d2 := NewDistance(far1, t1, len1-d), NewDistance(far2, t2, len2-d)
 	s.AddConstraint(d1, d2)

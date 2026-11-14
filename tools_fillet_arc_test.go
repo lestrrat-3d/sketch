@@ -24,6 +24,8 @@ func TestCreateFilletLineArc(t *testing.T) {
 
 	f, err := sketch.CreateFillet(s, line, arc, corner, 2)
 	require.NoError(t, err)
+	require.Len(t, s.Entities(), 3, "the line, the arc and one fillet arc")
+	require.Equal(t, 2, countArcs(s), "no stray second fillet arc")
 	require.Same(t, line, f.L1)
 	require.Same(t, arc, f.L2, "the arc leg keeps its handle and type")
 	require.Same(t, f.T1, line.Start)
@@ -61,6 +63,7 @@ func TestCreateFilletArcArc(t *testing.T) {
 
 	f, err := sketch.CreateFillet(s, a1, a2, corner, 2)
 	require.NoError(t, err)
+	require.Len(t, s.Entities(), 3, "the two arcs and one fillet arc")
 	require.Same(t, a1, f.L1)
 	require.Same(t, a2, f.L2)
 	require.InDelta(t, 5+math.Sqrt(7), f.Arc.Center.X(), 1e-9)

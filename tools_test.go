@@ -159,6 +159,7 @@ func TestCreateFillet(t *testing.T) {
 	res, err := s.Solve(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, 0, res.DOF, "fully constrained after grounding the legs")
+	require.Equal(t, sketch.FullyConstrained, s.Verify(t.Context()).Status)
 
 	require.InDelta(t, 3, f.Arc.R(), 1e-6)
 	require.InDelta(t, 0, f.T1.X(), 1e-6)
