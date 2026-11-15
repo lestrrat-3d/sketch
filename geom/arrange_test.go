@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/lestrrat-3d/sketch/geom"
+	"github.com/lestrrat-3d/sketch/sketchtest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -521,24 +522,6 @@ func TestRegionsDegenerateSpline(t *testing.T) {
 	require.True(t, arr.Degenerate, "an all-coincident spline has no extent")
 }
 
-// regionPolylineArea is the shoelace area of the closed polygon obtained by
-// concatenating each boundary edge's own published Polyline, dropping the
-// duplicated joint at each edge's end. It measures the boundary a region
-// PUBLISHES, independent of Region.Area itself, so a test can check the two
-// agree.
-func regionPolylineArea(edges []geom.BoundaryEdge) float64 {
-	var pts [][2]float64
-	for _, e := range edges {
-		pts = append(pts, e.Polyline[:len(e.Polyline)-1]...)
-	}
-	var s float64
-	for i := range pts {
-		p, q := pts[i], pts[(i+1)%len(pts)]
-		s += p[0]*q[1] - q[0]*p[1]
-	}
-	return s / 2
-}
-
 // TestRegionsWeldedSectorOuterCycleNotHole reproduces fu90: a radius-10,
 // 15deg arc closed by two chords that both land within 2e-7 of the arc's own
 // start point — under the default vertex-merge tolerance of scale*1e-6 —
@@ -581,7 +564,8 @@ func TestRegionsWeldedSectorOuterCycleNotHole(t *testing.T) {
 		big, small = small, big
 	}
 	require.Greater(t, small.Area, 0.0, "the sliver still carries a tiny positive area")
-	want := regionPolylineArea(big.Outer)
+	want := sketchtest.BoundaryPolylineArea(t, big.Outer,
+		func(edge geom.BoundaryEdge) [][2]float64 { return edge.Polyline })
 	require.InDelta(t, want, big.Area, math.Abs(want)*0.05,
 		"Area must agree with the wedge's own published Outer polyline, "+
 			"up to its densified boundary's own sampling error")
