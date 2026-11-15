@@ -6,6 +6,23 @@ import (
 	"github.com/lestrrat-3d/sketch"
 )
 
+// BoundaryPolylineArea returns the signed shoelace area of boundary edges'
+// published polylines, dropping each edge's duplicated closing endpoint.
+func BoundaryPolylineArea[E any](tb testing.TB, edges []E, polyline func(E) [][2]float64) float64 {
+	tb.Helper()
+	var pts [][2]float64
+	for _, edge := range edges {
+		line := polyline(edge)
+		pts = append(pts, line[:len(line)-1]...)
+	}
+	var sum float64
+	for i := range pts {
+		p, q := pts[i], pts[(i+1)%len(pts)]
+		sum += p[0]*q[1] - q[0]*p[1]
+	}
+	return sum / 2
+}
+
 // SingleProfile fails tb unless an analysed report contains exactly one
 // profile, then returns it. It does not assert the profile's validity.
 func SingleProfile(tb testing.TB, report *sketch.VerificationReport) *sketch.Profile {

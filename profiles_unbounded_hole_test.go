@@ -9,24 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// polylineArea is the shoelace area of the closed polygon obtained by
-// concatenating each boundary edge's own published Polyline, dropping the
-// duplicated joint at each edge's end (a closed loop shares each vertex with
-// its neighbor). It measures the boundary a profile PUBLISHES, independent of
-// Profile.Area itself, so a test can check the two agree.
-func polylineArea(edges []sketch.BoundaryEdge) float64 {
-	var pts [][2]float64
-	for _, e := range edges {
-		pts = append(pts, e.Polyline[:len(e.Polyline)-1]...)
-	}
-	var s float64
-	for i := range pts {
-		p, q := pts[i], pts[(i+1)%len(pts)]
-		s += p[0]*q[1] - q[0]*p[1]
-	}
-	return s / 2
-}
-
 // TestProfilesWeldedSectorOuterCycleNotHole reproduces fu90 through the public
 // Sketch.Profiles() API with default options. A radius-10, 15deg arc is closed
 // by two chords that both land within 2e-7 of the arc's own start point — under
@@ -71,7 +53,8 @@ func TestProfilesWeldedSectorOuterCycleNotHole(t *testing.T) {
 		big, small = small, big
 	}
 	require.Greater(t, small.Area, 0.0, "the sliver still carries a tiny positive area")
-	want := polylineArea(big.Outer)
+	want := sketchtest.BoundaryPolylineArea(t, big.Outer,
+		func(edge sketch.BoundaryEdge) [][2]float64 { return edge.Polyline })
 	require.InDelta(t, want, big.Area, math.Abs(want)*0.05,
 		"Area must agree with the wedge's own published Outer polyline, "+
 			"up to its densified boundary's own sampling error")
