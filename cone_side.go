@@ -117,10 +117,10 @@ func (s *Sketch) ownsConeCurve(entity Entity) bool {
 	return false
 }
 
-// CertifyConeCurveSide proves one whole line, fitted spline, or narrow arc has a
+// CertifyConeCurveSide proves one whole line, fitted spline, or arc shorter than a half turn has a
 // strict side of the positive cone section. It refuses any curve whose exact
 // enclosure touches the cone or spans both sides. The proof uses rational
-// Bezier hulls for fitted splines, a quadratic for lines, and a bounded circular sector for arcs.
+// Bezier hulls for fitted splines, a quadratic for lines, and bisected circular wedges for arcs.
 func (s *Sketch) CertifyConeCurveSide(entity Entity, cone ConeSection) (ConeCurveSide, error) {
 	if !s.ownsConeCurve(entity) ||
 		!coneFinite(cone.Apex.X, cone.Apex.Y, cone.Apex.Z,
@@ -366,10 +366,21 @@ func (f coneSideForm) lineSide(line *Line) (ConeSide, *big.Rat) {
 	return 0, nil
 }
 
-// arcSide covers the real bevel-tooth arc class: a short CCW sweep from the
-// upper-left quadrant through negative local X into the lower-left quadrant.
-// This sector lies in a proven rectangle, which boxSide tests exactly.
+// arcSide proves a cone side for an arc. It tries the single-box proof first,
+// so every arc it certified before keeps its certificate and margin, then the
+// general wedge proof (arcWedgeSide).
 func (f coneSideForm) arcSide(arc *Arc) (ConeSide, *big.Rat) {
+	if side, margin := f.arcQuadrantSide(arc); side != 0 {
+		return side, margin
+	}
+	return f.arcWedgeSide(arc)
+}
+
+// arcQuadrantSide covers the real bevel-tooth tip and root arc class: a short
+// CCW sweep from the upper-left quadrant through negative local X into the
+// lower-left quadrant. This sector lies in a proven rectangle, which boxSide
+// tests exactly.
+func (f coneSideForm) arcQuadrantSide(arc *Arc) (ConeSide, *big.Rat) {
 	cx, cy := arc.Center.X(), arc.Center.Y()
 	sx, sy := arc.Start.X()-cx, arc.Start.Y()-cy
 	ex, ey := arc.End.X()-cx, arc.End.Y()-cy
