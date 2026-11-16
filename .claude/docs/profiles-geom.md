@@ -832,10 +832,19 @@ turn), so chord order is decided by rounding, the angles need not tie bit for bi
 and the second door stays shut. `analyticPrepass` therefore tests the two end
 departures with `sharedEndSameRay` (the `dirParallelEps` same-ray test) and, for two
 curved sources in internal or external tangency, adds the point to `exactPortVerts`.
-Any other same-ray shared end (a line and an arc) is flagged `Degenerate`, as a
-line-involved merged tangency is elsewhere. `TestSharedTangentEndKeepsCells` pins a
-watch lever's fork and notch, which returned one `Valid` cell with the union's area
-and `Degenerate` false; `TestSharedEndLineArcSameRayIsDegenerate` pins the flag.
+A line and an arc on one ray keep chord order and no flag: the line's chord lies on
+the ray and the arc's first chord half an angular step off it, toward the side the
+arc bends, so the chords order them as the curves do
+(`TestSharedEndLineArcSameRayKeepsChordOrder`). `TestSharedTangentEndKeepsCells`
+pins a watch lever's fork and notch over 32 rotations, which returned one `Valid`
+cell with the union's area and `Degenerate` false.
+
+**A certified vertex whose ring cannot be ordered exactly is flagged.** When a ring
+at a vertex in `exactPortVerts` holds a sampled port (ellipse, conic, spline) or a
+port with no tangent, `prepareExactPorts` flags the vertex `Degenerate` and falls
+back to chord order, which cannot separate the tangent ports the vertex was
+certified for. Silently falling back lost the disk and the crescent of a cusp with a
+conic ending at it in some rotations (`TestSharedTangentEndWithSampledPortIsFlagged`).
 
 **The second door is what an arc fragment with no interior sample vertex needs.**
 Such a fragment emits ONE edge between its two graph vertices, so its chord IS a
@@ -962,7 +971,8 @@ between them, without a degeneracy.
 
 A SAMPLED source is not covered, since the ring is not all-exact —
 there the arc edge genuinely is the chord, so a reorder would be wrong and the
-honest verdict is a degeneracy flag, which is tracked separately.
+honest verdict is a degeneracy flag: `prepareExactPorts` raises it at a certified
+vertex (see "A certified vertex whose ring cannot be ordered exactly is flagged").
 
 ### Internal (containment) tangency
 

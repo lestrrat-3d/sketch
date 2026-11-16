@@ -1701,16 +1701,18 @@ func (a *arranger) analyticPrepassWithLinePairFilter(filter bool) {
 					// chord order cannot place them and the face walk loses the cells
 					// between them. Two curved sources in internal or external tangency
 					// are certified for exact tangent-port ordering, as at an interior
-					// contact; any other pair stays conservatively degenerate.
+					// contact.
 					if atSourceEnd(si, e.ti) && atSourceEnd(sj, e.tj) {
 						if !sharedEndSameRay(si, e.ti, sj, e.tj) {
 							break
 						}
 						if internalTan || a.externalCurvedTangency(i, j) {
 							a.exactPortVerts = chargedAppend(a.budget, a.exactPortVerts, [2]float64{e.x, e.y})
-							break
 						}
-						a.flagDegenerate(e.x, e.y, i, j)
+						// A line and an arc on one ray keep chord order: the line's
+						// chord lies on the ray and the arc's first chord lies half an
+						// angular step off it, on the side the arc bends toward, so
+						// the chords already order them as the curves do.
 						break
 					}
 					// An interior clean contact is no cut, no degeneracy — UNLESS it
@@ -3836,25 +3838,38 @@ func (a *arranger) sortExactPorts(v int, ring []int) {
 // crossings, polygon corners, ellipse/spline vertices — chord ordering matches the
 // polyline geometry the face walk traverses, so exact tangents must NOT be used.
 func (a *arranger) prepareExactPorts(v int, ring []int) bool {
-	for _, hi := range ring {
-		a.budget.step(1)
-		switch a.sources[a.edges[a.halfs[hi].edge].src].kind {
-		case srcLine, srcArc, srcCircle:
-		default:
-			return false
-		}
-	}
 	vx, vy := a.verts.coord(v)
+	certified := false
 	for _, p := range a.exactPortVerts {
 		a.budget.step(1)
 		if math.Hypot(p[0]-vx, p[1]-vy) <= a.merge {
-			for _, hi := range ring {
-				if !a.preparePort(hi) {
-					return false
-				}
-			}
-			return true
+			certified = true
+			break
 		}
+	}
+	for _, hi := range ring {
+		a.budget.step(1)
+		src := a.edges[a.halfs[hi].edge].src
+		switch a.sources[src].kind {
+		case srcLine, srcArc, srcCircle:
+		default:
+			// A certified tangency vertex whose ring also holds a sampled port
+			// cannot be ordered exactly, and chord order cannot separate the
+			// tangent ports it was certified for: flag it rather than walk it.
+			if certified {
+				a.flagDegenerate(vx, vy, src)
+			}
+			return false
+		}
+	}
+	if certified {
+		for _, hi := range ring {
+			if !a.preparePort(hi) {
+				a.flagDegenerate(vx, vy, a.edges[a.halfs[hi].edge].src)
+				return false
+			}
+		}
+		return true
 	}
 	for i := 0; i < len(ring); i++ {
 		a.budget.step(1)
