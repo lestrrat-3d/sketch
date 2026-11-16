@@ -822,6 +822,34 @@ angles are EQUAL as `float64` while their exact tangent rays genuinely differ. A
 sampled crossing vertex the edges are chords, so chord ordering is what matches the
 traversed geometry, and neither door admits one.
 
+**A shared endpoint of two arcs that leave it along one ray is certified from the
+endpoint, not from an event.** Two sources tangent at an end of each either continue
+through each other (opposite departures: a slot flank into its end cap, a fillet) or
+leave the point together (a cusp: an arc inside another, or beside it, both ending
+where they touch). A G1 join needs nothing. A cusp does: the two arcs' first chords
+leave on one ray to rounding (both sources are densified with one angular step per
+turn), so chord order is decided by rounding, the angles need not tie bit for bit,
+and the second door stays shut. `certifySharedCuspEnds` runs for every arc pair in
+`analyticPrepass`: ends within the vertex-merge distance whose departures pass
+`sharedEndSameRay` (the `dirParallelEps` same-ray test), on carriers in internal or
+external tangency, go into `exactPortVerts`. It does not wait for an `evTangent`: the
+circles are tangent only to rounding there, and the event solver reports the touch,
+two crossings beside it or nothing, by rotation (278 of 4096 rotations of the pinned
+lever scene got no touch event at one cusp). A line and an arc on one ray keep chord
+order and no flag: the line's chord lies on the ray and the arc's first chord half an
+angular step off it, toward the side the arc bends, so the chords order them as the
+curves do (`TestSharedEndLineArcSameRayKeepsChordOrder`).
+`TestSharedTangentEndKeepsCells` pins a watch lever's fork and notch over 512
+rotations; before the certificate it returned one `Valid` cell with the union's area
+and `Degenerate` false.
+
+**A certified vertex whose ring cannot be ordered exactly is flagged.** When a ring
+at a vertex in `exactPortVerts` holds a sampled port (ellipse, conic, spline) or a
+port with no tangent, `prepareExactPorts` flags the vertex `Degenerate` and falls
+back to chord order, which cannot separate the tangent ports the vertex was
+certified for. Silently falling back lost the disk and the crescent of a cusp with a
+conic ending at it in some rotations (`TestSharedTangentEndWithSampledPortIsFlagged`).
+
 **The second door is what an arc fragment with no interior sample vertex needs.**
 Such a fragment emits ONE edge between its two graph vertices, so its chord IS a
 straight edge between the same two vertices and both depart at a bit-identical
@@ -947,7 +975,8 @@ between them, without a degeneracy.
 
 A SAMPLED source is not covered, since the ring is not all-exact —
 there the arc edge genuinely is the chord, so a reorder would be wrong and the
-honest verdict is a degeneracy flag, which is tracked separately.
+honest verdict is a degeneracy flag: `prepareExactPorts` raises it at a certified
+vertex (see "A certified vertex whose ring cannot be ordered exactly is flagged").
 
 ### Internal (containment) tangency
 

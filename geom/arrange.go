@@ -1536,6 +1536,7 @@ func (a *arranger) analyticPrepassWithLinePairFilter(filter bool) {
 			if !ok {
 				continue
 			}
+			a.certifySharedCuspEnds(i, j)
 			nCross, nTangent := 0, 0
 			for _, e := range events {
 				a.budget.step(1)
@@ -1692,9 +1693,11 @@ func (a *arranger) analyticPrepassWithLinePairFilter(filter bool) {
 					if sj.kind == srcLine && si.kind == srcArc && atSourceEnd(si, e.ti) {
 						a.applyAnalyticCut(j, e.tj, e.x, e.y)
 					}
-					// A tangency at a SHARED ENDPOINT of both sources is a smooth (G1)
-					// join — a slot flank meeting its end cap, a fillet — and is always
-					// valid; no cut, no degeneracy.
+					// A tangency at a SHARED ENDPOINT of both sources is a join, not a
+					// cut: a G1 join (a slot flank meeting its end cap, a fillet) needs
+					// nothing, and a cusp of two curved sources is certified for exact
+					// port order by certifySharedCuspEnds, whether or not this event
+					// was found.
 					if atSourceEnd(si, e.ti) && atSourceEnd(sj, e.tj) {
 						break
 					}
@@ -3000,6 +3003,81 @@ func atSourceEnd(s *source, t float64) bool {
 
 const sourceEndEps = 1e-7
 
+// certifySharedCuspEnds certifies, for exact tangent-port ordering, every end
+// that curved sources i and j share and leave along one tangent ray: an arc
+// inside another (internal) or beside it (external), both ending where they
+// touch. Their first chords leave on one ray to rounding (both are densified
+// with one angular step per turn), so chord order is decided by rounding and the
+// face walk can lose the cells between them. The certificate rests on the shared
+// end alone, never on the pair's analytic events: at such an end the two circles
+// are tangent only to rounding, and the event solver may report the touch, two
+// crossings beside it, or nothing. Two ends are shared when they lie within the
+// vertex-merge distance, the distance at which they weld into one graph vertex.
+// A line and an arc on one ray keep chord order: the line's chord lies on the
+// ray and the arc's first chord half an angular step off it, toward the side
+// the arc bends, so the chords already order them as the curves do.
+func (a *arranger) certifySharedCuspEnds(i, j int) {
+	si, sj := &a.sources[i], &a.sources[j]
+	if si.kind != srcArc || sj.kind != srcArc {
+		return
+	}
+	// The two predicates compare centre distance with the larger radius only;
+	// they say on which side the carriers lie, not that they touch. Tangency
+	// comes from the test below: two arcs whose ends lie within the merge
+	// distance and whose departures are parallel within dirParallelEps are
+	// tangent at that end to within those tolerances.
+	if !a.internalCurvedTangency(i, j) && !a.externalCurvedTangency(i, j) {
+		return
+	}
+	for _, ti := range [2]float64{0, 1} {
+		pi := si.at(ti)
+		for _, tj := range [2]float64{0, 1} {
+			a.budget.step(1)
+			pj := sj.at(tj)
+			if math.Hypot(pi[0]-pj[0], pi[1]-pj[1]) > a.merge {
+				continue
+			}
+			if !sharedEndSameRay(si, ti, sj, tj) {
+				continue
+			}
+			a.exactPortVerts = chargedAppend(a.budget, a.exactPortVerts,
+				[2]float64{(pi[0] + pj[0]) / 2, (pi[1] + pj[1]) / 2})
+		}
+	}
+}
+
+// sharedEndSameRay reports whether sources si and sj, each touched at an end
+// (natural parameters ti and tj, both atSourceEnd), leave that shared point
+// along one tangent ray: the departures point the same way and are parallel
+// within dirParallelEps, the same-ray test sortExactPorts clusters with. A
+// departure with no tangent (a zero-length source) reports false.
+func sharedEndSameRay(si *source, ti float64, sj *source, tj float64) bool {
+	di, ok := endDeparture(si, ti)
+	if !ok {
+		return false
+	}
+	dj, ok := endDeparture(sj, tj)
+	if !ok {
+		return false
+	}
+	dot := di[0]*dj[0] + di[1]*dj[1]
+	cr := di[0]*dj[1] - di[1]*dj[0]
+	return dot > 0 && math.Abs(cr) <= dirParallelEps*math.Hypot(di[0], di[1])*math.Hypot(dj[0], dj[1])
+}
+
+// endDeparture is the direction source s leaves its end at natural parameter
+// t: along increasing parameter from its start, along decreasing from its end.
+func endDeparture(s *source, t float64) ([2]float64, bool) {
+	d1, _, ok := s.differential(t)
+	if !ok || (d1[0] == 0 && d1[1] == 0) {
+		return [2]float64{}, false
+	}
+	if t >= 1-sourceEndEps {
+		return [2]float64{-d1[0], -d1[1]}, true
+	}
+	return d1, true
+}
+
 // analyticSelfX replicates the sampled self-intersection rule for an analytic
 // crossing between two different sources: a crossing within one simple cycle-
 // bearing component (not a branched/subdivided wire) is a self-touch.
@@ -3789,25 +3867,46 @@ func (a *arranger) sortExactPorts(v int, ring []int) {
 // crossings, polygon corners, ellipse/spline vertices — chord ordering matches the
 // polyline geometry the face walk traverses, so exact tangents must NOT be used.
 func (a *arranger) prepareExactPorts(v int, ring []int) bool {
+	vx, vy := a.verts.coord(v)
+	certified := false
+	for _, p := range a.exactPortVerts {
+		a.budget.step(1)
+		if math.Hypot(p[0]-vx, p[1]-vy) <= a.merge {
+			certified = true
+			break
+		}
+	}
+	// flagRing flags the vertex against every source in its ring, so each region
+	// walking any of its ports reads degenerate, the tangent ports included.
+	flagRing := func() {
+		srcs := make([]int, 0, len(ring))
+		for _, hi := range ring {
+			srcs = append(srcs, a.edges[a.halfs[hi].edge].src)
+		}
+		a.flagDegenerate(vx, vy, srcs...)
+	}
 	for _, hi := range ring {
 		a.budget.step(1)
 		switch a.sources[a.edges[a.halfs[hi].edge].src].kind {
 		case srcLine, srcArc, srcCircle:
 		default:
+			// A certified tangency vertex whose ring also holds a sampled port
+			// cannot be ordered exactly, and chord order cannot separate the
+			// tangent ports it was certified for: flag it rather than walk it.
+			if certified {
+				flagRing()
+			}
 			return false
 		}
 	}
-	vx, vy := a.verts.coord(v)
-	for _, p := range a.exactPortVerts {
-		a.budget.step(1)
-		if math.Hypot(p[0]-vx, p[1]-vy) <= a.merge {
-			for _, hi := range ring {
-				if !a.preparePort(hi) {
-					return false
-				}
+	if certified {
+		for _, hi := range ring {
+			if !a.preparePort(hi) {
+				flagRing()
+				return false
 			}
-			return true
 		}
+		return true
 	}
 	for i := 0; i < len(ring); i++ {
 		a.budget.step(1)
