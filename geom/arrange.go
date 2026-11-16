@@ -3847,17 +3847,25 @@ func (a *arranger) prepareExactPorts(v int, ring []int) bool {
 			break
 		}
 	}
+	// flagRing flags the vertex against every source in its ring, so each region
+	// walking any of its ports reads degenerate, the tangent ports included.
+	flagRing := func() {
+		srcs := make([]int, 0, len(ring))
+		for _, hi := range ring {
+			srcs = append(srcs, a.edges[a.halfs[hi].edge].src)
+		}
+		a.flagDegenerate(vx, vy, srcs...)
+	}
 	for _, hi := range ring {
 		a.budget.step(1)
-		src := a.edges[a.halfs[hi].edge].src
-		switch a.sources[src].kind {
+		switch a.sources[a.edges[a.halfs[hi].edge].src].kind {
 		case srcLine, srcArc, srcCircle:
 		default:
 			// A certified tangency vertex whose ring also holds a sampled port
 			// cannot be ordered exactly, and chord order cannot separate the
 			// tangent ports it was certified for: flag it rather than walk it.
 			if certified {
-				a.flagDegenerate(vx, vy, src)
+				flagRing()
 			}
 			return false
 		}
@@ -3865,7 +3873,7 @@ func (a *arranger) prepareExactPorts(v int, ring []int) bool {
 	if certified {
 		for _, hi := range ring {
 			if !a.preparePort(hi) {
-				a.flagDegenerate(vx, vy, a.edges[a.halfs[hi].edge].src)
+				flagRing()
 				return false
 			}
 		}

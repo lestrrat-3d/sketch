@@ -134,9 +134,9 @@ func TestSharedEndExternalSameRayKeepsCells(t *testing.T) {
 }
 
 // TestSharedTangentEndWithSampledPortIsFlagged pins a certified cusp vertex whose
-// ring also holds a conic: exact port order cannot run, so the scene is flagged
-// rather than walked by chord order, which lost the disk and the crescent in some
-// rotations with no flag.
+// ring also holds a conic: exact port order cannot run, so the scene and every
+// region at that vertex are flagged rather than walked by chord order, which lost
+// the disk and the crescent in some rotations with no flag.
 func TestSharedTangentEndWithSampledPortIsFlagged(t *testing.T) {
 	const (
 		bigR  = 2.0
@@ -157,9 +157,9 @@ func TestSharedTangentEndWithSampledPortIsFlagged(t *testing.T) {
 			geom.NewLine(pt(bigR+1, 0), pt(bigR, 0)),
 		}
 		arr := geom.Regions(curves, nil)
-		if arr.Degenerate {
-			continue
+		require.Truef(t, arr.Degenerate, "th=%g", th)
+		for _, region := range arr.Regions {
+			require.Truef(t, region.Degenerate, "th=%g: every region at the flagged vertex reads degenerate", th)
 		}
-		require.Lenf(t, arr.Regions, 3, "th=%g: a clean answer must keep the disk, the crescent and the lens", th)
 	}
 }
