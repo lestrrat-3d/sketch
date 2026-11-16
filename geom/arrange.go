@@ -3021,6 +3021,11 @@ func (a *arranger) certifySharedCuspEnds(i, j int) {
 	if si.kind != srcArc || sj.kind != srcArc {
 		return
 	}
+	// The two predicates compare centre distance with the larger radius only;
+	// they say on which side the carriers lie, not that they touch. Tangency
+	// comes from the test below: two arcs whose ends lie within the merge
+	// distance and whose departures are parallel within dirParallelEps are
+	// tangent at that end to within those tolerances.
 	if !a.internalCurvedTangency(i, j) && !a.externalCurvedTangency(i, j) {
 		return
 	}
