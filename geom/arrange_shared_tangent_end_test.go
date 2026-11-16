@@ -52,13 +52,19 @@ func leverForkScene(th float64) []geom.Curve {
 // was certified for exact port order, the face walk returned one cell with the
 // union's area, reported valid and not degenerate.
 func TestSharedTangentEndKeepsCells(t *testing.T) {
-	for k := range 32 {
-		th := float64(k) * math.Pi / 16
-		testLeverForkCells(t, th)
+	// The scene as drawn must publish its cells unflagged.
+	testLeverForkCells(t, 0, false)
+	// Rotated, the arcs' tangency at the cusps holds only to rounding, so the
+	// event solver may report a touch, two crossings or nothing there: 278 of
+	// 4096 rotations lost the cells, unflagged, when certification waited for the
+	// touch event. A rotation may be flagged; it must never be wrong and clean.
+	for k := range 512 {
+		th := float64(k) * math.Pi / 256
+		testLeverForkCells(t, th, true)
 	}
 }
 
-func testLeverForkCells(t *testing.T, th float64) {
+func testLeverForkCells(t *testing.T, th float64, mayFlag bool) {
 	t.Helper()
 	scene := leverForkScene(th)
 	for _, reversed := range []bool{false, true} {
@@ -67,6 +73,9 @@ func testLeverForkCells(t *testing.T, th float64) {
 			slices.Reverse(in)
 		}
 		arr := geom.Regions(in, nil)
+		if mayFlag && arr.Degenerate {
+			continue
+		}
 		require.Falsef(t, arr.Degenerate, "th=%g reversed=%v", th, reversed)
 		require.Lenf(t, arr.Regions, 3, "th=%g reversed=%v", th, reversed)
 		areas := make([]float64, 0, len(arr.Regions))

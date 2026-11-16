@@ -1536,6 +1536,7 @@ func (a *arranger) analyticPrepassWithLinePairFilter(filter bool) {
 			if !ok {
 				continue
 			}
+			a.certifySharedCuspEnds(i, j)
 			nCross, nTangent := 0, 0
 			for _, e := range events {
 				a.budget.step(1)
@@ -1692,27 +1693,12 @@ func (a *arranger) analyticPrepassWithLinePairFilter(filter bool) {
 					if sj.kind == srcLine && si.kind == srcArc && atSourceEnd(si, e.ti) {
 						a.applyAnalyticCut(j, e.tj, e.x, e.y)
 					}
-					// A tangency at a SHARED ENDPOINT of both sources whose curves leave
-					// it in opposite directions is a smooth (G1) join — a slot flank
-					// meeting its end cap, a fillet — and is always valid; no cut, no
-					// degeneracy. Two curves that leave a shared endpoint along ONE ray
-					// (an arc inside another, both ending where they touch) meet there
-					// as a cusp: their first chords leave on one ray to rounding, so
-					// chord order cannot place them and the face walk loses the cells
-					// between them. Two curved sources in internal or external tangency
-					// are certified for exact tangent-port ordering, as at an interior
-					// contact.
+					// A tangency at a SHARED ENDPOINT of both sources is a join, not a
+					// cut: a G1 join (a slot flank meeting its end cap, a fillet) needs
+					// nothing, and a cusp of two curved sources is certified for exact
+					// port order by certifySharedCuspEnds, whether or not this event
+					// was found.
 					if atSourceEnd(si, e.ti) && atSourceEnd(sj, e.tj) {
-						if !sharedEndSameRay(si, e.ti, sj, e.tj) {
-							break
-						}
-						if internalTan || a.externalCurvedTangency(i, j) {
-							a.exactPortVerts = chargedAppend(a.budget, a.exactPortVerts, [2]float64{e.x, e.y})
-						}
-						// A line and an arc on one ray keep chord order: the line's
-						// chord lies on the ray and the arc's first chord lies half an
-						// angular step off it, on the side the arc bends toward, so
-						// the chords already order them as the curves do.
 						break
 					}
 					// An interior clean contact is no cut, no degeneracy — UNLESS it
@@ -3016,6 +3002,44 @@ func atSourceEnd(s *source, t float64) bool {
 }
 
 const sourceEndEps = 1e-7
+
+// certifySharedCuspEnds certifies, for exact tangent-port ordering, every end
+// that curved sources i and j share and leave along one tangent ray: an arc
+// inside another (internal) or beside it (external), both ending where they
+// touch. Their first chords leave on one ray to rounding (both are densified
+// with one angular step per turn), so chord order is decided by rounding and the
+// face walk can lose the cells between them. The certificate rests on the shared
+// end alone, never on the pair's analytic events: at such an end the two circles
+// are tangent only to rounding, and the event solver may report the touch, two
+// crossings beside it, or nothing. Two ends are shared when they lie within the
+// vertex-merge distance, the distance at which they weld into one graph vertex.
+// A line and an arc on one ray keep chord order: the line's chord lies on the
+// ray and the arc's first chord half an angular step off it, toward the side
+// the arc bends, so the chords already order them as the curves do.
+func (a *arranger) certifySharedCuspEnds(i, j int) {
+	si, sj := &a.sources[i], &a.sources[j]
+	if si.kind != srcArc || sj.kind != srcArc {
+		return
+	}
+	if !a.internalCurvedTangency(i, j) && !a.externalCurvedTangency(i, j) {
+		return
+	}
+	for _, ti := range [2]float64{0, 1} {
+		pi := si.at(ti)
+		for _, tj := range [2]float64{0, 1} {
+			a.budget.step(1)
+			pj := sj.at(tj)
+			if math.Hypot(pi[0]-pj[0], pi[1]-pj[1]) > a.merge {
+				continue
+			}
+			if !sharedEndSameRay(si, ti, sj, tj) {
+				continue
+			}
+			a.exactPortVerts = chargedAppend(a.budget, a.exactPortVerts,
+				[2]float64{(pi[0] + pj[0]) / 2, (pi[1] + pj[1]) / 2})
+		}
+	}
+}
 
 // sharedEndSameRay reports whether sources si and sj, each touched at an end
 // (natural parameters ti and tj, both atSourceEnd), leave that shared point
