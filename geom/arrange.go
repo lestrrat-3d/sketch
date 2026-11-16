@@ -1692,10 +1692,25 @@ func (a *arranger) analyticPrepassWithLinePairFilter(filter bool) {
 					if sj.kind == srcLine && si.kind == srcArc && atSourceEnd(si, e.ti) {
 						a.applyAnalyticCut(j, e.tj, e.x, e.y)
 					}
-					// A tangency at a SHARED ENDPOINT of both sources is a smooth (G1)
-					// join — a slot flank meeting its end cap, a fillet — and is always
-					// valid; no cut, no degeneracy.
+					// A tangency at a SHARED ENDPOINT of both sources whose curves leave
+					// it in opposite directions is a smooth (G1) join — a slot flank
+					// meeting its end cap, a fillet — and is always valid; no cut, no
+					// degeneracy. Two curves that leave a shared endpoint along ONE ray
+					// (an arc inside another, both ending where they touch) meet there
+					// as a cusp: their first chords leave on one ray to rounding, so
+					// chord order cannot place them and the face walk loses the cells
+					// between them. Two curved sources in internal or external tangency
+					// are certified for exact tangent-port ordering, as at an interior
+					// contact; any other pair stays conservatively degenerate.
 					if atSourceEnd(si, e.ti) && atSourceEnd(sj, e.tj) {
+						if !sharedEndSameRay(si, e.ti, sj, e.tj) {
+							break
+						}
+						if internalTan || a.externalCurvedTangency(i, j) {
+							a.exactPortVerts = chargedAppend(a.budget, a.exactPortVerts, [2]float64{e.x, e.y})
+							break
+						}
+						a.flagDegenerate(e.x, e.y, i, j)
 						break
 					}
 					// An interior clean contact is no cut, no degeneracy — UNLESS it
@@ -2999,6 +3014,38 @@ func atSourceEnd(s *source, t float64) bool {
 }
 
 const sourceEndEps = 1e-7
+
+// sharedEndSameRay reports whether sources si and sj, each touched at an end
+// (natural parameters ti and tj, both atSourceEnd), leave that shared point
+// along one tangent ray: the departures point the same way and are parallel
+// within dirParallelEps, the same-ray test sortExactPorts clusters with. A
+// departure with no tangent (a zero-length source) reports false.
+func sharedEndSameRay(si *source, ti float64, sj *source, tj float64) bool {
+	di, ok := endDeparture(si, ti)
+	if !ok {
+		return false
+	}
+	dj, ok := endDeparture(sj, tj)
+	if !ok {
+		return false
+	}
+	dot := di[0]*dj[0] + di[1]*dj[1]
+	cr := di[0]*dj[1] - di[1]*dj[0]
+	return dot > 0 && math.Abs(cr) <= dirParallelEps*math.Hypot(di[0], di[1])*math.Hypot(dj[0], dj[1])
+}
+
+// endDeparture is the direction source s leaves its end at natural parameter
+// t: along increasing parameter from its start, along decreasing from its end.
+func endDeparture(s *source, t float64) ([2]float64, bool) {
+	d1, _, ok := s.differential(t)
+	if !ok || (d1[0] == 0 && d1[1] == 0) {
+		return [2]float64{}, false
+	}
+	if t >= 1-sourceEndEps {
+		return [2]float64{-d1[0], -d1[1]}, true
+	}
+	return d1, true
+}
 
 // analyticSelfX replicates the sampled self-intersection rule for an analytic
 // crossing between two different sources: a crossing within one simple cycle-

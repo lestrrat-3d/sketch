@@ -822,6 +822,21 @@ angles are EQUAL as `float64` while their exact tangent rays genuinely differ. A
 sampled crossing vertex the edges are chords, so chord ordering is what matches the
 traversed geometry, and neither door admits one.
 
+**A tangency at a shared endpoint is certified like an interior contact when both
+curves leave that endpoint along one ray.** Two sources tangent at an end of each
+either continue through each other (opposite departures: a slot flank into its end
+cap, a fillet) or leave the point together (a cusp: an arc inside another, both ending
+where they touch). A G1 join needs nothing. A cusp does: the two arcs' first chords
+leave on one ray to rounding (both sources are densified with one angular step per
+turn), so chord order is decided by rounding, the angles need not tie bit for bit,
+and the second door stays shut. `analyticPrepass` therefore tests the two end
+departures with `sharedEndSameRay` (the `dirParallelEps` same-ray test) and, for two
+curved sources in internal or external tangency, adds the point to `exactPortVerts`.
+Any other same-ray shared end (a line and an arc) is flagged `Degenerate`, as a
+line-involved merged tangency is elsewhere. `TestSharedTangentEndKeepsCells` pins a
+watch lever's fork and notch, which returned one `Valid` cell with the union's area
+and `Degenerate` false; `TestSharedEndLineArcSameRayIsDegenerate` pins the flag.
+
 **The second door is what an arc fragment with no interior sample vertex needs.**
 Such a fragment emits ONE edge between its two graph vertices, so its chord IS a
 straight edge between the same two vertices and both depart at a bit-identical
