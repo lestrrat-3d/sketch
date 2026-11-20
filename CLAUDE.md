@@ -23,6 +23,7 @@ stays cheap to load, not because it is optional.
 | Constraints | Adding a constraint with auxiliary variables, or changing `AddConstraint`/`CheckConstraint`/introspection | `.claude/docs/constraints.md` |
 | Rendering overlays | Adding an annotation overlay, DOF colouring, the status badge, frame/grid/watermark | `.claude/docs/rendering.md` |
 | External modules | Touching `r3` frames/planes, `units` conversion, or the `param` engine | `.claude/docs/modules.md` |
+| Lean proofs | Anything under `_proofs/`, or a Go function listed in `_proofs/trace.json` | `.claude/docs/proofs.md` |
 | Design decisions | Resolving or recording an unsettled design variable | `.claude/docs/open-questions.md` |
 
 ## What this is

@@ -41,3 +41,6 @@ go.work.sum
 .tmp/
 .worktrees/
 .review-gauntlet/
+
+# Lean proof build products
+/_proofs/.lake/
