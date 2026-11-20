@@ -545,6 +545,7 @@ func (r *encloseRun) solveAt(ctx context.Context, seed []float64, q float64, dst
 // checkStructure refuses a system that is not square and of full rank at the
 // float solution x (solved at q): the Krawczyk test needs exactly as many
 // equations as unknowns.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (r *encloseRun) checkStructure(x []float64, q float64) error {
 	s := r.s
 	copy(s.vars, x)
