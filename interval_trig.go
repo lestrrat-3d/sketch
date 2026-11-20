@@ -66,6 +66,7 @@ var trigPointCache [trigPointCacheSize]atomic.Pointer[trigPointEntry]
 
 // ratLower and ratUpper convert an exact rational to the nearest float64 at or
 // below / at or above it.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func ratLower(r *big.Rat) float64 {
 	f, exact := r.Float64()
 	if exact {
@@ -77,6 +78,8 @@ func ratLower(r *big.Rat) float64 {
 	return f
 }
 
+// ratUpper converts an exact rational to the nearest float64 at or above it.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func ratUpper(r *big.Rat) float64 {
 	f, exact := r.Float64()
 	if exact {
@@ -89,10 +92,12 @@ func ratUpper(r *big.Rat) float64 {
 }
 
 // ratInterval encloses [lo, hi] in float64, rounding each end outward.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func ratInterval(lo, hi *big.Rat) Interval { return Interval{ratLower(lo), ratUpper(hi)} }
 
 // fixedLower and fixedUpper convert a fixed-point integer (a count of
 // 2^-trigFracBits) to the nearest float64 at or below / at or above it.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func fixedLower(v *big.Int) float64 {
 	f := new(big.Float).SetInt(v)
 	f.SetMantExp(f, -trigFracBits)
@@ -103,6 +108,8 @@ func fixedLower(v *big.Int) float64 {
 	return r
 }
 
+// fixedUpper converts a fixed-point integer to the nearest float64 at or above it.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func fixedUpper(v *big.Int) float64 {
 	f := new(big.Float).SetInt(v)
 	f.SetMantExp(f, -trigFracBits)
@@ -132,6 +139,8 @@ func fixedUpper(v *big.Int) float64 {
 // carried by the computed term is tracked alongside it as an integer bound,
 // err_{n+1} = ⌈err_n·|x|/(n+1)⌉ + 2, and every bound the sums accumulate is
 // added to both sides before the final outward conversion.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func sinCosPoint(x float64) (Interval, Interval, bool) {
 	if !(math.Abs(x) <= maxTrigArg) {
 		return Interval{}, Interval{}, false
@@ -156,6 +165,8 @@ func sinCosPoint(x float64) (Interval, Interval, bool) {
 // |x| ≤ maxTaylorArg. sinCosSeriesWords computes the same integers in fixed
 // width and is the one sinCosPoint runs; this path stands behind it for a sum
 // that would not fit that width.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func sinCosSeriesBig(x float64) (Interval, Interval) {
 	frac, exp := math.Frexp(x)
 	m := big.NewInt(int64(frac * (1 << 53))) // exact: frac has 53 significant bits
@@ -400,6 +411,8 @@ func (a seriesInt) fixedFloat(upward bool) float64 {
 //     the same integer, since ⌈⌈a/b⌉/c⌉ = ⌈a/(b·c)⌉ for positive integers.
 //   - The sums take each term's sign through addSigned, and the final integers
 //     convert through fixedFloat, whose result is fixedLower's or fixedUpper's.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func sinCosSeriesWords(x float64) (Interval, Interval, bool) {
 	frac, exp := math.Frexp(x)
 	m := int64(frac * (1 << 53)) // exact: frac has 53 significant bits
@@ -473,6 +486,8 @@ func sinCosSeriesWords(x float64) (Interval, Interval, bool) {
 // the exact π, so the sine and cosine of the result enclose those of x. Any
 // integer k would do; the nearest one leaves |x − 2πk| ≤ π plus rounding, well
 // inside maxTaylorArg. The endpoints are exact rationals rounded outward once.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func reduceTurns(x float64) Interval {
 	k := int64(math.Round(x / (2 * math.Pi)))
 	kk := big.NewRat(2*k, 1)
@@ -512,6 +527,7 @@ var halfPiTable = func() [2*halfPiTableK + 1]halfPiBracket {
 }()
 
 // halfPiRats returns the exact bracket [a, b] of k·π/2.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func halfPiRats(k int) (*big.Rat, *big.Rat) {
 	half := big.NewRat(int64(k), 2)
 	a := new(big.Rat).Mul(half, piLo)
@@ -527,6 +543,8 @@ func halfPiRats(k int) (*big.Rat, *big.Rat) {
 // table the float bounds decide it with no rounding: for a float v, b < v
 // holds exactly when hi < v if hi equals b, and when hi ≤ v otherwise, since
 // no float lies in [b, hi) then; a > v mirrors it with lo.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func halfPiMayLieIn(k int, q Interval) bool {
 	if k < -halfPiTableK || k > halfPiTableK {
 		a, b := halfPiRats(k)
@@ -540,6 +558,7 @@ func halfPiMayLieIn(k int, q Interval) bool {
 
 // clampUnit intersects an enclosure of a sine or cosine with [-1, 1], which is
 // sound because the exact value cannot leave it.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func clampUnit(i Interval) Interval { return Interval{max(i.Lo, -1), min(i.Hi, 1)} }
 
 // sinCosRange encloses sin and cos over every θ in q. The endpoint values give
@@ -547,6 +566,8 @@ func clampUnit(i Interval) Interval { return Interval{max(i.Lo, -1), min(i.Hi, 1
 // multiple of π/2, and wherever such a multiple MIGHT lie in q (judged against
 // the rigorous π bracket, so an undecided case counts as inside) the matching
 // ±1 joins the hull.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func sinCosRange(q Interval) (Interval, Interval, bool) {
 	sa, ca, ok := sinCosPoint(q.Lo)
 	if !ok {
