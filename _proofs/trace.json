@@ -124,6 +124,196 @@
       "sha256": "b3d00f9069b12593352720b44370f6919a632a1bae63ec48da270c083ea68a9a"
     },
     {
+      "file": "interval.go",
+      "func": "Interval.isFinite",
+      "role": "assumes",
+      "theorems": [],
+      "assumptions": [
+        "A2"
+      ],
+      "sha256": "fa746497c8146e6110fa28a543b9425b70d55642e54c77313cf500a986ca67cb"
+    },
+    {
+      "file": "interval.go",
+      "func": "Interval.strictlyInside",
+      "role": "models",
+      "theorems": [
+        "Sketch/Interval/Arith.lean:Sketch.Interval.strictlyInside_sound"
+      ],
+      "assumptions": [
+        "A6"
+      ],
+      "sha256": "9384af22d056fd2f93b9beb30fef80781e25097d039701f3f33688a25cd9f8d2"
+    },
+    {
+      "file": "interval.go",
+      "func": "down",
+      "role": "models",
+      "theorems": [
+        "Sketch/Interval/Arith.lean:Sketch.Interval.down_sound",
+        "Sketch/Interval/Arith.lean:Sketch.Interval.iadd_sound",
+        "Sketch/Interval/Arith.lean:Sketch.Interval.isub_sound",
+        "Sketch/Interval/Arith.lean:Sketch.Interval.imul_sound",
+        "Sketch/Interval/Arith.lean:Sketch.Interval.imulPt_sound",
+        "Sketch/Interval/Arith.lean:Sketch.Interval.isqr_sound",
+        "Sketch/Interval/Arith.lean:Sketch.Interval.isqrtNonNeg_sound"
+      ],
+      "assumptions": [
+        "A2",
+        "A3"
+      ],
+      "sha256": "e088f6e8bc42126781eed7fb4a8f5c1b5a8899ef7c18233a9e24d39533b02634"
+    },
+    {
+      "file": "interval.go",
+      "func": "iadd",
+      "role": "models",
+      "theorems": [
+        "Sketch/Interval/Arith.lean:Sketch.Interval.iadd_sound"
+      ],
+      "assumptions": [
+        "A1",
+        "A2",
+        "A3"
+      ],
+      "sha256": "dc288cd9890be6a7538219564f906ae55b5484670ebe272cb53acca70a989ecf"
+    },
+    {
+      "file": "interval.go",
+      "func": "ihull",
+      "role": "models",
+      "theorems": [
+        "Sketch/Interval/Arith.lean:Sketch.Interval.ihull_sound_left",
+        "Sketch/Interval/Arith.lean:Sketch.Interval.ihull_sound_right"
+      ],
+      "assumptions": [
+        "A6"
+      ],
+      "sha256": "a4672b4384fbb9e0b584469d288a0b12d9b87e099fd865bdb1bf3a9fa03bb098"
+    },
+    {
+      "file": "interval.go",
+      "func": "imul",
+      "role": "models",
+      "theorems": [
+        "Sketch/Interval/Arith.lean:Sketch.Interval.imul_sound",
+        "Sketch/Interval/Arith.lean:Sketch.Interval.imulPt_eq_imul_pt"
+      ],
+      "assumptions": [
+        "A1",
+        "A2",
+        "A3",
+        "A4",
+        "A6"
+      ],
+      "sha256": "379da75c2687c9a9003868ab7ece17d83e1acc9621aadc512b1dffeb32edf22e"
+    },
+    {
+      "file": "interval.go",
+      "func": "imulPt",
+      "role": "models",
+      "theorems": [
+        "Sketch/Interval/Arith.lean:Sketch.Interval.imulPt_sound",
+        "Sketch/Interval/Arith.lean:Sketch.Interval.imulPt_eq_imul_pt"
+      ],
+      "assumptions": [
+        "A1",
+        "A2",
+        "A3",
+        "A4",
+        "A6"
+      ],
+      "sha256": "518b8da8b7b1fd03ec213871c74aa7e14788e8a544e34b006e35a464159dc96b"
+    },
+    {
+      "file": "interval.go",
+      "func": "ineg",
+      "role": "models",
+      "theorems": [
+        "Sketch/Interval/Arith.lean:Sketch.Interval.ineg_sound"
+      ],
+      "assumptions": [
+        "A6"
+      ],
+      "sha256": "18fe4d80d103abcd800d11a7d2c5b7964d77d88ba6dc694c5abf7332cd8354bf"
+    },
+    {
+      "file": "interval.go",
+      "func": "isqr",
+      "role": "models",
+      "theorems": [
+        "Sketch/Interval/Arith.lean:Sketch.Interval.isqr_sound"
+      ],
+      "assumptions": [
+        "A1",
+        "A2",
+        "A3",
+        "A4",
+        "A6"
+      ],
+      "sha256": "a67a54dfe3c32dfc8a5022a9607f1b185c51613d2334558cc3de389c7fc54d02"
+    },
+    {
+      "file": "interval.go",
+      "func": "isqrtNonNeg",
+      "role": "models",
+      "theorems": [
+        "Sketch/Interval/Arith.lean:Sketch.Interval.isqrtNonNeg_sound"
+      ],
+      "assumptions": [
+        "A2",
+        "A3",
+        "A5",
+        "A6"
+      ],
+      "sha256": "d26f3ef620c80452f850b824f0502bbe9274f6ce1b46214e940d724ceea92c08"
+    },
+    {
+      "file": "interval.go",
+      "func": "isub",
+      "role": "models",
+      "theorems": [
+        "Sketch/Interval/Arith.lean:Sketch.Interval.isub_sound"
+      ],
+      "assumptions": [
+        "A1",
+        "A2",
+        "A3"
+      ],
+      "sha256": "c4250fdb1bd820cbfbb27cd88de492f0422ea43653d7156531d4a20fdae32556"
+    },
+    {
+      "file": "interval.go",
+      "func": "pt",
+      "role": "models",
+      "theorems": [
+        "Sketch/Interval/Arith.lean:Sketch.Interval.pt_sound",
+        "Sketch/Interval/Arith.lean:Sketch.Interval.imulPt_eq_imul_pt",
+        "Sketch/Interval/Arith.lean:Sketch.Interval.imulPt_sound"
+      ],
+      "assumptions": [],
+      "sha256": "8ec1e57a047db21e561618b2d220a04e008499fa7a0e17e724b9fac7cacbcb78"
+    },
+    {
+      "file": "interval.go",
+      "func": "up",
+      "role": "models",
+      "theorems": [
+        "Sketch/Interval/Arith.lean:Sketch.Interval.up_sound",
+        "Sketch/Interval/Arith.lean:Sketch.Interval.iadd_sound",
+        "Sketch/Interval/Arith.lean:Sketch.Interval.isub_sound",
+        "Sketch/Interval/Arith.lean:Sketch.Interval.imul_sound",
+        "Sketch/Interval/Arith.lean:Sketch.Interval.imulPt_sound",
+        "Sketch/Interval/Arith.lean:Sketch.Interval.isqr_sound",
+        "Sketch/Interval/Arith.lean:Sketch.Interval.isqrtNonNeg_sound"
+      ],
+      "assumptions": [
+        "A2",
+        "A3"
+      ],
+      "sha256": "f2cd4089fa6908a9767b55a21edaedd3f6d4102f172ceb4c166768d27d58adbe"
+    },
+    {
       "file": "probe.go",
       "func": "wrapPi",
       "role": "models",

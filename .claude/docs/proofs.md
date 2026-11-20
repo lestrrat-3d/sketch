@@ -4,8 +4,10 @@
 covered Go function changes without its theorem being re-read. The proofs are about Lean models of Go functions
 under the assumptions table below. They are not proofs about compiled Go.
 
-Only the infrastructure exists so far. `_proofs/Sketch/Smoke.lean` is a placeholder theorem that exercises the
-build; `_proofs/trace.json` has no entries. The first real proof deletes the placeholder.
+Covered so far: soundness of the outward-rounded interval helpers in `interval.go`
+(`_proofs/Sketch/Interval/Arith.lean`) over the abstract binary64 model `_proofs/Sketch/Float/Model.lean`, and
+the zero sets of the angle and distance enclosure equations (`_proofs/Sketch/Enclose/Angle.lean`).
+`_proofs/trace.json` lists every covered Go function.
 
 | Question | Section |
 |---|---|
@@ -26,7 +28,10 @@ _proofs/
   lean-toolchain         leanprover/lean4:v4.36.0, equal to Mathlib's own at the pinned commit
   lake-manifest.json     exact commit of Mathlib and every transitive Lean package
   Sketch.lean            root module; `lake exe mk_all` writes it from every Sketch/**.lean
-  Sketch/Smoke.lean      placeholder theorem; delete with the first real proof
+  Sketch/Enclose/Angle.lean zero sets of the angle and distance enclosure equations
+  Sketch/Float/Model.lean    FloatModel: abstract finite binary64 (rn, nu, nd, δ) + rounding lemmas
+  Sketch/Float/Grid.lean     gridModel: proves FloatModel's fields jointly satisfiable
+  Sketch/Interval/Arith.lean models + soundness theorems for interval.go's helpers
   go.mod                 module github.com/lestrrat-3d/sketch/_proofs; standard library only
   trace.json             theorem to Go function manifest
   tracecheck/            package main: manifest checker and its tests
@@ -102,10 +107,16 @@ end
 ## Assumptions
 
 The proofs do NOT prove the rows below. A change that breaks a row can make a proved bound false while every
-theorem still builds. The table is empty until the first theorem lands.
+theorem still builds.
 
 | Id | Assumption | Lean form | Go evidence | Covered Go entries |
 |---|---|---|---|---|
+| A1 | Float `+`, `-`, `*` on finite float64 operands return the round-to-nearest value of the exact real result (IEEE 754 binary64) | `FloatModel.rn`, `rn_mem`, `rn_near` | Go spec "Arithmetic operators" (IEEE 754 float64) | `interval.go` `iadd`, `isub`, `imul`, `imulPt`, `isqr` |
+| A2 | No NaN, no infinity, no overflow: every interval endpoint and every rounded intermediate on the modeled path is a finite float. `±Inf` results are not modeled | `FloatModel.F` holds only finite floats; `rn_mem`, `nu_mem` always land in `F` | The certified path refuses a residual or Krawczyk image with a non-finite or unordered endpoint (`Interval.isFinite` in `enclose_system.go`, `enclose_fold.go`); a fixed box must pass it too (`enclose.go`). Outside the model, a rounded `±Inf` endpoint only widens the interval | `interval.go` `down`, `up`, `iadd`, `isub`, `imul`, `imulPt`, `isqr`, `isqrtNonNeg`, `Interval.isFinite` |
+| A3 | On a finite input, `up(x)` returns the least float above `x` and `down(x)` the greatest float below `x`, equal to `-up(-x)`: `Float64bits` ±1, `±math.SmallestNonzeroFloat64` at zero | `FloatModel.nu`, `nu_mem`, `lt_nu`, `nu_min`; `FloatModel.nd f = -nu (-f)`, `neg_mem` | `TestDownUpMatchNextafter` (`interval_internal_test.go`) against `math.Nextafter` and `-up(-x)` | `interval.go` `down`, `up`, `iadd`, `isub`, `imul`, `imulPt`, `isqr`, `isqrtNonNeg` |
+| A4 | Each product written as `float64(x*y)` is rounded once: the explicit conversion forbids fusing it into an FMA | each product is one `M.rn (x * y)` | Go spec "Floating-point operators" (explicit conversion rounds). Dated check (Go 1.27.3, `GOARCH=arm64 go build -gcflags=-S .`): every `FMADDD`/`FMSUBD`/`FNMADDD`/`FNMSUBD` attributed to `interval.go` is on `Interval.mid`'s line, none in a covered helper | `interval.go` `imul`, `imulPt`, `isqr` |
+| A5 | `math.Sqrt(x)` on finite `x ≥ 0` returns the round-to-nearest value of `√x` | `M.rn (Real.sqrt x)` in `isqrtNonNeg` | `math/sqrt.go` "Return correctly rounded sqrt"; hardware square root is IEEE 754 correctly rounded | `interval.go` `isqrtNonNeg` |
+| A6 | On finite float64 values, negation is exact and `<`, `<=`, `>=`, built-in `min`/`max` agree with the real operations (signed zero aside) | real `-`, `<`, `≤`, `min`, `max` | Go spec "Comparison operators", "Min and max"; IEEE 754 negation flips the sign bit | `interval.go` `ineg`, `imul`, `imulPt`, `isqr`, `isqrtNonNeg`, `ihull`, `Interval.strictlyInside` |
 | A40 | Exact real model of the angle and distance residuals and restatements: float `+`/`−`/`×` are exact; `math.Atan2(y, x)` is `Complex.arg (x + y·i)` (signed zeros not modeled; `Atan2(0, 0) = 0`); `math.Hypot(a, b)` is `√(a² + b²)`; `math.Mod(x, y)` is `x − y·trunc(x / y)`; the constant `2*math.Pi` is `2π` | defs `atan2`, `goTrunc`, `goMod`, `wrapPi`, `dist` and every model def in `Sketch/Enclose/Angle.lean` are over `ℝ` | Go `math` docs for `Atan2`, `Hypot`, `Mod`; code reading. Rounding is outside the model: the theorems state the zero sets of the exact equations | `constraint.go dir`, `dist`; `constraint_dimension.go Angle.residual`, `Distance.residual`; `enclose_system.go certAngle.eval`, `certAngle.parts`, `certAngle.side`, `certDistance.eval`; `probe.go wrapPi` |
 | A41 | The intervals `certAngle.eval`, `certAngle.side` and `certDistance.eval` compute (`isub`, `iadd`, `imul`, `isqr`, and `certAngle.trig`'s `sinCosRange` or `sinCosPoint` enclosures) contain the exact real value at every configuration of the box and every angle in the range, so `side` returning true means the real side value is positive at every configuration of the box | hypotheses `hside` of `certAngle_zero_iff_angleResidual_zero` and `hbox` of `certAngle_zero_set_eq_on_box`; `certAngleTrig` returns the exact `(sin θ, cos θ)` | Outward rounding in `interval.go`; proven bounds in `interval_trig.go`; their tests | `enclose_system.go certAngle.eval`, `certAngle.parts`, `certAngle.side`, `certAngle.trig`, `certDistance.eval` |
 | A42 | Every distance value a `certDistance` row reads is positive: a non-driver target, every value of a `WithTargetRange` range, and every value of the driving range | hypothesis `hd : 0 ≤ d` of `certDistance_zero_iff_distanceResidual_zero` | `certEquationsOf` refuses a target whose lower end is not positive; `rangeBase` refuses a distance range with `lo <= 0`; `foldKrawczyk` refuses a driving-value box whose lower end is not positive | `enclose_system.go certDistance.eval` |

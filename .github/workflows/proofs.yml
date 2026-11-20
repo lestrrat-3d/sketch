@@ -18,6 +18,7 @@ on:
       - 'constraint.go'
       - 'constraint_dimension.go'
       - 'enclose_system.go'
+      - 'interval.go'
       - 'probe.go'
   push:
     branches: [main]

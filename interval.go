@@ -28,6 +28,7 @@ func (i Interval) Contains(v float64) bool { return i.Lo <= v && v <= i.Hi }
 
 // down and up step one float toward −∞ and +∞. The fixed directions let
 // these hot interval helpers skip Nextafter's general y and equality checks.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func down(x float64) float64 {
 	switch {
 	case math.IsNaN(x):
@@ -43,6 +44,8 @@ func down(x float64) float64 {
 	}
 }
 
+// up steps one float toward +∞.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func up(x float64) float64 {
 	switch {
 	case math.IsNaN(x):
@@ -59,12 +62,23 @@ func up(x float64) float64 {
 }
 
 // pt is the degenerate interval holding exactly v.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func pt(v float64) Interval { return Interval{v, v} }
 
+// iadd encloses a+b, rounding the lower endpoint down and the upper one up.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func iadd(a, b Interval) Interval { return Interval{down(a.Lo + b.Lo), up(a.Hi + b.Hi)} }
-func isub(a, b Interval) Interval { return Interval{down(a.Lo - b.Hi), up(a.Hi - b.Lo)} }
-func ineg(a Interval) Interval    { return Interval{-a.Hi, -a.Lo} }
 
+// isub encloses a−b, rounding the lower endpoint down and the upper one up.
+// Lean proofs depend on this function; see _proofs/trace.json.
+func isub(a, b Interval) Interval { return Interval{down(a.Lo - b.Hi), up(a.Hi - b.Lo)} }
+
+// ineg encloses −a; negation is exact, so no rounding step is needed.
+// Lean proofs depend on this function; see _proofs/trace.json.
+func ineg(a Interval) Interval { return Interval{-a.Hi, -a.Lo} }
+
+// imul encloses a·b from the four rounded endpoint products.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func imul(a, b Interval) Interval {
 	p1 := float64(a.Lo * b.Lo)
 	p2 := float64(a.Lo * b.Hi)
@@ -75,6 +89,7 @@ func imul(a, b Interval) Interval {
 
 // imulPt is imul(pt(y), b) with the two duplicate products dropped; its result
 // is bit-identical to imul's because a degenerate factor repeats p1 and p2.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func imulPt(y float64, b Interval) Interval {
 	p1 := float64(y * b.Lo)
 	p2 := float64(y * b.Hi)
@@ -83,6 +98,7 @@ func imulPt(y float64, b Interval) Interval {
 
 // isqr is a·a with the dependency kept: the square of an interval straddling
 // zero starts at zero, which imul(a, a) would not see.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func isqr(a Interval) Interval {
 	lo := float64(a.Lo * a.Lo)
 	hi := float64(a.Hi * a.Hi)
@@ -99,16 +115,20 @@ func isqr(a Interval) Interval {
 // isqrtNonNeg encloses √a for a quantity known to be non-negative (a sum of
 // squares): a lower endpoint rounded below zero is clamped back to zero, which
 // is sound only because the exact quantity cannot be negative.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func isqrtNonNeg(a Interval) Interval {
 	lo := max(a.Lo, 0)
 	return Interval{max(down(math.Sqrt(lo)), 0), up(math.Sqrt(a.Hi))}
 }
 
+// ihull is the smallest interval containing both a and b.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func ihull(a, b Interval) Interval { return Interval{min(a.Lo, b.Lo), max(a.Hi, b.Hi)} }
 
 // isFinite reports whether both endpoints are finite and ordered. A NaN
 // endpoint fails the ordering test, so this is the one screen the certified
 // path needs against poisoned arithmetic.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (i Interval) isFinite() bool {
 	return i.Lo <= i.Hi && !math.IsInf(i.Lo, 0) && !math.IsInf(i.Hi, 0)
 }
@@ -118,6 +138,7 @@ func (i Interval) within(o Interval) bool { return o.Lo <= i.Lo && i.Hi <= o.Hi 
 
 // strictlyInside reports whether i lies in the interior of o, the Krawczyk
 // test's inclusion.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (i Interval) strictlyInside(o Interval) bool { return o.Lo < i.Lo && i.Hi < o.Hi }
 
 func (i Interval) mid() float64 { return i.Lo + (i.Hi-i.Lo)/2 }
