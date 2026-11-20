@@ -213,7 +213,18 @@ func coneFinite(values ...float64) bool {
 	return true
 }
 
-func coneRat(v float64) *big.Rat     { return new(big.Rat).SetFloat64(v) }
+// coneRat returns the exact rational value of a finite v.
+// Lean proofs depend on this function; see _proofs/trace.json.
+func coneRat(v float64) *big.Rat { return new(big.Rat).SetFloat64(v) }
+
+// coneAdd returns a fresh a+b.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func coneAdd(a, b *big.Rat) *big.Rat { return new(big.Rat).Add(a, b) }
+
+// coneSub returns a fresh a-b.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func coneSub(a, b *big.Rat) *big.Rat { return new(big.Rat).Sub(a, b) }
+
+// coneMul returns a fresh a*b.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func coneMul(a, b *big.Rat) *big.Rat { return new(big.Rat).Mul(a, b) }

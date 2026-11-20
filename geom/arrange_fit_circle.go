@@ -420,6 +420,8 @@ func fitHullAxisSeparate(a, b *exactFitHull, ax, ay, margin *big.Rat) bool {
 	return add(hiA, margin).Cmp(loB) < 0 || add(hiB, margin).Cmp(loA) < 0
 }
 
+// exactFitPieces returns each interpolant span's exact monomial coefficients over its local [0,1] parameter.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func exactFitPieces(fi *FitInterpolant) ([]exactFitPiece, bool) {
 	if fi == nil || fi.size() < 2 {
 		return nil, false

@@ -1,0 +1,102 @@
+module
+
+public import Sketch.Cone.Fit
+public import Sketch.Cone.Line
+
+/-!
+# Whole-curve cone side certificate
+
+Models the line and fitted-spline paths of `sketch.Sketch.CertifyConeCurveSide` (`cone_side.go`). The Go
+function screens its inputs (sketch ownership, finite cone data, positive slope, nonzero axis, a readable
+plane frame, a buildable interpolant); each screen only refuses, so the model omits them. It then builds the
+exact form with `newConeSideForm`, dispatches on the curve kind, and refuses unless the side is nonzero and
+the margin is present and positive. The Arc branch (`arcSide`) is not modeled.
+
+`certifyConeCurveSide_line_sound` and `certifyConeCurveSide_fit_sound` state the published guarantee in world
+coordinates: every point of the curve, mapped to the world through the plane frame, lies in the positive cone
+half and on the certified side, with `|F| ≥ margin` for the cone implicit function `F` of `worldF`.
+-/
+
+public section
+
+namespace Sketch.Cone
+
+/-- The curve sources whose paths are modeled: a line by its endpoint coordinates, or a fitted spline by its
+interpolant. -/
+inductive ConeCurve where
+  | line (sx sy ex ey : ℚ)
+  | fit (fi : FitData)
+
+/-- World point `o + x·U + y·V` of plane point `(x, y)`. -/
+@[expose] def worldPoint (o U V : Fin 3 → ℚ) (x y : ℚ) : Fin 3 → ℚ := fun i => o i + x * U i + y * V i
+
+/-- Side `side` holds with margin `m` at world point `P` for the cone with apex `A`, axis `a` and slope `s`. -/
+@[expose] def WorldSideAt (A a : Fin 3 → ℚ) (s : ℚ) (side : ConeSide) (m : ℚ) (P : Fin 3 → ℚ) : Prop :=
+  0 < worldH A a P ∧
+    match side with
+    | .outside => m ≤ worldF A a s P
+    | .inside => worldF A a s P ≤ -m
+    | .zero => False
+
+theorem sideAt_newConeSideForm {o U V A a : Fin 3 → ℚ} {s : ℚ} {side : ConeSide} {m x y : ℚ}
+    (h : (newConeSideForm o U V A a s).SideAt side m x y) :
+    WorldSideAt A a s side m (worldPoint o U V x y) := by
+  unfold ConeSideForm.SideAt at h
+  unfold WorldSideAt worldPoint
+  rw [← newConeSideForm_h o U V A a s x y, ← newConeSideForm_F o U V A a s x y]
+  exact h
+
+/-- The side and margin the curve-kind dispatch in `sketch.Sketch.CertifyConeCurveSide` computes. -/
+@[expose] def curveSide (form : ConeSideForm) : ConeCurve → ConeSide × Option ℚ
+  | .line sx sy ex ey => form.lineSide sx sy ex ey
+  | .fit fi => form.fitSide fi
+
+/-- Model of `sketch.Sketch.CertifyConeCurveSide` for line and fitted-spline sources. The frame origin `o`,
+plane axes `U`, `V`, cone apex `A`, axis `a` and slope `s` are the exact values of the Go floats (A31). The
+result is `some (side, margin)` exactly when the Go function returns a certificate. -/
+@[expose] def certifyConeCurveSide (o U V A a : Fin 3 → ℚ) (s : ℚ) (curve : ConeCurve) :
+    Option (ConeSide × ℚ) :=
+  match curveSide (newConeSideForm o U V A a s) curve with
+  | (side, some m) => if side = .zero ∨ m ≤ 0 then none else some (side, m)
+  | (_, none) => none
+
+theorem certifyConeCurveSide_some {o U V A a : Fin 3 → ℚ} {s : ℚ} {curve : ConeCurve} {side : ConeSide}
+    {m : ℚ} (h : certifyConeCurveSide o U V A a s curve = some (side, m)) :
+    curveSide (newConeSideForm o U V A a s) curve = (side, some m) := by
+  unfold certifyConeCurveSide at h
+  generalize curveSide (newConeSideForm o U V A a s) curve = r at h ⊢
+  obtain ⟨side', m'⟩ := r
+  cases m' with
+  | none => simp at h
+  | some m' =>
+    simp only at h
+    split_ifs at h
+    simp only [Option.some.injEq, Prod.mk.injEq] at h
+    obtain ⟨rfl, rfl⟩ := h
+    rfl
+
+/-- A certificate for the line from `(sx, sy)` to `(ex, ey)` proves every point of the segment, in world
+coordinates, lies in the positive cone half and strictly on the certified side with `|F| ≥ margin > 0`.
+Covers `sketch.Sketch.CertifyConeCurveSide`, `sketch.newConeSideForm`, `sketch.coneSideForm.lineSide` and the
+helpers `lineSide_sound` lists; assumptions A30, A31, A32. -/
+theorem certifyConeCurveSide_line_sound {o U V A a : Fin 3 → ℚ} {s sx sy ex ey : ℚ} {side : ConeSide} {m : ℚ}
+    (h : certifyConeCurveSide o U V A a s (.line sx sy ex ey) = some (side, m)) :
+    0 < m ∧ side ≠ .zero ∧ ∀ t, 0 ≤ t → t ≤ 1 →
+      WorldSideAt A a s side m (worldPoint o U V (sx + (ex - sx) * t) (sy + (ey - sy) * t)) := by
+  obtain ⟨hm, hs, hall⟩ := ConeSideForm.lineSide_sound (certifyConeCurveSide_some h)
+  exact ⟨hm, hs, fun t ht0 ht1 => sideAt_newConeSideForm (hall t ht0 ht1)⟩
+
+/-- A certificate for a fitted spline proves every point of every span of its ideal interpolant, in world
+coordinates, lies in the positive cone half and strictly on the certified side with `|F| ≥ margin > 0`.
+Covers `sketch.Sketch.CertifyConeCurveSide`, `sketch.newConeSideForm`, `sketch.coneSideForm.fitSide` and the
+functions `fitSide_sound` lists; assumptions A30, A31, A33. -/
+theorem certifyConeCurveSide_fit_sound {o U V A a : Fin 3 → ℚ} {s : ℚ} {fi : FitData} {side : ConeSide}
+    {m : ℚ} (h : certifyConeCurveSide o U V A a s (.fit fi) = some (side, m)) :
+    0 < m ∧ side ≠ .zero ∧ ∀ i, i + 1 < fi.points.length → ∀ u, 0 ≤ u → u ≤ 1 →
+      WorldSideAt A a s side m (worldPoint o U V (fi.spanPoint i u 0) (fi.spanPoint i u 1)) := by
+  obtain ⟨hm, hs, hall⟩ := ConeSideForm.fitSide_sound (certifyConeCurveSide_some h)
+  exact ⟨hm, hs, fun i hi u hu0 hu1 => sideAt_newConeSideForm (hall i hi u hu0 hu1)⟩
+
+end Sketch.Cone
+
+end

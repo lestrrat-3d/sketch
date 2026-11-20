@@ -121,6 +121,7 @@ func (s *Sketch) ownsConeCurve(entity Entity) bool {
 // strict side of the positive cone section. It refuses any curve whose exact
 // enclosure touches the cone or spans both sides. The proof uses rational
 // Bezier hulls for fitted splines, a quadratic for lines, and bisected circular wedges for arcs.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (s *Sketch) CertifyConeCurveSide(entity Entity, cone ConeSection) (ConeCurveSide, error) {
 	if !s.ownsConeCurve(entity) ||
 		!coneFinite(cone.Apex.X, cone.Apex.Y, cone.Apex.Z,
@@ -160,6 +161,8 @@ func (s *Sketch) CertifyConeCurveSide(entity Entity, cone ConeSection) (ConeCurv
 
 type coneInterval struct{ lo, hi *big.Rat }
 
+// coneIntervalOf returns the interval with bounds a and b in increasing order.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func coneIntervalOf(a, b *big.Rat) coneInterval {
 	if a.Cmp(b) <= 0 {
 		return coneInterval{a, b}
@@ -167,18 +170,26 @@ func coneIntervalOf(a, b *big.Rat) coneInterval {
 	return coneInterval{b, a}
 }
 
+// add returns the exact interval sum [a.lo+b.lo, a.hi+b.hi].
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (a coneInterval) add(b coneInterval) coneInterval {
 	return coneInterval{coneAdd(a.lo, b.lo), coneAdd(a.hi, b.hi)}
 }
 
+// sub returns the exact interval difference [a.lo-b.hi, a.hi-b.lo].
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (a coneInterval) sub(b coneInterval) coneInterval {
 	return coneInterval{coneSub(a.lo, b.hi), coneSub(a.hi, b.lo)}
 }
 
+// scale returns the exact interval of a multiplied by k, for either sign of k.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (a coneInterval) scale(k *big.Rat) coneInterval {
 	return coneIntervalOf(coneMul(a.lo, k), coneMul(a.hi, k))
 }
 
+// square returns the exact interval of x*x over every x in a.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (a coneInterval) square() coneInterval {
 	a2, b2 := coneMul(a.lo, a.lo), coneMul(a.hi, a.hi)
 	if a.lo.Sign() >= 0 {
@@ -199,6 +210,9 @@ type coneSideForm struct {
 	slope2     *big.Rat
 }
 
+// newConeSideForm converts the plane frame and cone to exact rationals: the plane origin relative to the
+// apex, the plane axes, the cone axis, and the squared slope.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func newConeSideForm(frame r3.Frame, cone ConeSection) coneSideForm {
 	o, u, v := frame.Origin(), frame.U(), frame.V()
 	return coneSideForm{
@@ -213,6 +227,7 @@ func newConeSideForm(frame r3.Frame, cone ConeSection) coneSideForm {
 
 // boxSide uses exact interval operations on the axis-aligned box enclosing a
 // curve piece. A strict result proves the sign at every point in that box.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (f coneSideForm) boxSide(u, v coneInterval) (ConeSide, *big.Rat) {
 	var q [3]coneInterval
 	for i := range q {
@@ -238,6 +253,8 @@ func (f coneSideForm) boxSide(u, v coneInterval) (ConeSide, *big.Rat) {
 
 type coneBezier struct{ controls [4][2]*big.Rat }
 
+// box returns the axis-aligned bounding box of the four control points.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (b coneBezier) box() (coneInterval, coneInterval) {
 	var lo, hi [2]*big.Rat
 	for axis := range 2 {
@@ -254,6 +271,8 @@ func (b coneBezier) box() (coneInterval, coneInterval) {
 	return coneInterval{lo[0], hi[0]}, coneInterval{lo[1], hi[1]}
 }
 
+// halves splits the cubic at its parameter midpoint by de Casteljau subdivision.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (b coneBezier) halves() (coneBezier, coneBezier) {
 	var left, right coneBezier
 	half := new(big.Rat).SetFrac64(1, 2)
@@ -274,6 +293,9 @@ func (b coneBezier) halves() (coneBezier, coneBezier) {
 	return left, right
 }
 
+// bezierSide proves one cone side for a cubic Bezier piece from its control-point box, bisecting up to
+// depth times while the shared budget lasts. Both halves must prove the same side; the smaller margin wins.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (f coneSideForm) bezierSide(b coneBezier, depth int, budget *int) (ConeSide, *big.Rat) {
 	if *budget == 0 {
 		return 0, nil
@@ -301,6 +323,9 @@ func (f coneSideForm) bezierSide(b coneBezier, depth int, budget *int) (ConeSide
 	return a, mc
 }
 
+// fitSide proves one cone side for every span of a fitted interpolant, sharing one bisection budget; all
+// spans must prove the same side, and the smallest margin wins.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (f coneSideForm) fitSide(fi *geom.FitInterpolant) (ConeSide, *big.Rat) {
 	if fi == nil || len(fi.Points) < 2 || len(fi.SecondDerivs) != len(fi.Points) ||
 		len(fi.Params) != len(fi.Points) {
@@ -327,6 +352,8 @@ func (f coneSideForm) fitSide(fi *geom.FitInterpolant) (ConeSide, *big.Rat) {
 	return result, minMargin
 }
 
+// lineSide proves one cone side for a whole line from the exact residual quadratic on [0,1].
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (f coneSideForm) lineSide(line *Line) (ConeSide, *big.Rat) {
 	a, b := line.Start.Geometry(), line.End.Geometry()
 	if !coneFinite(a.X, a.Y, b.X, b.Y) || (a.X == b.X && a.Y == b.Y) {

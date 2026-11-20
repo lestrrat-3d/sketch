@@ -1,6 +1,345 @@
 {
   "entries": [
     {
+      "file": "cone_fit_crossing.go",
+      "func": "coneFitBernstein",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Poly.lean:Sketch.Cone.coneFitCoeffBounds_linear",
+        "Sketch/Cone/Line.lean:Sketch.Cone.ConeSideForm.lineSide_sound"
+      ],
+      "assumptions": [
+        "A30",
+        "A32"
+      ],
+      "sha256": "66e130530521d430bc88827653c0bde45e36dbd89f44b44054b57162bd197e23"
+    },
+    {
+      "file": "cone_fit_crossing.go",
+      "func": "coneFitBezier",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Fit.lean:Sketch.Cone.coneFitBezier_eval",
+        "Sketch/Cone/Fit.lean:Sketch.Cone.ConeSideForm.fitSide_sound"
+      ],
+      "assumptions": [
+        "A30",
+        "A31"
+      ],
+      "sha256": "2ae8c2341680e1b36309f78393295f6d732604b934ca0b898cd739b4ae62ed37"
+    },
+    {
+      "file": "cone_fit_crossing.go",
+      "func": "coneFitBinomial",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Poly.lean:Sketch.Cone.coneFitCoeffBounds_linear",
+        "Sketch/Cone/Line.lean:Sketch.Cone.ConeSideForm.lineSide_sound"
+      ],
+      "assumptions": [
+        "A32"
+      ],
+      "sha256": "dcc5e13907041607040eedef61ca3e57c283989e5ef633587c977911454e29d2"
+    },
+    {
+      "file": "cone_fit_crossing.go",
+      "func": "coneFitCoeffBounds",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Poly.lean:Sketch.Cone.coneFitCoeffBounds_linear",
+        "Sketch/Cone/Line.lean:Sketch.Cone.ConeSideForm.lineSide_sound"
+      ],
+      "assumptions": [
+        "A30"
+      ],
+      "sha256": "659d2470a88d7399bc20e989eec4b8a75113b3e3dc4be983a4c1a09a9911df06"
+    },
+    {
+      "file": "cone_fit_crossing.go",
+      "func": "coneFitPolyAdd",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Poly.lean:Sketch.Cone.coneFitPolyEval_add"
+      ],
+      "assumptions": [
+        "A30"
+      ],
+      "sha256": "7c1216dc1c3553ea75db09be3b8413115fcc7094e934148f5d8e235fc4e2f2dc"
+    },
+    {
+      "file": "cone_fit_crossing.go",
+      "func": "coneFitPolyEval",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Poly.lean:Sketch.Cone.coneFitPolyEval_add",
+        "Sketch/Cone/Line.lean:Sketch.Cone.lineRange_bounds"
+      ],
+      "assumptions": [
+        "A30"
+      ],
+      "sha256": "95706e24abd06063f950a6fa6398200af12f61c1c285bdaa606b5ad09214311c"
+    },
+    {
+      "file": "cone_fit_crossing.go",
+      "func": "coneFitPolyMul",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Poly.lean:Sketch.Cone.coneFitPolyEval_mul"
+      ],
+      "assumptions": [
+        "A30"
+      ],
+      "sha256": "a5480c9b0440ee7cd5c8e537ab17cb382468fffdb76c57e53e95ae9c47d0af2a"
+    },
+    {
+      "file": "cone_fit_crossing.go",
+      "func": "coneFitPolyScale",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Poly.lean:Sketch.Cone.coneFitPolyEval_scale"
+      ],
+      "assumptions": [
+        "A30"
+      ],
+      "sha256": "37d6767274a961924d97e3abad1e4c9502ef3460dff11d93583f27d2d7fdbef9"
+    },
+    {
+      "file": "cone_fit_crossing.go",
+      "func": "coneFitPolySub",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Poly.lean:Sketch.Cone.coneFitPolyEval_sub"
+      ],
+      "assumptions": [
+        "A30"
+      ],
+      "sha256": "7a759a3ed7ec9fdbb36f5837be1d16ca4f3a5aa7986a33da2878dde46535a4d7"
+    },
+    {
+      "file": "cone_fit_crossing.go",
+      "func": "coneFitResidual",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Poly.lean:Sketch.Cone.coneFitResidual_h",
+        "Sketch/Cone/Poly.lean:Sketch.Cone.coneFitResidual_F"
+      ],
+      "assumptions": [
+        "A30"
+      ],
+      "sha256": "8a7468040832899a2f5d9c11e025159dc1e5bf912e9891c8d8e2a46a14b69149"
+    },
+    {
+      "file": "cone_line.go",
+      "func": "coneAdd",
+      "role": "assumes",
+      "theorems": [],
+      "assumptions": [
+        "A30"
+      ],
+      "sha256": "9d48dc50e521da21d7df9180997b9ecc57d1c5871f7cab716493ab4c8d77274b"
+    },
+    {
+      "file": "cone_line.go",
+      "func": "coneMul",
+      "role": "assumes",
+      "theorems": [],
+      "assumptions": [
+        "A30"
+      ],
+      "sha256": "04f5ea0fcf716150f8711b8a356fac88d9ec7a33613a49323942bf74402868aa"
+    },
+    {
+      "file": "cone_line.go",
+      "func": "coneRat",
+      "role": "assumes",
+      "theorems": [],
+      "assumptions": [
+        "A31"
+      ],
+      "sha256": "4c3a3292a1da1acb4b8ed5b689d3dc1fbdfa8f110d3dfff129d9164f87aff2de"
+    },
+    {
+      "file": "cone_line.go",
+      "func": "coneSub",
+      "role": "assumes",
+      "theorems": [],
+      "assumptions": [
+        "A30"
+      ],
+      "sha256": "7567f1266c1dc337b0378045356c308d026620ec2c28264e59c7047f278a2140"
+    },
+    {
+      "file": "cone_side.go",
+      "func": "Sketch.CertifyConeCurveSide",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Certify.lean:Sketch.Cone.certifyConeCurveSide_line_sound",
+        "Sketch/Cone/Certify.lean:Sketch.Cone.certifyConeCurveSide_fit_sound"
+      ],
+      "assumptions": [
+        "A30",
+        "A31",
+        "A32",
+        "A33"
+      ],
+      "sha256": "56f62754bad55fd68658b661275fbc9c5d87d369990eed38d6107b2481619234"
+    },
+    {
+      "file": "cone_side.go",
+      "func": "coneBezier.box",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Bezier.lean:Sketch.Cone.ConeBezier.box_mem",
+        "Sketch/Cone/Bezier.lean:Sketch.Cone.ConeSideForm.bezierSide_sound"
+      ],
+      "assumptions": [
+        "A30"
+      ],
+      "sha256": "e575e95efba763325a54216360aa7b31cadefedf4f0db66166c97ca681e5c3cf"
+    },
+    {
+      "file": "cone_side.go",
+      "func": "coneBezier.halves",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Bezier.lean:Sketch.Cone.ConeBezier.halves_left",
+        "Sketch/Cone/Bezier.lean:Sketch.Cone.ConeBezier.halves_right",
+        "Sketch/Cone/Bezier.lean:Sketch.Cone.ConeSideForm.bezierSide_sound"
+      ],
+      "assumptions": [
+        "A30"
+      ],
+      "sha256": "d20cc26907fa6be33f95767691198515f8fb3fa6e61c0113b2599657454c1a38"
+    },
+    {
+      "file": "cone_side.go",
+      "func": "coneInterval.add",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Interval.lean:Sketch.Cone.ConeInterval.mem_add"
+      ],
+      "assumptions": [
+        "A30"
+      ],
+      "sha256": "9f9167850336a8649f7c778809ba549d08b4b67d86f98d74895091a7f3e1a003"
+    },
+    {
+      "file": "cone_side.go",
+      "func": "coneInterval.scale",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Interval.lean:Sketch.Cone.ConeInterval.mem_scale"
+      ],
+      "assumptions": [
+        "A30"
+      ],
+      "sha256": "82f507bff505331ca4934c440156342ae5bb9d21e2a22696a999244165b3a9f9"
+    },
+    {
+      "file": "cone_side.go",
+      "func": "coneInterval.square",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Interval.lean:Sketch.Cone.ConeInterval.mem_square"
+      ],
+      "assumptions": [
+        "A30"
+      ],
+      "sha256": "26492c7e295aebc6b138f6afca2115cb831c45628be35c96acbb9a5379263f32"
+    },
+    {
+      "file": "cone_side.go",
+      "func": "coneInterval.sub",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Interval.lean:Sketch.Cone.ConeInterval.mem_sub"
+      ],
+      "assumptions": [
+        "A30"
+      ],
+      "sha256": "02c0c538d3465de95337429bb710e6090c430489d708943997ce01debf896f75"
+    },
+    {
+      "file": "cone_side.go",
+      "func": "coneIntervalOf",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Interval.lean:Sketch.Cone.ConeInterval.mem_coneIntervalOf",
+        "Sketch/Cone/Interval.lean:Sketch.Cone.ConeInterval.mem_coneIntervalOf_between"
+      ],
+      "assumptions": [
+        "A30"
+      ],
+      "sha256": "eedb6e3bc269214268a974256b617bba703dcc1b89e85bcd5134040d5a039ea5"
+    },
+    {
+      "file": "cone_side.go",
+      "func": "coneSideForm.bezierSide",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Bezier.lean:Sketch.Cone.ConeSideForm.bezierSide_sound"
+      ],
+      "assumptions": [
+        "A30"
+      ],
+      "sha256": "8fa3b8afbc8daeb83612dce7f9b3258dbea0d006f59b6a168d7d0d6c109ec39a"
+    },
+    {
+      "file": "cone_side.go",
+      "func": "coneSideForm.boxSide",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Box.lean:Sketch.Cone.ConeSideForm.boxSide_sound"
+      ],
+      "assumptions": [
+        "A30"
+      ],
+      "sha256": "00a3d812634b68cea08a256f6b6c1f8832b7a49fa3fbe88f661e76f3d2399b7e"
+    },
+    {
+      "file": "cone_side.go",
+      "func": "coneSideForm.fitSide",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Fit.lean:Sketch.Cone.ConeSideForm.fitSide_sound"
+      ],
+      "assumptions": [
+        "A30",
+        "A31",
+        "A33"
+      ],
+      "sha256": "1b97224b25ad7947fe5ab4257cd10b32afcc2d54ea534db844eaa2cf81b24997"
+    },
+    {
+      "file": "cone_side.go",
+      "func": "coneSideForm.lineSide",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Line.lean:Sketch.Cone.ConeSideForm.lineSide_sound",
+        "Sketch/Cone/Line.lean:Sketch.Cone.lineRange_bounds"
+      ],
+      "assumptions": [
+        "A30",
+        "A31",
+        "A32"
+      ],
+      "sha256": "fc76cd77563a63d7700ec66c9d7d55fb84985f836a43ba7a77f3264c733864f4"
+    },
+    {
+      "file": "cone_side.go",
+      "func": "newConeSideForm",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Form.lean:Sketch.Cone.newConeSideForm_F",
+        "Sketch/Cone/Form.lean:Sketch.Cone.newConeSideForm_h"
+      ],
+      "assumptions": [
+        "A30",
+        "A31"
+      ],
+      "sha256": "7aa70e6b693cfb22003c3f44d9c142ac83a2ec2d974572059e417cfc0dde4add"
+    },
+    {
       "file": "constraint.go",
       "func": "dir",
       "role": "models",
@@ -192,6 +531,16 @@
         "A12"
       ],
       "sha256": "04df8a23ae52a19d2966d3f0194045a01362728a466bedeed85cc6808e802d51"
+    },
+    {
+      "file": "geom/arrange_fit_circle.go",
+      "func": "exactFitPieces",
+      "role": "assumes",
+      "theorems": [],
+      "assumptions": [
+        "A33"
+      ],
+      "sha256": "0d021aba50e10a9b1440372ae17aed004d924e58426173052b2b97d9f2cd597d"
     },
     {
       "file": "interval.go",
