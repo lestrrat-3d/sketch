@@ -20,6 +20,7 @@ on:
       - 'enclose.go'
       - 'enclose_system.go'
       - 'interval.go'
+      - 'interval_trig.go'
       - 'probe.go'
   push:
     branches: [main]

@@ -384,6 +384,193 @@
       "sha256": "f2cd4089fa6908a9767b55a21edaedd3f6d4102f172ceb4c166768d27d58adbe"
     },
     {
+      "file": "interval_trig.go",
+      "func": "clampUnit",
+      "role": "models",
+      "theorems": [
+        "Sketch/Trig/Rounding.lean:Sketch.Trig.clampUnit_mem"
+      ],
+      "assumptions": [
+        "A28"
+      ],
+      "sha256": "46a0668445c07fccd7619ea233f8e0de2b1cf28da4167c2272177c31648f2c21"
+    },
+    {
+      "file": "interval_trig.go",
+      "func": "fixedLower",
+      "role": "models",
+      "theorems": [
+        "Sketch/Trig/Binary64.lean:Sketch.Trig.fixedLower_le"
+      ],
+      "assumptions": [
+        "A23",
+        "A28"
+      ],
+      "sha256": "8aeec90e412593d67d5542a157309108390c0f6579b75d6743997cb16568d785"
+    },
+    {
+      "file": "interval_trig.go",
+      "func": "fixedUpper",
+      "role": "models",
+      "theorems": [
+        "Sketch/Trig/Binary64.lean:Sketch.Trig.le_fixedUpper"
+      ],
+      "assumptions": [
+        "A23",
+        "A28"
+      ],
+      "sha256": "e93d97065f0c2e9985e4fc65d84b65c9b14f2d4802dbf265f2a3f53e30e92207"
+    },
+    {
+      "file": "interval_trig.go",
+      "func": "halfPiMayLieIn",
+      "role": "models",
+      "theorems": [
+        "Sketch/Trig/Reduce.lean:Sketch.Trig.halfPiMayLieIn_of_mem"
+      ],
+      "assumptions": [
+        "A20",
+        "A22",
+        "A24",
+        "A28"
+      ],
+      "sha256": "7edfa1c39b2815e850e3dec55bd08b1b6a9368875fd0dbf4c87df9dbcd9a0dc1"
+    },
+    {
+      "file": "interval_trig.go",
+      "func": "halfPiRats",
+      "role": "models",
+      "theorems": [
+        "Sketch/Trig/Reduce.lean:Sketch.Trig.halfPiRats_bracket",
+        "Sketch/Trig/Pi.lean:Sketch.Trig.piLo_lt_pi",
+        "Sketch/Trig/Pi.lean:Sketch.Trig.pi_lt_piHi"
+      ],
+      "assumptions": [
+        "A20",
+        "A22"
+      ],
+      "sha256": "d16cae80f1295b40cd3ea0557d60d4e653d823266c8dbe96f1a234319b56bbe4"
+    },
+    {
+      "file": "interval_trig.go",
+      "func": "ratInterval",
+      "role": "models",
+      "theorems": [
+        "Sketch/Trig/Reduce.lean:Sketch.Trig.reduceTurns_sound"
+      ],
+      "assumptions": [
+        "A24"
+      ],
+      "sha256": "e21e3459430d42ce0bf6727c0eab0442114cf40951cd262dcd3c659de54674c6"
+    },
+    {
+      "file": "interval_trig.go",
+      "func": "ratLower",
+      "role": "models",
+      "theorems": [
+        "Sketch/Trig/Binary64.lean:Sketch.Trig.ratLower_le",
+        "Sketch/Trig/Binary64.lean:Sketch.Trig.ratLower_ne"
+      ],
+      "assumptions": [
+        "A24",
+        "A28"
+      ],
+      "sha256": "706a1cc30586426eac128a6f2fbe600dbd96f9f1117aa824ddc6f3265f7f6a46"
+    },
+    {
+      "file": "interval_trig.go",
+      "func": "ratUpper",
+      "role": "models",
+      "theorems": [
+        "Sketch/Trig/Binary64.lean:Sketch.Trig.le_ratUpper",
+        "Sketch/Trig/Binary64.lean:Sketch.Trig.ratUpper_ne"
+      ],
+      "assumptions": [
+        "A24",
+        "A28"
+      ],
+      "sha256": "10d501613e4d8a7f4861903fe2a036f7c28b5f291dfc4a5cb4f54d1101eb85c3"
+    },
+    {
+      "file": "interval_trig.go",
+      "func": "reduceTurns",
+      "role": "models",
+      "theorems": [
+        "Sketch/Trig/Reduce.lean:Sketch.Trig.reduceTurns_sound",
+        "Sketch/Trig/Pi.lean:Sketch.Trig.piLo_lt_pi",
+        "Sketch/Trig/Pi.lean:Sketch.Trig.pi_lt_piHi"
+      ],
+      "assumptions": [
+        "A20",
+        "A22",
+        "A24",
+        "A28"
+      ],
+      "sha256": "93699b993c9bb49b2cdac38e32bfff03b731e80b6da265266d6032ecec24948f"
+    },
+    {
+      "file": "interval_trig.go",
+      "func": "sinCosPoint",
+      "role": "models",
+      "theorems": [
+        "Sketch/Trig/Range.lean:Sketch.Trig.sinCosPoint_sound",
+        "Sketch/Trig/Binary64.lean:Sketch.Trig.sinCosPoint_sound_binary64"
+      ],
+      "assumptions": [
+        "A22",
+        "A25",
+        "A26",
+        "A28"
+      ],
+      "sha256": "ddc845bba747c3aa08155772604418e1f0a73413d440112cd33daa64c87fc446"
+    },
+    {
+      "file": "interval_trig.go",
+      "func": "sinCosRange",
+      "role": "models",
+      "theorems": [
+        "Sketch/Trig/Range.lean:Sketch.Trig.sinCosRange_sound"
+      ],
+      "assumptions": [
+        "A22",
+        "A24",
+        "A27",
+        "A28"
+      ],
+      "sha256": "62eef2fd59f5647ea36858801b856cb65fe26dc6b1af5063933825c645b8151e"
+    },
+    {
+      "file": "interval_trig.go",
+      "func": "sinCosSeriesBig",
+      "role": "models",
+      "theorems": [
+        "Sketch/Trig/Series.lean:Sketch.Trig.sinCosSeriesBig_sound",
+        "Sketch/Trig/Series.lean:Sketch.Trig.goTermStep_eq",
+        "Sketch/Trig/Series.lean:Sketch.Trig.goErrStep_eq",
+        "Sketch/Trig/Taylor.lean:Sketch.Trig.abs_sin_cos_sub_taylor_le"
+      ],
+      "assumptions": [
+        "A20",
+        "A21",
+        "A22",
+        "A23",
+        "A28"
+      ],
+      "sha256": "4d6f35b9b08cc1255be0c59910eb9689aaad6745740973c0212e67f5dea4cf49"
+    },
+    {
+      "file": "interval_trig.go",
+      "func": "sinCosSeriesWords",
+      "role": "assumes",
+      "theorems": [
+        "Sketch/Trig/Range.lean:Sketch.Trig.sinCosPoint_sound"
+      ],
+      "assumptions": [
+        "A25"
+      ],
+      "sha256": "9730186c451dd3f6c4e0aa54c8fa8b02e972de1ef24e1ec0763f3d8818a11440"
+    },
+    {
       "file": "probe.go",
       "func": "wrapPi",
       "role": "models",
