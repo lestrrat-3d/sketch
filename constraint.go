@@ -503,8 +503,14 @@ func NewEqualRadius(c1, c2 Circular) Constraint { return &equalRadii{c1, c2} }
 
 // --- geometry helpers -------------------------------------------------------
 
+// dir returns a line's End − Start vector.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func dir(l *Line) (float64, float64) { return l.End.x() - l.Start.x(), l.End.y() - l.Start.y() }
 
+// dist returns the Euclidean distance between two points.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func dist(a, b *Point) float64 { return math.Hypot(a.x()-b.x(), a.y()-b.y()) }
 
 // norm returns the Euclidean length of (x, y), floored away from zero so that

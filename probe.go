@@ -484,6 +484,8 @@ func configSep(a, b []float64, free []int, kinds []varKind, diag float64) float6
 }
 
 // wrapPi wraps an angle into (-π, π].
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func wrapPi(a float64) float64 {
 	a = math.Mod(a, 2*math.Pi)
 	if a > math.Pi {

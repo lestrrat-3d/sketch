@@ -15,6 +15,10 @@ on:
       - '_proofs/**'
       - '.github/workflows/proofs.yml'
       - '.claude/docs/proofs.md'
+      - 'constraint.go'
+      - 'constraint_dimension.go'
+      - 'enclose_system.go'
+      - 'probe.go'
   push:
     branches: [main]
     paths: *proof-paths

@@ -1,3 +1,140 @@
 {
-  "entries": []
+  "entries": [
+    {
+      "file": "constraint.go",
+      "func": "dir",
+      "role": "models",
+      "theorems": [
+        "Sketch/Enclose/Angle.lean:Sketch.Enclose.angleResidual_eq_zero_iff",
+        "Sketch/Enclose/Angle.lean:Sketch.Enclose.certAngle_iff"
+      ],
+      "assumptions": [
+        "A40"
+      ],
+      "sha256": "a6fc1ef0e6246c5ff7c1c7e3c9f0a4268c30e83eac009065cb474813d5d2276d"
+    },
+    {
+      "file": "constraint.go",
+      "func": "dist",
+      "role": "models",
+      "theorems": [
+        "Sketch/Enclose/Angle.lean:Sketch.Enclose.certDistance_zero_iff_distanceResidual_zero"
+      ],
+      "assumptions": [
+        "A40"
+      ],
+      "sha256": "6ffa8f1dc743f14426ed4bdeb3f02a4f72cabe93a7312802ad7eb8a132fb5b23"
+    },
+    {
+      "file": "constraint_dimension.go",
+      "func": "Angle.residual",
+      "role": "models",
+      "theorems": [
+        "Sketch/Enclose/Angle.lean:Sketch.Enclose.angleResidual_eq_zero_iff",
+        "Sketch/Enclose/Angle.lean:Sketch.Enclose.certAngle_zero_iff_angleResidual_zero",
+        "Sketch/Enclose/Angle.lean:Sketch.Enclose.certAngle_zero_set_eq_on_box"
+      ],
+      "assumptions": [
+        "A40"
+      ],
+      "sha256": "3cf4d227231dc30abb5ec58e06f1e5a220135b2e9fc6e1cb20a3e05a97373e69"
+    },
+    {
+      "file": "constraint_dimension.go",
+      "func": "Distance.residual",
+      "role": "models",
+      "theorems": [
+        "Sketch/Enclose/Angle.lean:Sketch.Enclose.certDistance_zero_iff_distanceResidual_zero",
+        "Sketch/Enclose/Angle.lean:Sketch.Enclose.certDistance_neg_target"
+      ],
+      "assumptions": [
+        "A40"
+      ],
+      "sha256": "9907a35d4c9f8826d05854df586888bf3ddb84a20c2fb89862d5032d53eacdd1"
+    },
+    {
+      "file": "enclose_system.go",
+      "func": "certAngle.eval",
+      "role": "models",
+      "theorems": [
+        "Sketch/Enclose/Angle.lean:Sketch.Enclose.certAngle_iff",
+        "Sketch/Enclose/Angle.lean:Sketch.Enclose.certAngle_zero_iff_angleResidual_zero",
+        "Sketch/Enclose/Angle.lean:Sketch.Enclose.certAngle_zero_set_eq_on_box",
+        "Sketch/Enclose/Angle.lean:Sketch.Enclose.certAngle_add_pi"
+      ],
+      "assumptions": [
+        "A40",
+        "A41"
+      ],
+      "sha256": "6358511ad899a2482b94c604f0393bca24e6acc9f8adfab01682301863b3ce1c"
+    },
+    {
+      "file": "enclose_system.go",
+      "func": "certAngle.parts",
+      "role": "models",
+      "theorems": [
+        "Sketch/Enclose/Angle.lean:Sketch.Enclose.certAngle_iff"
+      ],
+      "assumptions": [
+        "A40",
+        "A41"
+      ],
+      "sha256": "1083784f9e3ef25378d49666ad25a69ee64a3871433a124dd321ef69eace87eb"
+    },
+    {
+      "file": "enclose_system.go",
+      "func": "certAngle.side",
+      "role": "models",
+      "theorems": [
+        "Sketch/Enclose/Angle.lean:Sketch.Enclose.certAngle_iff",
+        "Sketch/Enclose/Angle.lean:Sketch.Enclose.certAngle_zero_iff_angleResidual_zero",
+        "Sketch/Enclose/Angle.lean:Sketch.Enclose.certAngle_zero_set_eq_on_box"
+      ],
+      "assumptions": [
+        "A40",
+        "A41"
+      ],
+      "sha256": "a2665de83ce68040451b2a2205c0b26e770f35ac1d69c41d0593b4f7385e893c"
+    },
+    {
+      "file": "enclose_system.go",
+      "func": "certAngle.trig",
+      "role": "models",
+      "theorems": [
+        "Sketch/Enclose/Angle.lean:Sketch.Enclose.certAngle_iff"
+      ],
+      "assumptions": [
+        "A41"
+      ],
+      "sha256": "026458d8d816f963b13248ed11d9e309adad4f1423aa1e7faa34773a8ea79b6d"
+    },
+    {
+      "file": "enclose_system.go",
+      "func": "certDistance.eval",
+      "role": "models",
+      "theorems": [
+        "Sketch/Enclose/Angle.lean:Sketch.Enclose.certDistance_zero_iff_distanceResidual_zero",
+        "Sketch/Enclose/Angle.lean:Sketch.Enclose.certDistance_neg_target"
+      ],
+      "assumptions": [
+        "A40",
+        "A41",
+        "A42"
+      ],
+      "sha256": "b3d00f9069b12593352720b44370f6919a632a1bae63ec48da270c083ea68a9a"
+    },
+    {
+      "file": "probe.go",
+      "func": "wrapPi",
+      "role": "models",
+      "theorems": [
+        "Sketch/Enclose/Angle.lean:Sketch.Enclose.wrapPi_eq_zero_iff",
+        "Sketch/Enclose/Angle.lean:Sketch.Enclose.angleResidual_eq_zero_iff"
+      ],
+      "assumptions": [
+        "A40"
+      ],
+      "sha256": "02be4bf9a46e8a7934e3f61dbc2aab77056c7a6f5286b27629647346d8e3bac8"
+    }
+  ]
 }
