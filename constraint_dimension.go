@@ -135,6 +135,9 @@ type Distance struct {
 	P1, P2 *Point
 }
 
+// residual appends dist(P1, P2) − d, with d the target in base units.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (c *Distance) residual(out []float64) []float64 {
 	return append(out, dist(c.P1, c.P2)-c.base())
 }
@@ -689,6 +692,10 @@ type Angle struct {
 	L1, L2 *Line
 }
 
+// residual appends wrapPi(atan2(cross, dot) − θ), the signed angle from L1 to L2
+// minus the target θ in radians, wrapped into (−π, π].
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (c *Angle) residual(out []float64) []float64 {
 	d1x, d1y := dir(c.L1)
 	d2x, d2y := dir(c.L2)

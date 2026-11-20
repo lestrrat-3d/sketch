@@ -207,6 +207,9 @@ type certDistance struct {
 
 func (c *certDistance) rows() int { return 1 }
 
+// eval appends |P1 − P2|² − d², with d the driving value when useQ is set.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (c *certDistance) eval(e *certEnv, out []Interval) []Interval {
 	dx := isub(e.px(c.p1), e.px(c.p2))
 	dy := isub(e.py(c.p1), e.py(c.p2))
@@ -249,6 +252,9 @@ type certAngle struct {
 
 func (c *certAngle) rows() int { return 1 }
 
+// trig returns the enclosures of sin θ and cos θ the row reads.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (c *certAngle) trig(e *certEnv) (Interval, Interval) {
 	if c.useQ {
 		return e.sinQ, e.cosQ
@@ -256,6 +262,9 @@ func (c *certAngle) trig(e *certEnv) (Interval, Interval) {
 	return c.sin, c.cos
 }
 
+// parts returns the components of d1 = L1.End − L1.Start and d2 = L2.End − L2.Start.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (c *certAngle) parts(e *certEnv) (Interval, Interval, Interval, Interval) {
 	ux := isub(e.px(c.l1.End), e.px(c.l1.Start))
 	uy := isub(e.py(c.l1.End), e.py(c.l1.Start))
@@ -264,6 +273,9 @@ func (c *certAngle) parts(e *certEnv) (Interval, Interval, Interval, Interval) {
 	return ux, uy, vx, vy
 }
 
+// eval appends cross(d1, d2)·cos θ − dot(d1, d2)·sin θ.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (c *certAngle) eval(e *certEnv, out []Interval) []Interval {
 	ux, uy, vx, vy := c.parts(e)
 	cross := isub(imul(ux, vy), imul(uy, vx))
@@ -283,6 +295,9 @@ func (c *certAngle) jac(e *certEnv, w *jacWriter) {
 	writeVecPartials(w, c.l1.Start, c.l1.End, c.l2.Start, c.l2.End, dux, duy, dvx, dvy)
 }
 
+// side reports whether cross(d1, d2)·sin θ + dot(d1, d2)·cos θ > 0 over the whole box.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (c *certAngle) side(e *certEnv) bool {
 	ux, uy, vx, vy := c.parts(e)
 	cross := isub(imul(ux, vy), imul(uy, vx))
