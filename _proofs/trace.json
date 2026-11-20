@@ -53,6 +53,16 @@
       "sha256": "9907a35d4c9f8826d05854df586888bf3ddb84a20c2fb89862d5032d53eacdd1"
     },
     {
+      "file": "enclose.go",
+      "func": "encloseRun.checkStructure",
+      "role": "assumes",
+      "theorems": [],
+      "assumptions": [
+        "A15"
+      ],
+      "sha256": "297d65c487cf067eae30497c41e1eb2a261b5d09f960e0df081ede5817994e85"
+    },
+    {
       "file": "enclose_system.go",
       "func": "certAngle.eval",
       "role": "models",
@@ -122,6 +132,66 @@
         "A42"
       ],
       "sha256": "b3d00f9069b12593352720b44370f6919a632a1bae63ec48da270c083ea68a9a"
+    },
+    {
+      "file": "enclose_system.go",
+      "func": "certSystem.evalInto",
+      "role": "assumes",
+      "theorems": [],
+      "assumptions": [
+        "A11"
+      ],
+      "sha256": "5f81ae32ce00d2744a390da42a0c5e579fdbf6ecae02d807777c0ebf2a701af8"
+    },
+    {
+      "file": "enclose_system.go",
+      "func": "certSystem.jacobianInto",
+      "role": "assumes",
+      "theorems": [],
+      "assumptions": [
+        "A10",
+        "A12"
+      ],
+      "sha256": "78310bc8516cacf1ce32b4eeff2caa0954ac080495b3cbad407ada9e7e6d24ea"
+    },
+    {
+      "file": "enclose_system.go",
+      "func": "certSystem.krawczyk",
+      "role": "models",
+      "theorems": [
+        "Sketch/Enclose/Krawczyk.lean:Sketch.Enclose.KrawczykRun.krawczyk_nonsingular",
+        "Sketch/Enclose/Krawczyk.lean:Sketch.Enclose.KrawczykRun.krawczyk_sound"
+      ],
+      "assumptions": [
+        "A10",
+        "A11",
+        "A12",
+        "A13",
+        "A14",
+        "A15"
+      ],
+      "sha256": "85e47a8a88fea6ef223614a139c1bb57fb6aaeff7d7ccf6be6826a361d455abf"
+    },
+    {
+      "file": "enclose_system.go",
+      "func": "certSystem.trig",
+      "role": "assumes",
+      "theorems": [],
+      "assumptions": [
+        "A11",
+        "A12"
+      ],
+      "sha256": "7b4b33a3bd7c68c64c5a4459ea857e1053e1d5d6f3d44e2cccbd809456e602cc"
+    },
+    {
+      "file": "enclose_system.go",
+      "func": "jacWriter.add",
+      "role": "assumes",
+      "theorems": [],
+      "assumptions": [
+        "A12"
+      ],
+      "sha256": "04df8a23ae52a19d2966d3f0194045a01362728a466bedeed85cc6808e802d51"
     },
     {
       "file": "interval.go",

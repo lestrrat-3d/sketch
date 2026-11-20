@@ -55,6 +55,9 @@ type jacWriter struct {
 	width int
 }
 
+// add accumulates v into the cell of equation row r and variable vi, dropping
+// a fixed variable and marking the cell as written in the current epoch.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (w *jacWriter) add(r, vi int, v Interval) {
 	c := w.col[vi]
 	if c < 0 {
@@ -561,6 +564,7 @@ func certDrivenOf(d Dimension) (certDriven, error) {
 
 // trig encloses the driver's sine and cosine over q when the driver is an
 // angle; a driver of any other kind needs neither.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (sys *certSystem) trig(q Interval) (Interval, Interval, bool) {
 	if !sys.driverAngle {
 		return Interval{}, Interval{}, true
@@ -573,6 +577,9 @@ func (sys *certSystem) eval(e *certEnv) []Interval {
 	return sys.evalInto(out, e)
 }
 
+// evalInto encloses every certified equation over e, appending the rows to out
+// in equation order.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (sys *certSystem) evalInto(out []Interval, e *certEnv) []Interval {
 	out = out[:0]
 	for _, eq := range sys.eqs {
@@ -594,6 +601,7 @@ func (sys *certSystem) jacobian(e *certEnv, col []int, n int) [][]Interval {
 // jacobianInto fills J with the certified Jacobian at e. marks lets a reused
 // matrix overwrite a cell on its first write in each epoch, without clearing
 // every interval. Duplicate terms in one equation still accumulate in order.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (sys *certSystem) jacobianInto(J [][]Interval, e *certEnv, col []int, marks []uint8, epoch uint8, w *jacWriter) {
 	width := 0
 	if len(J) > 0 {
@@ -653,6 +661,7 @@ const krawczykMaxIter = 20
 // ε-inflation (each pass widens the previous image by 10% plus a relative
 // floor, always containing x̃) until the image falls strictly inside or the
 // pass budget runs out.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, col []int, ws *krawczykWorkspace) ([]Interval, []Interval, string) {
 	n := len(free)
 	point := ws.point

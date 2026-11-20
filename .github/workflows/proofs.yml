@@ -17,6 +17,7 @@ on:
       - '.claude/docs/proofs.md'
       - 'constraint.go'
       - 'constraint_dimension.go'
+      - 'enclose.go'
       - 'enclose_system.go'
       - 'interval.go'
       - 'probe.go'
