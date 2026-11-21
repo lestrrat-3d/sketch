@@ -404,6 +404,46 @@ func coneFitIntBounds(b []*big.Int) (*big.Int, *big.Int) {
 	return lo, hi
 }
 
+// coneFitScaledPoly is a polynomial p scaled to integers by coneFitIntPoly,
+// with den the positive scale D that coneFitIntPoly multiplied p by.
+type coneFitScaledPoly struct {
+	ints []*big.Int
+	den  *big.Int
+}
+
+// newConeFitScaledPoly scales p to integers. den is the least common multiple
+// of p's denominators, the D of coneFitIntPoly.
+func newConeFitScaledPoly(p coneFitPoly) coneFitScaledPoly {
+	d, g := big.NewInt(1), new(big.Int)
+	for _, c := range p {
+		g.GCD(nil, nil, d, c.Denom())
+		d.Mul(d, new(big.Int).Quo(c.Denom(), g))
+	}
+	return coneFitScaledPoly{ints: coneFitIntPoly(p), den: d}
+}
+
+// exact divides a scaled Bernstein coefficient of the polynomial on [a,b] by
+// its scale. coneFitIntBernstein's entries are the exact Bernstein coefficients
+// times n!·d^n·D, with n the degree, d = den(a)·den(b) and D the scale of
+// coneFitIntPoly. That scale is positive, so the least and greatest entries
+// divided by it are exactly the values coneFitCoeffBounds returns.
+func (p coneFitScaledPoly) exact(v *big.Int, a, b *big.Rat) *big.Rat {
+	n := len(p.ints) - 1
+	d := new(big.Int).Mul(a.Denom(), b.Denom())
+	scale := new(big.Int).Exp(d, big.NewInt(int64(n)), nil)
+	scale.Mul(scale, big.NewInt(coneFitFactorial(n)))
+	scale.Mul(scale, p.den)
+	return new(big.Rat).SetFrac(v, scale)
+}
+
+// coneFitExactBounds returns the values coneFitCoeffBounds(p, a, b) returns,
+// found among the integer Bernstein coefficients and divided by their scale once.
+func coneFitExactBounds(p coneFitPoly, a, b *big.Rat) (*big.Rat, *big.Rat) {
+	s := newConeFitScaledPoly(p)
+	lo, hi := coneFitIntBounds(coneFitIntBernstein(s.ints, a, b))
+	return s.exact(lo, a, b), s.exact(hi, a, b)
+}
+
 // visit bounds h and f on [lo,hi], records a root bracket or bisects, and reports whether the range is certified.
 // The bounds are the least and greatest scaled Bernstein coefficient (coneFitIntBernstein), a positive multiple
 // of the exact ones, so only their signs are read; the signs of f at points come from coneFitIntSign.
@@ -584,7 +624,7 @@ func (c ConeFitCrossing) rangeBounds(lo, hi float64, selectPoly func(coneFitPiec
 		if right.Cmp(end) > 0 {
 			right = end
 		}
-		pl, ph := coneFitCoeffBounds(selectPoly(piece), piece.local(left), piece.local(right))
+		pl, ph := coneFitExactBounds(selectPoly(piece), piece.local(left), piece.local(right))
 		if low == nil || pl.Cmp(low) < 0 {
 			low = pl
 		}
@@ -650,24 +690,36 @@ func (c ConeFitCrossing) DerivativeBound(lo, hi float64) (int, *big.Rat) {
 	return 0, nil
 }
 
-func coneFitSignedMargin(p coneFitPiece, a, b *big.Rat, sign, depth int, budget *int) *big.Rat {
+// coneFitMarginPiece holds a piece's h, f and df scaled to integers, formed
+// once per margin query for every sub-range coneFitSignedMargin visits.
+type coneFitMarginPiece struct {
+	piece coneFitPiece
+	h, df []*big.Int
+	f     coneFitScaledPoly
+}
+
+// coneFitSignedMargin bounds sign·f below by a positive exact rational on
+// [a,b], bisecting when the Bernstein bounds or the endpoint values do not
+// show one. Only signs of the scaled coefficients are read, except for a
+// margin taken from f's bounds, which is divided by its scale exactly.
+func coneFitSignedMargin(m *coneFitMarginPiece, a, b *big.Rat, sign, depth int, budget *int) *big.Rat {
 	if *budget == 0 {
 		return nil
 	}
 	*budget--
-	hlo, _ := coneFitCoeffBounds(p.h, a, b)
+	hlo, _ := coneFitIntBounds(coneFitIntBernstein(m.h, a, b))
 	if hlo.Sign() <= 0 {
 		return nil
 	}
-	flo, fhi := coneFitCoeffBounds(p.f, a, b)
-	margin := flo
-	if sign < 0 {
-		margin = new(big.Rat).Neg(fhi)
+	flo, fhi := coneFitIntBounds(coneFitIntBernstein(m.f.ints, a, b))
+	if sign > 0 && flo.Sign() > 0 {
+		return m.f.exact(flo, a, b)
 	}
-	if margin.Sign() > 0 {
-		return margin
+	if sign < 0 && fhi.Sign() < 0 {
+		return m.f.exact(new(big.Int).Neg(fhi), a, b)
 	}
-	dlo, dhi := coneFitCoeffBounds(p.df, a, b)
+	p := m.piece
+	dlo, dhi := coneFitIntBounds(coneFitIntBernstein(m.df, a, b))
 	if dlo.Sign() > 0 || dhi.Sign() < 0 {
 		fa, fb := coneFitPolyEval(p.f, a), coneFitPolyEval(p.f, b)
 		if sign < 0 {
@@ -685,11 +737,11 @@ func coneFitSignedMargin(p coneFitPiece, a, b *big.Rat, sign, depth int, budget 
 		return nil
 	}
 	mid := coneMul(coneAdd(a, b), big.NewRat(1, 2))
-	left := coneFitSignedMargin(p, a, mid, sign, depth-1, budget)
+	left := coneFitSignedMargin(m, a, mid, sign, depth-1, budget)
 	if left == nil {
 		return nil
 	}
-	right := coneFitSignedMargin(p, mid, b, sign, depth-1, budget)
+	right := coneFitSignedMargin(m, mid, b, sign, depth-1, budget)
 	if right == nil {
 		return nil
 	}
@@ -718,7 +770,9 @@ func (c ConeFitCrossing) margin(start, end float64, sign int) *big.Rat {
 		if right.Cmp(pe) > 0 {
 			right = pe
 		}
-		margin := coneFitSignedMargin(p, p.local(left), p.local(right), sign, 24, &budget)
+		m := coneFitMarginPiece{piece: p, h: coneFitIntPoly(p.h), df: coneFitIntPoly(p.df),
+			f: newConeFitScaledPoly(p.f)}
+		margin := coneFitSignedMargin(&m, p.local(left), p.local(right), sign, 24, &budget)
 		if margin == nil {
 			return nil
 		}

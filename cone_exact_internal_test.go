@@ -95,3 +95,24 @@ func TestConeFitIntBernsteinScalesRationalBernstein(t *testing.T) {
 		require.Equal(t, whi.Sign(), hi.Sign())
 	}
 }
+
+// TestConeFitExactBoundsMatchesCoeffBounds checks that the integer path the
+// certificate queries use returns exactly the rationals of coneFitCoeffBounds.
+func TestConeFitExactBoundsMatchesCoeffBounds(t *testing.T) {
+	rng := rand.New(rand.NewSource(2))
+	for range 2000 {
+		p := make(coneFitPoly, 1+rng.Intn(7))
+		for i := range p {
+			p[i] = randomConeRat(rng)
+		}
+		iv := coneIntervalOf(randomConeRat(rng), randomConeRat(rng))
+		lo, hi := coneFitExactBounds(p, iv.lo, iv.hi)
+		wlo, whi := coneFitCoeffBounds(p, iv.lo, iv.hi)
+		require.Zero(t, lo.Cmp(wlo), "p=%v on %v", p, iv)
+		require.Zero(t, hi.Cmp(whi), "p=%v on %v", p, iv)
+		s := newConeFitScaledPoly(p)
+		ilo, ihi := coneFitIntBounds(coneFitIntBernstein(s.ints, iv.lo, iv.hi))
+		require.Zero(t, s.exact(ilo, iv.lo, iv.hi).Cmp(wlo), "p=%v on %v", p, iv)
+		require.Zero(t, s.exact(ihi, iv.lo, iv.hi).Cmp(whi), "p=%v on %v", p, iv)
+	}
+}
