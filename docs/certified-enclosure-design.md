@@ -192,18 +192,28 @@ forbid fusing a multiply and an add.
 `math.Sin`, `math.Cos` and `math.Atan2` are not trusted for bounds
 (`interval_trig.go`):
 
-- `sinCosPoint` sums the Taylor series of `sin x` and `cos x` in 192-bit
-  fixed-point integers, tracking an integer bound on the error each term
-  carries (below `2^-107` for `|x| ≤ 64`). It stops at a term past the
-  series' peak that is below `2^-110`, or below `2^-70` of both partial sums,
-  adds that term as the tail bound, and converts outward to float64. Either
-  way each end lies within one float64 step of the exact value, or within
-  about `2^-107` of it near a zero. The Lean proof holds for any stopping
-  test, so the test sets only the width. The integers are 384-bit words
-  (`seriesInt`), which hold every value the sums reach for `|x| ≤ 64`, and
-  each step touches only the words a term occupies; a product that does not
-  fit sends the call to the same sums in `math/big` (`sinCosSeriesBig`),
-  which form the same integers.
+- `sinCosPoint` sums the Taylor series of `sin x` and `cos x` in fixed-point
+  integers that count `2^-F`, tracking an integer bound on the error each
+  term carries. It stops at a term past the series' peak that is below
+  `2^-110`, or below `2^-70` of both partial sums, adds that term as the tail
+  bound, and converts outward to float64. Either way each end lies within one
+  float64 step of the exact value, or within about `2^-107` of it near a
+  zero. The Lean proof holds for every precision `F` and every stopping test,
+  so both set only the width. `seriesFracBits` picks `F = 120` for
+  `2^-40 ≤ |x| ≤ 4` and `F = 192` otherwise. The error bound counts units of
+  `2^-F` and its count does not depend on `F`: below `2^8` units for
+  `|x| ≤ 4`, so below `2^-112` at `F = 120`, and below `2^-97` at `F = 192`
+  for `|x| ≤ 64`. At `F = 120` every term and sum fits two 64-bit words, and
+  `sinCosSeriesPair` sums them there. At `F = 192` the integers are 384-bit
+  words (`seriesInt`, `sinCosSeriesWords`), which hold every value the sums
+  reach for `|x| ≤ 64`, and each step touches only the words a term occupies.
+  Either path reports a product that does not fit, and the call then runs the
+  same sums in `math/big` (`sinCosSeriesBig`), which form the same integers.
+  Against 192-bit sums everywhere, `F = 120` moved no float64 end over 260 000
+  sampled arguments in `[-4, 4]`, nor over every argument the `Enclose` and
+  `Arc.CertifiedSpanBounds` benchmarks meet. It is not proven identical: an
+  end moves when the two sums' errors straddle a float64, which is likeliest
+  at the floats nearest a multiple of `π/2`.
   For `|x| > 64` it first subtracts `2πk`, with `k` the integer nearest `x/2π`,
   in exact rationals over the 40-decimal bracket of `π`. The result is an
   interval about one float64 step wide that contains `x − 2πk` for the exact
@@ -228,8 +238,9 @@ forbid fusing a multiply and an add.
 `interval_trig_internal_test.go` checks the fixed-point sums against an
 exact-rational evaluation, and the interval operations against exact rational
 products. It checks the reduction against a rational oracle that uses Machin's
-formula for `π` instead of the bracket. It requires the word sums to return
-the `math/big` sums' intervals bit for bit, over chosen and random arguments
+formula for `π` instead of the bracket. It requires the two-word and word sums
+to return the `math/big` sums' intervals at their precision bit for bit, over
+chosen and random arguments
 and over every argument a set of crank-rocker `Enclose` runs leaves in the
 point cache, and requires `halfPiTable`'s answers to equal the rational
 comparison's.

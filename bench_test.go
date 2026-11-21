@@ -557,6 +557,32 @@ func BenchmarkEncloseCrankRockerTurn(b *testing.B) {
 	}
 }
 
+// BenchmarkArcCertifiedSpanBounds slices a quarter arc, a major arc and an
+// arc across the ±π cut into eight parameter ranges each. Every iteration
+// moves the ranges by a different sub-micro offset, so the certified sine and
+// cosine of the sliced angles meet new arguments each time.
+func BenchmarkArcCertifiedSpanBounds(b *testing.B) {
+	s := newFixtureSketch(b)
+	c := s.CreatePoint(11, -7)
+	arcs := []*sketch.Arc{
+		s.CreateArc(c, s.CreatePoint(13, -7), s.CreatePoint(11, -5)),
+		s.CreateArc(c, s.CreatePoint(14, -3), s.CreatePoint(15, -10)),
+		s.CreateArc(c, s.CreatePoint(9, -6), s.CreatePoint(9, -8)),
+	}
+	b.ReportAllocs()
+	for i := 0; b.Loop(); i++ {
+		off := float64(i%997) * 1e-7
+		for _, a := range arcs {
+			for k := range 8 {
+				lo := float64(k)/8 + off
+				if _, _, err := a.CertifiedSpanBounds(lo, lo+0.1); err != nil {
+					b.Fatal(err)
+				}
+			}
+		}
+	}
+}
+
 // BenchmarkRevision fingerprints the solved 40-rectangle chain, which every
 // Profile staleness check and attachment lookup does once per call.
 func BenchmarkRevision(b *testing.B) {

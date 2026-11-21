@@ -143,25 +143,35 @@ theorem rn_mono (M : FloatModel) {x y : ℝ} (h : x ≤ y) : M.rn x ≤ M.rn y :
 
 /-! ### `twoPiTimes` -/
 
-/-- Model of `sketch.twoPiTimes`: the exact rationals `2k·piLo` and `2k·piHi` in order, rounded outward once
-by `sketch.ratInterval`. -/
+/-- Model of `sketch.twoPiTimes` with `halfPiTableK = 128` (A22): for `|k| ≤ 32` the bounds of the table entry
+`halfPiEntry R (4k)`, the outward rounding of the bracket of `4k·π/2`; otherwise the exact rationals `2k·piLo`
+and `2k·piHi` in order, rounded outward once by `sketch.ratInterval`. -/
 @[expose] noncomputable def twoPiTimes (R : Rounding) (k : ℤ) : Ival :=
-  let kk : ℝ := 2 * k
-  let a := kk * piLo
-  let b := kk * piHi
-  if k < 0 then ratInterval R b a else ratInterval R a b
+  if -32 ≤ k ∧ k ≤ 32 then ⟨(halfPiEntry R (4 * k)).lo, (halfPiEntry R (4 * k)).hi⟩
+  else
+    let kk : ℝ := 2 * k
+    let a := kk * piLo
+    let b := kk * piHi
+    if k < 0 then ratInterval R b a else ratInterval R a b
 
-/-- **`twoPiTimes` encloses whole turns.** The model of `sketch.twoPiTimes` contains `k·2π` for the true π.
-Covers `sketch.twoPiTimes` and `sketch.ratInterval`. Assumptions: A20, A22 (`piLo`, `piHi`), A24, A28, and
-A70 (`2*k` does not overflow `int64`). -/
+/-- **`twoPiTimes` encloses whole turns.** The model of `sketch.twoPiTimes` contains `k·2π` for the true π, on
+the table path and on the exact path. Covers `sketch.twoPiTimes` and `sketch.ratInterval`. Assumptions: A20,
+A22 (`piLo`, `piHi`, `halfPiTableK` and the `halfPiTable` initializer), A24, A28, and A70 (`2*k` and `4*k` do
+not overflow `int64`). -/
 theorem twoPiTimes_sound (R : Rounding) (k : ℤ) : (twoPiTimes R k).Mem (k * (2 * π)) := by
   have hlo := piLo_lt_pi
   have hhi := pi_lt_piHi
-  unfold twoPiTimes ratInterval
-  split_ifs with hk
-  · have hk' : (k : ℝ) < 0 := by exact_mod_cast hk
+  unfold twoPiTimes
+  split_ifs with ht hk
+  · obtain ⟨ha, hb⟩ := halfPiRats_bracket (4 * k)
+    have e : ((4 * k : ℤ) : ℝ) * π / 2 = k * (2 * π) := by push_cast; ring
+    rw [e] at ha hb
+    exact ⟨(R.ratLower_le _).trans ha, hb.trans (R.le_ratUpper _)⟩
+  · unfold ratInterval
+    have hk' : (k : ℝ) < 0 := by exact_mod_cast hk
     refine ⟨(R.ratLower_le _).trans ?_, le_trans ?_ (R.le_ratUpper _)⟩ <;> nlinarith
-  · have hk' : (0 : ℝ) ≤ k := by exact_mod_cast not_lt.mp hk
+  · unfold ratInterval
+    have hk' : (0 : ℝ) ≤ k := by exact_mod_cast not_lt.mp hk
     refine ⟨(R.ratLower_le _).trans ?_, le_trans ?_ (R.le_ratUpper _)⟩ <;> nlinarith
 
 /-! ### Second-order Taylor bounds -/

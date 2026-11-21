@@ -318,8 +318,8 @@ theorem sinCosRange_sound (R : Rounding) (P : ℝ → Option (Ival × Ival)) (q 
 /-! ### `sinCosPoint` -/
 
 /-- Model of `sketch.sinCosPoint`, with `maxTrigArg = 2^40` and `maxTaylorArg = 64` (A22). Deliberate
-differences: the point cache is omitted (A26), the direct sum is `sinCosSeriesBig` where Go runs
-`sinCosSeriesWords` first (A25), and `fuel` bounds both the recursion through `sinCosRange` and the series
+differences: the point cache is omitted (A26), the direct sum is `sinCosSeriesBig` at the precision
+`E.fracBits x` where Go runs `sinCosSeriesPair` (A150) or `sinCosSeriesWords` (A25) first, and `fuel` bounds both the recursion through `sinCosRange` and the series
 loop; `none` stands for a run the Go code would continue. -/
 @[expose] noncomputable def sinCosPoint (R : Rounding) (E : TrigEnv) : ℕ → ℝ → Option (Ival × Ival)
   | fuel, x =>
@@ -330,7 +330,7 @@ loop; `none` stands for a run the Go code would continue. -/
       | f + 1 =>
         let q := reduceTurns R x (E.turns x)
         sinCosRange R (sinCosPoint R E f) q (E.wide q) (E.kmin q) (E.kmax q)
-    else sinCosSeriesBig R x (E.stop x) fuel
+    else sinCosSeriesBig R (E.fracBits x) x (E.stop x) fuel
 
 theorem sinCosPoint_bound (R : Rounding) (E : TrigEnv) (fuel : ℕ) (x : ℝ)
     (h : (sinCosPoint R E fuel x).isSome) : |x| ≤ 2 ^ 40 := by
@@ -342,7 +342,7 @@ theorem sinCosPoint_bound (R : Rounding) (E : TrigEnv) (fuel : ℕ) (x : ℝ)
 interval contains `sin x` and the second `cos x`, for every real `x`: directly through `sinCosSeriesBig_sound`
 for `|x| ≤ 64`, and through `reduceTurns_sound` and `sinCosRange_sound` beyond. Covers `sketch.sinCosPoint`,
 `sketch.sinCosSeriesBig`, `sketch.reduceTurns`, `sketch.sinCosRange`, `sketch.halfPiMayLieIn` and their
-helpers. Assumptions: A20 to A28. -/
+helpers. Assumptions: A20 to A28, and A150 for the two-word sums. -/
 theorem sinCosPoint_sound (R : Rounding) (E : TrigEnv) :
     ∀ (fuel : ℕ) (x : ℝ) (S C : Ival), sinCosPoint R E fuel x = some (S, C) →
       S.Mem (sin x) ∧ C.Mem (cos x) := by
@@ -352,7 +352,7 @@ theorem sinCosPoint_sound (R : Rounding) (E : TrigEnv) :
     intro x S C h
     unfold sinCosPoint at h
     split_ifs at h with h1 h2
-    exact sinCosSeriesBig_sound R x _ _ S C h
+    exact sinCosSeriesBig_sound R _ x _ _ S C h
   | succ f ih =>
     intro x S C h
     unfold sinCosPoint at h
@@ -367,7 +367,7 @@ theorem sinCosPoint_sound (R : Rounding) (E : TrigEnv) :
         hmem.1 hmem.2
       rw [hsin, hcos] at this
       exact this
-    · exact sinCosSeriesBig_sound R x _ _ S C h
+    · exact sinCosSeriesBig_sound R _ x _ _ S C h
 
 end Sketch.Trig
 
