@@ -91,6 +91,8 @@ type coneFitPiece struct {
 
 func coneFitZero() *big.Rat { return new(big.Rat) }
 
+// coneFitPolyAdd returns the coefficient-wise sum of two polynomials.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func coneFitPolyAdd(a, b coneFitPoly) coneFitPoly {
 	n := max(len(a), len(b))
 	r := make(coneFitPoly, n)
@@ -106,6 +108,8 @@ func coneFitPolyAdd(a, b coneFitPoly) coneFitPoly {
 	return r
 }
 
+// coneFitPolySub returns the coefficient-wise difference of two polynomials.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func coneFitPolySub(a, b coneFitPoly) coneFitPoly {
 	n := max(len(a), len(b))
 	r := make(coneFitPoly, n)
@@ -121,6 +125,8 @@ func coneFitPolySub(a, b coneFitPoly) coneFitPoly {
 	return r
 }
 
+// coneFitPolyScale multiplies every coefficient by k.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func coneFitPolyScale(a coneFitPoly, k *big.Rat) coneFitPoly {
 	r := make(coneFitPoly, len(a))
 	for i := range a {
@@ -129,6 +135,8 @@ func coneFitPolyScale(a coneFitPoly, k *big.Rat) coneFitPoly {
 	return r
 }
 
+// coneFitPolyMul returns the product of two nonempty polynomials.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func coneFitPolyMul(a, b coneFitPoly) coneFitPoly {
 	r := make(coneFitPoly, len(a)+len(b)-1)
 	for i := range r {
@@ -153,6 +161,8 @@ func coneFitPolyDeriv(a coneFitPoly) coneFitPoly {
 	return r
 }
 
+// coneFitPolyEval evaluates a polynomial at t by Horner's rule.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func coneFitPolyEval(a coneFitPoly, t *big.Rat) *big.Rat {
 	r := coneFitZero()
 	for i := len(a) - 1; i >= 0; i-- {
@@ -161,6 +171,8 @@ func coneFitPolyEval(a coneFitPoly, t *big.Rat) *big.Rat {
 	return r
 }
 
+// coneFitBinomial returns the binomial coefficient C(n, k) for 0 <= k <= n.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func coneFitBinomial(n, k int) int64 {
 	r := int64(1)
 	for i := 1; i <= k; i++ {
@@ -171,6 +183,7 @@ func coneFitBinomial(n, k int) int64 {
 
 // coneFitBernstein returns exact degree-n Bernstein coefficients of a power
 // polynomial on [a,b]. Their convex hull encloses every value on that range.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func coneFitBernstein(p coneFitPoly, a, b *big.Rat) coneFitPoly {
 	n := len(p) - 1
 	// Compose p(a+(b-a)u) by Horner's rule.
@@ -190,6 +203,8 @@ func coneFitBernstein(p coneFitPoly, a, b *big.Rat) coneFitPoly {
 	return r
 }
 
+// coneFitCoeffBounds returns the least and greatest Bernstein coefficient of p on [a,b].
+// Lean proofs depend on this function; see _proofs/trace.json.
 func coneFitCoeffBounds(p coneFitPoly, a, b *big.Rat) (*big.Rat, *big.Rat) {
 	coeff := coneFitBernstein(p, a, b)
 	lo, hi := coeff[0], coeff[0]
@@ -204,6 +219,8 @@ func coneFitCoeffBounds(p coneFitPoly, a, b *big.Rat) (*big.Rat, *big.Rat) {
 	return lo, hi
 }
 
+// coneFitBezier returns the exact cubic Bezier control points of interpolant span i.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func coneFitBezier(fi *geom.FitInterpolant, i int) coneBezier {
 	h := coneSub(coneRat(fi.Params[i+1]), coneRat(fi.Params[i]))
 	h2 := coneMul(h, h)
@@ -243,6 +260,9 @@ func coneFitMakePiece(fi *geom.FitInterpolant, i int, form coneSideForm) coneFit
 	return coneFitResidual(piece, form)
 }
 
+// coneFitResidual sets the cone half polynomial h, the implicit function polynomial f, and f's derivative
+// from the piece's curve polynomials.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func coneFitResidual(piece coneFitPiece, form coneSideForm) coneFitPiece {
 	var q [3]coneFitPoly
 	for j := range q {
