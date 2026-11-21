@@ -45,12 +45,20 @@ const (
 )
 
 // trigFracBits is the fixed-point precision of the Taylor sums: every term is
-// held as an integer count of 2^-trigFracBits. trigEpsBits ends the series once
-// a term is certainly below 2^-trigEpsBits, far beneath float64 resolution near
-// the values sine and cosine take.
+// held as an integer count of 2^-trigFracBits. The carried error of a term
+// stays below 2^95 units for |x| ≤ maxTaylorArg (2^84 measured at |x| = 64),
+// so the sums' error is below 2^-107 there, and far smaller for small |x|.
+//
+// The series ends past the peak once the tail bound is certainly below
+// 2^-trigEpsBits, or below 2^-trigRelBits of both partial sums. The first
+// keeps a sine or cosine near zero tight to about 2^-107; the second stops a
+// value away from zero once the tail is a 2^-17 fraction of its last float
+// place (2^-70 against float64's 2^-53), so each end of the outward
+// conversion still lies within one float of the exact value.
 const (
-	trigFracBits = 256
+	trigFracBits = 192
 	trigEpsBits  = 110
+	trigRelBits  = 70
 )
 
 // Each slot holds one completed point enclosure. Collisions only cause a
@@ -126,12 +134,11 @@ func fixedUpper(v *big.Int) float64 {
 // directly.
 //
 // The terms t_n = x^n/n! are summed into the two series by n mod 4 until a term
-// both lies past the peak (n > |x|+1, so every later term of either series is
-// smaller in magnitude than the one before it) and is certainly below
-// 2^-trigEpsBits. That first omitted term then bounds what is left of BOTH
-// series: each is alternating with decreasing terms from there on, so its tail
-// is no larger than its own first omitted term, and both of those are at most
-// |t_n|.
+// both lies past the peak (n > |x|+1) and is certainly below 2^-trigEpsBits,
+// or below 2^-trigRelBits of both partial sums. The first omitted term t_n then
+// bounds what is left of BOTH series: the Lagrange remainder of sine and cosine
+// after the terms below n is at most |x|^n/n!, whatever n the test picked, so
+// the test decides only how tight the result is, never whether it holds.
 //
 // The terms are fixed-point integers. x is exactly m·2^e with m an integer, so
 // t_{n+1} = t_n·m·2^e/(n+1) costs one exact multiply, one shift and one integer
@@ -176,17 +183,22 @@ func sinCosSeriesBig(x float64) (Interval, Interval) {
 
 	one := new(big.Int).Lsh(big.NewInt(1), trigFracBits)
 	eps := new(big.Int).Lsh(big.NewInt(1), trigFracBits-trigEpsBits)
+	// relMax only saves work: past the peak a partial sum lies within the
+	// bound of a value in [-1, 1], so a bound of 2^(trigFracBits+1-trigRelBits)
+	// units or more cannot pass the relative test.
+	relMax := new(big.Int).Lsh(big.NewInt(1), trigFracBits+1-trigRelBits)
 	s, c := new(big.Int), new(big.Int)
 	sErr, cErr := new(big.Int), new(big.Int)
 	t := new(big.Int).Set(one)
 	tErr := new(big.Int)
-	bound := new(big.Int)
+	bound, rel := new(big.Int), new(big.Int)
 	div, den, rem := new(big.Int), new(big.Int), new(big.Int)
 	oneInt, twoInt := big.NewInt(1), big.NewInt(2)
 	for n := 0; ; n++ {
 		bound.Abs(t)
 		bound.Add(bound, tErr)
-		if float64(n) > ax+1 && bound.Cmp(eps) < 0 {
+		if float64(n) > ax+1 && (bound.Cmp(eps) < 0 || bound.Cmp(relMax) < 0 &&
+			rel.Lsh(bound, trigRelBits).CmpAbs(s) <= 0 && rel.CmpAbs(c) <= 0) {
 			break
 		}
 		switch n % 4 {
@@ -238,15 +250,15 @@ func sinCosSeriesBig(x float64) (Interval, Interval) {
 
 // seriesWords is the width, in 64-bit words, of the integers
 // sinCosSeriesWords sums in. For |x| ≤ maxTaylorArg every one of them stays far
-// inside it: the exact term 2^256·|x|^n/n! peaks below 2^345 (at n = 64, as
+// inside it: the exact term 2^192·|x|^n/n! peaks below 2^281 (at n = 64, as
 // 64^64/64! < 2^89), the computed one exceeds it by under e^64 < 2^93, so a
-// term is below 2^346 and its product with |m| < 2^53 below 2^399; the error
+// term is below 2^282 and its product with |m| < 2^53 below 2^335; the error
 // bound obeys err ≤ err·|x|/(n+1) + 3 and stays below 3·e^64 < 2^95; and the
 // series stops within 400 terms (past n = 128 every term at least halves), so
-// each sum is below 2^355. 448 bits hold all of it, with the sign. The two
+// each sum is below 2^291. 384 bits hold all of it, with the sign. The two
 // multiplies still check their carry, and a sum that does not fit falls back
 // to sinCosSeriesBig.
-const seriesWords = 7
+const seriesWords = 6
 
 // seriesInt is a fixed-width integer in little-endian 64-bit words: a
 // magnitude, or a two's-complement value for the signed sums.
@@ -271,15 +283,23 @@ func (a *seriesInt) below(k int) bool {
 	return a[k/64] < uint64(1)<<(k%64)
 }
 
-// mulWord sets a to a·m and reports whether the product fits.
-func (a *seriesInt) mulWord(m uint64) bool {
-	var carry uint64
-	for i, w := range a {
-		hi, lo := bits.Mul64(w, m)
-		lo, c := bits.Add64(lo, carry, 0)
-		a[i], carry = lo, hi+c
+// relBelow reports whether the magnitude a times 2^trigRelBits is at most the
+// magnitude of the two's-complement v, the relative half of sinCosSeriesBig's
+// break test. For integers, a·2^k ≤ |v| holds exactly when a ≤ ⌊|v|/2^k⌋, so
+// the shift goes on |v| and nothing can overflow.
+func (a *seriesInt) relBelow(v *seriesInt) bool {
+	mag := *v
+	if mag[seriesWords-1]>>63 != 0 {
+		mag = seriesInt{}
+		mag.sub(v)
 	}
-	return carry == 0
+	mag.shrSticky(trigRelBits)
+	for i := seriesWords - 1; i >= 0; i-- {
+		if a[i] != mag[i] {
+			return a[i] < mag[i]
+		}
+	}
+	return true
 }
 
 // shrSticky sets the magnitude a to ⌊a/2^s⌋ and reports whether a set bit was
@@ -308,34 +328,8 @@ func (a *seriesInt) shrSticky(s uint) bool {
 	return sticky
 }
 
-// divWord sets the magnitude a to ⌊a/d⌋ for a nonzero d and returns the
-// remainder. Leading zero words divide to zero with no remainder, so the
-// division starts at the top nonzero word.
-func (a *seriesInt) divWord(d uint64) uint64 {
-	var r uint64
-	i := seriesWords - 1
-	for i >= 0 && a[i] == 0 {
-		i--
-	}
-	for ; i >= 0; i-- {
-		a[i], r = bits.Div64(r, a[i], d)
-	}
-	return r
-}
-
-// addWord, add and sub wrap modulo 2^(64·seriesWords), which is exact
-// two's-complement arithmetic while the result fits.
-func (a *seriesInt) addWord(v uint64) {
-	for i := range a {
-		var c uint64
-		a[i], c = bits.Add64(a[i], v, 0)
-		if c == 0 {
-			return
-		}
-		v = c
-	}
-}
-
+// add and sub wrap modulo 2^(64·seriesWords), which is exact two's-complement
+// arithmetic while the result fits.
 func (a *seriesInt) add(b *seriesInt) {
 	var c uint64
 	for i := range a {
@@ -350,13 +344,124 @@ func (a *seriesInt) sub(b *seriesInt) {
 	}
 }
 
-// addSigned adds the magnitude b to a, or subtracts it when neg is set.
-func (a *seriesInt) addSigned(b *seriesInt, neg bool) {
+// The methods below with a width w work on a magnitude whose words from w up
+// are zero, touch only the words that can change, and return such a width for
+// the result where it can change. Skipping a word is exact: it is zero on input
+// and would stay zero, or a carry or borrow has died out before it.
+
+// trimWidth returns the width of a once its zero top words below w are dropped.
+func (a *seriesInt) trimWidth(w int) int {
+	for w > 0 && a[w-1] == 0 {
+		w--
+	}
+	return w
+}
+
+// mulShrN sets the magnitude a of width w to ⌊a·m/2^s⌋ in one pass, the
+// product's words formed one at a time and shifted as they come. It reports
+// the result's width, whether a set bit was shifted out, and false, leaving a
+// unusable, when the product a·m itself would not fit seriesWords. Go shifts
+// a uint64 by 64 or more to zero, so a whole-word shift needs no special case.
+func (a *seriesInt) mulShrN(m uint64, s uint, w int) (int, bool, bool) {
+	ws, bs := int(s/64), s%64
+	var carry, prev uint64
+	sticky := false
+	for i := 0; i <= w; i++ {
+		p := carry
+		if i < w {
+			hi, lo := bits.Mul64(a[i], m)
+			var c uint64
+			p, c = bits.Add64(lo, carry, 0)
+			carry = hi + c
+		}
+		switch {
+		case i < ws:
+			sticky = sticky || p != 0
+		case i == ws:
+			sticky = sticky || p&(uint64(1)<<bs-1) != 0
+		default:
+			a[i-ws-1] = prev>>bs | p<<(64-bs)
+		}
+		prev = p
+	}
+	if w == seriesWords && carry != 0 {
+		return w, sticky, false
+	}
+	if ws > w {
+		clear(a[:w])
+		return 0, sticky, true
+	}
+	// The top product word p_w is prev; its shifted bits land at w−ws. With
+	// w = seriesWords that slot is past the end, and p_w = 0 by the check above.
+	n := w - ws
+	if n < seriesWords {
+		a[n] = prev >> bs
+		n++
+	}
+	if n < w {
+		clear(a[n:w])
+	}
+	return a.trimWidth(n), sticky, true
+}
+
+// divWordN sets the magnitude a of width w to ⌊a/d⌋ for a nonzero d and
+// returns the result's width and the remainder.
+func (a *seriesInt) divWordN(d uint64, w int) (int, uint64) {
+	var r uint64
+	for i := w - 1; i >= 0; i-- {
+		a[i], r = bits.Div64(r, a[i], d)
+	}
+	return a.trimWidth(w), r
+}
+
+// addWordN adds v to the magnitude a of width w, wrapping modulo
+// 2^(64·seriesWords) as add does, and returns the result's width.
+func (a *seriesInt) addWordN(v uint64, w int) int {
+	for i := range a[:w] {
+		var c uint64
+		a[i], c = bits.Add64(a[i], v, 0)
+		if c == 0 {
+			return w
+		}
+		v = c
+	}
+	if w == seriesWords {
+		return w
+	}
+	a[w] = v
+	return w + 1
+}
+
+// addN and subN add and subtract the magnitude b of width w to and from the
+// full-width a, with the wrap of add and sub.
+func (a *seriesInt) addN(b *seriesInt, w int) {
+	var c uint64
+	for i := range b[:w] {
+		a[i], c = bits.Add64(a[i], b[i], c)
+	}
+	for i := w; c != 0 && i < seriesWords; i++ {
+		a[i], c = bits.Add64(a[i], 0, c)
+	}
+}
+
+func (a *seriesInt) subN(b *seriesInt, w int) {
+	var c uint64
+	for i := range b[:w] {
+		a[i], c = bits.Sub64(a[i], b[i], c)
+	}
+	for i := w; c != 0 && i < seriesWords; i++ {
+		a[i], c = bits.Sub64(a[i], 0, c)
+	}
+}
+
+// addSignedN adds the magnitude b of width w to a, or subtracts it when neg
+// is set.
+func (a *seriesInt) addSignedN(b *seriesInt, w int, neg bool) {
 	if neg {
-		a.sub(b)
+		a.subN(b, w)
 		return
 	}
-	a.add(b)
+	a.addN(b, w)
 }
 
 // fixedFloat converts the two's-complement count of 2^-trigFracBits a to the
@@ -409,7 +514,13 @@ func (a seriesInt) fixedFloat(upward bool) float64 {
 //     the two roundings apart.
 //   - The error bound's ⌈err·|m|/((n+1)·2^sh)⌉ is taken as ⌈⌈err·|m|/2^sh⌉/(n+1)⌉,
 //     the same integer, since ⌈⌈a/b⌉/c⌉ = ⌈a/(b·c)⌉ for positive integers.
-//   - The sums take each term's sign through addSigned, and the final integers
+//   - The break test is the same comparison on the same integers: below for
+//     the two powers of two, relBelow for the relative half (bound·2^k ≤ |s|
+//     as bound ≤ ⌊|s|/2^k⌋), and the bound is formed only when n > |x|+1, the
+//     only time the test reads it.
+//   - t and tErr carry their width, the count of words that can be nonzero,
+//     and each width method forms the integer a full-width step would.
+//   - The sums take each term's sign through addSignedN, and the final integers
 //     convert through fixedFloat, whose result is fixedLower's or fixedUpper's.
 //
 // Lean proofs depend on this function; see _proofs/trace.json.
@@ -424,49 +535,57 @@ func sinCosSeriesWords(x float64) (Interval, Interval, bool) {
 	sh := uint(53 - exp)
 	ax := math.Abs(x)
 
+	// tw and ew are the widths of t and tErr: their words from there up are zero.
 	var s, c, sErr, cErr, t, tErr, bound seriesInt
 	t[trigFracBits/64] = uint64(1) << (trigFracBits % 64)
+	tw, ew := trigFracBits/64+1, 0
 	tNeg := false
 	for n := 0; ; n++ {
-		bound = t
-		bound.add(&tErr)
-		if float64(n) > ax+1 && bound.below(trigFracBits-trigEpsBits) {
-			break
+		if float64(n) > ax+1 {
+			bound = seriesInt{}
+			copy(bound[:tw], t[:tw])
+			bound.addN(&tErr, ew)
+			if bound.below(trigFracBits-trigEpsBits) || bound.below(trigFracBits+1-trigRelBits) &&
+				bound.relBelow(&s) && bound.relBelow(&c) {
+				break
+			}
 		}
 		switch n % 4 {
 		case 0:
-			c.addSigned(&t, tNeg)
-			cErr.add(&tErr)
+			c.addSignedN(&t, tw, tNeg)
+			cErr.addN(&tErr, ew)
 		case 1:
-			s.addSigned(&t, tNeg)
-			sErr.add(&tErr)
+			s.addSignedN(&t, tw, tNeg)
+			sErr.addN(&tErr, ew)
 		case 2:
-			c.addSigned(&t, !tNeg)
-			cErr.add(&tErr)
+			c.addSignedN(&t, tw, !tNeg)
+			cErr.addN(&tErr, ew)
 		case 3:
-			s.addSigned(&t, !tNeg)
-			sErr.add(&tErr)
+			s.addSignedN(&t, tw, !tNeg)
+			sErr.addN(&tErr, ew)
 		}
 		d := uint64(n + 1)
 		pNeg := tNeg != mNeg
-		if !t.mulWord(am) {
+		var fits, sticky bool
+		if tw, sticky, fits = t.mulShrN(am, sh, tw); !fits {
 			return Interval{}, Interval{}, false
 		}
-		if t.shrSticky(sh) && pNeg {
-			t.addWord(1)
+		if sticky && pNeg {
+			tw = t.addWordN(1, tw)
 		}
-		t.divWord(d)
+		tw, _ = t.divWordN(d, tw)
 		tNeg = pNeg
-		if !tErr.mulWord(am) {
+		if ew, sticky, fits = tErr.mulShrN(am, sh, ew); !fits {
 			return Interval{}, Interval{}, false
 		}
-		if tErr.shrSticky(sh) {
-			tErr.addWord(1)
+		if sticky {
+			ew = tErr.addWordN(1, ew)
 		}
-		if tErr.divWord(d) != 0 {
-			tErr.addWord(1)
+		var rem uint64
+		if ew, rem = tErr.divWordN(d, ew); rem != 0 {
+			ew = tErr.addWordN(1, ew)
 		}
-		tErr.addWord(2)
+		ew = tErr.addWordN(2, ew)
 	}
 	sw, cw := sErr, cErr
 	sw.add(&bound)

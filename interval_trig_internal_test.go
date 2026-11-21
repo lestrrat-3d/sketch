@@ -10,6 +10,7 @@ import (
 	"math"
 	"math/big"
 	"math/rand"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -168,6 +169,76 @@ func TestSinCosSeriesWordsMatchesBig(t *testing.T) {
 			require.Greater(t, seen, 100, "the run over %v evaluated its trigonometry through the cache", rng)
 		}
 	})
+}
+
+// TestSeriesIntWidthOps checks the width-tracked seriesInt steps against
+// math/big at every width, at shifts below, across and past a whole word, and
+// at magnitudes whose top words are all ones, so carries reach the width's end.
+func TestSeriesIntWidthOps(t *testing.T) {
+	toBig := func(a *seriesInt) *big.Int {
+		v := new(big.Int)
+		for i := seriesWords - 1; i >= 0; i-- {
+			v.Lsh(v, 64)
+			v.Or(v, new(big.Int).SetUint64(a[i]))
+		}
+		return v
+	}
+	limit := new(big.Int).Lsh(big.NewInt(1), 64*seriesWords)
+	rng := rand.New(rand.NewSource(8))
+	draw := func(w int) seriesInt {
+		var a seriesInt
+		for i := range w {
+			a[i] = rng.Uint64()
+			if rng.Intn(4) == 0 {
+				a[i] = ^uint64(0)
+			}
+		}
+		return a
+	}
+	for range 4000 {
+		w := rng.Intn(seriesWords + 1)
+		a := draw(w)
+		w = a.trimWidth(w)
+		av := toBig(&a)
+		m := rng.Uint64() >> rng.Intn(64)
+		s := uint(rng.Intn(64 * (seriesWords + 2)))
+
+		got := a
+		gw, sticky, fits := got.mulShrN(m, s, w)
+		p := new(big.Int).Mul(av, new(big.Int).SetUint64(m))
+		require.Equal(t, p.Cmp(limit) < 0, fits, "mulShrN fits: a=%v m=%d", av, m)
+		if fits {
+			q := new(big.Int).Rsh(p, s)
+			require.Zero(t, q.Cmp(toBig(&got)), "mulShrN: a=%v m=%d s=%d", av, m, s)
+			require.Equal(t, new(big.Int).Lsh(q, s).Cmp(p) != 0, sticky, "mulShrN sticky: a=%v m=%d s=%d", av, m, s)
+			require.LessOrEqual(t, got.trimWidth(seriesWords), gw, "mulShrN leaves no nonzero word past its width")
+		}
+
+		d := uint64(rng.Intn(1000) + 1)
+		got = a
+		gw, r := got.divWordN(d, w)
+		q, rr := new(big.Int).QuoRem(av, new(big.Int).SetUint64(d), new(big.Int))
+		require.Zero(t, q.Cmp(toBig(&got)), "divWordN: a=%v d=%d", av, d)
+		require.Equal(t, rr.Uint64(), r, "divWordN remainder: a=%v d=%d", av, d)
+		require.LessOrEqual(t, got.trimWidth(seriesWords), gw, "divWordN leaves no nonzero word past its width")
+
+		v := uint64(rng.Intn(3))
+		got = a
+		gw = got.addWordN(v, w)
+		sum := new(big.Int).Add(av, new(big.Int).SetUint64(v))
+		sum.Mod(sum, limit)
+		require.Zero(t, sum.Cmp(toBig(&got)), "addWordN: a=%v v=%d", av, v)
+		require.LessOrEqual(t, got.trimWidth(seriesWords), gw, "addWordN leaves no nonzero word past its width")
+
+		acc := draw(seriesWords)
+		accv := toBig(&acc)
+		got = acc
+		got.addN(&a, w)
+		require.Zero(t, new(big.Int).Mod(new(big.Int).Add(accv, av), limit).Cmp(toBig(&got)), "addN")
+		got = acc
+		got.subN(&a, w)
+		require.Zero(t, new(big.Int).Mod(new(big.Int).Sub(accv, av), limit).Cmp(toBig(&got)), "subN")
+	}
 }
 
 // TestHalfPiMayLieInMatchesRats compares halfPiMayLieIn with the exact
@@ -474,4 +545,28 @@ func TestIntervalArithmeticEnclosesExactResults(t *testing.T) {
 	two := big.NewRat(2, 1)
 	require.Negative(t, new(big.Rat).Mul(ratOf(r.Lo), ratOf(r.Lo)).Cmp(two), "√2's lower bound squares below 2")
 	require.Positive(t, new(big.Rat).Mul(ratOf(r.Hi), ratOf(r.Hi)).Cmp(two), "√2's upper bound squares above 2")
+}
+
+// BenchmarkSinCosSeries sums the certified series at arguments of four sizes,
+// bypassing the point cache so every call runs the series: about 0.5 (a small
+// crank angle), 3 (near π), 30 and 60 (the tenth turn, the longest sums).
+func BenchmarkSinCosSeries(b *testing.B) {
+	for _, mag := range []float64{0.5, 3, 30, 60} {
+		xs := make([]float64, 256)
+		rng := rand.New(rand.NewSource(6))
+		for i := range xs {
+			xs[i] = mag * (1 + 0.1*rng.Float64())
+			if i%2 == 1 {
+				xs[i] = -xs[i]
+			}
+		}
+		b.Run(strconv.FormatFloat(mag, 'g', -1, 64), func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; b.Loop(); i++ {
+				if _, _, fits := sinCosSeriesWords(xs[i%len(xs)]); !fits {
+					b.Fatal("the series does not fit the fixed width")
+				}
+			}
+		})
+	}
 }

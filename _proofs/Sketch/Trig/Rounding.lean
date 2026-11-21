@@ -58,7 +58,7 @@ theorem hull_mem_right {a b : Ival} {y : ℝ} (h : b.Mem y) : (hull a b).Mem y :
 * `ratLower r ≤ r ≤ ratUpper r` for an exact rational `r` (A24).
 * `ratExact r` is the `exact` flag of `big.Rat.Float64`; when it is false, neither conversion returns `r`
   itself (A24).
-* `fixedLower v ≤ v / 2^256 ≤ fixedUpper v` for a fixed-point integer `v` (A23). -/
+* `fixedLower v ≤ v / 2^192 ≤ fixedUpper v` for a fixed-point integer `v` (A23). -/
 structure Rounding where
   ratLower : ℝ → ℝ
   ratUpper : ℝ → ℝ
@@ -69,16 +69,16 @@ structure Rounding where
   le_ratUpper : ∀ r, r ≤ ratUpper r
   ratLower_ne : ∀ r, ratExact r = false → ratLower r ≠ r
   ratUpper_ne : ∀ r, ratExact r = false → ratUpper r ≠ r
-  fixedLower_le : ∀ v : ℤ, fixedLower v ≤ (v : ℝ) / 2 ^ 256
-  le_fixedUpper : ∀ v : ℤ, (v : ℝ) / 2 ^ 256 ≤ fixedUpper v
+  fixedLower_le : ∀ v : ℤ, fixedLower v ≤ (v : ℝ) / 2 ^ 192
+  le_fixedUpper : ∀ v : ℤ, (v : ℝ) / 2 ^ 192 ≤ fixedUpper v
 
 /-- Exact conversions satisfy every `Rounding` field. -/
 noncomputable def Rounding.exact : Rounding where
   ratLower r := r
   ratUpper r := r
   ratExact _ := true
-  fixedLower v := (v : ℝ) / 2 ^ 256
-  fixedUpper v := (v : ℝ) / 2 ^ 256
+  fixedLower v := (v : ℝ) / 2 ^ 192
+  fixedUpper v := (v : ℝ) / 2 ^ 192
   ratLower_le _ := le_rfl
   le_ratUpper _ := le_rfl
   ratLower_ne _ h := absurd h (by simp)
@@ -88,14 +88,16 @@ noncomputable def Rounding.exact : Rounding where
 
 /-- The decisions the Go code computes in float64, taken as inputs.
 
-* `stop x n bound`: the break test `float64(n) > ax+1 && bound.Cmp(eps) < 0` of `sketch.sinCosSeriesBig`.
+* `stop x n bound s c`: the break test of `sketch.sinCosSeriesBig` on the term index, the tail bound and the
+  two sums: `float64(n) > ax+1` and either `bound < eps` or `bound < relMax` with `bound·2^trigRelBits` at
+  most `|s|` and `|c|`.
 * `turns x`: `int64(math.Round(x / (2 * math.Pi)))` in `sketch.reduceTurns`.
 * `wide q`: `q.Hi-q.Lo > 7` in `sketch.sinCosRange`.
 * `kmin q`, `kmax q`: `int(math.Floor(q.Lo/(math.Pi/2))) - 1` and `int(math.Ceil(q.Hi/(math.Pi/2))) + 1`.
 * `k_cover`: every multiple `k·π/2` of a narrow `q` whose ends are within `2^40` has `kmin q ≤ k ≤ kmax q`
   (A27). -/
 structure TrigEnv where
-  stop : ℝ → ℕ → ℤ → Bool
+  stop : ℝ → ℕ → ℤ → ℤ → ℤ → Bool
   turns : ℝ → ℤ
   wide : Ival → Bool
   kmin : Ival → ℤ
@@ -105,7 +107,7 @@ structure TrigEnv where
 
 /-- The exact floor and ceiling of `q / (π/2)` satisfy `TrigEnv.k_cover`. -/
 noncomputable def TrigEnv.exact : TrigEnv where
-  stop _ _ _ := true
+  stop _ _ _ _ _ := true
   turns _ := 0
   wide _ := false
   kmin q := ⌊q.lo / (π / 2)⌋
