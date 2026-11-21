@@ -332,13 +332,17 @@ func (s *Sketch) buildResidualPlan(pl *residualPlan, rows int, reuse bool) bool 
 // whose constraint does not read variable j, rp[i] and rm[i] are computed from
 // identical inputs by identical code, so they are the same float64 and their
 // difference is +0; inv is positive (h ≥ 1e-7 > 0), or +0 when h overflows, and
-// +0 times either is +0. So the dense pass writes exactly +0 into every entry
-// this one leaves cleared, and it evaluates every affected row with the same
+// +0 times either is +0 (a NaN inv is refused below). So the dense pass writes
+// exactly +0 into every entry this one leaves cleared, and it evaluates every affected row with the same
 // arithmetic on the same values as the dense pass does — each constraint's
 // residual is a function of its own inputs alone, and writing its rows at a
 // different position in a buffer changes none of them.
 //
-// That argument needs the unaffected rows to be FINITE, and the base scan below
+// The argument also needs inv to be finite: for a NaN variable h and inv are
+// NaN, the dense pass writes 0·NaN = NaN into the whole column, and the call
+// refuses so the dense pass runs. (inv is never infinite, as h ≥ 1e-7 or NaN.)
+//
+// The unaffected rows must be FINITE too, and the base scan below
 // is what establishes it: an unaffected row holds its base value at both
 // perturbations, so a finite base value stays finite. Where it does not, the
 // dense pass computes ∞ − ∞ or NaN − NaN — NaN, not zero — and clearing the
@@ -362,12 +366,19 @@ func (s *Sketch) jacobianLocalInto(J [][]float64, free []int, m int, pl *residua
 		clear(J[i])
 	}
 	for j, vi := range free {
+		orig := s.vars[vi]
+		h := 1e-7 * (1 + math.Abs(orig))
+		inv := 1.0 / (2 * h)
+		if nonFinite(inv) {
+			// A NaN variable gives a NaN step, and the dense pass writes
+			// (rp − rm)·inv = 0·NaN = NaN into the whole column, even where no
+			// row reads the variable. Clearing it would replace that NaN.
+			return false
+		}
 		ks := pl.consFor(vi)
 		if len(ks) == 0 {
 			continue // no residual row moves with this variable: the column is zero
 		}
-		orig := s.vars[vi]
-		h := 1e-7 * (1 + math.Abs(orig))
 		s.vars[vi] = orig + h
 		okp := pl.evalRows(pl.rp, ks)
 		if okp {
@@ -380,7 +391,6 @@ func (s *Sketch) jacobianLocalInto(J [][]float64, free []int, m int, pl *residua
 		if !okp {
 			return false
 		}
-		inv := 1.0 / (2 * h)
 		for _, k := range ks {
 			off, cnt := pl.offset[k], pl.count[k]
 			for i := off; i < off+cnt; i++ {

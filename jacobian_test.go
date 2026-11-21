@@ -724,3 +724,37 @@ func TestResidualPlanPoolClearsConstraintsAcrossSketches(t *testing.T) {
 	require.Equal(t, second.residuals(nil), pl.base)
 	putResidualPlan(pl)
 }
+
+// TestLocalJacobianRefusesNonFiniteVariable pins the second screen the
+// bit-identity argument rests on. A free variable no constraint reads, holding
+// NaN, has a NaN step and a NaN 1/(2h), so the dense pass writes 0·NaN = NaN
+// into its whole column. The local pass would leave that column cleared, so it
+// must refuse and let the dense pass run.
+func TestLocalJacobianRefusesNonFiniteVariable(t *testing.T) {
+	s := newInventorySketch(t)
+	a, b := s.CreatePoint(0, 0), s.CreatePoint(3, 0)
+	s.AddConstraint(NewDistance(a, b, 4))
+	lone := s.CreatePoint(5, 5)
+	lone.MoveTo(math.NaN(), 1)
+
+	free := s.freeVars()
+	r := s.residuals(nil)
+	plan, ok := s.newResidualPlan(len(r))
+	require.True(t, ok)
+
+	local := newJacobianMatrix(len(r), len(free))
+	require.False(t, s.jacobianLocalInto(local, free, len(r), plan, r),
+		"a NaN free variable must send the whole call to the dense builder")
+
+	dense := newJacobianMatrix(len(r), len(free))
+	s.jacobianInto(dense, free, len(r), s.residuals, nil, nil)
+	nan := 0
+	for i := range dense {
+		for _, v := range dense[i] {
+			if math.IsNaN(v) {
+				nan++
+			}
+		}
+	}
+	require.Positive(t, nan, "the dense pass must still carry the NaN the local pass would have cleared")
+}
