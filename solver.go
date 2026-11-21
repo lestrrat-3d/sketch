@@ -533,10 +533,8 @@ func (s *Sketch) lmPlanned(ctx context.Context, free []int, eval func([]float64)
 		if !localBuilt {
 			s.jacobianInto(ws.J, free, m, eval, ws.rp, ws.rm)
 		}
-		structuralNormalEquations := false
 		if localBuilt && ws.structuralReady {
-			structuralNormalEquations = normalEquationsStructuralRowMajorInto(ws, m, n)
-			if !structuralNormalEquations {
+			if !normalEquationsStructuralRowMajorInto(ws, m, n) {
 				transposeInto(ws.JT, ws.J, m, n)
 				normalEquationsStructuralInto(ws, m, n)
 			}
@@ -545,11 +543,6 @@ func (s *Sketch) lmPlanned(ctx context.Context, free []int, eval func([]float64)
 			normalEquationsSparseInto(ws, m, n)
 		}
 		A, g := ws.A, ws.g
-		bandwidth, bandedSupport := 0, false
-		if structuralNormalEquations {
-			bandwidth, bandedSupport = structuralUpperBandwidth(ws, n)
-			bandedSupport = bandedSupport && bandwidth <= maxBandedEliminationBandwidth
-		}
 
 		// Absolute damping scale. Using λ·max(diag) rather than λ·A[i][i]
 		// regularizes every direction by the same amount, which keeps the
@@ -576,8 +569,13 @@ func (s *Sketch) lmPlanned(ctx context.Context, free []int, eval func([]float64)
 				return iter, err
 			}
 			mu := lambda * maxDiag
-			eliminated := eliminateLMSystemInto(ws.M, A, g, n, mu, bandwidth, bandedSupport, ws.delta, ws.nz)
-			if !eliminated {
+			// There is no separate no-swap banded kernel in front of this one: on
+			// a system it accepts, such a kernel does exactly the arithmetic
+			// eliminateInto does, so it saves nothing, and the damped normal
+			// equations often need a pivot swap, where it costs a wasted partial
+			// elimination and a refill (most LM steps in the Enclose benchmarks).
+			noNegZero := fillDampedSystem(ws.M, A, g, n, mu)
+			if !eliminateInto(ws.M, n, noNegZero, ws.delta, ws.nz) {
 				lambda *= 10
 				continue
 			}
@@ -614,8 +612,6 @@ func (s *Sketch) lmPlanned(ctx context.Context, free []int, eval func([]float64)
 	return iter, nil
 }
 
-const maxBandedEliminationBandwidth = 7
-
 // fillDampedSystem copies the normal equations into M and adds the current LM
 // damping. It reports whether M contains no negative zero in its matrix part,
 // matching the guard used by [eliminateInto].
@@ -631,114 +627,6 @@ func fillDampedSystem(M, A [][]float64, g []float64, n int, mu float64) bool {
 		}
 	}
 	return noNegZero
-}
-
-// eliminateLMSystemInto tries the banded kernel only after finite structural
-// assembly with a safe zero-sign pattern. Any attempted banded failure rebuilds
-// M from A and g before the general kernel pivots it.
-func eliminateLMSystemInto(M, A [][]float64, g []float64, n int, mu float64, bandwidth int, bandedSupport bool, x []float64, nz []int) bool {
-	noNegZero := fillDampedSystem(M, A, g, n, mu)
-	if bandedSupport && noNegZero {
-		if eliminateBandedNoSwapInto(M, n, bandwidth, noNegZero, x, nz) {
-			return true
-		}
-		fillDampedSystem(M, A, g, n, mu)
-	}
-	return eliminateInto(M, n, noNegZero, x, nz)
-}
-
-// structuralUpperBandwidth derives the upper bandwidth from the structural
-// normal-equation pairs. The pair rows and columns are ascending by construction.
-func structuralUpperBandwidth(ws *lmWorkspace, n int) (int, bool) {
-	if len(ws.structPairStart) < n+1 {
-		return 0, false
-	}
-	bandwidth := 0
-	for i := 0; i < n; i++ {
-		start, end := ws.structPairStart[i], ws.structPairStart[i+1]
-		if start < 0 || end < start || end > len(ws.structPairCols) {
-			return 0, false
-		}
-		for _, j := range ws.structPairCols[start:end] {
-			if j < i || j >= n {
-				return 0, false
-			}
-			if d := j - i; d > bandwidth {
-				bandwidth = d
-			}
-		}
-	}
-	return bandwidth, true
-}
-
-// eliminateBandedNoSwapInto handles a finite, narrow-band damped system when
-// no pivot row swap is needed. It returns false without promising an untouched
-// M if a precondition fails; the caller must restore M before using the general
-// pivoting kernel.
-func eliminateBandedNoSwapInto(M [][]float64, n, bandwidth int, noNegZero bool, x []float64, nz []int) bool {
-	if !noNegZero || bandwidth < 0 || bandwidth > maxBandedEliminationBandwidth {
-		return false
-	}
-	if cap(nz) < n+1 {
-		nz = make([]int, 0, n+1)
-	}
-	nz = nz[:0]
-	for col := 0; col < n; col++ {
-		piv := col
-		best := math.Abs(M[col][col])
-		for r := col + 1; r < n; r++ {
-			if v := math.Abs(M[r][col]); v > best {
-				best = v
-				piv = r
-			}
-		}
-		if best < 1e-15 || piv != col {
-			return false
-		}
-
-		pivot := M[col][col : n+1]
-		last := len(pivot) - 1
-		nz = nz[:0]
-		for c, v := range pivot[:last] {
-			if nonFinite(v) {
-				return false
-			}
-			if v != 0 {
-				nz = append(nz, c)
-			}
-		}
-		end := col + bandwidth
-		if end >= n {
-			end = n - 1
-		}
-		for r := col + 1; r < n; r++ {
-			row := M[r][col : n+1]
-			f := row[0] / pivot[0]
-			if r > end {
-				if f != 0 || nonFinite(f) {
-					return false
-				}
-				row[last] -= f * pivot[last]
-				continue
-			}
-			if !nonFinite(f) {
-				if f != 0 {
-					subtractScaledAt(row, pivot, nz, f)
-				}
-				row[last] -= f * pivot[last]
-				continue
-			}
-			return false
-		}
-	}
-	for i := n - 1; i >= 0; i-- {
-		sum := M[i][n]
-		for c := i + 1; c < n; c++ {
-			sum -= M[i][c] * x[c]
-		}
-		x[i] = sum / M[i][i]
-	}
-	return true
 }
 
 func (s *Sketch) freeVars() []int {
@@ -950,15 +838,20 @@ func eliminateInto(M [][]float64, n int, noNegZero bool, x []float64, nz []int) 
 		nz = make([]int, 0, n+1)
 	}
 	nz = nz[:0]
-	for col := 0; col < n; col++ {
-		piv := col
-		best := math.Abs(M[col][col])
-		for r := col + 1; r < n; r++ {
-			if v := math.Abs(M[r][col]); v > best {
-				best = v
-				piv = r
-			}
+	if n == 0 {
+		return true
+	}
+	// The pivot search for column 0 runs here; every later column's search is
+	// folded into the previous column's row updates (see below).
+	piv := 0
+	best := math.Abs(M[0][0])
+	for r := 1; r < n; r++ {
+		if v := math.Abs(M[r][0]); v > best {
+			best = v
+			piv = r
 		}
+	}
+	for col := 0; col < n; col++ {
 		if best < 1e-15 {
 			return false
 		}
@@ -986,17 +879,45 @@ func eliminateInto(M [][]float64, n int, noNegZero bool, x []float64, nz []int) 
 		// zero gradient component makes it a negative zero without touching the
 		// matrix, and nothing in the matrix ever reads it, so it is updated for
 		// every row, skipped or not, exactly as the plain update would.
+		//
+		// A row whose entry in this column is exactly +0 has the multiplier
+		// +0/pivot[0] — the same signed zero for every such row, and finite under
+		// skipZero, which has checked that pivot[0] is a finite nonzero — so its
+		// only update is the right-hand side's row[last] -= f*pivot[last], with a
+		// product that is the same for every such row too. That product is formed
+		// once per pivot, and the per-row division and multiply are skipped; the
+		// subtraction itself is still applied, so the right-hand side keeps its
+		// exact bits whatever its sign or value.
+		//
+		// The pivot search for the next column is folded into this loop. It reads
+		// M[r][col+1] for each r > col after this column's update of row r, in the
+		// same ascending order and with the same strict comparison as a separate
+		// pass would, so it selects the same row: only this loop writes the rows
+		// below col, and it is done with row r before reading it.
+		zeroRHS := (0 / pivot[0]) * pivot[last]
+		piv, best = col+1, 0
 		for r := col + 1; r < n; r++ {
 			row := M[r][col : n+1]
-			f := row[0] / pivot[0]
-			if skipZero && !nonFinite(f) {
+			switch {
+			case skipZero && math.Float64bits(row[0]) == 0:
+				row[last] -= zeroRHS
+			case skipZero:
+				f := row[0] / pivot[0]
+				if nonFinite(f) {
+					subtractScaled(row, pivot, f)
+					break
+				}
 				if f != 0 {
 					subtractScaledAt(row, pivot, nz, f)
 				}
 				row[last] -= f * pivot[last]
-				continue
+			default:
+				subtractScaled(row, pivot, row[0]/pivot[0])
 			}
-			subtractScaled(row, pivot, f)
+			if v := math.Abs(row[1]); r == col+1 || v > best {
+				best = v
+				piv = r
+			}
 		}
 	}
 	for i := n - 1; i >= 0; i-- {
