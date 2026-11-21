@@ -79,6 +79,58 @@ func BenchmarkCertifyConeFitCrossing(b *testing.B) {
 	}
 }
 
+// BenchmarkConeFitCrossingQueries calls each query of the certificate that
+// BenchmarkCertifyConeFitCrossing builds, over ranges that span every piece.
+func BenchmarkConeFitCrossingQueries(b *testing.B) {
+	s, cone := coneBenchSketch(b)
+	fit, err := s.CreateFitSpline(s.CreatePoint(0.3, 0.2), s.CreatePoint(0.8, 0.4),
+		s.CreatePoint(1.5, 0.4), s.CreatePoint(2.0, 0.6))
+	require.NoError(b, err)
+	cert, err := s.CertifyConeFitCrossing(fit, cone)
+	require.NoError(b, err)
+	lo, hi := cert.TBounds()
+	b.Run("PointBounds", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if _, _, ok := cert.PointBounds(0, 1); !ok {
+				b.Fatal("PointBounds refused")
+			}
+		}
+	})
+	b.Run("TangentBounds", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if _, _, ok := cert.TangentBounds(0, 1); !ok {
+				b.Fatal("TangentBounds refused")
+			}
+		}
+	})
+	b.Run("DerivativeBound", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if sign, _ := cert.DerivativeBound(lo, hi); sign == 0 {
+				b.Fatal("DerivativeBound refused")
+			}
+		}
+	})
+	b.Run("MarginBefore", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if cert.MarginBefore(0.9*lo) == nil {
+				b.Fatal("MarginBefore refused")
+			}
+		}
+	})
+	b.Run("MarginAfter", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if cert.MarginAfter(hi+0.1*(1-hi)) == nil {
+				b.Fatal("MarginAfter refused")
+			}
+		}
+	})
+}
+
 // BenchmarkEncloseDistanceDriver encloses two bars from pivots 100 apart that
 // meet at B, driven by one bar's length: a point, line and distance system
 // with no angle, so the run is the Krawczyk test and the float solves alone.
