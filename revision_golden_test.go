@@ -24,3 +24,24 @@ func TestRevisionFingerprintValue(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(0xb4e9018811dd69cd), s.Revision())
 }
+
+// TestRevisionFingerprintValueForeignPoints pins the fingerprint of a scene whose
+// lines also reach a point owned by another sketch and the origin, so the
+// first-seen point numbering is pinned across own and foreign points alike.
+func TestRevisionFingerprintValueForeignPoints(t *testing.T) {
+	world := sketch.NewWorld()
+	s, err := world.CreateSketch(world.XY())
+	require.NoError(t, err)
+	other, err := world.CreateSketch(world.XY())
+	require.NoError(t, err)
+	a, b, c := s.CreatePoint(0, 0), s.CreatePoint(4, 0), s.CreatePoint(4, 3)
+	foreign := other.CreatePoint(7, 1)
+	l1 := s.CreateLine(a, b)
+	l2 := s.CreateLine(c, b)
+	l3 := s.CreateLine(b, c)
+	s.CreateLine(c, a)
+	l1.End = foreign
+	l2.Start = s.Origin()
+	l3.Start = foreign
+	require.Equal(t, uint64(0x415333fd8d3d1965), s.Revision())
+}

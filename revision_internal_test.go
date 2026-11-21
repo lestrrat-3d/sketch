@@ -15,6 +15,8 @@ package sketch
 
 import (
 	"encoding/json"
+	"fmt"
+	"hash/fnv"
 	"math"
 	"sync"
 	"testing"
@@ -350,4 +352,22 @@ func TestRevisionConcurrentUnstamped(t *testing.T) {
 		require.Equal(t, got[0], v, "concurrent reads of one sketch must agree")
 	}
 	require.Equal(t, got[0], s.Revision(), "and must not have moved the fingerprint")
+}
+
+// TestRevisionEntityTypeNameMatchesFmt pins that the type name Revision hashes
+// is the text fmt's %T prints, for every entity type, and that writeString
+// hashes a string as hash/fnv hashes its bytes.
+func TestRevisionEntityTypeNameMatchesFmt(t *testing.T) {
+	entities := []Entity{
+		&Line{}, &Circle{}, &Arc{}, &Ellipse{}, &EllipticalArc{}, &Spline{},
+		&ClosedSpline{}, &FitSpline{}, &Conic{}, &NURBS{}, (*Line)(nil), nil,
+	}
+	for _, e := range entities {
+		require.Equal(t, fmt.Sprintf("%T", e), entityTypeName(e))
+		h := &fnv64a{sum: fnvOffset64}
+		h.writeString(entityTypeName(e))
+		ref := fnv.New64a()
+		_, _ = fmt.Fprintf(ref, "%T", e)
+		require.Equal(t, ref.Sum64(), h.Sum64(), "%T", e)
+	}
 }

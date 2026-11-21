@@ -2,8 +2,8 @@ package sketch
 
 import (
 	"errors"
-	"fmt"
 	"math"
+	"reflect"
 )
 
 var errRevisionChanged = errors.New("sketch changed during charged revision")
@@ -62,6 +62,8 @@ func (s *Sketch) revisionWithCharge(take func(uint64) error) (uint64, error) {
 func (s *Sketch) revisionWithChargeGuard(take func(uint64) error,
 	guard func(Entity) error) (uint64, error) {
 	h := &fnv64a{sum: fnvOffset64}
+	// The body calls h.word directly so it inlines; write is the same method as
+	// a value, for entityStructuralState.
 	write := h.word
 
 	// The flat var vector: every unknown the solver owns, including the aux vars
@@ -71,21 +73,21 @@ func (s *Sketch) revisionWithChargeGuard(take func(uint64) error,
 	// own sketch pointer, so a rebound selector changes the shape while this
 	// vector stays identical. Each entity's resolved shape value is hashed
 	// separately below, in entityStructuralState.
-	write(uint64(len(s.vars)))
+	h.word(uint64(len(s.vars)))
 	for _, v := range s.vars {
 		if take != nil {
 			if err := take(1); err != nil {
 				return 0, err
 			}
 		}
-		write(math.Float64bits(v))
+		h.word(math.Float64bits(v))
 	}
 
 	writeFloats := func(vs []float64) {
 		// The length is hashed too, so [1, 2] and [1, 2, 0] cannot collide.
-		write(uint64(len(vs)))
+		h.word(uint64(len(vs)))
 		for _, v := range vs {
-			write(math.Float64bits(v))
+			h.word(math.Float64bits(v))
 		}
 	}
 
@@ -117,9 +119,17 @@ func (s *Sketch) revisionWithChargeGuard(take func(uint64) error,
 			return 0, err
 		}
 	}
-	seq := make(map[*Point]uint64, len(s.points))
+	// The sequence numbers count first sightings across own and foreign
+	// points alike. An own point (s.points[p.id] == p) keeps its number, plus
+	// one so zero means unseen, in seqOwn by id; any other point uses the map.
+	seqOwn := make([]uint64, len(s.points))
+	var seqForeign map[*Point]uint64
+	seen := uint64(0)
 	entityCount := len(s.ents)
-	write(uint64(entityCount))
+	h.word(uint64(entityCount))
+	// Defining points are listed into this buffer, so an entity with a few of
+	// them allocates nothing.
+	var ptsBuf [8]*Point
 	for _, e := range s.ents {
 		if take != nil {
 			if err := take(1); err != nil {
@@ -143,15 +153,15 @@ func (s *Sketch) revisionWithChargeGuard(take func(uint64) error,
 		// The uid is READ, never stamped: Revision is a pure read (see
 		// Sketch.entUID for what an entity with no uid — an unreachable state —
 		// hashes as).
-		write(s.entUID(e))
-		_, _ = fmt.Fprintf(h, "%T", e)
+		h.word(s.entUID(e))
+		h.writeString(entityTypeName(e))
 		if e.IsConstruction() {
-			write(1)
+			h.word(1)
 		} else {
-			write(0)
+			h.word(0)
 		}
-		pts := entityPoints(e)
-		write(uint64(len(pts)))
+		pts := appendEntityPoints(ptsBuf[:0], e)
+		h.word(uint64(len(pts)))
 		for _, p := range pts {
 			if take != nil {
 				if err := take(1); err != nil {
@@ -162,18 +172,31 @@ func (s *Sketch) revisionWithChargeGuard(take func(uint64) error,
 				// buildProfiles is nil-safe here (the builders reject nil), so the
 				// fingerprint must be too; a distinct sentinel keeps a nil slot from
 				// colliding with a real point.
-				write(math.MaxUint64)
+				h.word(math.MaxUint64)
 				continue
 			}
-			n, ok := seq[p]
-			if !ok {
-				n = uint64(len(seq))
-				seq[p] = n
+			var n uint64
+			if p.s == s && p.id >= 0 && p.id < len(s.points) && s.points[p.id] == p {
+				if seqOwn[p.id] == 0 {
+					seen++
+					seqOwn[p.id] = seen
+				}
+				n = seqOwn[p.id] - 1
+			} else {
+				var ok bool
+				if n, ok = seqForeign[p]; !ok {
+					if seqForeign == nil {
+						seqForeign = make(map[*Point]uint64)
+					}
+					n = seen
+					seen++
+					seqForeign[p] = n
+				}
 			}
-			write(n)
-			write(uint64(p.id))
-			write(math.Float64bits(p.x()))
-			write(math.Float64bits(p.y()))
+			h.word(n)
+			h.word(uint64(p.id))
+			h.word(math.Float64bits(p.x()))
+			h.word(math.Float64bits(p.y()))
 		}
 		entityStructuralState(e, write, writeFloats)
 	}
@@ -203,6 +226,27 @@ func (h *fnv64a) Write(p []byte) (int, error) {
 	}
 	h.sum = sum
 	return len(p), nil
+}
+
+// writeString hashes the bytes of str, as Write would hash []byte(str).
+func (h *fnv64a) writeString(str string) {
+	sum := h.sum
+	for i := 0; i < len(str); i++ {
+		sum ^= uint64(str[i])
+		sum *= fnvPrime64
+	}
+	h.sum = sum
+}
+
+// entityTypeName returns the text fmt's %T verb prints for e, the type name
+// Revision has always hashed. It reads the name off reflect directly, as %T
+// itself does, without fmt's formatting state; a type switch would have to
+// repeat every entity type's name and could drift from it.
+func entityTypeName(e Entity) string {
+	if e == nil {
+		return "<nil>"
+	}
+	return reflect.TypeOf(e).String()
 }
 
 // word hashes u as eight little-endian bytes.
