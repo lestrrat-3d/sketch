@@ -134,6 +134,7 @@ func (s *Sketch) CertifyConeCurveSide(entity Entity, cone ConeSection) (ConeCurv
 		return ConeCurveSide{}, ErrConeCurveSide
 	}
 	form := newConeSideForm(frame, cone)
+	form.fp = newConeFloatForm(form)
 	var side ConeSide
 	var margin *big.Rat
 	var points []*Point
@@ -208,6 +209,7 @@ type coneSideForm struct {
 	base, u, v [3]*big.Rat
 	axis       [3]*big.Rat
 	slope2     *big.Rat
+	fp         *coneFloatForm // float prefilter; nil disables it
 }
 
 // newConeSideForm converts the plane frame and cone to exact rationals: the plane origin relative to the
@@ -302,8 +304,10 @@ func (f coneSideForm) bezierSide(b coneBezier, depth int, budget *int) (ConeSide
 	}
 	*budget = *budget - 1
 	u, v := b.box()
-	if side, margin := f.boxSide(u, v); side != 0 {
-		return side, margin
+	if !f.floatSkip(u, v) {
+		if side, margin := f.boxSide(u, v); side != 0 {
+			return side, margin
+		}
 	}
 	if depth == 0 {
 		return 0, nil

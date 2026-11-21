@@ -122,6 +122,7 @@ type coneArcWedge struct {
 	cx, cy *big.Rat
 	radius coneInterval
 	budget int
+	fl     *coneArcFloat // float prefilter state; nil disables it
 }
 
 // arcWedgeSide is the general arc side proof. It accepts any counter-clockwise
@@ -154,6 +155,7 @@ func (f coneSideForm) arcWedgeSide(arc *Arc) (ConeSide, *big.Rat) {
 	}
 	w := &coneArcWedge{form: f, cx: coneRat(cx), cy: coneRat(cy),
 		radius: coneInterval{rLo, rHi}, budget: coneArcBudget}
+	w.fl = f.newConeArcFloat(rLo, rHi, cx, cy)
 	return w.side(start, end, us, ue, coneArcDepth)
 }
 
@@ -167,8 +169,10 @@ func (w *coneArcWedge) side(a, b coneRay, ua, ub [2]coneInterval, depth int) (Co
 		return 0, nil
 	}
 	w.budget--
-	if side, margin := w.box(a, b, ua, ub); side != 0 {
-		return side, margin
+	if !w.boxZero(a, b, ua, ub) {
+		if side, margin := w.box(a, b, ua, ub); side != 0 {
+			return side, margin
+		}
 	}
 	if depth == 0 {
 		return 0, nil
