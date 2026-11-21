@@ -6,14 +6,14 @@ public import Sketch.Trig.Taylor
 /-!
 # Fixed-point Taylor sums of sine and cosine
 
-Model of `sketch.sinCosSeriesBig`. Every term `t_n = x^n/n!` is an integer count of `2^-256`. The loop adds
+Model of `sketch.sinCosSeriesBig`. Every term `t_n = x^n/n!` is an integer count of `2^-192`. The loop adds
 `t̂_n` into the sine or cosine sum by `n mod 4`, then forms `t̂_(n+1)` from `t̂_n` with one floor shift and one
 truncating division, and its error bound `err_(n+1) = ⌈err_n·|x|/(n+1)⌉ + 2`.
 
 The model states each step through the exact value `x` (`advance`). `goTermStep_eq` and `goErrStep_eq` show
 the Go operations on the integer pair `x = m·2^e` give the same integers: `big.Int.Rsh` floors and `Quo` and
 `QuoRem` truncate (A20), and `math.Frexp` gives that pair exactly (A21). The invariant `SeriesInv` says
-`|t̂_n - 2^256·x^n/n!| ≤ err_n` and each sum is within its accumulated error of `2^256` times the Taylor
+`|t̂_n - 2^192·x^n/n!| ≤ err_n` and each sum is within its accumulated error of `2^192` times the Taylor
 partial sum. The Lagrange remainder (`abs_sin_cos_sub_taylor_le`) bounds the omitted tail by `|x|^N/N!`
 for every `N`, so the result is sound whatever the stopping test decides.
 -/
@@ -36,7 +36,7 @@ structure SeriesState where
   cErr : ℤ
 
 /-- The state before the first term: `t = 2^trigFracBits` (one), everything else zero. -/
-@[expose] def SeriesState.init : SeriesState := ⟨0, 2 ^ 256, 0, 0, 0, 0, 0⟩
+@[expose] def SeriesState.init : SeriesState := ⟨0, 2 ^ 192, 0, 0, 0, 0, 0⟩
 
 /-- The `switch n % 4` of the loop in `sketch.sinCosSeriesBig`. -/
 @[expose] def accumulate (st : SeriesState) : SeriesState :=
@@ -54,13 +54,14 @@ structure SeriesState where
     t := Int.tdiv ⌊(st.t : ℝ) * x⌋ (st.n + 1)
     tErr := ⌈(st.tErr : ℝ) * |x| / (st.n + 1)⌉ + 2 }
 
-/-- The loop of `sketch.sinCosSeriesBig`. `stop n bound` is the float64 break test (`TrigEnv.stop`); on a
-break the loop returns the state and `bound = |t̂_n| + err_n`. Deliberate difference: `fuel` bounds the
-number of steps, and `none` stands for a run the Go loop would continue. -/
-@[expose] noncomputable def seriesLoop (x : ℝ) (stop : ℕ → ℤ → Bool) :
+/-- The loop of `sketch.sinCosSeriesBig`. `stop n bound s c` is the break test (`TrigEnv.stop`) on the term
+index, `bound = |t̂_n| + err_n` and the two sums; on a break the loop returns the state and `bound`.
+Deliberate difference: `fuel` bounds the number of steps, and `none` stands for a run the Go loop would
+continue. -/
+@[expose] noncomputable def seriesLoop (x : ℝ) (stop : ℕ → ℤ → ℤ → ℤ → Bool) :
     ℕ → SeriesState → Option (SeriesState × ℤ)
   | fuel, st =>
-    if stop st.n (|st.t| + st.tErr) then some (st, |st.t| + st.tErr)
+    if stop st.n (|st.t| + st.tErr) st.s st.c then some (st, |st.t| + st.tErr)
     else
       match fuel with
       | 0 => none
@@ -68,7 +69,7 @@ number of steps, and `none` stands for a run the Go loop would continue. -/
 
 /-- Model of `sketch.sinCosSeriesBig`: the loop, then each sum widened by its error bound plus the tail bound
 on both sides, converted outward by `fixedLower` and `fixedUpper`, and clamped to `[-1, 1]`. -/
-@[expose] noncomputable def sinCosSeriesBig (R : Rounding) (x : ℝ) (stop : ℕ → ℤ → Bool) (fuel : ℕ) :
+@[expose] noncomputable def sinCosSeriesBig (R : Rounding) (x : ℝ) (stop : ℕ → ℤ → ℤ → ℤ → Bool) (fuel : ℕ) :
     Option (Ival × Ival) :=
   match seriesLoop x stop fuel SeriesState.init with
   | none => none
@@ -174,13 +175,13 @@ theorem goErrStep_eq (m e : ℤ) (n : ℕ) (err : ℤ) (x : ℝ) (hx : x = m * 2
 
 /-! ### The invariant -/
 
-/-- The loop invariant: `0 ≤ err_n`, `|t̂_n - 2^256·x^n/n!| ≤ err_n`, and each sum within its error bound of
-`2^256` times the Taylor partial sum of its function over the first `n` terms. -/
+/-- The loop invariant: `0 ≤ err_n`, `|t̂_n - 2^192·x^n/n!| ≤ err_n`, and each sum within its error bound of
+`2^192` times the Taylor partial sum of its function over the first `n` terms. -/
 @[expose] def SeriesInv (x : ℝ) (st : SeriesState) : Prop :=
   0 ≤ st.tErr ∧
-  |(st.t : ℝ) - 2 ^ 256 * x ^ st.n / st.n !| ≤ (st.tErr : ℝ) ∧
-  |(st.s : ℝ) - 2 ^ 256 * ∑ j ∈ range st.n, (sinSign j : ℝ) * x ^ j / j !| ≤ (st.sErr : ℝ) ∧
-  |(st.c : ℝ) - 2 ^ 256 * ∑ j ∈ range st.n, (cosSign j : ℝ) * x ^ j / j !| ≤ (st.cErr : ℝ)
+  |(st.t : ℝ) - 2 ^ 192 * x ^ st.n / st.n !| ≤ (st.tErr : ℝ) ∧
+  |(st.s : ℝ) - 2 ^ 192 * ∑ j ∈ range st.n, (sinSign j : ℝ) * x ^ j / j !| ≤ (st.sErr : ℝ) ∧
+  |(st.c : ℝ) - 2 ^ 192 * ∑ j ∈ range st.n, (cosSign j : ℝ) * x ^ j / j !| ≤ (st.cErr : ℝ)
 
 theorem seriesInv_init (x : ℝ) : SeriesInv x SeriesState.init := by
   norm_num [SeriesInv, SeriesState.init]
@@ -213,13 +214,13 @@ theorem abs_tdiv_sub_lt (p : ℤ) (n : ℕ) : |((Int.tdiv p (n + 1) : ℤ) : ℝ
   have h2' : (Int.tmod p (n + 1) : ℝ) < (n : ℝ) + 1 := by exact_mod_cast h2
   exact ⟨h1', h2'⟩
 
-/-- One step of the term recursion keeps `|t̂ - 2^256·x^n/n!| ≤ err`. -/
+/-- One step of the term recursion keeps `|t̂ - 2^192·x^n/n!| ≤ err`. -/
 theorem term_step (x : ℝ) (n : ℕ) (t err : ℤ)
-    (herr : |(t : ℝ) - 2 ^ 256 * x ^ n / n !| ≤ (err : ℝ)) :
-    |((Int.tdiv ⌊(t : ℝ) * x⌋ (n + 1) : ℤ) : ℝ) - 2 ^ 256 * x ^ (n + 1) / (n + 1)!| ≤
+    (herr : |(t : ℝ) - 2 ^ 192 * x ^ n / n !| ≤ (err : ℝ)) :
+    |((Int.tdiv ⌊(t : ℝ) * x⌋ (n + 1) : ℤ) : ℝ) - 2 ^ 192 * x ^ (n + 1) / (n + 1)!| ≤
       ((⌈(err : ℝ) * |x| / (n + 1)⌉ + 2 : ℤ) : ℝ) := by
   set p := ⌊(t : ℝ) * x⌋ with hpdef
-  set τ := 2 ^ 256 * x ^ n / n ! with hτ
+  set τ := 2 ^ 192 * x ^ n / n ! with hτ
   have hdr : (0 : ℝ) < n + 1 := by positivity
   have e1 := abs_tdiv_sub_lt p n
   have e2 : |(p : ℝ) - t * x| < 1 := by
@@ -227,7 +228,7 @@ theorem term_step (x : ℝ) (n : ℕ) (t err : ℤ)
     constructor
     · linarith [Int.lt_floor_add_one ((t : ℝ) * x)]
     · linarith [Int.floor_le ((t : ℝ) * x)]
-  have hτ' : 2 ^ 256 * x ^ (n + 1) / ((n + 1)! : ℝ) = τ * x / (n + 1) := by
+  have hτ' : 2 ^ 192 * x ^ (n + 1) / ((n + 1)! : ℝ) = τ * x / (n + 1) := by
     rw [hτ, Nat.factorial_succ]
     push_cast
     field_simp
@@ -267,13 +268,13 @@ theorem seriesInv_step (x : ℝ) (st : SeriesState) (h : SeriesInv x st) :
   · rw [sum_range_succ]
     push_cast
     have e : (st.s : ℝ) + sinSign st.n * st.t -
-        2 ^ 256 * (∑ j ∈ range st.n, (sinSign j : ℝ) * x ^ j / j ! + sinSign st.n * x ^ st.n / st.n !) =
-        ((st.s : ℝ) - 2 ^ 256 * ∑ j ∈ range st.n, (sinSign j : ℝ) * x ^ j / j !) +
-          (sinSign st.n : ℝ) * ((st.t : ℝ) - 2 ^ 256 * x ^ st.n / st.n !) := by ring
+        2 ^ 192 * (∑ j ∈ range st.n, (sinSign j : ℝ) * x ^ j / j ! + sinSign st.n * x ^ st.n / st.n !) =
+        ((st.s : ℝ) - 2 ^ 192 * ∑ j ∈ range st.n, (sinSign j : ℝ) * x ^ j / j !) +
+          (sinSign st.n : ℝ) * ((st.t : ℝ) - 2 ^ 192 * x ^ st.n / st.n !) := by ring
     rw [e]
     have hsg' : |(sinSign st.n : ℝ)| ≤ 1 := by exact_mod_cast hsg
-    calc _ ≤ |(st.s : ℝ) - 2 ^ 256 * ∑ j ∈ range st.n, (sinSign j : ℝ) * x ^ j / j !| +
-          |(sinSign st.n : ℝ)| * |(st.t : ℝ) - 2 ^ 256 * x ^ st.n / st.n !| := by
+    calc _ ≤ |(st.s : ℝ) - 2 ^ 192 * ∑ j ∈ range st.n, (sinSign j : ℝ) * x ^ j / j !| +
+          |(sinSign st.n : ℝ)| * |(st.t : ℝ) - 2 ^ 192 * x ^ st.n / st.n !| := by
           rw [← abs_mul]; exact abs_add_le _ _
       _ ≤ _ := by
           have h0' : (0 : ℝ) ≤ st.tErr := by exact_mod_cast h0
@@ -282,19 +283,19 @@ theorem seriesInv_step (x : ℝ) (st : SeriesState) (h : SeriesInv x st) :
   · rw [sum_range_succ]
     push_cast
     have e : (st.c : ℝ) + cosSign st.n * st.t -
-        2 ^ 256 * (∑ j ∈ range st.n, (cosSign j : ℝ) * x ^ j / j ! + cosSign st.n * x ^ st.n / st.n !) =
-        ((st.c : ℝ) - 2 ^ 256 * ∑ j ∈ range st.n, (cosSign j : ℝ) * x ^ j / j !) +
-          (cosSign st.n : ℝ) * ((st.t : ℝ) - 2 ^ 256 * x ^ st.n / st.n !) := by ring
+        2 ^ 192 * (∑ j ∈ range st.n, (cosSign j : ℝ) * x ^ j / j ! + cosSign st.n * x ^ st.n / st.n !) =
+        ((st.c : ℝ) - 2 ^ 192 * ∑ j ∈ range st.n, (cosSign j : ℝ) * x ^ j / j !) +
+          (cosSign st.n : ℝ) * ((st.t : ℝ) - 2 ^ 192 * x ^ st.n / st.n !) := by ring
     rw [e]
-    calc _ ≤ |(st.c : ℝ) - 2 ^ 256 * ∑ j ∈ range st.n, (cosSign j : ℝ) * x ^ j / j !| +
-          |(cosSign st.n : ℝ)| * |(st.t : ℝ) - 2 ^ 256 * x ^ st.n / st.n !| := by
+    calc _ ≤ |(st.c : ℝ) - 2 ^ 192 * ∑ j ∈ range st.n, (cosSign j : ℝ) * x ^ j / j !| +
+          |(cosSign st.n : ℝ)| * |(st.t : ℝ) - 2 ^ 192 * x ^ st.n / st.n !| := by
           rw [← abs_mul]; exact abs_add_le _ _
       _ ≤ _ := by
           have := mul_le_mul (le_refl |(cosSign st.n : ℝ)|) ht (abs_nonneg _) (abs_nonneg _)
           linarith
 
 /-- Every state the loop returns satisfies the invariant, with `bound = |t̂| + err`. -/
-theorem seriesLoop_inv (x : ℝ) (stop : ℕ → ℤ → Bool) :
+theorem seriesLoop_inv (x : ℝ) (stop : ℕ → ℤ → ℤ → ℤ → Bool) :
     ∀ (fuel : ℕ) (st : SeriesState) (st' : SeriesState) (b : ℤ), SeriesInv x st →
       seriesLoop x stop fuel st = some (st', b) → SeriesInv x st' ∧ b = |st'.t| + st'.tErr := by
   intro fuel
@@ -315,10 +316,10 @@ theorem seriesLoop_inv (x : ℝ) (stop : ℕ → ℤ → Bool) :
       exact ⟨h, rfl⟩
     · exact ih _ st' b (seriesInv_step x st h) hl
 
-/-- A value `y` with `|2^256·y - s| ≤ w` lies between the outward conversions of `s - w` and `s + w`. -/
-theorem fixed_bracket (R : Rounding) (y : ℝ) (s w : ℤ) (h : |2 ^ 256 * y - s| ≤ (w : ℝ)) :
+/-- A value `y` with `|2^192·y - s| ≤ w` lies between the outward conversions of `s - w` and `s + w`. -/
+theorem fixed_bracket (R : Rounding) (y : ℝ) (s w : ℤ) (h : |2 ^ 192 * y - s| ≤ (w : ℝ)) :
     R.fixedLower (s - w) ≤ y ∧ y ≤ R.fixedUpper (s + w) := by
-  have hU : (0 : ℝ) < 2 ^ 256 := by positivity
+  have hU : (0 : ℝ) < 2 ^ 192 := by positivity
   rw [abs_le] at h
   constructor
   · refine (R.fixedLower_le _).trans ?_
@@ -334,7 +335,7 @@ theorem fixed_bracket (R : Rounding) (y : ℝ) (s w : ℤ) (h : |2 ^ 256 * y - s
 first interval contains `sin x` and the second `cos x`, for every real `x`, every stopping test and every
 fuel. The Go integer operations match the model's steps by `goTermStep_eq` and `goErrStep_eq`. Assumptions:
 A20 and A21 (the integer operations), A23 (`fixedLower`, `fixedUpper`), A28 (float64 values as reals). -/
-theorem sinCosSeriesBig_sound (R : Rounding) (x : ℝ) (stop : ℕ → ℤ → Bool) (fuel : ℕ) (S C : Ival)
+theorem sinCosSeriesBig_sound (R : Rounding) (x : ℝ) (stop : ℕ → ℤ → ℤ → ℤ → Bool) (fuel : ℕ) (S C : Ival)
     (h : sinCosSeriesBig R x stop fuel = some (S, C)) : S.Mem (sin x) ∧ C.Mem (cos x) := by
   unfold sinCosSeriesBig at h
   split at h
@@ -344,26 +345,26 @@ theorem sinCosSeriesBig_sound (R : Rounding) (x : ℝ) (stop : ℕ → ℤ → B
   obtain ⟨rfl, rfl⟩ := h
   obtain ⟨⟨h0, ht, hs, hc⟩, hb⟩ := seriesLoop_inv x stop fuel _ st bound (seriesInv_init x) hl
   obtain ⟨tsin, tcos⟩ := abs_sin_cos_sub_taylor_le x st.n
-  have hU : (0 : ℝ) < 2 ^ 256 := by positivity
-  -- the exact term bounds the tail: 2^256·|x|^n/n! ≤ |t̂| + err = bound
-  have htail : 2 ^ 256 * (|x| ^ st.n / st.n !) ≤ (bound : ℝ) := by
+  have hU : (0 : ℝ) < 2 ^ 192 := by positivity
+  -- the exact term bounds the tail: 2^192·|x|^n/n! ≤ |t̂| + err = bound
+  have htail : 2 ^ 192 * (|x| ^ st.n / st.n !) ≤ (bound : ℝ) := by
     rw [hb]
     push_cast
-    have e : 2 ^ 256 * (|x| ^ st.n / st.n !) = |2 ^ 256 * x ^ st.n / (st.n ! : ℝ)| := by
+    have e : 2 ^ 192 * (|x| ^ st.n / st.n !) = |2 ^ 192 * x ^ st.n / (st.n ! : ℝ)| := by
       rw [abs_div, abs_mul, abs_pow, abs_pow, abs_two,
         abs_of_pos (by positivity : (0 : ℝ) < st.n !)]
       ring
     rw [e]
-    have := abs_sub_abs_le_abs_sub (2 ^ 256 * x ^ st.n / (st.n ! : ℝ)) (st.t : ℝ)
+    have := abs_sub_abs_le_abs_sub (2 ^ 192 * x ^ st.n / (st.n ! : ℝ)) (st.t : ℝ)
     rw [abs_sub_comm] at ht
     linarith
   have key : ∀ (f sum : ℝ) (acc err : ℤ), |f - sum| ≤ |x| ^ st.n / st.n ! →
-      |(acc : ℝ) - 2 ^ 256 * sum| ≤ (err : ℝ) → |2 ^ 256 * f - acc| ≤ ((err + bound : ℤ) : ℝ) := by
+      |(acc : ℝ) - 2 ^ 192 * sum| ≤ (err : ℝ) → |2 ^ 192 * f - acc| ≤ ((err + bound : ℤ) : ℝ) := by
     intro f sum acc err hf hacc
-    have e : 2 ^ 256 * f - acc = 2 ^ 256 * (f - sum) - (acc - 2 ^ 256 * sum) := by ring
+    have e : 2 ^ 192 * f - acc = 2 ^ 192 * (f - sum) - (acc - 2 ^ 192 * sum) := by ring
     rw [e]
     push_cast
-    calc _ ≤ |2 ^ 256 * (f - sum)| + |(acc : ℝ) - 2 ^ 256 * sum| := abs_sub _ _
+    calc _ ≤ |2 ^ 192 * (f - sum)| + |(acc : ℝ) - 2 ^ 192 * sum| := abs_sub _ _
       _ ≤ _ := by
           rw [abs_mul, abs_of_pos hU]
           have := mul_le_mul_of_nonneg_left hf hU.le

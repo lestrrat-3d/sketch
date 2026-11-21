@@ -1340,7 +1340,7 @@
         "A23",
         "A28"
       ],
-      "sha256": "4d6f35b9b08cc1255be0c59910eb9689aaad6745740973c0212e67f5dea4cf49"
+      "sha256": "14ee25cd2ce5e0ccbe3625487e6ab6f6232b47c58779ce66ce75ebd503e12c60"
     },
     {
       "file": "interval_trig.go",
@@ -1352,7 +1352,7 @@
       "assumptions": [
         "A25"
       ],
-      "sha256": "9730186c451dd3f6c4e0aa54c8fa8b02e972de1ef24e1ec0763f3d8818a11440"
+      "sha256": "a3b1f93dbe37b6e06f5ed9e0e7c32d9455d807323e19030e9fca1fdac80994d4"
     },
     {
       "file": "interval_trig.go",

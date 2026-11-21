@@ -192,13 +192,18 @@ forbid fusing a multiply and an add.
 `math.Sin`, `math.Cos` and `math.Atan2` are not trusted for bounds
 (`interval_trig.go`):
 
-- `sinCosPoint` sums the Taylor series of `sin x` and `cos x` in 256-bit
+- `sinCosPoint` sums the Taylor series of `sin x` and `cos x` in 192-bit
   fixed-point integers, tracking an integer bound on the error each term
-  carries. It stops at a term past the series' peak that is below `2^-110`,
-  adds that term as the tail bound, and converts outward to float64. The
-  integers are 448-bit words (`seriesInt`), which hold every value the sums
-  reach for `|x| ≤ 64`; a product that does not fit sends the call to the
-  same sums in `math/big` (`sinCosSeriesBig`), which form the same integers.
+  carries (below `2^-107` for `|x| ≤ 64`). It stops at a term past the
+  series' peak that is below `2^-110`, or below `2^-70` of both partial sums,
+  adds that term as the tail bound, and converts outward to float64. Either
+  way each end lies within one float64 step of the exact value, or within
+  about `2^-107` of it near a zero. The Lean proof holds for any stopping
+  test, so the test sets only the width. The integers are 384-bit words
+  (`seriesInt`), which hold every value the sums reach for `|x| ≤ 64`, and
+  each step touches only the words a term occupies; a product that does not
+  fit sends the call to the same sums in `math/big` (`sinCosSeriesBig`),
+  which form the same integers.
   For `|x| > 64` it first subtracts `2πk`, with `k` the integer nearest `x/2π`,
   in exact rationals over the 40-decimal bracket of `π`. The result is an
   interval about one float64 step wide that contains `x − 2πk` for the exact

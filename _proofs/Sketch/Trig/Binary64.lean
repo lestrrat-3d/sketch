@@ -38,15 +38,15 @@ theorem rn_of_mem {f : ℝ} (hf : f ∈ M.F) : M.rn f = f := by
 @[expose] noncomputable def ratUpper (r : ℝ) : ℝ :=
   if ratExact M r then M.rn r else if M.rn r < r then M.nu (M.rn r) else M.rn r
 
-/-- Model of `sketch.fixedLower`: the exact value `v·2^-256` (`SetInt`, `SetMantExp`), its `Float64` result
+/-- Model of `sketch.fixedLower`: the exact value `v·2^-192` (`SetInt`, `SetMantExp`), its `Float64` result
 `M.rn` with accuracy `Above` exactly when that result exceeds the value (A23), and `down` as `M.nd`. -/
 @[expose] noncomputable def fixedLower (v : ℤ) : ℝ :=
-  let y : ℝ := v / 2 ^ 256
+  let y : ℝ := v / 2 ^ 192
   if M.rn y > y then M.nd (M.rn y) else M.rn y
 
 /-- Model of `sketch.fixedUpper`: as `fixedLower`, with accuracy `Below` and `up` as `M.nu` (A23). -/
 @[expose] noncomputable def fixedUpper (v : ℤ) : ℝ :=
-  let y : ℝ := v / 2 ^ 256
+  let y : ℝ := v / 2 ^ 192
   if M.rn y < y then M.nu (M.rn y) else M.rn y
 
 /-- `sketch.ratLower` rounds down. Assumptions A24, A28. -/
@@ -89,16 +89,16 @@ theorem ratUpper_ne (r : ℝ) (h : ratExact M r = false) : ratUpper M r ≠ r :=
     exact hne (rn_of_mem M (e ▸ M.nu_mem _ (M.rn_mem r)))
   · exact hne
 
-/-- `sketch.fixedLower` rounds `v·2^-256` down. Assumptions A23, A28. -/
-theorem fixedLower_le (v : ℤ) : fixedLower M v ≤ (v : ℝ) / 2 ^ 256 := by
+/-- `sketch.fixedLower` rounds `v·2^-192` down. Assumptions A23, A28. -/
+theorem fixedLower_le (v : ℤ) : fixedLower M v ≤ (v : ℝ) / 2 ^ 192 := by
   unfold fixedLower
   dsimp only
   split_ifs with h
   · exact M.down_le _
   · exact not_lt.mp h
 
-/-- `sketch.fixedUpper` rounds `v·2^-256` up. Assumptions A23, A28. -/
-theorem le_fixedUpper (v : ℤ) : (v : ℝ) / 2 ^ 256 ≤ fixedUpper M v := by
+/-- `sketch.fixedUpper` rounds `v·2^-192` up. Assumptions A23, A28. -/
+theorem le_fixedUpper (v : ℤ) : (v : ℝ) / 2 ^ 192 ≤ fixedUpper M v := by
   unfold fixedUpper
   dsimp only
   split_ifs with h
