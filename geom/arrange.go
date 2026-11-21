@@ -1532,6 +1532,14 @@ func (a *arranger) analyticPrepassWithLinePairFilter(filter bool) {
 			if linePairFilterOK && analyticLineBoxesDisjoint(operands[i].lineBox, operands[j].lineBox) {
 				continue
 			}
+			// Two axis-parallel lines that the kernel would answer with no event
+			// and no ambiguity: such a pair does nothing below, so it is skipped
+			// before the kernel runs. axisParallelLinesMiss repeats the kernel's
+			// own decision; it does not rely on the boxes.
+			if filter && operands[i].isLine && operands[j].isLine &&
+				axisParallelLinesMiss(&operands[i], &operands[j], a.scale) {
+				continue
+			}
 			events, ambiguous, ok := analyticEventsOf(si, sj, operands[i], operands[j], a.scale)
 			if !ok {
 				continue

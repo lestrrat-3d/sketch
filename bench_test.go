@@ -355,6 +355,38 @@ func BenchmarkProfiles(b *testing.B) {
 			s.Profiles()
 		}
 	})
+	b.Run("rectChain40", func(b *testing.B) {
+		s, _ := buildLargeFixture(b)
+		if _, err := s.Solve(b.Context()); err != nil {
+			b.Fatal(err)
+		}
+		b.ReportAllocs()
+		for b.Loop() {
+			s.Profiles()
+		}
+	})
+	b.Run("lineGrid16", func(b *testing.B) {
+		s := buildLineGridFixture(b, 16)
+		b.ReportAllocs()
+		for b.Loop() {
+			s.Profiles()
+		}
+	})
+}
+
+// buildLineGridFixture returns a sketch holding n horizontal and n vertical
+// lines, each crossing every line of the other direction, so the arrangement
+// cuts them into an (n-1) by (n-1) grid of square regions.
+func buildLineGridFixture(tb testing.TB, n int) *sketch.Sketch {
+	tb.Helper()
+	s := newFixtureSketch(tb)
+	span := float64(n+1) * 10
+	for k := 1; k <= n; k++ {
+		c := float64(k) * 10
+		s.CreateLine(s.CreatePoint(0, c), s.CreatePoint(span, c))
+		s.CreateLine(s.CreatePoint(c, 0), s.CreatePoint(c, span))
+	}
+	return s
 }
 
 func BenchmarkSVG(b *testing.B) {
@@ -486,6 +518,10 @@ func TestBenchFixtures(t *testing.T) {
 	t.Run("splines", func(t *testing.T) {
 		s := buildSplinesFixture(t)
 		require.NotEmpty(t, s.Profiles())
+	})
+	t.Run("lineGrid16", func(t *testing.T) {
+		s := buildLineGridFixture(t, 16)
+		require.Len(t, s.Profiles(), 15*15)
 	})
 	t.Run("gallery", func(t *testing.T) {
 		s := buildGalleryFixture(t)
