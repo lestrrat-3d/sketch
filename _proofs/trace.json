@@ -1460,6 +1460,23 @@
         "A40"
       ],
       "sha256": "02be4bf9a46e8a7934e3f61dbc2aab77056c7a6f5286b27629647346d8e3bac8"
+    },
+    {
+      "file": "profile_junction_line_line.go",
+      "func": "exactLineCrossing",
+      "role": "models",
+      "theorems": [
+        "Sketch/Arrange/LineCrossing.lean:Sketch.Arrange.exactLineCrossing_sound",
+        "Sketch/Arrange/LineCrossing.lean:Sketch.Arrange.exactLineCrossing_unique",
+        "Sketch/Arrange/LineCrossing.lean:Sketch.Arrange.exactLineCrossing_complete",
+        "Sketch/Arrange/LineCrossing.lean:Sketch.Arrange.exactLineCrossing_parallel"
+      ],
+      "assumptions": [
+        "A24",
+        "A30",
+        "A34"
+      ],
+      "sha256": "b1d1e85e8aa96020fc7051ed1a04cb93f32ddc6e0dedf9783cc5096fd90996a8"
     }
   ]
 }

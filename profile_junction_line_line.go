@@ -61,6 +61,10 @@ func (s *Sketch) CertifyLineLineJunction(left, right BoundaryEdge) ([2]float64, 
 	return point, true
 }
 
+// exactLineCrossing solves the two segments' carrier lines in exact rational arithmetic
+// and returns their crossing when it lies on both segments and is an exact binary64 point.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func exactLineCrossing(a, b *Line) ([2]float64, bool) {
 	coords := [...]float64{
 		a.Start.X(), a.Start.Y(), a.End.X(), a.End.Y(),

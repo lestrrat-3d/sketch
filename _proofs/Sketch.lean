@@ -1,5 +1,6 @@
 module  -- shake: keep-all --deprecated_module: ignore
 
+public import Sketch.Arrange.LineCrossing
 public import Sketch.Cone.Arc
 public import Sketch.Cone.Bernstein
 public import Sketch.Cone.Bezier
