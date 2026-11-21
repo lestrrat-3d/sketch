@@ -631,3 +631,25 @@ func TestDeadPointIsNotSerialized(t *testing.T) {
 		require.JSONEq(t, string(wdata), string(wagain))
 	})
 }
+
+// BenchmarkMarshalJSON serializes the solved 40-rectangle chain and the
+// one-of-every-entity gallery.
+func BenchmarkMarshalJSON(b *testing.B) {
+	large, _ := buildLargeFixture(b)
+	if _, err := large.Solve(b.Context()); err != nil {
+		b.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		s    *sketch.Sketch
+	}{{"large", large}, {"gallery", buildGalleryFixture(b)}} {
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				if _, err := json.Marshal(tc.s); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
