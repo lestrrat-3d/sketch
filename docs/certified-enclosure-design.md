@@ -241,7 +241,13 @@ current geometry, checks that the system is square and of full rank, and
 certifies a point box at `lo`. It then tries pieces left to right. Each
 attempt solves at the piece's midpoint (warm-started from the previous
 endpoint), runs the parametric test, and solves and certifies a point box at
-the piece's right end. A failed attempt halves the piece, except a tightness
+the piece's right end. The midpoint solve stops at residual norm `1e-6`, not
+the solver's `1e-10`: that point is only the test's centre `x̃`, and the
+soundness proof (`krawczyk_sound` in `_proofs/Sketch/Enclose/Krawczyk.lean`)
+needs `x̃` only to lie in `X`. The solves at `lo` and at each right end still
+run to `1e-10`. When an attempt fails, the midpoint is solved on to `1e-10` and
+the attempt runs once more before the piece is split. A failed attempt halves
+the piece, except a tightness
 failure, which shrinks it to the width the measured looseness predicts will
 pass. A success sizes the next attempt the same way, up to double. A piece
 narrower than `2^-30` of the range, or a piece count past the budget, refuses
@@ -434,5 +440,6 @@ Changing a dimension's value makes a held enclosure stale before any solve.
 - Uniqueness over the hull of several pieces.
 - Splitting a ranged target or a fixed box. Only the driving range is split
   into pieces.
-- A tolerance option: the float solves use the solver's default tolerance and
-  iteration budget, which only decide whether a certificate is attempted.
+- A tolerance option: the float solves use fixed tolerances (see Pieces) and
+  the solver's default iteration budget, which only decide whether a
+  certificate is attempted.
