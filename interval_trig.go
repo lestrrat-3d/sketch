@@ -44,22 +44,48 @@ const (
 	maxTrigArg   = 1 << 40
 )
 
-// trigFracBits is the fixed-point precision of the Taylor sums: every term is
-// held as an integer count of 2^-trigFracBits. The carried error of a term
-// stays below 2^95 units for |x| ≤ maxTaylorArg (2^84 measured at |x| = 64),
-// so the sums' error is below 2^-107 there, and far smaller for small |x|.
+// The Taylor sums are fixed point: every term is held as an integer count of
+// 2^-F, for the precision F that seriesFracBits picks from the argument. Any F
+// gives a sound enclosure; F only sets how much error the integer steps carry.
+// That error, counted in units of 2^-F, does not depend on F: it stays below
+// 2^95 units for |x| ≤ maxTaylorArg (2^84 measured at |x| = 64) and below 2^8
+// for |x| ≤ 4. trigFracBits, the largest F, keeps the sums' error below 2^-107
+// at |x| = 64; the smaller F keep it below 2^-112 over their ranges.
 //
 // The series ends past the peak once the tail bound is certainly below
 // 2^-trigEpsBits, or below 2^-trigRelBits of both partial sums. The first
 // keeps a sine or cosine near zero tight to about 2^-107; the second stops a
 // value away from zero once the tail is a 2^-17 fraction of its last float
 // place (2^-70 against float64's 2^-53), so each end of the outward
-// conversion still lies within one float of the exact value.
+// conversion still lies within one float of the exact value. Both tests read
+// real thresholds, so the term at which the series ends barely depends on F.
 const (
 	trigFracBits = 192
 	trigEpsBits  = 110
 	trigRelBits  = 70
 )
+
+// pairFracBits is the precision of the sums sinCosSeriesPair holds in two
+// 64-bit words, and pairMaxArg the largest argument it takes.
+const (
+	pairFracBits = 120
+	pairMaxArg   = 4
+)
+
+// seriesFracBits picks the fixed-point precision of the Taylor sums at x. For
+// 2^-40 ≤ |x| ≤ pairMaxArg it is pairFracBits, which keeps every term and
+// both sums of the series within 128 bits (see sinCosSeriesPair); the carried
+// error stays below 2^-112, under the stop tests' own tail of 2^-110 or
+// 2^-70 of the value, so the float enclosure almost never moves. Below 2^-40
+// the full precision stays: there sin x ≈ x has float places finer than
+// 2^-120, and the sum is a few terms long whatever F is. Beyond pairMaxArg
+// the carried error grows like e^|x| units and needs trigFracBits.
+func seriesFracBits(x float64) uint {
+	if ax := math.Abs(x); ax >= 0x1p-40 && ax <= pairMaxArg {
+		return pairFracBits
+	}
+	return trigFracBits
+}
 
 // Each slot holds one completed point enclosure. Collisions only cause a
 // recomputation; the Taylor path still decides every result.
@@ -104,11 +130,11 @@ func ratUpper(r *big.Rat) float64 {
 func ratInterval(lo, hi *big.Rat) Interval { return Interval{ratLower(lo), ratUpper(hi)} }
 
 // fixedLower and fixedUpper convert a fixed-point integer (a count of
-// 2^-trigFracBits) to the nearest float64 at or below / at or above it.
+// 2^-fb) to the nearest float64 at or below / at or above it.
 // Lean proofs depend on this function; see _proofs/trace.json.
-func fixedLower(v *big.Int) float64 {
+func fixedLower(v *big.Int, fb uint) float64 {
 	f := new(big.Float).SetInt(v)
-	f.SetMantExp(f, -trigFracBits)
+	f.SetMantExp(f, -int(fb))
 	r, acc := f.Float64()
 	if acc == big.Above {
 		return down(r)
@@ -118,9 +144,9 @@ func fixedLower(v *big.Int) float64 {
 
 // fixedUpper converts a fixed-point integer to the nearest float64 at or above it.
 // Lean proofs depend on this function; see _proofs/trace.json.
-func fixedUpper(v *big.Int) float64 {
+func fixedUpper(v *big.Int, fb uint) float64 {
 	f := new(big.Float).SetInt(v)
-	f.SetMantExp(f, -trigFracBits)
+	f.SetMantExp(f, -int(fb))
 	r, acc := f.Float64()
 	if acc == big.Below {
 		return up(r)
@@ -140,7 +166,8 @@ func fixedUpper(v *big.Int) float64 {
 // after the terms below n is at most |x|^n/n!, whatever n the test picked, so
 // the test decides only how tight the result is, never whether it holds.
 //
-// The terms are fixed-point integers. x is exactly m·2^e with m an integer, so
+// The terms are fixed-point integers, counts of 2^-F for F = seriesFracBits(x).
+// x is exactly m·2^e with m an integer, so
 // t_{n+1} = t_n·m·2^e/(n+1) costs one exact multiply, one shift and one integer
 // division; the shift and the division each lose under one unit. The error
 // carried by the computed term is tracked alongside it as an integer bound,
@@ -160,33 +187,41 @@ func sinCosPoint(x float64) (Interval, Interval, bool) {
 	if held := slot.Load(); held != nil && held.key == key {
 		return held.sin, held.cos, true
 	}
-	sin, cos, fits := sinCosSeriesWords(x)
+	fb := seriesFracBits(x)
+	var sin, cos Interval
+	var fits bool
+	if fb == pairFracBits {
+		sin, cos, fits = sinCosSeriesPair(x)
+	} else {
+		sin, cos, fits = sinCosSeriesWords(x)
+	}
 	if !fits {
-		sin, cos = sinCosSeriesBig(x)
+		sin, cos = sinCosSeriesBig(x, fb)
 	}
 	slot.Store(&trigPointEntry{key: key, sin: sin, cos: cos})
 	return sin, cos, true
 }
 
-// sinCosSeriesBig sums sinCosPoint's series in math/big integers, for any
-// |x| ≤ maxTaylorArg. sinCosSeriesWords computes the same integers in fixed
-// width and is the one sinCosPoint runs; this path stands behind it for a sum
-// that would not fit that width.
+// sinCosSeriesBig sums sinCosPoint's series in math/big integers counting
+// 2^-fb, for any |x| ≤ maxTaylorArg and trigEpsBits < fb ≤ trigFracBits.
+// sinCosSeriesPair (at pairFracBits) and sinCosSeriesWords (at trigFracBits)
+// compute the same integers in fixed width and are the ones sinCosPoint runs;
+// this path stands behind them for a sum that would not fit that width.
 //
 // Lean proofs depend on this function; see _proofs/trace.json.
-func sinCosSeriesBig(x float64) (Interval, Interval) {
+func sinCosSeriesBig(x float64, fb uint) (Interval, Interval) {
 	frac, exp := math.Frexp(x)
 	m := big.NewInt(int64(frac * (1 << 53))) // exact: frac has 53 significant bits
 	e := exp - 53
 	am := new(big.Int).Abs(m)
 	ax := math.Abs(x)
 
-	one := new(big.Int).Lsh(big.NewInt(1), trigFracBits)
-	eps := new(big.Int).Lsh(big.NewInt(1), trigFracBits-trigEpsBits)
+	one := new(big.Int).Lsh(big.NewInt(1), fb)
+	eps := new(big.Int).Lsh(big.NewInt(1), fb-trigEpsBits)
 	// relMax only saves work: past the peak a partial sum lies within the
-	// bound of a value in [-1, 1], so a bound of 2^(trigFracBits+1-trigRelBits)
+	// bound of a value in [-1, 1], so a bound of 2^(fb+1-trigRelBits)
 	// units or more cannot pass the relative test.
-	relMax := new(big.Int).Lsh(big.NewInt(1), trigFracBits+1-trigRelBits)
+	relMax := new(big.Int).Lsh(big.NewInt(1), fb+1-trigRelBits)
 	s, c := new(big.Int), new(big.Int)
 	sErr, cErr := new(big.Int), new(big.Int)
 	t := new(big.Int).Set(one)
@@ -243,8 +278,8 @@ func sinCosSeriesBig(x float64) (Interval, Interval) {
 	// bound now holds |t̂_n| + err_n ≥ |t_n|, the tail bound for both series.
 	sw := new(big.Int).Add(sErr, bound)
 	cw := new(big.Int).Add(cErr, bound)
-	sin := Interval{fixedLower(new(big.Int).Sub(s, sw)), fixedUpper(new(big.Int).Add(s, sw))}
-	cos := Interval{fixedLower(new(big.Int).Sub(c, cw)), fixedUpper(new(big.Int).Add(c, cw))}
+	sin := Interval{fixedLower(new(big.Int).Sub(s, sw), fb), fixedUpper(new(big.Int).Add(s, sw), fb)}
+	cos := Interval{fixedLower(new(big.Int).Sub(c, cw), fb), fixedUpper(new(big.Int).Add(c, cw), fb)}
 	return clampUnit(sin), clampUnit(cos)
 }
 
@@ -464,14 +499,14 @@ func (a *seriesInt) addSignedN(b *seriesInt, w int, neg bool) {
 	a.addN(b, w)
 }
 
-// fixedFloat converts the two's-complement count of 2^-trigFracBits a to the
-// float64 nearest it at or below (upward false) or at or above (upward true):
-// the value fixedLower or fixedUpper returns for the same integer, as each is
-// the one float with that property. The top 53 bits of the magnitude convert
-// exactly, a nonzero magnitude being at least 2^-trigFracBits, far above the
-// subnormals; the truncation they leave out moves the result one float
-// outward unless it already lies on the requested side.
-func (a seriesInt) fixedFloat(upward bool) float64 {
+// fixedFloat converts the two's-complement count of 2^-fb a to the float64
+// nearest it at or below (upward false) or at or above (upward true): the
+// value fixedLower or fixedUpper returns for the same integer and fb, as each
+// is the one float with that property. The top 53 bits of the magnitude
+// convert exactly, a nonzero magnitude being at least 2^-fb ≥ 2^-trigFracBits,
+// far above the subnormals; the truncation they leave out moves the result
+// one float outward unless it already lies on the requested side.
+func (a seriesInt) fixedFloat(upward bool, fb uint) float64 {
 	neg := a[seriesWords-1]>>63 != 0
 	if neg {
 		var mag seriesInt
@@ -487,7 +522,7 @@ func (a seriesInt) fixedFloat(upward bool) float64 {
 	}
 	shift := max(64*top+bits.Len64(a[top])-53, 0)
 	inexact := a.shrSticky(uint(shift))
-	f := math.Ldexp(float64(a[0]), shift-trigFracBits)
+	f := math.Ldexp(float64(a[0]), shift-int(fb))
 	if neg {
 		f = -f
 	}
@@ -501,11 +536,11 @@ func (a seriesInt) fixedFloat(upward bool) float64 {
 	}
 }
 
-// sinCosSeriesWords is sinCosSeriesBig in seriesInt arithmetic, for any
-// |x| ≤ maxTaylorArg. It reports false, having computed nothing it returns,
-// when a product does not fit seriesWords. Otherwise every integer it forms
+// sinCosSeriesWords is sinCosSeriesBig at fb = trigFracBits in seriesInt
+// arithmetic, for any |x| ≤ maxTaylorArg. It reports false, having computed
+// nothing it returns, when a product does not fit seriesWords. Otherwise every integer it forms
 // equals the one sinCosSeriesBig forms at the same step, so the two return
-// identical intervals:
+// identical intervals for the same x:
 //
 //   - x = m·2^-sh with sh = 53 − exp ≥ 46, as |x| ≤ 64 leaves exp ≤ 7.
 //   - big.Int's Rsh floors and its Quo truncates toward zero, so the next term
@@ -595,9 +630,183 @@ func sinCosSeriesWords(x float64) (Interval, Interval, bool) {
 	sHi.add(&sw)
 	cLo.sub(&cw)
 	cHi.add(&cw)
-	sin := Interval{sLo.fixedFloat(false), sHi.fixedFloat(true)}
-	cos := Interval{cLo.fixedFloat(false), cHi.fixedFloat(true)}
+	sin := Interval{sLo.fixedFloat(false, trigFracBits), sHi.fixedFloat(true, trigFracBits)}
+	cos := Interval{cLo.fixedFloat(false, trigFracBits), cHi.fixedFloat(true, trigFracBits)}
 	return clampUnit(sin), clampUnit(cos), true
+}
+
+// sinCosSeriesPair is sinCosSeriesBig at fb = pairFracBits in two 64-bit
+// words, for 2^-40 ≤ |x| ≤ pairMaxArg. It reports false, having computed
+// nothing it returns, when a shifted product does not fit two words or the
+// argument is outside that range. Otherwise every integer it forms equals the
+// one sinCosSeriesBig forms at the same step, by the rounding argument in the
+// doc comment of sinCosSeriesWords, so the two return identical intervals:
+//
+//   - x = m·2^-sh with 50 ≤ sh ≤ 92, as 2^-40 ≤ |x| ≤ 4 gives -39 ≤ exp ≤ 3.
+//   - Every term fits 128 bits: the exact term 2^120·|x|^n/n! is below
+//     2^120·4^4/4! < 2^124, and the computed one exceeds it by its error
+//     bound. That bound obeys err ≤ err·|x|/(n+1) + 3, so it stays below
+//     3·e^4 < 2^8; its product with |m| < 2^53 fits two words, and the shift
+//     by sh leaves one.
+//   - Each sum stays below 2^120·e^4 plus the summed errors, under 2^126, so
+//     it fits a two's-complement pair. The series stops by n = 64 (the eps
+//     test passes once 2^120·4^n/n! + 2^8 < 2^10), so sErr and cErr, sums of
+//     at most 64 bounds below 2^8, fit one word.
+//   - The term step forms the product t·|m| in three words, shifts it by sh
+//     with its sticky bit, and requires the third word of the result to be
+//     zero; the error step does the same in two words.
+//   - The break test reads the same integers: the bound must be below 2^64 for
+//     either half to pass (2^(120-110) and 2^(121-70) are both below it), and
+//     bound·2^70 ≤ |s| holds exactly when bound ≤ ⌊|s|/2^70⌋.
+//   - The final integers are sign-extended to seriesInt and converted by
+//     fixedFloat.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
+func sinCosSeriesPair(x float64) (Interval, Interval, bool) {
+	ax := math.Abs(x)
+	if !(ax >= 0x1p-40 && ax <= pairMaxArg) {
+		return Interval{}, Interval{}, false
+	}
+	frac, exp := math.Frexp(x)
+	m := int64(frac * (1 << 53)) // exact: frac has 53 significant bits
+	mNeg := m < 0
+	am := uint64(m)
+	if mNeg {
+		am = uint64(-m)
+	}
+	sh := uint(53 - exp)
+
+	// s and c are two's-complement pairs (hi, lo); t is a magnitude pair with
+	// the sign tNeg; the error bounds are single words.
+	var sHi, sLo, cHi, cLo, tLo, tErr, sErr, cErr, bound uint64
+	tHi := uint64(1) << (pairFracBits - 64)
+	tNeg := false
+	for n := 0; ; n++ {
+		if float64(n) > ax+1 {
+			b, carry := bits.Add64(tLo, tErr, 0)
+			if tHi == 0 && carry == 0 && (b < 1<<(pairFracBits-trigEpsBits) || b < 1<<(pairFracBits+1-trigRelBits) &&
+				b <= pairRelMag(sHi, sLo) && b <= pairRelMag(cHi, cLo)) {
+				bound = b
+				break
+			}
+		}
+		switch n % 4 {
+		case 0:
+			cHi, cLo = pairAddSigned(cHi, cLo, tHi, tLo, tNeg)
+			cErr += tErr
+		case 1:
+			sHi, sLo = pairAddSigned(sHi, sLo, tHi, tLo, tNeg)
+			sErr += tErr
+		case 2:
+			cHi, cLo = pairAddSigned(cHi, cLo, tHi, tLo, !tNeg)
+			cErr += tErr
+		case 3:
+			sHi, sLo = pairAddSigned(sHi, sLo, tHi, tLo, !tNeg)
+			sErr += tErr
+		}
+		d := uint64(n + 1)
+		pNeg := tNeg != mNeg
+		// t ← ⌊t·|m|/2^sh⌋, one more when the product is negative and a set bit
+		// was shifted out (the floor of a negative value), then ⌊t/(n+1)⌋.
+		h0, w0 := bits.Mul64(tLo, am)
+		w2, h1 := bits.Mul64(tHi, am)
+		w1, carry := bits.Add64(h0, h1, 0)
+		w2 += carry
+		var r0, r1 uint64
+		var sticky bool
+		if sh < 64 {
+			sticky = w0&(uint64(1)<<sh-1) != 0
+			r0 = w0>>sh | w1<<(64-sh)
+			r1 = w1>>sh | w2<<(64-sh)
+			if w2>>sh != 0 {
+				return Interval{}, Interval{}, false
+			}
+		} else {
+			s2 := sh - 64
+			sticky = w0 != 0 || w1&(uint64(1)<<s2-1) != 0
+			r0 = w1>>s2 | w2<<(64-s2)
+			r1 = w2 >> s2
+		}
+		if sticky && pNeg {
+			r0, carry = bits.Add64(r0, 1, 0)
+			r1 += carry
+		}
+		var rem uint64
+		tHi, rem = bits.Div64(0, r1, d)
+		tLo, _ = bits.Div64(rem, r0, d)
+		tNeg = pNeg
+		// tErr ← ⌈⌈tErr·|m|/2^sh⌉/(n+1)⌉ + 2.
+		eh, el := bits.Mul64(tErr, am)
+		var v uint64
+		if sh < 64 {
+			sticky = el&(uint64(1)<<sh-1) != 0
+			v = el>>sh | eh<<(64-sh)
+			if eh>>sh != 0 {
+				return Interval{}, Interval{}, false
+			}
+		} else {
+			sticky = el != 0 || eh&(uint64(1)<<(sh-64)-1) != 0
+			v = eh >> (sh - 64)
+		}
+		if sticky {
+			v++
+		}
+		q := v / d
+		if v%d != 0 {
+			q++
+		}
+		tErr = q + 2
+	}
+	sw, cw := sErr+bound, cErr+bound
+	sin := Interval{pairFixed(pairSub(sHi, sLo, sw)).fixedFloat(false, pairFracBits),
+		pairFixed(pairAdd(sHi, sLo, sw)).fixedFloat(true, pairFracBits)}
+	cos := Interval{pairFixed(pairSub(cHi, cLo, cw)).fixedFloat(false, pairFracBits),
+		pairFixed(pairAdd(cHi, cLo, cw)).fixedFloat(true, pairFracBits)}
+	return clampUnit(sin), clampUnit(cos), true
+}
+
+// pairAddSigned adds the magnitude (bHi, bLo) to the two's-complement pair
+// (hi, lo), or subtracts it when neg is set.
+func pairAddSigned(hi, lo, bHi, bLo uint64, neg bool) (uint64, uint64) {
+	var c uint64
+	if neg {
+		lo, c = bits.Sub64(lo, bLo, 0)
+		hi, _ = bits.Sub64(hi, bHi, c)
+		return hi, lo
+	}
+	lo, c = bits.Add64(lo, bLo, 0)
+	hi, _ = bits.Add64(hi, bHi, c)
+	return hi, lo
+}
+
+// pairAdd and pairSub add and subtract the word v to and from the
+// two's-complement pair (hi, lo).
+func pairAdd(hi, lo, v uint64) (uint64, uint64) { return pairAddSigned(hi, lo, 0, v, false) }
+
+func pairSub(hi, lo, v uint64) (uint64, uint64) { return pairAddSigned(hi, lo, 0, v, true) }
+
+// pairRelMag returns ⌊|v|/2^trigRelBits⌋ for the two's-complement pair v.
+// The low word lies below 2^trigRelBits, so only its borrow into the negated
+// high word matters.
+func pairRelMag(hi, lo uint64) uint64 {
+	if hi>>63 != 0 {
+		_, c := bits.Sub64(0, lo, 0)
+		hi, _ = bits.Sub64(0, hi, c)
+	}
+	return hi >> (trigRelBits - 64)
+}
+
+// pairFixed sign-extends the two's-complement pair (hi, lo) to a seriesInt.
+func pairFixed(hi, lo uint64) seriesInt {
+	ext := uint64(0)
+	if hi>>63 != 0 {
+		ext = ^uint64(0)
+	}
+	v := seriesInt{lo, hi}
+	for i := 2; i < seriesWords; i++ {
+		v[i] = ext
+	}
+	return v
 }
 
 // reduceTurns encloses x − 2πk, for k the integer nearest x/2π, over every π in
@@ -723,9 +932,15 @@ func sinCosRange(q Interval) (Interval, Interval, bool) {
 	return sin, cos, true
 }
 
-// twoPiTimes encloses k·2π.
+// twoPiTimes encloses k·2π. Within the table, k·2π is the multiple 4k of π/2,
+// whose halfPiTable entry rounds the same rationals 2k·piLo and 2k·piHi
+// outward, so it is the interval the exact path below returns.
 // Lean proofs depend on this function; see _proofs/trace.json.
 func twoPiTimes(k int64) Interval {
+	if k >= -halfPiTableK/4 && k <= halfPiTableK/4 {
+		br := &halfPiTable[4*k+halfPiTableK]
+		return Interval{br.lo, br.hi}
+	}
 	kk := big.NewRat(2*k, 1)
 	a := new(big.Rat).Mul(kk, piLo)
 	b := new(big.Rat).Mul(kk, piHi)

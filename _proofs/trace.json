@@ -1232,7 +1232,7 @@
         "A23",
         "A28"
       ],
-      "sha256": "8aeec90e412593d67d5542a157309108390c0f6579b75d6743997cb16568d785"
+      "sha256": "5fdd1c6b9717b3e3484cd88adb9105496529578b0b9076d063b494a19f4c8700"
     },
     {
       "file": "interval_trig.go",
@@ -1245,7 +1245,7 @@
         "A23",
         "A28"
       ],
-      "sha256": "e93d97065f0c2e9985e4fc65d84b65c9b14f2d4802dbf265f2a3f53e30e92207"
+      "sha256": "c0ddf3d6df05ed2b32e98a37ba45613105c3254fe27ca8def0aab9a8acb78f99"
     },
     {
       "file": "interval_trig.go",
@@ -1359,9 +1359,10 @@
         "A22",
         "A25",
         "A26",
-        "A28"
+        "A28",
+        "A150"
       ],
-      "sha256": "ddc845bba747c3aa08155772604418e1f0a73413d440112cd33daa64c87fc446"
+      "sha256": "61e12a47f6c408012ecc91248155a25e0a401ed56356cf57b9d594c326427107"
     },
     {
       "file": "interval_trig.go",
@@ -1395,7 +1396,19 @@
         "A23",
         "A28"
       ],
-      "sha256": "14ee25cd2ce5e0ccbe3625487e6ab6f6232b47c58779ce66ce75ebd503e12c60"
+      "sha256": "c755d8353b60a5563a64709701a9efce10243c9e1c2602a71d5574b37ad97c6d"
+    },
+    {
+      "file": "interval_trig.go",
+      "func": "sinCosSeriesPair",
+      "role": "assumes",
+      "theorems": [
+        "Sketch/Trig/Range.lean:Sketch.Trig.sinCosPoint_sound"
+      ],
+      "assumptions": [
+        "A150"
+      ],
+      "sha256": "ebb515e347b1532a8e4fb9b66a09d26f4a3a53c1708044fb54a8a2693b0ede73"
     },
     {
       "file": "interval_trig.go",
@@ -1407,7 +1420,7 @@
       "assumptions": [
         "A25"
       ],
-      "sha256": "a3b1f93dbe37b6e06f5ed9e0e7c32d9455d807323e19030e9fca1fdac80994d4"
+      "sha256": "923b6e7d6a3a12b3ab269e90bd12f7000e4150042e16bac5be7f064075047ee3"
     },
     {
       "file": "interval_trig.go",
@@ -1422,7 +1435,7 @@
         "A24",
         "A70"
       ],
-      "sha256": "4d6ae1c52f049d0e5f7d8533827a1ccd743342496249d03cfb49f60cf21c4196"
+      "sha256": "c7c2a0a8b9b8b4ed16a45bf9ed047d153c6332a63776240a0dd4e8c4073a852a"
     },
     {
       "file": "probe.go",

@@ -104,12 +104,25 @@ func TestSinCosPointEnclosesExactValue(t *testing.T) {
 }
 
 // requireSameSeries asserts that sinCosSeriesWords fits at x and returns
-// exactly sinCosSeriesBig's intervals, bit for bit.
+// exactly sinCosSeriesBig's intervals at trigFracBits, bit for bit, and that
+// sinCosSeriesPair returns those of sinCosSeriesBig at pairFracBits wherever
+// it takes x.
 func requireSameSeries(t *testing.T, x float64) {
 	t.Helper()
+	if ax := math.Abs(x); ax >= 0x1p-40 && ax <= pairMaxArg {
+		sin, cos, fits := sinCosSeriesPair(x)
+		require.True(t, fits, "x=%v (%#x) fits two words", x, math.Float64bits(x))
+		wantSin, wantCos := sinCosSeriesBig(x, pairFracBits)
+		require.Equal(t, [4]uint64{math.Float64bits(wantSin.Lo), math.Float64bits(wantSin.Hi), math.Float64bits(wantCos.Lo), math.Float64bits(wantCos.Hi)},
+			[4]uint64{math.Float64bits(sin.Lo), math.Float64bits(sin.Hi), math.Float64bits(cos.Lo), math.Float64bits(cos.Hi)},
+			"x=%v (%#x): pair sin %v cos %v, want sin %v cos %v", x, math.Float64bits(x), sin, cos, wantSin, wantCos)
+	} else {
+		_, _, fits := sinCosSeriesPair(x)
+		require.False(t, fits, "x=%v is outside the pair's range", x)
+	}
 	sin, cos, fits := sinCosSeriesWords(x)
 	require.True(t, fits, "x=%v (%#x) fits the fixed width", x, math.Float64bits(x))
-	wantSin, wantCos := sinCosSeriesBig(x)
+	wantSin, wantCos := sinCosSeriesBig(x, trigFracBits)
 	got := [4]uint64{math.Float64bits(sin.Lo), math.Float64bits(sin.Hi), math.Float64bits(cos.Lo), math.Float64bits(cos.Hi)}
 	want := [4]uint64{math.Float64bits(wantSin.Lo), math.Float64bits(wantSin.Hi), math.Float64bits(wantCos.Lo), math.Float64bits(wantCos.Hi)}
 	require.Equal(t, want, got, "x=%v (%#x): sin %v cos %v, want sin %v cos %v", x, math.Float64bits(x), sin, cos, wantSin, wantCos)
@@ -139,6 +152,18 @@ func TestSinCosSeriesWordsMatchesBig(t *testing.T) {
 		}
 		xs = append(xs, mag)
 	}
+	// The two-word path's range, its ends and the floats just past them.
+	for _, v := range []float64{pairMaxArg, 0x1p-40} {
+		for _, w := range []float64{v, math.Nextafter(v, 0), math.Nextafter(v, math.Inf(1))} {
+			xs = append(xs, w, -w)
+		}
+	}
+	for range 3000 {
+		xs = append(xs, (rng.Float64()*2-1)*pairMaxArg)
+	}
+	for range 1000 {
+		xs = append(xs, math.Ldexp(1+rng.Float64(), -rng.Intn(42)))
+	}
 	for _, x := range xs {
 		requireSameSeries(t, x)
 	}
@@ -163,7 +188,7 @@ func TestSinCosSeriesWordsMatchesBig(t *testing.T) {
 				seen++
 				x := math.Float64frombits(held.key)
 				requireSameSeries(t, x)
-				wantSin, wantCos := sinCosSeriesBig(x)
+				wantSin, wantCos := sinCosSeriesBig(x, seriesFracBits(x))
 				require.Equal(t, [2]Interval{wantSin, wantCos}, [2]Interval{held.sin, held.cos}, "x=%v as cached", x)
 			}
 			require.Greater(t, seen, 100, "the run over %v evaluated its trigonometry through the cache", rng)
@@ -238,6 +263,23 @@ func TestSeriesIntWidthOps(t *testing.T) {
 		got = acc
 		got.subN(&a, w)
 		require.Zero(t, new(big.Int).Mod(new(big.Int).Sub(accv, av), limit).Cmp(toBig(&got)), "subN")
+	}
+}
+
+// TestTwoPiTimesMatchesRats checks that twoPiTimes returns, on its table path
+// and past it, the outward rounding of the exact rationals 2k·piLo and
+// 2k·piHi, bit for bit.
+func TestTwoPiTimesMatchesRats(t *testing.T) {
+	for k := int64(-halfPiTableK/4 - 3); k <= halfPiTableK/4+3; k++ {
+		a := new(big.Rat).Mul(big.NewRat(2*k, 1), piLo)
+		b := new(big.Rat).Mul(big.NewRat(2*k, 1), piHi)
+		if k < 0 {
+			a, b = b, a
+		}
+		want := Interval{ratLower(a), ratUpper(b)}
+		got := twoPiTimes(k)
+		require.Equal(t, [2]uint64{math.Float64bits(want.Lo), math.Float64bits(want.Hi)},
+			[2]uint64{math.Float64bits(got.Lo), math.Float64bits(got.Hi)}, "twoPiTimes(%d) = %v, want %v", k, got, want)
 	}
 }
 
@@ -548,8 +590,9 @@ func TestIntervalArithmeticEnclosesExactResults(t *testing.T) {
 }
 
 // BenchmarkSinCosSeries sums the certified series at arguments of four sizes,
-// bypassing the point cache so every call runs the series: about 0.5 (a small
-// crank angle), 3 (near π), 30 and 60 (the tenth turn, the longest sums).
+// bypassing the point cache so every call runs the series sinCosPoint picks:
+// about 0.5 (a small crank angle), 3 (near π), 30 and 60 (the tenth turn, the
+// longest sums).
 func BenchmarkSinCosSeries(b *testing.B) {
 	for _, mag := range []float64{0.5, 3, 30, 60} {
 		xs := make([]float64, 256)
@@ -563,7 +606,15 @@ func BenchmarkSinCosSeries(b *testing.B) {
 		b.Run(strconv.FormatFloat(mag, 'g', -1, 64), func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; b.Loop(); i++ {
-				if _, _, fits := sinCosSeriesWords(xs[i%len(xs)]); !fits {
+				x := xs[i%len(xs)]
+				fb := seriesFracBits(x)
+				if fb == pairFracBits {
+					if _, _, fits := sinCosSeriesPair(x); fits {
+						continue
+					}
+					b.Fatal("the series does not fit two words")
+				}
+				if _, _, fits := sinCosSeriesWords(x); !fits {
 					b.Fatal("the series does not fit the fixed width")
 				}
 			}

@@ -13,8 +13,8 @@ and `min` on them.
 `sketch.ratLower` and `sketch.ratUpper` (exact rational to float, A24) and `sketch.fixedLower` and
 `sketch.fixedUpper` (fixed-point integer to float, A23). Each field is a hypothesis carried by an assumption
 row, not a model of the Go code. `TrigEnv` collects the decisions the Go code computes in float64 and the
-proofs take as inputs: the series' stopping test, the number of whole turns `sketch.reduceTurns` removes, and
-`sketch.sinCosRange`'s width test and `k` range. Only the `k` range carries a hypothesis (A27); soundness
+proofs take as inputs: the series' fixed-point precision and stopping test, the number of whole turns
+`sketch.reduceTurns` removes, and `sketch.sinCosRange`'s width test and `k` range. Only the `k` range carries a hypothesis (A27); soundness
 holds whatever the other decisions are.
 
 `Rounding.exact` and `TrigEnv.exact` show the fields are jointly satisfiable, so no theorem about an
@@ -58,45 +58,47 @@ theorem hull_mem_right {a b : Ival} {y : ℝ} (h : b.Mem y) : (hull a b).Mem y :
 * `ratLower r ≤ r ≤ ratUpper r` for an exact rational `r` (A24).
 * `ratExact r` is the `exact` flag of `big.Rat.Float64`; when it is false, neither conversion returns `r`
   itself (A24).
-* `fixedLower v ≤ v / 2^192 ≤ fixedUpper v` for a fixed-point integer `v` (A23). -/
+* `fixedLower F v ≤ v / 2^F ≤ fixedUpper F v` for a fixed-point integer `v` counting `2^-F` (A23). -/
 structure Rounding where
   ratLower : ℝ → ℝ
   ratUpper : ℝ → ℝ
   ratExact : ℝ → Bool
-  fixedLower : ℤ → ℝ
-  fixedUpper : ℤ → ℝ
+  fixedLower : ℕ → ℤ → ℝ
+  fixedUpper : ℕ → ℤ → ℝ
   ratLower_le : ∀ r, ratLower r ≤ r
   le_ratUpper : ∀ r, r ≤ ratUpper r
   ratLower_ne : ∀ r, ratExact r = false → ratLower r ≠ r
   ratUpper_ne : ∀ r, ratExact r = false → ratUpper r ≠ r
-  fixedLower_le : ∀ v : ℤ, fixedLower v ≤ (v : ℝ) / 2 ^ 192
-  le_fixedUpper : ∀ v : ℤ, (v : ℝ) / 2 ^ 192 ≤ fixedUpper v
+  fixedLower_le : ∀ (F : ℕ) (v : ℤ), fixedLower F v ≤ (v : ℝ) / 2 ^ F
+  le_fixedUpper : ∀ (F : ℕ) (v : ℤ), (v : ℝ) / 2 ^ F ≤ fixedUpper F v
 
 /-- Exact conversions satisfy every `Rounding` field. -/
 noncomputable def Rounding.exact : Rounding where
   ratLower r := r
   ratUpper r := r
   ratExact _ := true
-  fixedLower v := (v : ℝ) / 2 ^ 192
-  fixedUpper v := (v : ℝ) / 2 ^ 192
+  fixedLower F v := (v : ℝ) / 2 ^ F
+  fixedUpper F v := (v : ℝ) / 2 ^ F
   ratLower_le _ := le_rfl
   le_ratUpper _ := le_rfl
   ratLower_ne _ h := absurd h (by simp)
   ratUpper_ne _ h := absurd h (by simp)
-  fixedLower_le _ := le_rfl
-  le_fixedUpper _ := le_rfl
+  fixedLower_le _ _ := le_rfl
+  le_fixedUpper _ _ := le_rfl
 
 /-- The decisions the Go code computes in float64, taken as inputs.
 
+* `fracBits x`: `sketch.seriesFracBits(x)`, the precision `F` of the series' fixed-point integers.
 * `stop x n bound s c`: the break test of `sketch.sinCosSeriesBig` on the term index, the tail bound and the
   two sums: `float64(n) > ax+1` and either `bound < eps` or `bound < relMax` with `bound·2^trigRelBits` at
-  most `|s|` and `|c|`.
+  most `|s|` and `|c|`, where `eps` and `relMax` are powers of two set by `fracBits x`.
 * `turns x`: `int64(math.Round(x / (2 * math.Pi)))` in `sketch.reduceTurns`.
 * `wide q`: `q.Hi-q.Lo > 7` in `sketch.sinCosRange`.
 * `kmin q`, `kmax q`: `int(math.Floor(q.Lo/(math.Pi/2))) - 1` and `int(math.Ceil(q.Hi/(math.Pi/2))) + 1`.
 * `k_cover`: every multiple `k·π/2` of a narrow `q` whose ends are within `2^40` has `kmin q ≤ k ≤ kmax q`
   (A27). -/
 structure TrigEnv where
+  fracBits : ℝ → ℕ
   stop : ℝ → ℕ → ℤ → ℤ → ℤ → Bool
   turns : ℝ → ℤ
   wide : Ival → Bool
@@ -107,6 +109,7 @@ structure TrigEnv where
 
 /-- The exact floor and ceiling of `q / (π/2)` satisfy `TrigEnv.k_cover`. -/
 noncomputable def TrigEnv.exact : TrigEnv where
+  fracBits _ := 192
   stop _ _ _ _ _ := true
   turns _ := 0
   wide _ := false

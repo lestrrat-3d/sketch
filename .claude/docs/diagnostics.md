@@ -771,11 +771,17 @@ sin/cos/atan2 bounds).
   hash it there.
 - Angles: `sinCosPoint` sums Taylor directly for `|x| ≤ maxTaylorArg` (64) and
   reduces by whole turns (`reduceTurns`, exact rationals over `piLo`/`piHi`)
-  up to `maxTrigArg` (2^40). NEVER change the direct path's results → decad
-  relies on every result under 64 rad staying bit-identical.
-- The direct path runs in fixed-width words (`sinCosSeriesWords`) and falls
-  back to `sinCosSeriesBig` on a product overflow. Both MUST form the same
-  integers; `TestSinCosSeriesWordsMatchesBig` pins it → change both together.
+  up to `maxTrigArg` (2^40).
+- Changing the direct path's precision (`seriesFracBits`), stop thresholds or
+  term step → count float64 ends that move vs `main` + run decad's tests via a
+  scratch `go.work` before merge. decad pins results under 64 rad; soundness
+  holds for any precision, bit-identity does not.
+- The direct path sums at the precision `seriesFracBits` picks: two words
+  (`sinCosSeriesPair`) at `pairFracBits`, fixed-width words
+  (`sinCosSeriesWords`) at `trigFracBits`, `sinCosSeriesBig` at the same
+  precision on a product overflow. All three MUST form the same integers at a
+  given precision; `TestSinCosSeriesWordsMatchesBig` pins it → change them
+  together.
 - `sinCosRange` decides whether a multiple of π/2 may lie in q from
   `halfPiTable`'s outward float bounds for `|k| ≤ halfPiTableK`;
   `TestHalfPiMayLieInMatchesRats` pins it against the exact rational test.
