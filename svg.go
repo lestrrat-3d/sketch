@@ -391,6 +391,39 @@ func (w *svgWriter) writeF(v float64) {
 	w.Write(appendTrimFloat(buf[:0], v, 4))
 }
 
+// writeAttrF writes the literal text prefix, then v as writeF does.
+func (w *svgWriter) writeAttrF(prefix string, v float64) {
+	w.WriteString(prefix)
+	w.writeF(v)
+}
+
+// writeStroke ends an element with its stroke attributes:
+// ` stroke="<stroke>" stroke-width="<sw>"<extra>/>` and a newline.
+func (w *svgWriter) writeStroke(stroke string, sw float64, extra string) {
+	w.WriteString(` stroke="`)
+	w.WriteString(stroke)
+	w.writeAttrF(`" stroke-width="`, sw)
+	w.WriteByte('"')
+	w.WriteString(extra)
+	w.WriteString("/>\n")
+}
+
+// writePointCircle starts a point marker, `  <circle cx=".." cy=".." r="..`,
+// leaving the r attribute's closing quote to the caller.
+func (w *svgWriter) writePointCircle(cx, cy, r float64) {
+	w.WriteString(`  <circle cx="`)
+	w.writeF(cx)
+	w.writeAttrF(`" cy="`, cy)
+	w.writeAttrF(`" r="`, r)
+}
+
+// writeFill ends a point marker with `" fill="<fill>"/>` and a newline.
+func (w *svgWriter) writeFill(fill string) {
+	w.WriteString(`" fill="`)
+	w.WriteString(fill)
+	w.WriteString("\"/>\n")
+}
+
 // note raises w's shared nonFinite bit when v is NaN or infinite, without
 // writing any bytes. It exists for a value that never itself becomes SVG
 // output text but whose non-finiteness must still refuse the document: a
@@ -615,21 +648,27 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 			sb.WriteByte(' ')
 			sb.writeF(ty(p[1]))
 		}
-		fmt.Fprintf(sb, `" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n", stroke, sb.f(sw), dasharray)
+		sb.WriteString(`" fill="none"`)
+		sb.writeStroke(stroke, sw, dasharray)
 	}
 
 	for i, e := range s.ents {
 		switch t := e.(type) {
 		case *Line:
-			fmt.Fprintf(sb,
-				`  <line x1="%s" y1="%s" x2="%s" y2="%s" stroke="%s" stroke-width="%s"%s/>`+"\n",
-				sb.f(tx(t.Start.x())), sb.f(ty(t.Start.y())), sb.f(tx(t.End.x())), sb.f(ty(t.End.y())),
-				color(t), sb.f(cfg.strokeWidth), dash(t))
+			sb.WriteString(`  <line x1="`)
+			sb.writeF(tx(t.Start.x()))
+			sb.writeAttrF(`" y1="`, ty(t.Start.y()))
+			sb.writeAttrF(`" x2="`, tx(t.End.x()))
+			sb.writeAttrF(`" y2="`, ty(t.End.y()))
+			sb.WriteByte('"')
+			sb.writeStroke(color(t), cfg.strokeWidth, dash(t))
 		case *Circle:
-			fmt.Fprintf(sb,
-				`  <circle cx="%s" cy="%s" r="%s" fill="none" stroke="%s" stroke-width="%s"%s/>`+"\n",
-				sb.f(tx(t.Center.x())), sb.f(ty(t.Center.y())), sb.f(t.r()),
-				color(t), sb.f(cfg.strokeWidth), dash(t))
+			sb.WriteString(`  <circle cx="`)
+			sb.writeF(tx(t.Center.x()))
+			sb.writeAttrF(`" cy="`, ty(t.Center.y()))
+			sb.writeAttrF(`" r="`, t.r())
+			sb.WriteString(`" fill="none"`)
+			sb.writeStroke(color(t), cfg.strokeWidth, dash(t))
 		case *Arc:
 			writePath(svgSamples(samples, i, t, cfg.arcSegments), color(t), cfg.strokeWidth, dash(t))
 		case *EllipticalArc:
@@ -670,9 +709,9 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 				// square, other constrained points a filled black circle — a
 				// redundant shape channel so DOF/grounding reads without color.
 				if _, free := ov.freePt[p]; free {
-					fmt.Fprintf(sb,
-						`  <circle cx="%s" cy="%s" r="%s" fill="white" stroke="%s" stroke-width="%s"/>`+"\n",
-						sb.f(tx(p.x())), sb.f(ty(p.y())), sb.f(pr), colorFree, sb.f(cfg.strokeWidth))
+					sb.writePointCircle(tx(p.x()), ty(p.y()), pr)
+					sb.WriteString(`" fill="white"`)
+					sb.writeStroke(colorFree, cfg.strokeWidth, "")
 					continue
 				}
 				if p.IsFixed() {
@@ -684,18 +723,16 @@ func (s *Sketch) SVG(options ...SVGOption) (string, error) {
 						sb.f(tx(p.x())-pr), sb.f(ty(p.y())-pr), sb.f(side), sb.f(side), colorFixed)
 					continue
 				}
-				fmt.Fprintf(sb,
-					`  <circle cx="%s" cy="%s" r="%s" fill="%s"/>`+"\n",
-					sb.f(tx(p.x())), sb.f(ty(p.y())), sb.f(pr), colorConstrained)
+				sb.writePointCircle(tx(p.x()), ty(p.y()), pr)
+				sb.writeFill(colorConstrained)
 				continue
 			}
 			fill := "#d93025"
 			if p.IsFixed() {
 				fill = "#202124"
 			}
-			fmt.Fprintf(sb,
-				`  <circle cx="%s" cy="%s" r="%s" fill="%s"/>`+"\n",
-				sb.f(tx(p.x())), sb.f(ty(p.y())), sb.f(pr), fill)
+			sb.writePointCircle(tx(p.x()), ty(p.y()), pr)
+			sb.writeFill(fill)
 		}
 	}
 

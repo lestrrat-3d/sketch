@@ -380,6 +380,18 @@ func BenchmarkSVG(b *testing.B) {
 			}
 		}
 	})
+	b.Run("largeLines", func(b *testing.B) {
+		s, _ := buildLargeFixture(b)
+		if _, err := s.Solve(b.Context()); err != nil {
+			b.Fatal(err)
+		}
+		b.ReportAllocs()
+		for b.Loop() {
+			if _, err := s.SVG(); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 }
 
 func BenchmarkDXF(b *testing.B) {
