@@ -1,9 +1,9 @@
 package sketch
 
-// In-package on purpose: coneFitIntPoly, coneFitIntSign and coneMulInterval are
-// private helpers. The Lean theorems coneFitIntSign_eq and
-// coneMulInterval_memR prove them; these tests check the Go code against the
-// rational forms they replaced.
+// In-package on purpose: coneFitIntPoly, coneFitIntSign, coneFitIntBernstein
+// and coneMulInterval are private helpers. The Lean theorems coneFitIntSign_eq,
+// coneFitIntBounds_mem and coneMulInterval_memR prove them; these tests check
+// the Go code against the rational forms they replaced.
 
 import (
 	"math/big"
@@ -58,5 +58,40 @@ func TestConeMulIntervalMatchesCornerHull(t *testing.T) {
 		}
 		require.Zero(t, got.lo.Cmp(lo), "a=%v b=%v", a, b)
 		require.Zero(t, got.hi.Cmp(hi), "a=%v b=%v", a, b)
+	}
+}
+
+func TestConeFitIntBernsteinScalesRationalBernstein(t *testing.T) {
+	rng := rand.New(rand.NewSource(1))
+	for range 1000 {
+		p := make(coneFitPoly, 1+rng.Intn(7))
+		for i := range p {
+			p[i] = randomConeRat(rng)
+		}
+		iv := coneIntervalOf(randomConeRat(rng), randomConeRat(rng))
+		want := coneFitBernstein(p, iv.lo, iv.hi)
+		got := coneFitIntBernstein(coneFitIntPoly(p), iv.lo, iv.hi)
+		require.Len(t, got, len(want))
+		var scale *big.Rat
+		for k, w := range want {
+			if w.Sign() != 0 {
+				scale = new(big.Rat).Quo(new(big.Rat).SetInt(got[k]), w)
+				break
+			}
+		}
+		if scale == nil {
+			for _, g := range got {
+				require.Zero(t, g.Sign())
+			}
+			continue
+		}
+		require.Positive(t, scale.Sign(), "p=%v on %v", p, iv)
+		for k, w := range want {
+			require.Zero(t, new(big.Rat).SetInt(got[k]).Cmp(coneMul(scale, w)), "p=%v on %v entry %d", p, iv, k)
+		}
+		lo, hi := coneFitIntBounds(got)
+		wlo, whi := coneFitCoeffBounds(p, iv.lo, iv.hi)
+		require.Equal(t, wlo.Sign(), lo.Sign())
+		require.Equal(t, whi.Sign(), hi.Sign())
 	}
 }

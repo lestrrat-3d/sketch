@@ -328,13 +328,85 @@ type coneFitRoot struct {
 	loSign int
 }
 
+// coneFitIntPiece holds a piece's h, f and df scaled to integer polynomials by
+// coneFitIntPoly, formed once per piece for the search, the bisection and the
+// final derivative check.
+type coneFitIntPiece struct{ h, f, df []*big.Int }
+
 type coneFitSearch struct {
-	pieces []coneFitPiece
+	pieces []coneFitIntPiece
 	root   *coneFitRoot
 	budget int
 }
 
+// coneFitFactorial returns n! for 0 <= n with no int64 overflow.
+// Lean proofs depend on this function; see _proofs/trace.json.
+func coneFitFactorial(n int) int64 {
+	r := int64(1)
+	for i := 1; i <= n; i++ {
+		r *= int64(i)
+	}
+	return r
+}
+
+// coneFitIntBernstein returns integer Bernstein coefficients of the integer
+// polynomial P of degree n on [a,b], scaled by the positive n!·d^n/d with
+// d = den(a)·den(b). With l = num(a)·den(b), h = num(b)·den(a) and w = h−l, so
+// that a = l/d and b = h/d, it composes q(u) = Σ P[i]·(l + w·u)^i·d^(n−i) by
+// Horner's rule from the highest coefficient, then returns entry k as
+// Σ_{i<=k} q[i]·C(k,i)·i!·(n−i)!, which is n! times the power-to-Bernstein sum
+// Σ_{i<=k} q[i]·C(k,i)/C(n,i). No step divides or normalizes.
+// Lean proofs depend on this function; see _proofs/trace.json.
+func coneFitIntBernstein(P []*big.Int, a, b *big.Rat) []*big.Int {
+	l := new(big.Int).Mul(a.Num(), b.Denom())
+	d := new(big.Int).Mul(a.Denom(), b.Denom())
+	w := new(big.Int).Mul(b.Num(), a.Denom())
+	w.Sub(w, l)
+	n := len(P) - 1
+	var q []*big.Int
+	pw, t := big.NewInt(1), new(big.Int)
+	for i := n; i >= 0; i-- {
+		next := make([]*big.Int, len(q)+1)
+		for j := range next {
+			next[j] = new(big.Int)
+		}
+		for j, c := range q {
+			next[j].Add(next[j], t.Mul(c, l))
+			next[j+1].Add(next[j+1], t.Mul(c, w))
+		}
+		next[0].Add(next[0], t.Mul(P[i], pw))
+		q = next
+		pw.Mul(pw, d)
+	}
+	r := make([]*big.Int, n+1)
+	for k := range r {
+		acc := new(big.Int)
+		for i := 0; i <= k; i++ {
+			acc.Add(acc, t.Mul(q[i], t.SetInt64(coneFitBinomial(k, i)*coneFitFactorial(i)*coneFitFactorial(n-i))))
+		}
+		r[k] = acc
+	}
+	return r
+}
+
+// coneFitIntBounds returns the least and greatest entry of a nonempty list.
+// Lean proofs depend on this function; see _proofs/trace.json.
+func coneFitIntBounds(b []*big.Int) (*big.Int, *big.Int) {
+	lo, hi := b[0], b[0]
+	for _, v := range b[1:] {
+		if v.Cmp(lo) < 0 {
+			lo = v
+		}
+		if v.Cmp(hi) > 0 {
+			hi = v
+		}
+	}
+	return lo, hi
+}
+
 // visit bounds h and f on [lo,hi], records a root bracket or bisects, and reports whether the range is certified.
+// The bounds are the least and greatest scaled Bernstein coefficient (coneFitIntBernstein), a positive multiple
+// of the exact ones, so only their signs are read; the signs of f at points come from coneFitIntSign.
 // Lean proofs depend on this function; see _proofs/trace.json.
 func (s *coneFitSearch) visit(index int, lo, hi *big.Rat, depth int) bool {
 	if s.budget == 0 {
@@ -342,32 +414,32 @@ func (s *coneFitSearch) visit(index int, lo, hi *big.Rat, depth int) bool {
 	}
 	s.budget--
 	piece := s.pieces[index]
-	hlo, _ := coneFitCoeffBounds(piece.h, lo, hi)
+	hlo, _ := coneFitIntBounds(coneFitIntBernstein(piece.h, lo, hi))
 	if hlo.Sign() <= 0 {
 		return false
 	}
-	flo, fhi := coneFitCoeffBounds(piece.f, lo, hi)
+	flo, fhi := coneFitIntBounds(coneFitIntBernstein(piece.f, lo, hi))
 	if flo.Sign() > 0 || fhi.Sign() < 0 {
 		return true
 	}
-	a, b := coneFitPolyEval(piece.f, lo), coneFitPolyEval(piece.f, hi)
-	if a.Sign() == 0 || b.Sign() == 0 {
+	a, b := coneFitIntSign(piece.f, lo), coneFitIntSign(piece.f, hi)
+	if a == 0 || b == 0 {
 		return false
 	}
-	dlo, dhi := coneFitCoeffBounds(piece.df, lo, hi)
-	if a.Sign() != b.Sign() && ((dlo.Sign() >= 0 && dhi.Sign() > 0 && a.Sign() < 0) ||
-		(dhi.Sign() <= 0 && dlo.Sign() < 0 && a.Sign() > 0)) {
+	dlo, dhi := coneFitIntBounds(coneFitIntBernstein(piece.df, lo, hi))
+	if a != b && ((dlo.Sign() >= 0 && dhi.Sign() > 0 && a < 0) ||
+		(dhi.Sign() <= 0 && dlo.Sign() < 0 && a > 0)) {
 		if s.root != nil {
 			return false
 		}
-		s.root = &coneFitRoot{index: index, lo: lo, hi: hi, loSign: a.Sign()}
+		s.root = &coneFitRoot{index: index, lo: lo, hi: hi, loSign: a}
 		return true
 	}
 	if depth == 0 {
 		return false
 	}
 	mid := coneMul(coneAdd(lo, hi), big.NewRat(1, 2))
-	if coneFitPolyEval(piece.f, mid).Sign() == 0 {
+	if coneFitIntSign(piece.f, mid) == 0 {
 		return false
 	}
 	return s.visit(index, lo, mid, depth-1) && s.visit(index, mid, hi, depth-1)
@@ -441,7 +513,11 @@ func (s *Sketch) CertifyConeFitCrossing(fit *FitSpline, cone ConeSection) (ConeF
 		}
 		pieces = append(pieces, coneFitMakePiece(fi, i, form))
 	}
-	search := coneFitSearch{pieces: pieces, budget: 8192}
+	ints := make([]coneFitIntPiece, len(pieces))
+	for i, p := range pieces {
+		ints[i] = coneFitIntPiece{h: coneFitIntPoly(p.h), f: coneFitIntPoly(p.f), df: coneFitIntPoly(p.df)}
+	}
+	search := coneFitSearch{pieces: ints, budget: 8192}
 	for i := range pieces {
 		if !search.visit(i, big.NewRat(0, 1), big.NewRat(1, 1), 24) {
 			return ConeFitCrossing{}, ErrConeFitCrossing
@@ -453,7 +529,7 @@ func (s *Sketch) CertifyConeFitCrossing(fit *FitSpline, cone ConeSection) (ConeF
 	root := search.root
 	piece := pieces[root.index]
 	lo, hi := root.lo, root.hi
-	fInt := coneFitIntPoly(piece.f)
+	fInt := ints[root.index].f
 	for step := 0; step < 256; step++ {
 		mid := coneMul(coneAdd(lo, hi), big.NewRat(1, 2))
 		sign := coneFitIntSign(fInt, mid)
@@ -471,7 +547,7 @@ func (s *Sketch) CertifyConeFitCrossing(fit *FitSpline, cone ConeSection) (ConeF
 		}
 	}
 	globalLo, globalHi := piece.global(lo), piece.global(hi)
-	dlo, dhi := coneFitCoeffBounds(piece.df, lo, hi)
+	dlo, dhi := coneFitIntBounds(coneFitIntBernstein(ints[root.index].df, lo, hi))
 	if dlo.Sign() <= 0 && dhi.Sign() >= 0 {
 		return ConeFitCrossing{}, ErrConeFitCrossing
 	}
