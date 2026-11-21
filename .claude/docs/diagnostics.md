@@ -734,6 +734,11 @@ sin/cos/atan2 bounds).
   (bracket-and-verify), `atan2Box`.
 - Every interval op rounds outward via `down`/`up`. Write products as
   `float64(a*b)` → forbids FMA fusion per the Go spec.
+- Exception: `krawczyk` forms its sums of products (`c`, the cells of
+  `I − Y·F_x`, the rows of `K`) in plain float arithmetic and widens each sum
+  once by the A160 bound (`sumGain`, `.claude/docs/proofs.md`). Changing a sum's
+  term count or order → recheck that `sumGain`'s argument and the `2^-1074`
+  multiple still cover it.
 - A refusal returns a NIL enclosure. NEVER return a partial enclosure with an
   error.
 - `Enclose` restores `s.vars`, the driver's `dimBase` and every

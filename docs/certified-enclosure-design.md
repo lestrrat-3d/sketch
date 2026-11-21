@@ -122,6 +122,17 @@ zero in `X` and it lies in `K(X)`. The same inclusion proves `Y` and every
 Jacobian in `F_x(X, Q)` nonsingular, so the implicit function theorem gives
 continuity in `q`. The published box is `K(X)`.
 
+The proof (`_proofs/Sketch/Enclose/Krawczyk.lean`) holds for any `Y` and needs
+only that the computed `−Y·F(x̃, Q)`, `I − Y·F_x(X, Q)` and `K(X)` enclose the
+exact values. So `krawczyk` sums each row of `c`, each cell of `I − Y·F_x` and
+each row of `K` in plain float arithmetic and widens the sum once by a bound
+on its rounding error, instead of rounding outward after every operation. The
+cells of `I − Y·F_x` are never widened on their own: their bounds, times
+`|X − x̃|`, are charged to the row of `K` they enter. On the same inputs as
+outward rounding at every step, over the `Enclose` benchmarks, a box widens by
+at most 36 units in the last place of `1 + |x̃|` (at most one unit in over 99%
+of calls), and the same calls accept.
+
 `X` is found by ε-inflation. It starts from `x̃ − Y·F(x̃, Q)`, and each pass
 widens the previous image by 10% plus `1e-15·(1 + |x̃|)` and always keeps
 `x̃` inside. After 20 passes without inclusion the piece fails.
@@ -188,6 +199,14 @@ computes its endpoints in round-to-nearest and steps one float outward with
 the step always encloses the exact result. Each product is written as an
 explicit `float64(…)` conversion, which the Go spec defines as the way to
 forbid fusing a multiply and an add.
+
+`krawczyk`'s sums of products are the exception. A left-to-right float sum of
+`L` terms, each exact or one product rounded once, is within
+`γ_L·Σ|terms| + 2L·2^-1075` of the exact sum, with `γ_L = L·u/(1 − L·u)` and
+`u = 2^-53` (Higham, *Accuracy and Stability of Numerical Algorithms*,
+Lemma 3.1 with gradual underflow). `krawczyk` adds `1.25·(L + 2)·u` times the
+float sum of the terms' magnitudes, rounded up, plus a few multiples of
+`2^-1074`, and rounds the result outward.
 
 `math.Sin`, `math.Cos` and `math.Atan2` are not trusted for bounds
 (`interval_trig.go`):

@@ -363,6 +363,8 @@ type krawczykWorkspace struct {
 	f, c, z     []Interval
 	x, d, k     []Interval
 	result      []Interval
+	rows        []int
+	starts      []int
 }
 
 func newKrawczykWorkspace(nv, m, n int) *krawczykWorkspace {
@@ -382,6 +384,8 @@ func newKrawczykWorkspace(nv, m, n int) *krawczykWorkspace {
 		d:       make([]Interval, n),
 		k:       make([]Interval, n),
 		result:  make([]Interval, nv),
+		rows:    make([]int, 0, m*n),
+		starts:  make([]int, n+1),
 	}
 }
 
@@ -663,6 +667,11 @@ const krawczykMaxIter = 20
 // ε-inflation (each pass widens the previous image by 10% plus a relative
 // floor, always containing x̃) until the image falls strictly inside or the
 // pass budget runs out.
+//
+// The sums of products in c, in I − Y·F_x(X, Q) and in K run in plain float
+// arithmetic, and each is widened once by a bound on its rounding error
+// (sumGain) instead of being rounded outward at every step. The soundness
+// proof needs only that the results enclose the exact values, not how tightly.
 // Lean proofs depend on this function; see _proofs/trace.json.
 func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, col []int, ws *krawczykWorkspace) ([]Interval, []Interval, string) {
 	n := len(free)
@@ -717,13 +726,25 @@ func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, co
 	eQ.box, eQ.q, eQ.sinQ, eQ.cosQ = base, Q, sinQ, cosQ
 	F := sys.evalInto(ws.f, eQ)
 	// c = −Y·F(x̃, Q): the Newton correction, spread over the driving range.
+	// Each row sums the rounded endpoint products in plain float arithmetic and
+	// widens the sums once by their rounding bound (sumGain).
 	c := ws.c
+	gc := sumGain(len(F) + 2)
 	for i := range c {
-		acc := pt(0)
-		for j := range F {
-			acc = iadd(acc, imulPt(Y[i][j], F[j]))
+		lo, hi, t := 0.0, 0.0, 0.0
+		for j, f := range F {
+			y := Y[i][j]
+			a := float64(y * f.Lo)
+			b := float64(y * f.Hi)
+			if a > b {
+				a, b = b, a
+			}
+			lo -= b
+			hi -= a
+			t += max(-a, b)
 		}
-		c[i] = ineg(acc)
+		e := up(up(float64(t*gc)) + float64(float64(2*len(F)+4)*0x1p-1074))
+		c[i] = Interval{down(lo - e), up(hi + e)}
 		if !c[i].isFinite() {
 			return nil, nil, "the residual enclosure is not finite"
 		}
@@ -756,25 +777,68 @@ func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, co
 		}
 		clearIntervalMatrix(J)
 		sys.jacobianInto(J, eX, col, ws.marks, ws.epoch, &ws.writer)
+		// rows lists, column by column, the Jacobian rows this pass marked; an
+		// unmarked cell is an exact structural zero.
+		rows, starts := ws.rows[:0], ws.starts
+		for j := 0; j < n; j++ {
+			starts[j] = len(rows)
+			for k := 0; k < n; k++ {
+				if ws.marks[k*n+j] == ws.epoch {
+					rows = append(rows, k)
+				}
+			}
+		}
+		starts[n] = len(rows)
+		ws.rows = rows
+		// Row i of K is x̃_i + c_i + Σ_j C_ij·D_j with C_ij = δ_ij − Σ_k Y_ik·JX_kj.
+		// Both sums run in plain float arithmetic. A cell's float sum [lo, hi]
+		// misses the exact one by at most its rounding bound e_ij, so
+		// C_ij·D_j lies in [lo, hi]·D_j widened by e_ij·|D_j|. The row's own
+		// rounding and every cell's e_ij·|D_j| are charged together, once:
+		// kt carries the row's term magnitudes and s the cells' (t·|D_j|).
+		// A cell's magnitude sum starts at 2^-990 so that it also covers the
+		// cell's underflow, which does not scale with |D_j|.
+		terms := 0
+		for j := 0; j < n; j++ {
+			terms = max(terms, starts[j+1]-starts[j])
+		}
+		g := sumGain(max(terms+1, n+1) + 2)
 		inside := true
 		for i := 0; i < n; i++ {
-			acc := c[i]
+			Yi := Y[i]
+			klo, khi := c[i].Lo, c[i].Hi
+			kt := max(-klo, khi)
+			s := 0.0
 			for j := 0; j < n; j++ {
-				// C_ij = δ_ij − Σ_k Y_ik·JX_kj
-				cij := pt(0)
+				lo, hi, t := 0.0, 0.0, 0x1p-990
 				if i == j {
-					cij = pt(1)
+					lo, hi, t = 1, 1, 1
 				}
-				for k := 0; k < n; k++ {
-					// An unmarked Jacobian cell is an exact structural zero.
-					if ws.marks[k*n+j] != ws.epoch {
-						continue
+				for _, k := range rows[starts[j]:starts[j+1]] {
+					y, jk := Yi[k], J[k][j]
+					a := float64(y * jk.Lo)
+					b := float64(y * jk.Hi)
+					if a > b {
+						a, b = b, a
 					}
-					cij = isub(cij, imulPt(Y[i][k], J[k][j]))
+					lo -= b
+					hi -= a
+					t += max(-a, b)
 				}
-				acc = iadd(acc, imul(cij, D[j]))
+				d := D[j]
+				p1 := float64(lo * d.Lo)
+				p2 := float64(lo * d.Hi)
+				p3 := float64(hi * d.Lo)
+				p4 := float64(hi * d.Hi)
+				pl, ph := min(p1, p2, p3, p4), max(p1, p2, p3, p4)
+				klo += pl
+				khi += ph
+				kt += max(-pl, ph)
+				s += float64(t * max(-d.Lo, d.Hi))
 			}
-			K[i] = iadd(pt(xt[free[i]]), acc)
+			e := up(up(float64((kt+s)*g)) + float64(float64(4*n+8)*0x1p-1074))
+			xi := xt[free[i]]
+			K[i] = Interval{down(xi + down(klo-e)), up(xi + up(khi+e))}
 			if !K[i].isFinite() {
 				return nil, nil, "the Krawczyk image is not finite"
 			}
@@ -795,6 +859,16 @@ func (sys *certSystem) krawczyk(xt []float64, Q Interval, qMid float64, free, co
 		}
 	}
 	return nil, nil, "the contraction test did not close"
+}
+
+// sumGain is the factor krawczyk multiplies a float magnitude sum by to bound
+// the rounding error of left-to-right float sums of at most terms-2 terms, each
+// exact or one product rounded to nearest (A160): 1.25·terms·2^-53, exact for
+// terms below 2^50.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
+func sumGain(terms int) float64 {
+	return float64(terms) * 0x1p-53 * 1.25
 }
 
 // invertMatrix inverts A by Gauss–Jordan elimination with partial pivoting,
