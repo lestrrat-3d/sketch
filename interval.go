@@ -16,7 +16,7 @@ func (i Interval) Contains(v float64) bool { return i.Lo <= v && v <= i.Hi }
 
 // The helpers below are the certified path's interval arithmetic. Go has no
 // rounding-mode control, so each operation computes its endpoints in the default
-// round-to-nearest mode and then steps one float outward with math.Nextafter.
+// round-to-nearest mode and then steps one float outward with down or up.
 // IEEE 754 makes +, −, ×, ÷ and sqrt correctly rounded, so the rounded result is
 // within half an ulp of the exact one and the step outward always encloses it.
 //
@@ -26,39 +26,50 @@ func (i Interval) Contains(v float64) bool { return i.Lo <= v && v <= i.Hi }
 // be within half an ulp, but keeping one rounding per operation keeps the
 // argument above literally true on every architecture.
 
-// down and up step one float toward −∞ and +∞. The fixed directions let
-// these hot interval helpers skip Nextafter's general y and equality checks.
+// down and up step one float toward −∞ and +∞ and return exactly what
+// math.Nextafter(x, ∓Inf) returns, NaN included, but each is small enough to
+// inline into the interval helpers. Both zeros step to the smallest subnormal
+// of the step's sign. Past the finite range, the infinity the step points to
+// is returned as is and NaN becomes math.NaN(). On every other input the bit
+// pattern moves one unit: away from zero when the step leaves zero behind,
+// toward zero otherwise; ±MaxFloat64 is ±Inf's neighbour, so the infinity the
+// step points away from takes that path too. On every non-NaN input
+// down(x) = -up(-x), the form the Lean model states.
 // Lean proofs depend on this function; see _proofs/trace.json.
 func down(x float64) float64 {
-	switch {
-	case math.IsNaN(x):
-		return math.Nextafter(x, math.Inf(-1))
-	case x == math.Inf(-1):
-		return x
-	case x == 0:
+	if x == 0 {
 		return -math.SmallestNonzeroFloat64
-	case x < 0:
-		return math.Float64frombits(math.Float64bits(x) + 1)
-	default:
-		return math.Float64frombits(math.Float64bits(x) - 1)
 	}
+	if !(x >= -math.MaxFloat64) {
+		if x < 0 {
+			return x
+		}
+		return math.NaN()
+	}
+	b := math.Float64bits(x)
+	if int64(b) < 0 {
+		return math.Float64frombits(b + 1)
+	}
+	return math.Float64frombits(b - 1)
 }
 
-// up steps one float toward +∞.
+// up steps one float toward +∞; see down.
 // Lean proofs depend on this function; see _proofs/trace.json.
 func up(x float64) float64 {
-	switch {
-	case math.IsNaN(x):
-		return math.Nextafter(x, math.Inf(1))
-	case x == math.Inf(1):
-		return x
-	case x == 0:
+	if x == 0 {
 		return math.SmallestNonzeroFloat64
-	case x < 0:
-		return math.Float64frombits(math.Float64bits(x) - 1)
-	default:
-		return math.Float64frombits(math.Float64bits(x) + 1)
 	}
+	if !(x <= math.MaxFloat64) {
+		if x > 0 {
+			return x
+		}
+		return math.NaN()
+	}
+	b := math.Float64bits(x)
+	if int64(b) < 0 {
+		return math.Float64frombits(b - 1)
+	}
+	return math.Float64frombits(b + 1)
 }
 
 // pt is the degenerate interval holding exactly v.
@@ -127,10 +138,12 @@ func ihull(a, b Interval) Interval { return Interval{min(a.Lo, b.Lo), max(a.Hi, 
 
 // isFinite reports whether both endpoints are finite and ordered. A NaN
 // endpoint fails the ordering test, so this is the one screen the certified
-// path needs against poisoned arithmetic.
+// path needs against poisoned arithmetic. Given Lo <= Hi, Lo = +Inf forces
+// Hi = +Inf and Hi = -Inf forces Lo = -Inf, so ruling out -Inf below and +Inf
+// above rules out every infinite endpoint.
 // Lean proofs depend on this function; see _proofs/trace.json.
 func (i Interval) isFinite() bool {
-	return i.Lo <= i.Hi && !math.IsInf(i.Lo, 0) && !math.IsInf(i.Hi, 0)
+	return -math.MaxFloat64 <= i.Lo && i.Lo <= i.Hi && i.Hi <= math.MaxFloat64
 }
 
 // within reports whether i lies inside o (not necessarily strictly).
