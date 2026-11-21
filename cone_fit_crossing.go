@@ -150,6 +150,8 @@ func coneFitPolyMul(a, b coneFitPoly) coneFitPoly {
 	return r
 }
 
+// coneFitPolyDeriv returns the derivative of a polynomial, or the zero polynomial for a constant.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func coneFitPolyDeriv(a coneFitPoly) coneFitPoly {
 	if len(a) < 2 {
 		return coneFitPoly{coneFitZero()}
@@ -241,6 +243,8 @@ func coneFitBezier(fi *geom.FitInterpolant, i int) coneBezier {
 	return b
 }
 
+// coneFitPower returns the power-basis coefficients of one axis of a cubic Bezier curve.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func coneFitPower(b coneBezier, axis int) coneFitPoly {
 	p := [4]*big.Rat{b.controls[0][axis], b.controls[1][axis], b.controls[2][axis], b.controls[3][axis]}
 	return coneFitPoly{
@@ -252,6 +256,8 @@ func coneFitPower(b coneBezier, axis int) coneFitPoly {
 	}
 }
 
+// coneFitMakePiece builds span i's curve polynomials and their cone residual polynomials.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func coneFitMakePiece(fi *geom.FitInterpolant, i int, form coneSideForm) coneFitPiece {
 	b := coneFitBezier(fi, i)
 	piece := coneFitPiece{p0: coneRat(fi.Params[i]), p1: coneRat(fi.Params[i+1]),
@@ -294,6 +300,8 @@ type coneFitSearch struct {
 	budget int
 }
 
+// visit bounds h and f on [lo,hi], records a root bracket or bisects, and reports whether the range is certified.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (s *coneFitSearch) visit(index int, lo, hi *big.Rat, depth int) bool {
 	if s.budget == 0 {
 		return false
@@ -331,6 +339,8 @@ func (s *coneFitSearch) visit(index int, lo, hi *big.Rat, depth int) bool {
 	return s.visit(index, lo, mid, depth-1) && s.visit(index, mid, hi, depth-1)
 }
 
+// global maps a local span parameter to the normalized spline parameter.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (p coneFitPiece) global(local *big.Rat) *big.Rat {
 	return new(big.Rat).Quo(coneAdd(p.p0, coneMul(coneSub(p.p1, p.p0), local)), p.total)
 }
@@ -339,6 +349,8 @@ func (p coneFitPiece) local(global *big.Rat) *big.Rat {
 	return new(big.Rat).Quo(coneSub(coneMul(global, p.total), p.p0), coneSub(p.p1, p.p0))
 }
 
+// coneFitFloatDown returns a float64 at most r, or an infinity when r is out of range.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func coneFitFloatDown(r *big.Rat) float64 {
 	v, _ := r.Float64()
 	if math.IsInf(v, 0) {
@@ -350,6 +362,8 @@ func coneFitFloatDown(r *big.Rat) float64 {
 	return v
 }
 
+// coneFitFloatUp returns a float64 at least r, or an infinity when r is out of range.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func coneFitFloatUp(r *big.Rat) float64 {
 	v, _ := r.Float64()
 	if math.IsInf(v, 0) {
@@ -367,6 +381,7 @@ func coneFitFloatUp(r *big.Rat) float64 {
 // binary64 interpolant, frame, and cone. It does not bound the displacement
 // from FitSpline.Eval or a downstream mesh; consumers charge that separately.
 // Inconclusive cases are refused.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (s *Sketch) CertifyConeFitCrossing(fit *FitSpline, cone ConeSection) (ConeFitCrossing, error) {
 	if s == nil || fit == nil || !s.ownsConeCurve(fit) ||
 		!coneFinite(cone.Apex.X, cone.Apex.Y, cone.Apex.Z,
