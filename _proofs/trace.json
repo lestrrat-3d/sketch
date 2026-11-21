@@ -301,13 +301,18 @@
       "role": "models",
       "theorems": [
         "Sketch/Cone/Certify.lean:Sketch.Cone.certifyConeCurveSide_line_sound",
-        "Sketch/Cone/Certify.lean:Sketch.Cone.certifyConeCurveSide_fit_sound"
+        "Sketch/Cone/Certify.lean:Sketch.Cone.certifyConeCurveSide_fit_sound",
+        "Sketch/Cone/Certify.lean:Sketch.Cone.certifyConeCurveSide_arc_sound",
+        "Sketch/Cone/Certify.lean:Sketch.Cone.certifyConeCurveSide_arc_wedge_sound"
       ],
       "assumptions": [
         "A30",
         "A31",
         "A32",
-        "A33"
+        "A33",
+        "A50",
+        "A51",
+        "A52"
       ],
       "sha256": "56f62754bad55fd68658b661275fbc9c5d87d369990eed38d6107b2481619234"
     },
@@ -343,7 +348,8 @@
       "func": "coneInterval.add",
       "role": "models",
       "theorems": [
-        "Sketch/Cone/Interval.lean:Sketch.Cone.ConeInterval.mem_add"
+        "Sketch/Cone/Interval.lean:Sketch.Cone.ConeInterval.mem_add",
+        "Sketch/Cone/Real.lean:Sketch.Cone.ConeInterval.memR_add"
       ],
       "assumptions": [
         "A30"
@@ -355,7 +361,8 @@
       "func": "coneInterval.scale",
       "role": "models",
       "theorems": [
-        "Sketch/Cone/Interval.lean:Sketch.Cone.ConeInterval.mem_scale"
+        "Sketch/Cone/Interval.lean:Sketch.Cone.ConeInterval.mem_scale",
+        "Sketch/Cone/Real.lean:Sketch.Cone.ConeInterval.memR_scale"
       ],
       "assumptions": [
         "A30"
@@ -367,7 +374,8 @@
       "func": "coneInterval.square",
       "role": "models",
       "theorems": [
-        "Sketch/Cone/Interval.lean:Sketch.Cone.ConeInterval.mem_square"
+        "Sketch/Cone/Interval.lean:Sketch.Cone.ConeInterval.mem_square",
+        "Sketch/Cone/Real.lean:Sketch.Cone.ConeInterval.memR_square"
       ],
       "assumptions": [
         "A30"
@@ -379,7 +387,8 @@
       "func": "coneInterval.sub",
       "role": "models",
       "theorems": [
-        "Sketch/Cone/Interval.lean:Sketch.Cone.ConeInterval.mem_sub"
+        "Sketch/Cone/Interval.lean:Sketch.Cone.ConeInterval.mem_sub",
+        "Sketch/Cone/Real.lean:Sketch.Cone.ConeInterval.memR_sub"
       ],
       "assumptions": [
         "A30"
@@ -392,12 +401,43 @@
       "role": "models",
       "theorems": [
         "Sketch/Cone/Interval.lean:Sketch.Cone.ConeInterval.mem_coneIntervalOf",
-        "Sketch/Cone/Interval.lean:Sketch.Cone.ConeInterval.mem_coneIntervalOf_between"
+        "Sketch/Cone/Interval.lean:Sketch.Cone.ConeInterval.mem_coneIntervalOf_between",
+        "Sketch/Cone/Real.lean:Sketch.Cone.ConeInterval.memR_coneIntervalOf_between"
       ],
       "assumptions": [
         "A30"
       ],
       "sha256": "eedb6e3bc269214268a974256b617bba703dcc1b89e85bcd5134040d5a039ea5"
+    },
+    {
+      "file": "cone_side.go",
+      "func": "coneSideForm.arcQuadrantSide",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Arc.lean:Sketch.Cone.ConeSideForm.arcQuadrantSide_sound"
+      ],
+      "assumptions": [
+        "A30",
+        "A31",
+        "A52"
+      ],
+      "sha256": "6c2d8df90941e30d87a23969e1c3a070b8838bd86a539860da6d9fa8aeba3d39"
+    },
+    {
+      "file": "cone_side.go",
+      "func": "coneSideForm.arcSide",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Arc.lean:Sketch.Cone.ConeSideForm.arcSide_sound"
+      ],
+      "assumptions": [
+        "A30",
+        "A31",
+        "A50",
+        "A51",
+        "A52"
+      ],
+      "sha256": "ea9691e969d25a6761bedb9d5bfec91f48c4d80c4f40a8516440f2648ffd57f5"
     },
     {
       "file": "cone_side.go",
@@ -416,7 +456,8 @@
       "func": "coneSideForm.boxSide",
       "role": "models",
       "theorems": [
-        "Sketch/Cone/Box.lean:Sketch.Cone.ConeSideForm.boxSide_sound"
+        "Sketch/Cone/Box.lean:Sketch.Cone.ConeSideForm.boxSide_sound",
+        "Sketch/Cone/Real.lean:Sketch.Cone.ConeSideForm.boxSide_sound_real"
       ],
       "assumptions": [
         "A30"
@@ -459,14 +500,148 @@
       "theorems": [
         "Sketch/Cone/Form.lean:Sketch.Cone.newConeSideForm_F",
         "Sketch/Cone/Form.lean:Sketch.Cone.newConeSideForm_h",
-        "Sketch/Cone/Crossing.lean:Sketch.Cone.newConeSideForm_FR",
-        "Sketch/Cone/Crossing.lean:Sketch.Cone.newConeSideForm_hR"
+        "Sketch/Cone/Real.lean:Sketch.Cone.newConeSideForm_FR",
+        "Sketch/Cone/Real.lean:Sketch.Cone.newConeSideForm_hR",
+        "Sketch/Cone/Real.lean:Sketch.Cone.sideAtR_newConeSideForm"
       ],
       "assumptions": [
         "A30",
         "A31"
       ],
       "sha256": "7aa70e6b693cfb22003c3f44d9c142ac83a2ec2d974572059e417cfc0dde4add"
+    },
+    {
+      "file": "cone_side_arc.go",
+      "func": "coneArcWedge.box",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Arc.lean:Sketch.Cone.ConeSideForm.wedgeBox_sound"
+      ],
+      "assumptions": [
+        "A30",
+        "A31",
+        "A50"
+      ],
+      "sha256": "181a6c9dccbc38791d1df0e7e61f4494fa21d6a42309e52505e2d2d5f8c423e6"
+    },
+    {
+      "file": "cone_side_arc.go",
+      "func": "coneArcWedge.side",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Arc.lean:Sketch.Cone.ConeSideForm.wedgeSide_sound"
+      ],
+      "assumptions": [
+        "A30",
+        "A31",
+        "A50",
+        "A51"
+      ],
+      "sha256": "4087c2a915b79d3a3078271006e95aaf0de94f195b88c92a2250dd2ed2490c20"
+    },
+    {
+      "file": "cone_side_arc.go",
+      "func": "coneMulInterval",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Sqrt.lean:Sketch.Cone.coneMulInterval_memR"
+      ],
+      "assumptions": [
+        "A30"
+      ],
+      "sha256": "54ec3ebdc01f77b2961aecaa52bb463febfd85150ca8bea31138f24189051cd1"
+    },
+    {
+      "file": "cone_side_arc.go",
+      "func": "coneOutward",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Arc.lean:Sketch.Cone.coneOutward_memR"
+      ],
+      "assumptions": [
+        "A31",
+        "A50"
+      ],
+      "sha256": "82c4ac9db8acaf5b3427be8ba3b10d997311e327306052802e06a870a005a75f"
+    },
+    {
+      "file": "cone_side_arc.go",
+      "func": "coneRay.cross",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Arc.lean:Sketch.Cone.coneSplit_sound",
+        "Sketch/Cone/Arc.lean:Sketch.Cone.ConeSideForm.arcWedgeSide_sound"
+      ],
+      "assumptions": [
+        "A30"
+      ],
+      "sha256": "9f24a1559da36c16317eee98cc243e26104162de01d9da467873819dc7330feb"
+    },
+    {
+      "file": "cone_side_arc.go",
+      "func": "coneSideForm.arcWedgeSide",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Arc.lean:Sketch.Cone.ConeSideForm.arcWedgeSide_sound"
+      ],
+      "assumptions": [
+        "A30",
+        "A31",
+        "A50",
+        "A51"
+      ],
+      "sha256": "c8cafff2b99e5d0258a5e45bfdd79c373a1f3c5f638ad8d58f50a078a6dcb88f"
+    },
+    {
+      "file": "cone_side_arc.go",
+      "func": "coneSplit",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Arc.lean:Sketch.Cone.coneSplit_sound"
+      ],
+      "assumptions": [
+        "A30",
+        "A50"
+      ],
+      "sha256": "86a7c34cbd89df657428734ddd44f4a46714cb7164daf7d8b149e38386efda4a"
+    },
+    {
+      "file": "cone_side_arc.go",
+      "func": "coneSqrtBounds",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Sqrt.lean:Sketch.Cone.coneSqrtBounds_sound"
+      ],
+      "assumptions": [
+        "A30",
+        "A51"
+      ],
+      "sha256": "2142dbd7862f88fb20c60baea3fc9407acc0a7efd8e46cef2435bb40154859db"
+    },
+    {
+      "file": "cone_side_arc.go",
+      "func": "coneUnit",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Sqrt.lean:Sketch.Cone.coneUnit_sound"
+      ],
+      "assumptions": [
+        "A30",
+        "A51"
+      ],
+      "sha256": "de8dfa2995cd0f8b165e8d84929eec87155d87b0dcc14ef7416d3d98e5663563"
+    },
+    {
+      "file": "cone_side_arc.go",
+      "func": "coneWedgeHas",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Arc.lean:Sketch.Cone.ConeSideForm.wedgeBox_sound"
+      ],
+      "assumptions": [
+        "A30"
+      ],
+      "sha256": "aeb99002329c313b3a847afdc12bfd1fadf5aa410e9d61a8704b66c9bf0c4ee3"
     },
     {
       "file": "constraint.go",

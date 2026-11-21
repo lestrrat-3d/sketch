@@ -18,12 +18,15 @@ const (
 // coneRay is a nonzero exact direction vector.
 type coneRay [2]*big.Rat
 
+// cross returns the exact cross product r × o.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (r coneRay) cross(o coneRay) *big.Rat {
 	return coneSub(coneMul(r[0], o[1]), coneMul(r[1], o[0]))
 }
 
 // coneSqrtBounds returns rationals lo <= sqrt(q) <= hi for q > 0. Both bounds
 // are exact: they come from the integer square root, never from a float.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func coneSqrtBounds(q *big.Rat) (*big.Rat, *big.Rat, bool) {
 	if q.Sign() <= 0 {
 		return nil, nil, false
@@ -51,6 +54,7 @@ func coneSqrtBounds(q *big.Rat) (*big.Rat, *big.Rat, bool) {
 }
 
 // coneUnit encloses v/|v| coordinate-wise.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func coneUnit(v coneRay) ([2]coneInterval, bool) {
 	lo, hi, ok := coneSqrtBounds(coneAdd(coneMul(v[0], v[0]), coneMul(v[1], v[1])))
 	if !ok {
@@ -60,6 +64,8 @@ func coneUnit(v coneRay) ([2]coneInterval, bool) {
 	return [2]coneInterval{inv.scale(v[0]), inv.scale(v[1])}, true
 }
 
+// coneMulInterval returns the exact hull of the four corner products of a and b.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func coneMulInterval(a, b coneInterval) coneInterval {
 	p := [4]*big.Rat{coneMul(a.lo, b.lo), coneMul(a.lo, b.hi), coneMul(a.hi, b.lo), coneMul(a.hi, b.hi)}
 	lo, hi := p[0], p[0]
@@ -75,6 +81,7 @@ func coneMulInterval(a, b coneInterval) coneInterval {
 }
 
 // coneOutward returns float64-exact rational bounds containing [lo, hi].
+// Lean proofs depend on this function; see _proofs/trace.json.
 func coneOutward(i coneInterval) (coneInterval, bool) {
 	lo, _ := i.lo.Float64()
 	hi, _ := i.hi.Float64()
@@ -109,6 +116,7 @@ type coneArcWedge struct {
 // sweep is decided exactly by the cross product of the start and end rays, not
 // by Arc.Sweep. It halves the angular wedge until each piece's coordinate box
 // has one exact sign under boxSide, and refuses otherwise.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (f coneSideForm) arcWedgeSide(arc *Arc) (ConeSide, *big.Rat) {
 	cx, cy := arc.Center.X(), arc.Center.Y()
 	if !coneFinite(cx, cy, arc.Start.X(), arc.Start.Y(), arc.End.X(), arc.End.Y()) {
@@ -128,6 +136,10 @@ func (f coneSideForm) arcWedgeSide(arc *Arc) (ConeSide, *big.Rat) {
 	return w.side(start, end, coneArcDepth)
 }
 
+// side proves one cone side for the carrier piece between rays a and b, halving the
+// wedge up to depth times while the shared budget lasts. Both halves must prove the
+// same side; the smaller margin wins.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (w *coneArcWedge) side(a, b coneRay, depth int) (ConeSide, *big.Rat) {
 	if w.budget == 0 {
 		return 0, nil
@@ -167,6 +179,7 @@ func (w *coneArcWedge) side(a, b coneRay, depth int) (ConeSide, *big.Rat) {
 
 // coneSplit returns a ray strictly inside the wedge from a to b, proved by exact
 // cross products. The ray is only a divider: its direction need not be exact.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func coneSplit(a, b coneRay) (coneRay, bool) {
 	var f [4]float64
 	f[0], _ = a[0].Float64()
@@ -193,6 +206,7 @@ func coneSplit(a, b coneRay) (coneRay, bool) {
 // boxSide for its sign. On the unit circle each coordinate is monotone between
 // its axis extremes, so it ranges between the endpoint values unless the wedge
 // contains an axis direction, whose coordinate then reaches exactly +-1.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (w *coneArcWedge) box(a, b coneRay, ua, ub [2]coneInterval) (ConeSide, *big.Rat) {
 	one, zero := coneRat(1), coneRat(0)
 	axes := [2][2]coneRay{
@@ -232,6 +246,7 @@ func (w *coneArcWedge) box(a, b coneRay, ua, ub [2]coneInterval) (ConeSide, *big
 }
 
 // coneWedgeHas reports whether direction e lies in the closed wedge from a to b.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func coneWedgeHas(a, b, e coneRay) bool {
 	return a.cross(e).Sign() >= 0 && e.cross(b).Sign() >= 0
 }

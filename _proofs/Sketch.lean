@@ -1,5 +1,6 @@
 module  -- shake: keep-all --deprecated_module: ignore
 
+public import Sketch.Cone.Arc
 public import Sketch.Cone.Bernstein
 public import Sketch.Cone.Bezier
 public import Sketch.Cone.Box
@@ -10,7 +11,10 @@ public import Sketch.Cone.Form
 public import Sketch.Cone.Interval
 public import Sketch.Cone.Line
 public import Sketch.Cone.Poly
+public import Sketch.Cone.Real
 public import Sketch.Cone.Search
+public import Sketch.Cone.Sqrt
+public import Sketch.Cone.Wedge
 public import Sketch.Enclose.Angle
 public import Sketch.Enclose.Driven
 public import Sketch.Enclose.Krawczyk

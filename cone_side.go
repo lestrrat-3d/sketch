@@ -396,6 +396,7 @@ func (f coneSideForm) lineSide(line *Line) (ConeSide, *big.Rat) {
 // arcSide proves a cone side for an arc. It tries the single-box proof first,
 // so every arc it certified before keeps its certificate and margin, then the
 // general wedge proof (arcWedgeSide).
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (f coneSideForm) arcSide(arc *Arc) (ConeSide, *big.Rat) {
 	if side, margin := f.arcQuadrantSide(arc); side != 0 {
 		return side, margin
@@ -407,6 +408,7 @@ func (f coneSideForm) arcSide(arc *Arc) (ConeSide, *big.Rat) {
 // CCW sweep from the upper-left quadrant through negative local X into the
 // lower-left quadrant. This sector lies in a proven rectangle, which boxSide
 // tests exactly.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (f coneSideForm) arcQuadrantSide(arc *Arc) (ConeSide, *big.Rat) {
 	cx, cy := arc.Center.X(), arc.Center.Y()
 	sx, sy := arc.Start.X()-cx, arc.Start.Y()-cy
