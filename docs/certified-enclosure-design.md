@@ -184,7 +184,7 @@ follower interval 1.69° wide. The exact follower moves 1.64° over that range.
 
 Go has no rounding-mode control. Each interval operation (`interval.go`)
 computes its endpoints in round-to-nearest and steps one float outward with
-`math.Nextafter`. IEEE 754 rounds `+`, `−`, `×`, `÷` and `sqrt` correctly, so
+`down` or `up`, which return what `math.Nextafter` returns. IEEE 754 rounds `+`, `−`, `×`, `÷` and `sqrt` correctly, so
 the step always encloses the exact result. Each product is written as an
 explicit `float64(…)` conversion, which the Go spec defines as the way to
 forbid fusing a multiply and an add.
