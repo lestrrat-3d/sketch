@@ -2,6 +2,7 @@ package sketch_test
 
 import (
 	"math"
+	"math/big"
 	"math/rand"
 	"testing"
 
@@ -190,4 +191,31 @@ func TestCertifyConeCurveSideToothFillet(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, sketch.ConeOutside, cert.Side())
 	require.Positive(t, cert.ImplicitMargin().Sign())
+}
+
+// TestCertifyConeCurveSideQuadrantArcMargin checks the margin of a short arc
+// the single-box quadrant proof certifies against the exact arc. Arc.R()
+// rounds hypot(-6, 1) below the exact radius sqrt(37), so a box built from
+// Arc.R() misses the exact arc point (-sqrt(37), 0), where F is smallest.
+func TestCertifyConeCurveSideQuadrantArcMargin(t *testing.T) {
+	w := sketch.NewWorld()
+	s, err := w.CreateSketch(w.XY())
+	require.NoError(t, err)
+	arc := s.CreateArc(s.CreatePoint(0, 0), s.CreatePoint(-6, 1), s.CreatePoint(-6, -1))
+	cone := sketch.ConeSection{Apex: r3.NewVec(10, 0, 5), Axis: r3.NewVec(-1, 0, 0), Slope: 0.25}
+	cert, err := s.CertifyConeCurveSide(arc, cone)
+	require.NoError(t, err)
+	require.Equal(t, sketch.ConeOutside, cert.Side())
+	margin := cert.ImplicitMargin()
+	require.Positive(t, margin.Sign())
+
+	// At (x, 0) on the plane, F = 25 - slope^2 (10 - x)^2. At x = -sqrt(37),
+	// margin <= F is (10 + sqrt(37))^2 <= T with T = (25 - margin)/slope^2,
+	// that is 20 sqrt(37) <= T - 137, checked exactly by squaring.
+	slope2 := big.NewRat(1, 16)
+	T := new(big.Rat).Quo(new(big.Rat).Sub(big.NewRat(25, 1), margin), slope2)
+	d := new(big.Rat).Sub(T, big.NewRat(137, 1))
+	require.Positive(t, d.Sign())
+	require.LessOrEqual(t, big.NewRat(400*37, 1).Cmp(new(big.Rat).Mul(d, d)), 0,
+		"margin exceeds F at the exact arc point (-sqrt(37), 0)")
 }

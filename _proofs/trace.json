@@ -302,8 +302,7 @@
       "theorems": [
         "Sketch/Cone/Certify.lean:Sketch.Cone.certifyConeCurveSide_line_sound",
         "Sketch/Cone/Certify.lean:Sketch.Cone.certifyConeCurveSide_fit_sound",
-        "Sketch/Cone/Certify.lean:Sketch.Cone.certifyConeCurveSide_arc_sound",
-        "Sketch/Cone/Certify.lean:Sketch.Cone.certifyConeCurveSide_arc_wedge_sound"
+        "Sketch/Cone/Certify.lean:Sketch.Cone.certifyConeCurveSide_arc_sound"
       ],
       "assumptions": [
         "A30",
@@ -414,14 +413,16 @@
       "func": "coneSideForm.arcQuadrantSide",
       "role": "models",
       "theorems": [
+        "Sketch/Cone/Arc.lean:Sketch.Cone.ConeSideForm.quadrantBox_sound",
         "Sketch/Cone/Arc.lean:Sketch.Cone.ConeSideForm.arcQuadrantSide_sound"
       ],
       "assumptions": [
         "A30",
         "A31",
+        "A51",
         "A52"
       ],
-      "sha256": "6c2d8df90941e30d87a23969e1c3a070b8838bd86a539860da6d9fa8aeba3d39"
+      "sha256": "42ad29ed2fc3c19c91faa6a35290e8bc19b5e51915f2793bfb175a47fa5ee8eb"
     },
     {
       "file": "cone_side.go",
@@ -610,7 +611,8 @@
       "func": "coneSqrtBounds",
       "role": "models",
       "theorems": [
-        "Sketch/Cone/Sqrt.lean:Sketch.Cone.coneSqrtBounds_sound"
+        "Sketch/Cone/Sqrt.lean:Sketch.Cone.coneSqrtBounds_sound",
+        "Sketch/Cone/Arc.lean:Sketch.Cone.ConeSideForm.arcQuadrantSide_sound"
       ],
       "assumptions": [
         "A30",

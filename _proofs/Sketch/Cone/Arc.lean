@@ -17,12 +17,10 @@ the start ray to the end ray (`InWedge`), with `ρ = |Start − Center|` (`ArcSi
 
 * `arcWedgeSide_sound`: a side `arcWedgeSide` returns holds, with its positive margin, at every point of the
   exact arc: radius `|Start − Center|`, directions from `Start − Center` to `End − Center`.
-* `arcQuadrantSide_sound`: a side `arcQuadrantSide` returns holds at every point of the circle of radius `r`
-  (the float `Arc.R()`) through the rays of the float differences `Start − Center` and `End − Center` it
-  computes. That circle is not the exact arc: `Arc.R()` and the differences are rounded, and the box has no
-  slack at the left end `cx − r`, so an exact arc point can sit just outside the box.
-* `arcSide_sound`: `arcSide`'s result holds on one of the two curves above, and on the exact arc whenever
-  `arcQuadrantSide` refused.
+* `arcQuadrantSide_sound`: a side `arcQuadrantSide` returns holds on the same exact arc. Its box is built from
+  floats, but every check runs against the exact endpoint rays and an exact bracket `[rLo, rHi]` of the
+  radius, and the box reaches `cx − rHi` on the left.
+* `arcSide_sound`: `arcSide`'s result holds on the exact arc, whichever proof produced it.
 
 The float steps of `coneArcWedge.box` (`coneOutward`) and `coneSplit` are modeled through `ConeArcEnv`.
 -/
@@ -371,25 +369,36 @@ theorem arcWedgeSide_sound {E : ConeArcEnv} {f : ConeSideForm} {cx cy sx sy ex e
     obtain ⟨hm, hs, hall⟩ := wedgeSide_sound E f cx cy ⟨rLo, rHi⟩ hρ 12 2048 _ _ hab hw
     exact ⟨hm, hs, hab, hall⟩
 
-/-- Model of `sketch.coneSideForm.arcQuadrantSide`. `cx`, `cy` are the Center coordinates; `sx`, `sy`, `ex`,
-`ey` are the float differences `Start − Center` and `End − Center` the Go code computes, `r` is the float
-`Arc.R()`, and `Y`, `U` are the floats it computes from them; the model takes all of them as given exact
-values (A31, A52). The refusals on non-finite values, on `Arc.Sweep()` and on `delta` only refuse, so the
-model omits them. -/
-@[expose] def arcQuadrantSide (f : ConeSideForm) (cx cy sx sy ex ey r Y U : ℚ) : ConeSide × Option ℚ :=
-  if ¬(0 < r ∧ sx < 0 ∧ ex < 0 ∧ 0 < sy ∧ ey < 0) then (.zero, none)
-  else if ¬(U < 0 ∧ 0 < Y) then (.zero, none)
-  else if r * r ≤ U * U + Y * Y then (.zero, none)
-  else if Y * Y * (sx * sx + sy * sy) ≤ r * r * (sy * sy) then (.zero, none)
-  else if Y * Y * (ex * ex + ey * ey) ≤ r * r * (ey * ey) then (.zero, none)
-  else f.boxSide ⟨cx - r, cx + U⟩ ⟨cy - Y, cy + Y⟩
+/-- The exact part of `sketch.coneSideForm.arcQuadrantSide`, on the exact endpoint rays `p` (Start − Center)
+and `q` (End − Center) and the floats `Y`, `U`: the sign checks on the rays, the radius bracket
+`[rLo, rHi]` of `|p|` from `coneSqrtBounds`, the circle and endpoint checks, then `boxSide` on
+`[cx − rHi, cx + U] × [cy − Y, cy + Y]`. -/
+@[expose] def quadrantBox (f : ConeSideForm) (cx cy : ℚ) (p q : ℚ × ℚ) (Y U : ℚ) : ConeSide × Option ℚ :=
+  if ¬(p.1 < 0 ∧ 0 < p.2 ∧ q.1 < 0 ∧ q.2 < 0) then (.zero, none)
+  else
+    match coneSqrtBounds (p.1 * p.1 + p.2 * p.2) with
+    | none => (.zero, none)
+    | some (rLo, rHi) =>
+      if rLo * rLo ≤ U * U + Y * Y then (.zero, none)
+      else if Y * Y * (p.1 * p.1 + p.2 * p.2) ≤ rHi * rHi * (p.2 * p.2) then (.zero, none)
+      else if Y * Y * (q.1 * q.1 + q.2 * q.2) ≤ rHi * rHi * (q.2 * q.2) then (.zero, none)
+      else f.boxSide ⟨cx - rHi, cx + U⟩ ⟨cy - Y, cy + Y⟩
 
-/-- The endpoint check of `arcQuadrantSide`: at the unit direction of `(px, py)`, the circle of radius `r`
-has `|y| < Y` and, in the left half plane, `x < U`. -/
-theorem quadrant_endpoint {px py r Y U : ℚ} (hpx : px < 0) (hr : 0 < r) (hU : U < 0) (hY : 0 < Y)
-    (hcirc : U * U + Y * Y < r * r) (hck : r * r * (py * py) < Y * Y * (px * px + py * py)) :
-    (r : ℝ) * (unitR (rayR (px, py))).1 < U ∧ -(Y : ℝ) < r * (unitR (rayR (px, py))).2 ∧
-      (r : ℝ) * (unitR (rayR (px, py))).2 < Y := by
+/-- Model of `sketch.coneSideForm.arcQuadrantSide`. `cx`, `cy`, `sx`, `sy`, `ex`, `ey` are the exact Center,
+Start and End coordinates (A31). `Y` and `U` are the floats the Go code computes from `Arc.R()` and the float
+differences; the model takes them as given exact values (A52). The float guard (finite values, `r > 0`, the
+float difference signs, `Arc.Sweep()`) and the `delta` check only refuse, so the model omits them. -/
+@[expose] def arcQuadrantSide (f : ConeSideForm) (cx cy sx sy ex ey Y U : ℚ) : ConeSide × Option ℚ :=
+  if ¬(U < 0 ∧ 0 < Y) then (.zero, none)
+  else f.quadrantBox cx cy (sx - cx, sy - cy) (ex - cx, ey - cy) Y U
+
+/-- The endpoint check of `arcQuadrantSide`: for every radius `ρ` in `[rLo, rHi]`, the circle of radius `ρ`
+at the unit direction of `(px, py)` has `|y| < Y` and, in the left half plane, `x < U`. -/
+theorem quadrant_endpoint {px py rLo rHi Y U : ℚ} {ρ : ℝ} (hpx : px < 0) (hlo : 0 < rLo)
+    (hρlo : (rLo : ℝ) ≤ ρ) (hρhi : ρ ≤ rHi) (hU : U < 0) (hY : 0 < Y)
+    (hcirc : U * U + Y * Y < rLo * rLo) (hck : rHi * rHi * (py * py) < Y * Y * (px * px + py * py)) :
+    ρ * (unitR (rayR (px, py))).1 < U ∧ -(Y : ℝ) < ρ * (unitR (rayR (px, py))).2 ∧
+      ρ * (unitR (rayR (px, py))).2 < Y := by
   have hne : rayR (px, py) ≠ 0 := by
     intro h
     have : (px : ℝ) = 0 := congrArg Prod.fst h
@@ -400,67 +409,75 @@ theorem quadrant_endpoint {px py r Y U : ℚ} (hpx : px < 0) (hr : 0 < r) (hU : 
   have hsq := unitR_sq hne
   simp only [unitR, rayR] at hn hn2 hsq ⊢
   have hpxR : (px : ℝ) < 0 := by exact_mod_cast hpx
-  have hrR : (0 : ℝ) < r := by exact_mod_cast hr
+  have hloR : (0 : ℝ) < rLo := by exact_mod_cast hlo
+  have hρ : 0 < ρ := lt_of_lt_of_le hloR hρlo
   have hUR : (U : ℝ) < 0 := by exact_mod_cast hU
   have hYR : (0 : ℝ) < Y := by exact_mod_cast hY
-  have hcircR : (U : ℝ) * U + Y * Y < r * r := by exact_mod_cast hcirc
-  have hckR : (r : ℝ) * r * (py * py) < Y * Y * (px * px + py * py) := by exact_mod_cast hck
+  have hcircR : (U : ℝ) * U + Y * Y < rLo * rLo := by exact_mod_cast hcirc
+  have hckR : (rHi : ℝ) * rHi * (py * py) < Y * Y * (px * px + py * py) := by exact_mod_cast hck
   set N := normR ((px : ℝ), (py : ℝ))
   have hN0 : N ≠ 0 := hn.ne'
-  have hy2 : ((r : ℝ) * (N⁻¹ * py)) ^ 2 < (Y : ℝ) ^ 2 := by
-    have e : ((r : ℝ) * (N⁻¹ * py)) ^ 2 * (N * N) = r * r * (py * py) := by
+  have hy2 : (ρ * (N⁻¹ * py)) ^ 2 < (Y : ℝ) ^ 2 := by
+    have e : (ρ * (N⁻¹ * py)) ^ 2 * (N * N) = ρ * ρ * (py * py) := by
       field_simp
     have hNN : 0 < N * N := mul_pos hn hn
-    have : ((r : ℝ) * (N⁻¹ * py)) ^ 2 * (N * N) < (Y : ℝ) ^ 2 * (N * N) := by
+    have hρ2 : ρ * ρ * (py * py) ≤ (rHi : ℝ) * rHi * (py * py) :=
+      mul_le_mul_of_nonneg_right (mul_self_le_mul_self hρ.le hρhi) (mul_self_nonneg _)
+    have : (ρ * (N⁻¹ * py)) ^ 2 * (N * N) < (Y : ℝ) ^ 2 * (N * N) := by
       rw [e, hn2]
       nlinarith
     exact lt_of_mul_lt_mul_right this hNN.le
-  have hx2 : ((U : ℝ)) ^ 2 < ((r : ℝ) * (N⁻¹ * px)) ^ 2 := by
-    have : ((r : ℝ) * (N⁻¹ * px)) ^ 2 = r ^ 2 - ((r : ℝ) * (N⁻¹ * py)) ^ 2 := by
-      have : ((r : ℝ) * (N⁻¹ * px)) ^ 2 + ((r : ℝ) * (N⁻¹ * py)) ^ 2 = r ^ 2 := by
-        rw [show ((r : ℝ) * (N⁻¹ * px)) ^ 2 + ((r : ℝ) * (N⁻¹ * py)) ^ 2 =
-          r ^ 2 * ((N⁻¹ * px) ^ 2 + (N⁻¹ * py) ^ 2) by ring, hsq, mul_one]
+  have hx2 : ((U : ℝ)) ^ 2 < (ρ * (N⁻¹ * px)) ^ 2 := by
+    have : (ρ * (N⁻¹ * px)) ^ 2 = ρ ^ 2 - (ρ * (N⁻¹ * py)) ^ 2 := by
+      have : (ρ * (N⁻¹ * px)) ^ 2 + (ρ * (N⁻¹ * py)) ^ 2 = ρ ^ 2 := by
+        rw [show (ρ * (N⁻¹ * px)) ^ 2 + (ρ * (N⁻¹ * py)) ^ 2 =
+          ρ ^ 2 * ((N⁻¹ * px) ^ 2 + (N⁻¹ * py) ^ 2) by ring, hsq, mul_one]
       linarith
+    have hρ2 : (rLo : ℝ) * rLo ≤ ρ ^ 2 := by nlinarith
     rw [this]
     nlinarith
-  have hxneg : (r : ℝ) * (N⁻¹ * px) < 0 :=
-    mul_neg_of_pos_of_neg hrR (mul_neg_of_pos_of_neg (inv_pos.2 hn) hpxR)
+  have hxneg : ρ * (N⁻¹ * px) < 0 :=
+    mul_neg_of_pos_of_neg hρ (mul_neg_of_pos_of_neg (inv_pos.2 hn) hpxR)
   refine ⟨?_, ?_, ?_⟩
   · nlinarith
   · nlinarith
   · nlinarith
 
-/-- A side `arcQuadrantSide` returns holds, with the returned positive margin, at every point of the circle
-of radius `r` about `(cx, cy)` from the ray `(sx, sy)` counter-clockwise to the ray `(ex, ey)`. With the Go
-inputs, `r` is the float `Arc.R()` and the rays are the float differences, so this circle is not the exact
-arc of `arcWedgeSide_sound`. Covers `sketch.coneSideForm.arcQuadrantSide` and
-`sketch.coneSideForm.boxSide`; A30, A31, A52. -/
-theorem arcQuadrantSide_sound {f : ConeSideForm} {cx cy sx sy ex ey r Y U : ℚ} {side : ConeSide} {m : ℚ}
-    (h : f.arcQuadrantSide cx cy sx sy ex ey r Y U = (side, some m)) :
-    0 < m ∧ side ≠ .zero ∧ f.ArcSideAt side m cx cy r (rayR (sx, sy)) (rayR (ex, ey)) := by
-  unfold arcQuadrantSide at h
-  split_ifs at h with h1 h2 h3 h4 h5
+/-- A side `quadrantBox` returns holds, with the returned positive margin, at every point of the circle of
+radius `|p|` about `(cx, cy)` from the ray `p` counter-clockwise to the ray `q`. -/
+theorem quadrantBox_sound {f : ConeSideForm} {cx cy Y U : ℚ} {p q : ℚ × ℚ} {side : ConeSide} {m : ℚ}
+    (hU : U < 0) (hY : 0 < Y) (h : f.quadrantBox cx cy p q Y U = (side, some m)) :
+    0 < m ∧ side ≠ .zero ∧ 0 < coneCross p q ∧
+      f.ArcSideAt side m cx cy (normR (rayR p)) (rayR p) (rayR q) := by
+  unfold quadrantBox at h
+  split_ifs at h with h1
+  all_goals try cases h
+  split at h
+  all_goals try cases h
+  rename_i rLo rHi hb
+  obtain ⟨hloR, hρlo, hρhi⟩ := coneSqrtBounds_memR_normR hb
+  have hlo : 0 < rLo := by exact_mod_cast hloR
+  split_ifs at h with h3 h4 h5
   all_goals try cases h
   simp only [not_le] at h3 h4 h5
-  obtain ⟨hr, hsx, hex, hsy, hey⟩ := h1
-  obtain ⟨hU, hY⟩ := h2
+  obtain ⟨hpx, hpy, hqx, hqy⟩ := h1
+  have hcross : 0 < coneCross p q := by
+    simp only [coneCross]
+    nlinarith
   obtain ⟨hm, hs, hall⟩ := boxSide_sound_real h
-  refine ⟨hm, hs, fun w hw hin => hall _ _ ?_ ?_⟩
+  refine ⟨hm, hs, hcross, fun w hw hin => hall _ _ ?_ ?_⟩
   all_goals
-    have hab : 0 < crossR (rayR (sx, sy)) (rayR (ex, ey)) := by
+    have hab : 0 < crossR (rayR p) (rayR q) := by
       rw [← coneCross_cast]
-      have : 0 < coneCross (sx, sy) (ex, ey) := by
-        simp only [coneCross]
-        nlinarith
-      exact_mod_cast this
+      exact_mod_cast hcross
     obtain ⟨ha0, hb0⟩ := ne_zero_of_crossR_pos hab
-    obtain ⟨hsU, hsY1, hsY2⟩ := quadrant_endpoint hsx hr hU hY h3 h4
-    obtain ⟨heU, heY1, heY2⟩ := quadrant_endpoint hex hr hU hY h3 h5
+    obtain ⟨hsU, hsY1, hsY2⟩ := quadrant_endpoint (py := p.2) hpx hlo hρlo hρhi hU hY h3 (by linarith)
+    obtain ⟨heU, heY1, heY2⟩ := quadrant_endpoint (py := q.2) hqx hlo hρlo hρhi hU hY h3 (by linarith)
     obtain ⟨hb1, hb2, hb3, hb4⟩ := unitR_bounds hw
-    have hrR : (0 : ℝ) < r := by exact_mod_cast hr
-    have hsxR : (sx : ℝ) < 0 := by exact_mod_cast hsx
-    have hsyR : (0 : ℝ) < sy := by exact_mod_cast hsy
-    have hexR : (ex : ℝ) < 0 := by exact_mod_cast hex
+    have hρ : 0 < normR (rayR p) := lt_of_lt_of_le hloR hρlo
+    have hpxR : (p.1 : ℝ) < 0 := by exact_mod_cast hpx
+    have hpyR : (0 : ℝ) < p.2 := by exact_mod_cast hpy
+    have hqxR : (q.1 : ℝ) < 0 := by exact_mod_cast hqx
   · have hxmax := x_le_max_of_not_has ha0 hb0 hw hab hin (by
       simp only [rayR, crossR]
       rintro ⟨h, -⟩
@@ -487,11 +504,25 @@ theorem arcQuadrantSide_sound {f : ConeSideForm} {cx cy sx sy ex ey r Y U : ℚ}
     · rw [le_max_iff] at hymax
       rcases hymax with hy | hy <;> nlinarith
 
+/-- A side `arcQuadrantSide` returns holds, with the returned positive margin, at every point of the exact
+arc: the circle about Center of radius `|Start − Center|`, from the Start ray counter-clockwise to the End
+ray, whose sweep lies strictly between zero and a half turn. Covers `sketch.coneSideForm.arcQuadrantSide`,
+`sketch.coneSqrtBounds` and `sketch.coneSideForm.boxSide`; A30, A31, A51, A52. -/
+theorem arcQuadrantSide_sound {f : ConeSideForm} {cx cy sx sy ex ey Y U : ℚ} {side : ConeSide} {m : ℚ}
+    (h : f.arcQuadrantSide cx cy sx sy ex ey Y U = (side, some m)) :
+    0 < m ∧ side ≠ .zero ∧ 0 < coneCross (sx - cx, sy - cy) (ex - cx, ey - cy) ∧
+      f.ArcSideAt side m cx cy (normR (rayR (sx - cx, sy - cy))) (rayR (sx - cx, sy - cy))
+        (rayR (ex - cx, ey - cy)) := by
+  unfold arcQuadrantSide at h
+  split_ifs at h with h2
+  all_goals try cases h
+  obtain ⟨hU, hY⟩ := h2
+  exact quadrantBox_sound hU hY h
+
 end ConeSideForm
 
 /-- The arc inputs of `sketch.coneSideForm.arcSide`: the exact Center, Start and End coordinates (A31), and
-the floats `arcQuadrantSide` computes from them: the differences `dsx`, `dsy`, `dex`, `dey`, the radius
-`r = Arc.R()`, and `Y`, `U` (A52). -/
+the floats `Y`, `U` that `arcQuadrantSide` computes (A52). -/
 structure ConeArcData where
   cx : ℚ
   cy : ℚ
@@ -499,11 +530,6 @@ structure ConeArcData where
   sy : ℚ
   ex : ℚ
   ey : ℚ
-  dsx : ℚ
-  dsy : ℚ
-  dex : ℚ
-  dey : ℚ
-  r : ℚ
   Y : ℚ
   U : ℚ
 
@@ -511,7 +537,7 @@ namespace ConeSideForm
 
 /-- The `arcQuadrantSide` call of `arcSide`. -/
 @[expose] def arcQuadrant (f : ConeSideForm) (d : ConeArcData) : ConeSide × Option ℚ :=
-  f.arcQuadrantSide d.cx d.cy d.dsx d.dsy d.dex d.dey d.r d.Y d.U
+  f.arcQuadrantSide d.cx d.cy d.sx d.sy d.ex d.ey d.Y d.U
 
 /-- Model of `sketch.coneSideForm.arcSide`: the quadrant proof when it returns a side, else the wedge
 proof. -/
@@ -519,26 +545,19 @@ proof. -/
   if (f.arcQuadrant d).1 ≠ .zero then f.arcQuadrant d
   else f.arcWedgeSide E d.cx d.cy d.sx d.sy d.ex d.ey
 
-/-- A side `arcSide` returns holds with its positive margin either on the circle `arcQuadrantSide` tests
-(radius `Arc.R()`, rays of the float differences), when that proof returned the side, or else on the exact
-arc (radius `|Start − Center|`, from the Start ray to the End ray, sweep in `(0, π)`). Covers
-`sketch.coneSideForm.arcSide` and the functions `arcQuadrantSide_sound` and `arcWedgeSide_sound` list;
-A30, A31, A50, A51, A52. -/
+/-- A side `arcSide` returns holds, with the returned positive margin, at every point of the exact arc
+(radius `|Start − Center|`, from the Start ray counter-clockwise to the End ray, sweep in `(0, π)`), whichever
+proof produced it. Covers `sketch.coneSideForm.arcSide` and the functions `arcQuadrantSide_sound` and
+`arcWedgeSide_sound` list; A30, A31, A50, A51, A52. -/
 theorem arcSide_sound {E : ConeArcEnv} {f : ConeSideForm} {d : ConeArcData} {side : ConeSide} {m : ℚ}
     (h : f.arcSide E d = (side, some m)) :
-    0 < m ∧ side ≠ .zero ∧
-      (((f.arcQuadrant d).1 ≠ .zero ∧
-          f.ArcSideAt side m d.cx d.cy d.r (rayR (d.dsx, d.dsy)) (rayR (d.dex, d.dey))) ∨
-        ((f.arcQuadrant d).1 = .zero ∧ 0 < coneCross (d.sx - d.cx, d.sy - d.cy) (d.ex - d.cx, d.ey - d.cy) ∧
-          f.ArcSideAt side m d.cx d.cy (normR (rayR (d.sx - d.cx, d.sy - d.cy)))
-            (rayR (d.sx - d.cx, d.sy - d.cy)) (rayR (d.ex - d.cx, d.ey - d.cy)))) := by
+    0 < m ∧ side ≠ .zero ∧ 0 < coneCross (d.sx - d.cx, d.sy - d.cy) (d.ex - d.cx, d.ey - d.cy) ∧
+      f.ArcSideAt side m d.cx d.cy (normR (rayR (d.sx - d.cx, d.sy - d.cy)))
+        (rayR (d.sx - d.cx, d.sy - d.cy)) (rayR (d.ex - d.cx, d.ey - d.cy)) := by
   unfold arcSide at h
   split_ifs at h with hq
-  · obtain ⟨hm, hs, hall⟩ := arcQuadrantSide_sound (f := f) h
-    exact ⟨hm, hs, Or.inl ⟨hq, hall⟩⟩
-  · obtain ⟨hm, hs, hc, hall⟩ := arcWedgeSide_sound h
-    push Not at hq
-    exact ⟨hm, hs, Or.inr ⟨hq, hc, hall⟩⟩
+  · exact arcQuadrantSide_sound (f := f) h
+  · exact arcWedgeSide_sound h
 
 end ConeSideForm
 
