@@ -928,9 +928,10 @@
         "A12",
         "A13",
         "A14",
-        "A15"
+        "A15",
+        "A160"
       ],
-      "sha256": "85e47a8a88fea6ef223614a139c1bb57fb6aaeff7d7ccf6be6826a361d455abf"
+      "sha256": "faf0debe3bfdb80ec5f6011392782b50ec79543518df03f27049b3a294e28de3"
     },
     {
       "file": "enclose_system.go",
@@ -952,6 +953,16 @@
         "A12"
       ],
       "sha256": "04df8a23ae52a19d2966d3f0194045a01362728a466bedeed85cc6808e802d51"
+    },
+    {
+      "file": "enclose_system.go",
+      "func": "sumGain",
+      "role": "assumes",
+      "theorems": [],
+      "assumptions": [
+        "A160"
+      ],
+      "sha256": "6f17c780ceec67f63ea7fddccdde0be763c42fb4a99658b62e84808c31956ee9"
     },
     {
       "file": "geom/arrange_fit_circle.go",

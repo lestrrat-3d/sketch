@@ -15,7 +15,9 @@ in outward-rounded interval arithmetic and accepts when every row of `K` lies st
 every `WithTargetRange` target and every `WithFixedBox` coordinate.
 
 The interval evaluations are not modeled. Their results enter as real bounds (`cLo`/`cHi`, `CLo`/`CHi`,
-`kLo`/`kHi`), and the facts the proof needs about them are the fields of `KrawczykRun.Assumptions`. The proof does
+`kLo`/`kHi`), and the facts the proof needs about them are the fields of `KrawczykRun.Assumptions`. The bounds
+need only enclose, so the Go code may sum in plain float arithmetic and widen each sum once by its rounding
+bound; `CLo`/`CHi` need not be computed at all. The proof does
 not use Brouwer's theorem: the strict inclusion bounds every row sum of `|I − Y·F_x|`, weighted by the widths of
 `X`, below that row's width, so `x ↦ x − Y·F(x, p)` is a contraction of `X` in the weighted max-norm and the
 Banach fixed-point theorem applies.
@@ -57,9 +59,11 @@ structure KrawczykRun (n : ℕ) (P : Type*) where
   cLo : Fin n → ℝ
   /-- Upper ends of `c = −Y·F(x̃, Q)`. -/
   cHi : Fin n → ℝ
-  /-- Lower ends of `C = I − Y·F_x(X, Q)`, the Go loop's `cij`. -/
+  /-- Lower ends of `C = I − Y·F_x(X, Q)`: the Go loop's float cell sum less its rounding bound, a real number
+  the code never forms. -/
   CLo : Matrix (Fin n) (Fin n) ℝ
-  /-- Upper ends of `C = I − Y·F_x(X, Q)`, the Go loop's `cij`. -/
+  /-- Upper ends of `C = I − Y·F_x(X, Q)`: the Go loop's float cell sum plus its rounding bound, a real number
+  the code never forms. -/
   CHi : Matrix (Fin n) (Fin n) ℝ
   /-- Lower corner of the Krawczyk image `K`. -/
   kLo : Fin n → ℝ
@@ -367,8 +371,8 @@ theorem exists_g_fixed (hA : R.Assumptions) (hacc : R.accepts) {p : P} (hp : p �
 of `K(X)` lies strictly inside the same row of `X` (`sketch.Interval.strictlyInside`), then for every parameter
 value `p ∈ Q` (the driving value jointly with every ranged target and fixed box) exactly one zero of `F(·, p)` lies
 in `X`, and every zero of `F(·, p)` in `X` lies in `K`. Covers `sketch.certSystem.krawczyk` and
-`sketch.Interval.strictlyInside`. The hypotheses carry assumptions A10 to A14 (`hA`); the square shape of `F` is
-A15. Continuity of the zero in `p` is not proved. -/
+`sketch.Interval.strictlyInside`. The hypotheses carry assumptions A10 to A14 (`hA`), with the rounding bound of
+A160 behind A11 to A13; the square shape of `F` is A15. Continuity of the zero in `p` is not proved. -/
 theorem krawczyk_sound (hA : R.Assumptions) (hacc : R.accepts) {p : P} (hp : p ∈ R.Q) :
     (∃! x, inBox R.xLo R.xHi x ∧ R.F x p = 0) ∧
       ∀ x, inBox R.xLo R.xHi x → R.F x p = 0 → inBox R.kLo R.kHi x := by
@@ -394,7 +398,8 @@ theorem krawczyk_sound (hA : R.Assumptions) (hacc : R.accepts) {p : P} (hp : p �
     rwa [hfixF x hF] at this
 
 /-- The strict inclusion also proves the approximate inverse `Y` and every Jacobian `F_x(x, p)` with `x ∈ X`,
-`p ∈ Q` nonsingular. Covers `sketch.certSystem.krawczyk`; the hypotheses carry assumptions A10 to A14 (`hA`). -/
+`p ∈ Q` nonsingular. Covers `sketch.certSystem.krawczyk`; the hypotheses carry assumptions A10 to A14 (`hA`), with
+the rounding bound of A160 behind A11 to A13. -/
 theorem krawczyk_nonsingular (hA : R.Assumptions) (hacc : R.accepts) {p : P} (hp : p ∈ R.Q) :
     R.Y.det ≠ 0 ∧ ∀ x, inBox R.xLo R.xHi x → (R.Fx x p).det ≠ 0 := by
   refine ⟨?_, fun x hx => ?_⟩
