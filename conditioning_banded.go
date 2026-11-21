@@ -417,10 +417,14 @@ func resizeAdj(dst *[][]int, n int) [][]int {
 // bandHypot uses the hardware square-root path for the ordinary finite range
 // produced by a scaled Jacobian. Outside that range it keeps Hypot's overflow,
 // underflow and non-finite handling.
+//
+// The builtin max inlines where math.Max is a call. The two differ only for
+// max(+Inf, NaN), and both answers fail the range test, so either one reaches
+// math.Hypot with the same x and y.
 func bandHypot(x, y float64) float64 {
 	ax, ay := math.Abs(x), math.Abs(y)
-	max := math.Max(ax, ay)
-	if max >= 1e-150 && max <= 1e150 {
+	hi := max(ax, ay)
+	if hi >= 1e-150 && hi <= 1e150 {
 		return math.Sqrt(x*x + y*y)
 	}
 	return math.Hypot(x, y)

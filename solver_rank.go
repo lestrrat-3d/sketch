@@ -230,7 +230,10 @@ func rankAnalysisOfMatrix(A [][]float64, n int) rankAnalysis {
 		piv := row
 		best := pivotAbs(A[row][col])
 		for r := row + 1; r < m; r++ {
-			if v := pivotAbs(A[r][col]); v > best {
+			// pivotAbs(x) > best, inlined: best is never negative, so a
+			// non-finite x (which pivotAbs reads as 0) never wins, and NaN
+			// already fails the compare.
+			if v := math.Abs(A[r][col]); v > best && v <= math.MaxFloat64 {
 				best = v
 				piv = r
 			}
@@ -245,16 +248,37 @@ func rankAnalysisOfMatrix(A [][]float64, n int) rankAnalysis {
 			ra.minAcceptedPivot = best
 		}
 		A[row], A[piv] = A[piv], A[row]
-		for r := 0; r < m; r++ {
-			if r == row {
+		pr := A[row]
+		// Only the rows below the pivot row are eliminated. A row above it was
+		// already a pivot row, and no later pivot search or elimination reads it,
+		// so updating it could not change any result this function returns.
+		//
+		// The update stops at the pivot row's last nonzero column. Past it every
+		// pivot-row entry is zero, so a finite f leaves each entry's value as it
+		// is (only the sign of a zero could flip, and every read of an entry goes
+		// through an absolute value or a zero test). An infinite or NaN f would
+		// turn those zeros into NaN, so it keeps the full width.
+		last := n - 1
+		for last > col && pr[last] == 0 {
+			last--
+		}
+		for r := row + 1; r < m; r++ {
+			ar := A[r]
+			// A zero entry gives f == ±0, which the f == 0 test skips too; the
+			// early test only saves the division.
+			if ar[col] == 0 {
 				continue
 			}
-			f := A[r][col] / A[row][col]
+			f := ar[col] / pr[col]
 			if f == 0 {
 				continue
 			}
-			for c := col; c < n; c++ {
-				A[r][c] -= f * A[row][c]
+			end := last
+			if math.IsInf(f, 0) || math.IsNaN(f) {
+				end = n - 1
+			}
+			for c := col; c <= end; c++ {
+				ar[c] -= f * pr[c]
 			}
 		}
 		row++
