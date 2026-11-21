@@ -9,7 +9,8 @@ public import Sketch.Cone.Wedge
 Models `sketch.coneSqrtBounds`, `sketch.coneUnit` and `sketch.coneMulInterval` (`cone_side_arc.go`).
 `coneSqrtBounds` brackets `√q` between two rationals built from the integer square root of `q·4^k`, with no
 float step; `coneUnit` turns that bracket into coordinate-wise intervals around `v/|v|`; `coneMulInterval`
-is the hull of the four corner products.
+is the product interval: two end products when the first factor is nonnegative, else the hull of the four
+corner products.
 
 `coneSqrtBounds_sound`, `coneUnit_sound` and `coneMulInterval_memR` prove each one inclusion-sound over the
 reals. The `math/big` integer steps are exact (A51) and the rational steps are exact (A30, A51).
@@ -171,11 +172,15 @@ theorem coneUnit_sound {v : ℚ × ℚ} {ix iy : ConeInterval} (h : coneUnit v =
 @[expose] def mulStep (lh : ℚ × ℚ) (x : ℚ) : ℚ × ℚ :=
   (if x < lh.1 then x else lh.1, if lh.2 < x then x else lh.2)
 
-/-- Model of `sketch.coneMulInterval`: the hull of the four corner products, in the Go loop order. -/
+/-- Model of `sketch.coneMulInterval`. When `a.lo ≥ 0`, every value of `a` is nonnegative, so the lower end is
+`b.lo` times `a.lo` (`a.hi` when `b.lo < 0`) and the upper end is `b.hi` times `a.hi` (`a.lo` when `b.hi < 0`).
+Otherwise it is the hull of the four corner products, in the Go loop order. -/
 @[expose] def coneMulInterval (a b : ConeInterval) : ConeInterval :=
-  let p0 := a.lo * b.lo
-  let r := mulStep (mulStep (mulStep (p0, p0) (a.lo * b.hi)) (a.hi * b.lo)) (a.hi * b.hi)
-  ⟨r.1, r.2⟩
+  if 0 ≤ a.lo then ⟨(if b.lo < 0 then a.hi else a.lo) * b.lo, (if b.hi < 0 then a.lo else a.hi) * b.hi⟩
+  else
+    let p0 := a.lo * b.lo
+    let r := mulStep (mulStep (mulStep (p0, p0) (a.lo * b.hi)) (a.hi * b.lo)) (a.hi * b.hi)
+    ⟨r.1, r.2⟩
 
 theorem mulStep_eq (lh : ℚ × ℚ) (x : ℚ) : mulStep lh x = (min x lh.1, max lh.2 x) := by
   simp only [mulStep, ConeInterval.ite_lt_eq_min, ConeInterval.ite_gt_eq_max]
@@ -194,10 +199,30 @@ theorem coneMulInterval_memR {a b : ConeInterval} {x y : ℝ} (hx : a.MemR x) (h
     (coneMulInterval a b).MemR (x * y) := by
   obtain ⟨hx1, hx2⟩ := hx
   obtain ⟨hy1, hy2⟩ := hy
+  by_cases ha : 0 ≤ a.lo
+  · have hx0 : (0 : ℝ) ≤ x := le_trans (by exact_mod_cast ha) hx1
+    have hlo := mul_le_mul_of_nonneg_left hy1 hx0
+    have hhi := mul_le_mul_of_nonneg_left hy2 hx0
+    simp only [coneMulInterval, ha, ↓reduceIte, ConeInterval.MemR]
+    constructor
+    · split_ifs with hb
+      · have hb' : (b.lo : ℝ) < 0 := by exact_mod_cast hb
+        push_cast
+        nlinarith
+      · have hb' : (0 : ℝ) ≤ b.lo := by exact_mod_cast not_lt.mp hb
+        push_cast
+        nlinarith
+    · split_ifs with hb
+      · have hb' : (b.hi : ℝ) < 0 := by exact_mod_cast hb
+        push_cast
+        nlinarith
+      · have hb' : (0 : ℝ) ≤ b.hi := by exact_mod_cast not_lt.mp hb
+        push_cast
+        nlinarith
   obtain ⟨l1, u1⟩ := mul_between (y := y) hx1 hx2
   obtain ⟨l2, u2⟩ := mul_between (y := (a.lo : ℝ)) hy1 hy2
   obtain ⟨l3, u3⟩ := mul_between (y := (a.hi : ℝ)) hy1 hy2
-  simp only [coneMulInterval, mulStep_eq, ConeInterval.MemR]
+  simp only [coneMulInterval, ha, ↓reduceIte, mulStep_eq, ConeInterval.MemR]
   push_cast
   rw [min_le_iff] at l1 l2 l3
   rw [le_max_iff] at u1 u2 u3

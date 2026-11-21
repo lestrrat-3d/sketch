@@ -64,9 +64,22 @@ func coneUnit(v coneRay) ([2]coneInterval, bool) {
 	return [2]coneInterval{inv.scale(v[0]), inv.scale(v[1])}, true
 }
 
-// coneMulInterval returns the exact hull of the four corner products of a and b.
+// coneMulInterval returns the exact interval of x*y over x in a and y in b. When
+// a is nonnegative (the radius bracket box passes), each end is one corner
+// product chosen by the sign of b's end; otherwise it is the hull of the four
+// corner products.
 // Lean proofs depend on this function; see _proofs/trace.json.
 func coneMulInterval(a, b coneInterval) coneInterval {
+	if a.lo.Sign() >= 0 {
+		lo, hi := a.lo, a.hi
+		if b.lo.Sign() < 0 {
+			lo = a.hi
+		}
+		if b.hi.Sign() < 0 {
+			hi = a.lo
+		}
+		return coneInterval{coneMul(lo, b.lo), coneMul(hi, b.hi)}
+	}
 	p := [4]*big.Rat{coneMul(a.lo, b.lo), coneMul(a.lo, b.hi), coneMul(a.hi, b.lo), coneMul(a.hi, b.hi)}
 	lo, hi := p[0], p[0]
 	for _, x := range p[1:] {
@@ -131,28 +144,29 @@ func (f coneSideForm) arcWedgeSide(arc *Arc) (ConeSide, *big.Rat) {
 	if !ok {
 		return 0, nil
 	}
+	us, ok := coneUnit(start)
+	if !ok {
+		return 0, nil
+	}
+	ue, ok := coneUnit(end)
+	if !ok {
+		return 0, nil
+	}
 	w := &coneArcWedge{form: f, cx: coneRat(cx), cy: coneRat(cy),
 		radius: coneInterval{rLo, rHi}, budget: coneArcBudget}
-	return w.side(start, end, coneArcDepth)
+	return w.side(start, end, us, ue, coneArcDepth)
 }
 
 // side proves one cone side for the carrier piece between rays a and b, halving the
-// wedge up to depth times while the shared budget lasts. Both halves must prove the
-// same side; the smaller margin wins.
+// wedge up to depth times while the shared budget lasts. ua and ub are coneUnit of a
+// and b; each divider's unit enclosure is computed once and handed to both halves.
+// Both halves must prove the same side; the smaller margin wins.
 // Lean proofs depend on this function; see _proofs/trace.json.
-func (w *coneArcWedge) side(a, b coneRay, depth int) (ConeSide, *big.Rat) {
+func (w *coneArcWedge) side(a, b coneRay, ua, ub [2]coneInterval, depth int) (ConeSide, *big.Rat) {
 	if w.budget == 0 {
 		return 0, nil
 	}
 	w.budget--
-	ua, ok := coneUnit(a)
-	if !ok {
-		return 0, nil
-	}
-	ub, ok := coneUnit(b)
-	if !ok {
-		return 0, nil
-	}
 	if side, margin := w.box(a, b, ua, ub); side != 0 {
 		return side, margin
 	}
@@ -163,11 +177,15 @@ func (w *coneArcWedge) side(a, b coneRay, depth int) (ConeSide, *big.Rat) {
 	if !ok {
 		return 0, nil
 	}
-	s0, m0 := w.side(a, m, depth-1)
+	um, ok := coneUnit(m)
+	if !ok {
+		return 0, nil
+	}
+	s0, m0 := w.side(a, m, ua, um, depth-1)
 	if s0 == 0 {
 		return 0, nil
 	}
-	s1, m1 := w.side(m, b, depth-1)
+	s1, m1 := w.side(m, b, um, ub, depth-1)
 	if s1 != s0 {
 		return 0, nil
 	}
