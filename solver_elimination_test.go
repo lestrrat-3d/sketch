@@ -314,6 +314,21 @@ func eliminationFixtures() []eliminationSystem {
 			a:    [][]float64{{5, 1, 1}, {math.NaN(), 2, 1}, {0, 1, 3}},
 			b:    []float64{1, 1, 1},
 		},
+		{
+			// Rows below a pivot whose entry is exactly +0, against a negative
+			// pivot and a negative-zero right-hand side: the shared multiplier is
+			// -0 and the shared right-hand side product decides each row's sign.
+			name: "zero entries below a negative pivot",
+			a:    [][]float64{{-4, 1, 1, 1}, {0, 3, 0, 1}, {0, 0, 5, 0}, {1, 0, 0, 2}},
+			b:    []float64{negZero, negZero, 0, negZero},
+		},
+		{
+			// The same rows against an infinite right-hand side in the pivot row:
+			// every zero-entry row receives 0 × Inf = NaN.
+			name: "zero entries below a pivot with an infinite right-hand side",
+			a:    [][]float64{{4, 1, 0}, {0, 3, 0}, {0, 0, 5}},
+			b:    []float64{math.Inf(1), 1, negZero},
+		},
 	}
 }
 

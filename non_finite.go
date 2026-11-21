@@ -68,8 +68,14 @@ func (f nonFiniteFinding) found() bool {
 	return len(f.points) > 0 || len(f.entities) > 0 || len(f.dims) > 0 || len(f.cons) > 0
 }
 
-// nonFinite reports whether v is NaN or infinite.
-func nonFinite(v float64) bool { return math.IsNaN(v) || math.IsInf(v, 0) }
+// nonFinite reports whether v is NaN or infinite: exactly the float64 values
+// whose exponent field is all ones. Testing that field is one mask and one
+// compare, where math.IsNaN || math.IsInf takes three compares and two branches,
+// and it is called per matrix entry in the solver's kernels.
+func nonFinite(v float64) bool { return math.Float64bits(v)&expMask == expMask }
+
+// expMask is the exponent field of a float64.
+const expMask = 0x7ff << 52
 
 // nonFiniteVars scans this sketch's OWN geometry — never a Jacobian built from
 // it — for a non-finite (NaN or infinite) solver variable, dimension target or
