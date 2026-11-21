@@ -14,8 +14,8 @@ implicit function polynomial `f` and derivative `df` of the curve (`coneFitResid
 final Bernstein bound on `df` over the narrowed bracket must exclude zero.
 
 The ideal spline is evaluated at real parameters: `FitData.spanPointR` is span `i` at local `u ∈ ℝ`, and
-`fitCurveR` maps it to the world through the plane frame. `worldFR` and `worldHR` are the cone implicit
-function and half coordinate of `Sketch/Cone/Form.lean` at a real world point.
+`fitCurveR` maps it to the world through the plane frame. `worldFR` and `worldHR` (`Sketch/Cone/Real.lean`)
+are the cone implicit function and half coordinate of `Sketch/Cone/Form.lean` at a real world point.
 
 `certifyConeFitCrossing_sound` states the guarantee of a returned certificate: every point of the ideal
 spline lies in the positive cone half; the spline meets the cone surface at exactly one parameter `u*`, inside
@@ -82,25 +82,6 @@ theorem spanPointR_join (fi : FitData) (i : ℕ) (axis : Fin 2) :
   push_cast
   ring
 
-namespace ConeSideForm
-
-/-- World offset from the apex, component `i`, of the real plane point `(x, y)`. -/
-@[expose] noncomputable def qR (f : ConeSideForm) (x y : ℝ) (i : Fin 3) : ℝ :=
-  (f.base i : ℝ) + x * f.u i + y * f.v i
-
-/-- Cone half coordinate at the real plane point `(x, y)`. -/
-@[expose] noncomputable def hR (f : ConeSideForm) (x y : ℝ) : ℝ :=
-  f.qR x y 0 * f.axis 0 + f.qR x y 1 * f.axis 1 + f.qR x y 2 * f.axis 2
-
-/-- Cone implicit function `|q×a|² − slope²·h²` at the real plane point `(x, y)`. -/
-@[expose] noncomputable def FR (f : ConeSideForm) (x y : ℝ) : ℝ :=
-  (f.qR x y 1 * f.axis 2 - f.qR x y 2 * f.axis 1) * (f.qR x y 1 * f.axis 2 - f.qR x y 2 * f.axis 1) +
-    (f.qR x y 2 * f.axis 0 - f.qR x y 0 * f.axis 2) * (f.qR x y 2 * f.axis 0 - f.qR x y 0 * f.axis 2) +
-    (f.qR x y 0 * f.axis 1 - f.qR x y 1 * f.axis 0) * (f.qR x y 0 * f.axis 1 - f.qR x y 1 * f.axis 0) -
-    f.hR x y * f.hR x y * f.slope2
-
-end ConeSideForm
-
 theorem evalR_coneFitResidualQ (form : ConeSideForm) (px py : List ℚ) (j : Fin 3) (t : ℝ) :
     evalR (coneFitResidualQ form px py j) t = form.qR (evalR px t) (evalR py t) j := by
   simp only [coneFitResidualQ, evalR_add, evalR_scale, evalR_cons, evalR_nil, ConeSideForm.qR]
@@ -114,39 +95,6 @@ theorem evalR_coneFitResidualF (form : ConeSideForm) (px py : List ℚ) (t : ℝ
     evalR (coneFitResidualF form px py) t = form.FR (evalR px t) (evalR py t) := by
   simp only [coneFitResidualF, evalR_add, evalR_sub, evalR_scale, evalR_mul, evalR_coneFitResidualQ,
     evalR_coneFitResidualH, ConeSideForm.FR]
-
-/-- The world point `o + x·U + y·V` of the real plane point `(x, y)`. -/
-@[expose] noncomputable def worldPointR (o U V : Fin 3 → ℚ) (x y : ℝ) : Fin 3 → ℝ :=
-  fun i => (o i : ℝ) + x * U i + y * V i
-
-/-- The cone implicit function `|(P−A)×a|² − s²·((P−A)·a)²` at the real world point `P`. -/
-@[expose] noncomputable def worldFR (A a : Fin 3 → ℚ) (s : ℚ) (P : Fin 3 → ℝ) : ℝ :=
-  (((P 1 - A 1) * a 2 - (P 2 - A 2) * a 1) ^ 2 + ((P 2 - A 2) * a 0 - (P 0 - A 0) * a 2) ^ 2 +
-      ((P 0 - A 0) * a 1 - (P 1 - A 1) * a 0) ^ 2) -
-    (s : ℝ) ^ 2 * ((P 0 - A 0) * a 0 + (P 1 - A 1) * a 1 + (P 2 - A 2) * a 2) ^ 2
-
-/-- The cone half coordinate `(P−A)·a` at the real world point `P`. -/
-@[expose] noncomputable def worldHR (A a : Fin 3 → ℚ) (P : Fin 3 → ℝ) : ℝ :=
-  (P 0 - A 0) * a 0 + (P 1 - A 1) * a 1 + (P 2 - A 2) * a 2
-
-/-- At a rational world point, `worldFR` is the exact `worldF`. -/
-theorem worldFR_ratCast (A a : Fin 3 → ℚ) (s : ℚ) (P : Fin 3 → ℚ) :
-    worldFR A a s (fun i => (P i : ℝ)) = (worldF A a s P : ℝ) := by
-  simp only [worldFR, worldF, dot]
-  push_cast
-  ring
-
-theorem newConeSideForm_FR (o U V A a : Fin 3 → ℚ) (s : ℚ) (x y : ℝ) :
-    (newConeSideForm o U V A a s).FR x y = worldFR A a s (worldPointR o U V x y) := by
-  simp only [ConeSideForm.FR, ConeSideForm.hR, ConeSideForm.qR, newConeSideForm, worldFR, worldPointR]
-  push_cast
-  ring
-
-theorem newConeSideForm_hR (o U V A a : Fin 3 → ℚ) (s : ℚ) (x y : ℝ) :
-    (newConeSideForm o U V A a s).hR x y = worldHR A a (worldPointR o U V x y) := by
-  simp only [ConeSideForm.hR, ConeSideForm.qR, newConeSideForm, worldHR, worldPointR]
-  push_cast
-  ring
 
 /-- The world point of span `i` of the ideal interpolant at real local parameter `u`. -/
 @[expose] noncomputable def fitCurveR (o U V : Fin 3 → ℚ) (fi : FitData) (i : ℕ) (u : ℝ) : Fin 3 → ℝ :=
