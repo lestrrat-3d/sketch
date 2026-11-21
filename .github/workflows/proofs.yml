@@ -26,8 +26,10 @@ on:
       - 'geom/arrange_fit_circle.go'
       - 'interval.go'
       - 'interval_trig.go'
+      - 'jacobian.go'
       - 'probe.go'
       - 'profile_junction_line_line.go'
+      - 'solver.go'
   push:
     branches: [main]
     paths: *proof-paths

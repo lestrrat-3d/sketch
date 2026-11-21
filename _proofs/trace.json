@@ -1449,6 +1449,63 @@
       "sha256": "c7c2a0a8b9b8b4ed16a45bf9ed047d153c6332a63776240a0dd4e8c4073a852a"
     },
     {
+      "file": "jacobian.go",
+      "func": "Sketch.buildResidualPlan",
+      "role": "assumes",
+      "theorems": [],
+      "assumptions": [
+        "A44",
+        "A45"
+      ],
+      "sha256": "d38a785621a2cc319a6cd3ebba4a2eb0925354f00ac65845c123ceaa5e98af70"
+    },
+    {
+      "file": "jacobian.go",
+      "func": "Sketch.constraintVarIndices",
+      "role": "assumes",
+      "theorems": [],
+      "assumptions": [
+        "A44"
+      ],
+      "sha256": "c78a55ef73fb5eeb1b32e027789ab22bdf3191f73aee06e0796f6115af90af26"
+    },
+    {
+      "file": "jacobian.go",
+      "func": "Sketch.jacobianLocalInto",
+      "role": "models",
+      "theorems": [
+        "Sketch/Jacobian/Local.lean:Sketch.Jacobian.Ops.jacobianLocal_eq_dense",
+        "Sketch/Jacobian/Local.lean:Sketch.Jacobian.Ops.jacobianLocal_eq_none_or_dense",
+        "Sketch/Jacobian/Local.lean:Sketch.Jacobian.Ops.jacobianLocal_isSome_iff"
+      ],
+      "assumptions": [
+        "A43",
+        "A44",
+        "A45"
+      ],
+      "sha256": "a4a9e947f8ef5a3f40fb30ff9bcca56cf49ca8dd56011ba08e1a3d6deb0e7ea4"
+    },
+    {
+      "file": "jacobian.go",
+      "func": "residualPlan.consFor",
+      "role": "assumes",
+      "theorems": [],
+      "assumptions": [
+        "A45"
+      ],
+      "sha256": "9a1cfd6b84042cd98953b1ad650001f021dd6d22762b10886c9e942439fbf9a2"
+    },
+    {
+      "file": "jacobian.go",
+      "func": "residualPlan.evalRows",
+      "role": "assumes",
+      "theorems": [],
+      "assumptions": [
+        "A45"
+      ],
+      "sha256": "c7de924f0600c51f8e260f43834df35c9c588e9ad72edee1a1a02c2f061c888e"
+    },
+    {
       "file": "probe.go",
       "func": "wrapPi",
       "role": "models",
@@ -1477,6 +1534,19 @@
         "A34"
       ],
       "sha256": "b1d1e85e8aa96020fc7051ed1a04cb93f32ddc6e0dedf9783cc5096fd90996a8"
+    },
+    {
+      "file": "solver.go",
+      "func": "Sketch.jacobianInto",
+      "role": "models",
+      "theorems": [
+        "Sketch/Jacobian/Local.lean:Sketch.Jacobian.Ops.jacobianLocal_eq_dense"
+      ],
+      "assumptions": [
+        "A43",
+        "A45"
+      ],
+      "sha256": "b6a8548e537afd7081678f554962ef801cccbddf969309442e91d47028013da1"
     }
   ]
 }

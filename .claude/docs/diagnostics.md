@@ -139,7 +139,9 @@ holds. **That argument needs the unaffected rows to be FINITE**, so
 `jacobianLocalInto` scans the caller's base residual vector first and refuses
 the whole call on a NaN or infinity: there the dense pass computes `∞ − ∞` or
 `NaN − NaN` for every column, and clearing would replace a NaN a structurally
-independent row genuinely produces. Every other refusal is whole-call too — an
+independent row genuinely produces. It also refuses when a free variable's
+`1/(2h)` is not finite (a NaN variable, even one no constraint reads), because
+the dense pass writes `0 * NaN` into that whole column. Every other refusal is whole-call too — an
 unclassified dependency set, a row count that moved, a row vector the plan does
 not describe — and each falls through to the dense build, so **the mode selects
 an optimization, never a different result**.

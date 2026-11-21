@@ -23,6 +23,7 @@ public import Sketch.Enclose.Krawczyk
 public import Sketch.Float.Grid
 public import Sketch.Float.Model
 public import Sketch.Interval.Arith
+public import Sketch.Jacobian.Local
 public import Sketch.Trig.ArcSpan
 public import Sketch.Trig.Atan2
 public import Sketch.Trig.Atan2Box
