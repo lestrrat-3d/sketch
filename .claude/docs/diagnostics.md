@@ -754,6 +754,12 @@ sin/cos/atan2 bounds).
   a boxed fixed var lives in `certSystem.params` and reads its interval in
   `krawczyk`'s `base` (residual, `X`, published `K`). `Y` stays built at the
   float point. NEVER give a param var a Jacobian column.
+- Piece-centre solve (`tryPiece`) stops at `encloseCentreTol` (1e-6); every
+  other solve (start at `lo`, each piece end → point box, next seed,
+  `endVars`) MUST reach `encloseSolveTol` (1e-10). On a failed attempt,
+  polish the centre to `encloseSolveTol` and retry once. Soundness needs only
+  x̃ ∈ X (A14); the tightness rule (`pieceSlackAbs`) is what needs accuracy →
+  a looser centre (1e-5 and up) changes piece counts and Krawczyk passes.
 - Float solves read each range's midpoint + each box's center, written ONLY
   when it differs from the current value → a zero-width range on a dimension's
   own target is bit-identical to no option (T7 in `enclose_test.go` pins it).

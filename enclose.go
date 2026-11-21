@@ -519,9 +519,32 @@ type encloseRun struct {
 // setDriver makes the driver's target exactly q in base units.
 func (r *encloseRun) setDriver(q float64) { setBase(r.db, q) }
 
-// solveAt runs the float solver at driving value q from seed and returns the
-// solved variables, or an error wrapping ErrNotConverged (or the context's).
-func (r *encloseRun) solveAt(ctx context.Context, seed []float64, q float64, dst []float64) error {
+// Float solve tolerances, as residual norms.
+//
+// encloseSolveTol is the solver's default. Every float solution an enclosure
+// publishes or carries on is solved to it: the start at lo, each piece's end
+// (its point box, the next piece's seed, and Enclosure.endVars).
+//
+// encloseCentreTol is the looser target of the solve at a piece's midpoint,
+// whose result is only the centre x̃ of that piece's Krawczyk test. The
+// soundness proof of the test (krawczyk_sound in
+// _proofs/Sketch/Enclose/Krawczyk.lean) asks nothing of x̃ but that it lie in
+// the box X (assumption A14), which the ε-inflation guarantees for any finite
+// x̃. Accuracy only decides whether the test closes and how tight K is: a
+// centre error widens K by about |I − Y·F_x(X)|·|x̃ − x*|, and at 1e-6 that stays
+// far below the tightness rule's pieceSlackAbs on the Enclose benchmarks. A
+// piece that fails with the loose centre is retried once with the centre
+// polished to encloseSolveTol (tryPiece).
+const (
+	encloseSolveTol  = 1e-10
+	encloseCentreTol = 1e-6
+)
+
+// solveAt runs the float solver at driving value q from seed until the
+// residual norm is at most tol, and returns the solved variables, or an error
+// wrapping ErrNotConverged (or the context's). seed and dst may be the same
+// slice.
+func (r *encloseRun) solveAt(ctx context.Context, seed []float64, q float64, dst []float64, tol float64) error {
 	s := r.s
 	copy(s.vars, seed)
 	r.setDriver(q)
@@ -530,12 +553,12 @@ func (r *encloseRun) solveAt(ctx context.Context, seed []float64, q float64, dst
 		r.residual = s.residuals(r.residual)
 		r.plan, _ = s.newResidualPlan(len(r.residual))
 	}
-	if _, err := s.lmPlanned(ctx, r.free, s.residuals, localJacobian, r.plan, 200, 1e-10); err != nil {
+	if _, err := s.lmPlanned(ctx, r.free, s.residuals, localJacobian, r.plan, 200, tol); err != nil {
 		return err
 	}
 	r.residual = s.residuals(r.residual)
 	norm := math.Sqrt(dot(r.residual, r.residual))
-	if !(norm <= 1e-10) {
+	if !(norm <= tol) {
 		return fmt.Errorf("%w: residual %g at driving value %v", ErrNotConverged, norm, q)
 	}
 	copy(dst, s.vars)
@@ -589,7 +612,7 @@ func (r *encloseRun) run(ctx context.Context, lo, hi float64, prev *Enclosure) (
 		copy(x0, prev.endVars)
 		p0 = slices.Clone(prev.endBox)
 	} else {
-		if err := r.solveAt(ctx, r.s.vars, lo, x0); err != nil {
+		if err := r.solveAt(ctx, r.s.vars, lo, x0, encloseSolveTol); err != nil {
 			return nil, err
 		}
 	}
@@ -664,14 +687,35 @@ func (r *encloseRun) run(ctx context.Context, lo, hi float64, prev *Enclosure) (
 // tryPiece attempts one piece over [a, b]. It returns the piece's box with the
 // float solution and certified point box at b, or a nil box and the reason the
 // attempt failed. Only a context error is returned as an error.
+//
+// The centre is solved to encloseCentreTol first. When the piece fails with
+// it, the centre is polished to encloseSolveTol and the piece is tried once
+// more, so a piece never fails only because its centre was loose.
 func (r *encloseRun) tryPiece(ctx context.Context, a, b float64, xa, xm, xb []float64, pa []Interval) ([]Interval, []float64, []Interval, string, float64, error) {
 	mid := a + (b-a)/2
-	if err := r.solveAt(ctx, xa, mid, xm); err != nil {
+	if err := r.solveAt(ctx, xa, mid, xm, encloseCentreTol); err != nil {
 		if errors.Is(err, ErrNotConverged) {
 			return nil, nil, nil, err.Error(), 0, nil
 		}
 		return nil, nil, nil, "", 0, err
 	}
+	K, xbOut, pb, why, ratio, err := r.certifyPiece(ctx, a, b, mid, xm, xb, pa)
+	if err != nil || K != nil {
+		return K, xbOut, pb, why, ratio, err
+	}
+	if err := r.solveAt(ctx, xm, mid, xm, encloseSolveTol); err != nil {
+		if errors.Is(err, ErrNotConverged) {
+			return nil, nil, nil, err.Error(), 0, nil
+		}
+		return nil, nil, nil, "", 0, err
+	}
+	return r.certifyPiece(ctx, a, b, mid, xm, xb, pa)
+}
+
+// certifyPiece runs the Krawczyk test over [a, b] around the centre xm solved
+// at mid, solves the end at b into xb, and checks both ties and the tightness
+// rule. Its results are tryPiece's.
+func (r *encloseRun) certifyPiece(ctx context.Context, a, b, mid float64, xm, xb []float64, pa []Interval) ([]Interval, []float64, []Interval, string, float64, error) {
 	K, X, why := r.sys.krawczyk(xm, Interval{a, b}, mid, r.free, r.col, r.workspace)
 	if K == nil {
 		return nil, nil, nil, why, 0, nil
@@ -679,7 +723,7 @@ func (r *encloseRun) tryPiece(ctx context.Context, a, b float64, xa, xm, xb []fl
 	if !boxWithin(pa, X) {
 		return nil, nil, nil, "the solution at the range start is outside the box", 0, nil
 	}
-	if err := r.solveAt(ctx, xm, b, xb); err != nil {
+	if err := r.solveAt(ctx, xm, b, xb, encloseSolveTol); err != nil {
 		if errors.Is(err, ErrNotConverged) {
 			return nil, nil, nil, err.Error(), 0, nil
 		}
