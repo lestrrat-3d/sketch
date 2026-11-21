@@ -173,6 +173,40 @@ func coneFitPolyEval(a coneFitPoly, t *big.Rat) *big.Rat {
 	return r
 }
 
+// coneFitIntPoly returns the integer coefficients p[i]·D, with D the least
+// common multiple of the denominators of p. D is positive, so the result has
+// the sign of p at every point, and its evaluation needs no rational
+// normalization.
+// Lean proofs depend on this function; see _proofs/trace.json.
+func coneFitIntPoly(p coneFitPoly) []*big.Int {
+	d, g := big.NewInt(1), new(big.Int)
+	for _, c := range p {
+		g.GCD(nil, nil, d, c.Denom())
+		d.Mul(d, new(big.Int).Quo(c.Denom(), g))
+	}
+	r := make([]*big.Int, len(p))
+	for i, c := range p {
+		r[i] = new(big.Int).Mul(c.Num(), new(big.Int).Quo(d, c.Denom()))
+	}
+	return r
+}
+
+// coneFitIntSign returns the sign of the integer polynomial a at t. With
+// t = num/den in lowest terms (den > 0) it is the sign of the integer
+// Σ a[i]·num^i·den^(n−i) = den^n·a(t), formed by Horner's rule from the
+// highest coefficient with pw = den^(n−i).
+// Lean proofs depend on this function; see _proofs/trace.json.
+func coneFitIntSign(a []*big.Int, t *big.Rat) int {
+	num, den := t.Num(), t.Denom()
+	r, pw, term := new(big.Int), big.NewInt(1), new(big.Int)
+	for i := len(a) - 1; i >= 0; i-- {
+		r.Mul(r, num)
+		r.Add(r, term.Mul(a[i], pw))
+		pw.Mul(pw, den)
+	}
+	return r.Sign()
+}
+
 // coneFitBinomial returns the binomial coefficient C(n, k) for 0 <= k <= n.
 // Lean proofs depend on this function; see _proofs/trace.json.
 func coneFitBinomial(n, k int) int64 {
@@ -419,9 +453,10 @@ func (s *Sketch) CertifyConeFitCrossing(fit *FitSpline, cone ConeSection) (ConeF
 	root := search.root
 	piece := pieces[root.index]
 	lo, hi := root.lo, root.hi
+	fInt := coneFitIntPoly(piece.f)
 	for step := 0; step < 256; step++ {
 		mid := coneMul(coneAdd(lo, hi), big.NewRat(1, 2))
-		sign := coneFitPolyEval(piece.f, mid).Sign()
+		sign := coneFitIntSign(fInt, mid)
 		if sign == 0 {
 			lo, hi = mid, mid
 			break

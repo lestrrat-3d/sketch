@@ -257,7 +257,8 @@ is nonzero. The normalized parameter of `u*` lies in `[c.tLo, c.tHi]`. Every poi
 `c.after`, and the two sides differ. Covers `sketch.Sketch.CertifyConeFitCrossing`,
 `sketch.coneFitSearch.visit`, `sketch.coneFitMakePiece`, `sketch.coneFitPower`, `sketch.coneFitResidual`,
 `sketch.coneFitPolyDeriv`, `coneFitPiece.global`, `sketch.coneFitBezier`, `sketch.newConeSideForm`, the
-Bernstein bound `coneFitCoeffBounds` and the `coneFitPoly` helpers; assumptions A30, A31, A32, A33, A60. -/
+Bernstein bound `coneFitCoeffBounds`, the `coneFitPoly` helpers and the bisection's sign test `sketch.coneFitIntPoly`,
+`sketch.coneFitIntSign`; assumptions A30, A31, A32, A33, A60, A100. -/
 theorem certifyConeFitCrossing_sound {o U V A a : Fin 3 → ℚ} {s : ℚ} {fi : FitData}
     {stop : ℕ → ℚ → ℚ → Bool} {down up : ℚ → ℚ} (hdown : ∀ r, down r ≤ r) (hup : ∀ r, r ≤ up r)
     {c : ConeFitCrossingCert} (h : certifyConeFitCrossing o U V A a s fi stop down up = some c) :

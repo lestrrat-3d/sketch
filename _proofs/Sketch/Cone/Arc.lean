@@ -228,84 +228,85 @@ theorem wedgeBox_sound {E : ConeArcEnv} {f : ConeSideForm} {cx cy : ℚ} {radius
     · simpa [rayR] using not_coneWedgeHas hp
     · simpa [rayR] using not_coneWedgeHas hn
 
-/-- Model of `sketch.coneArcWedge.side`. The shared `budget` field is threaded as a natural number and
-returned as the third component; it is decremented only when nonzero. Both halves must prove the same
-side; the smaller margin wins. The last `match` arm is unreachable: a nonzero side always carries a
-margin. -/
+/-- Model of `sketch.coneArcWedge.side`. `ua` and `ub` are the unit enclosures `coneUnit a` and `coneUnit b`
+the caller computed; a divider's `coneUnit` is computed once and passed to both halves. The shared `budget`
+field is threaded as a natural number and returned as the third component; it is decremented only when
+nonzero. Both halves must prove the same side; the smaller margin wins. The last `match` arm is
+unreachable: a nonzero side always carries a margin. -/
 @[expose] def wedgeSide (E : ConeArcEnv) (f : ConeSideForm) (cx cy : ℚ) (radius : ConeInterval) :
-    ℚ × ℚ → ℚ × ℚ → ℕ → ℕ → ConeSide × Option ℚ × ℕ
-  | _, _, _, 0 => (.zero, none, 0)
-  | a, b, depth, budget + 1 =>
-    match coneUnit a, coneUnit b with
-    | some ua, some ub =>
-      let r := f.wedgeBox E cx cy radius a b ua ub
-      if r.1 ≠ .zero then (r.1, r.2, budget)
-      else
-        match depth with
-        | 0 => (.zero, none, budget)
-        | d + 1 =>
-          match coneSplit E a b with
+    ℚ × ℚ → ℚ × ℚ → ConeInterval × ConeInterval → ConeInterval × ConeInterval → ℕ → ℕ →
+      ConeSide × Option ℚ × ℕ
+  | _, _, _, _, _, 0 => (.zero, none, 0)
+  | a, b, ua, ub, depth, budget + 1 =>
+    let r := f.wedgeBox E cx cy radius a b ua ub
+    if r.1 ≠ .zero then (r.1, r.2, budget)
+    else
+      match depth with
+      | 0 => (.zero, none, budget)
+      | d + 1 =>
+        match coneSplit E a b with
+        | none => (.zero, none, budget)
+        | some m =>
+          match coneUnit m with
           | none => (.zero, none, budget)
-          | some m =>
-            let left := wedgeSide E f cx cy radius a m d budget
+          | some um =>
+            let left := wedgeSide E f cx cy radius a m ua um d budget
             if left.1 = .zero then (.zero, none, left.2.2)
             else
-              let right := wedgeSide E f cx cy radius m b d left.2.2
+              let right := wedgeSide E f cx cy radius m b um ub d left.2.2
               if right.1 ≠ left.1 then (.zero, none, right.2.2)
               else
                 match left.2.1, right.2.1 with
                 | some m0, some m1 => (left.1, some (if m0 ≤ m1 then m0 else m1), right.2.2)
                 | _, _ => (.zero, none, right.2.2)
-    | _, _ => (.zero, none, budget)
 
 /-- A side `wedgeSide` returns holds, with the returned positive margin, at every point of the circle piece
 between rays `a` and `b` (`a × b > 0`), for every radius in `radius`. Covers `sketch.coneArcWedge.side`,
 `sketch.coneUnit`, `sketch.coneSplit` and the functions `wedgeBox_sound` lists; A30, A31, A50, A51. -/
 theorem wedgeSide_sound (E : ConeArcEnv) (f : ConeSideForm) (cx cy : ℚ) (radius : ConeInterval) {ρ : ℝ}
     (hρ : radius.MemR ρ) :
-    ∀ (depth budget : ℕ) (a b : ℚ × ℚ) {side : ConeSide} {m : ℚ} {budget' : ℕ}, 0 < coneCross a b →
-      f.wedgeSide E cx cy radius a b depth budget = (side, some m, budget') →
+    ∀ (depth budget : ℕ) (a b : ℚ × ℚ) (ua ub : ConeInterval × ConeInterval) {side : ConeSide} {m : ℚ}
+      {budget' : ℕ}, 0 < coneCross a b → coneUnit a = some ua → coneUnit b = some ub →
+      f.wedgeSide E cx cy radius a b ua ub depth budget = (side, some m, budget') →
       0 < m ∧ side ≠ .zero ∧ f.ArcSideAt side m cx cy ρ (rayR a) (rayR b) := by
   intro depth
   induction depth with
   | zero =>
-    intro budget a b side m budget' hab hres
+    intro budget a b ua ub side m budget' hab hua hub hres
     cases budget with
     | zero => simp [wedgeSide] at hres
     | succ n =>
       simp only [wedgeSide] at hres
-      split at hres
-      · rename_i ua ub hua hub
-        split_ifs at hres with hr
-        · simp only [Prod.mk.injEq] at hres
-          obtain ⟨h1, h2, -⟩ := hres
-          exact wedgeBox_sound hab hρ hua hub (Prod.ext h1 h2)
-        · simp at hres
+      split_ifs at hres with hr
+      · simp only [Prod.mk.injEq] at hres
+        obtain ⟨h1, h2, -⟩ := hres
+        exact wedgeBox_sound hab hρ hua hub (Prod.ext h1 h2)
       · simp at hres
   | succ d ih =>
-    intro budget a b side m budget' hab hres
+    intro budget a b ua ub side m budget' hab hua hub hres
     cases budget with
     | zero => simp [wedgeSide] at hres
     | succ n =>
       simp only [wedgeSide] at hres
-      split at hres
-      · rename_i ua ub hua hub
-        by_cases hr : (f.wedgeBox E cx cy radius a b ua ub).1 ≠ .zero
-        · simp only [hr, ne_eq, not_false_eq_true, ↓reduceIte, Prod.mk.injEq] at hres
-          obtain ⟨h1, h2, -⟩ := hres
-          exact wedgeBox_sound hab hρ hua hub (Prod.ext h1 h2)
-        · rw [ne_eq, not_not] at hr
-          simp only [hr, ne_eq, not_true_eq_false, ↓reduceIte] at hres
+      by_cases hr : (f.wedgeBox E cx cy radius a b ua ub).1 ≠ .zero
+      · simp only [hr, ne_eq, not_false_eq_true, ↓reduceIte, Prod.mk.injEq] at hres
+        obtain ⟨h1, h2, -⟩ := hres
+        exact wedgeBox_sound hab hρ hua hub (Prod.ext h1 h2)
+      · rw [ne_eq, not_not] at hr
+        simp only [hr, ne_eq, not_true_eq_false, ↓reduceIte] at hres
+        split at hres
+        · simp at hres
+        · rename_i mm hsplit
+          obtain ⟨ham, hmb⟩ := coneSplit_sound hsplit
           split at hres
           · simp at hres
-          · rename_i mm hsplit
-            obtain ⟨ham, hmb⟩ := coneSplit_sound hsplit
-            generalize hl : f.wedgeSide E cx cy radius a mm d n = left at hres
+          · rename_i um hum
+            generalize hl : f.wedgeSide E cx cy radius a mm ua um d n = left at hres
             obtain ⟨s0, m0, bl⟩ := left
             by_cases h0 : s0 = .zero
             · simp [h0] at hres
             simp only [h0, ↓reduceIte] at hres
-            generalize hrt : f.wedgeSide E cx cy radius mm b d bl = right at hres
+            generalize hrt : f.wedgeSide E cx cy radius mm b um ub d bl = right at hres
             obtain ⟨s1, m1, br⟩ := right
             by_cases h10 : s1 = s0
             swap
@@ -319,19 +320,19 @@ theorem wedgeSide_sound (E : ConeArcEnv) (f : ConeSideForm) (cx cy : ℚ) (radiu
               | some y =>
                 simp only [not_true_eq_false, ↓reduceIte, Prod.mk.injEq, Option.some.injEq] at hres
                 obtain ⟨rfl, rfl, -⟩ := hres
-                obtain ⟨hx, -, hlall⟩ := ih n a mm ham hl
-                obtain ⟨hy, -, hrall⟩ := ih bl mm b hmb hrt
+                obtain ⟨hx, -, hlall⟩ := ih n a mm ua um ham hua hum hl
+                obtain ⟨hy, -, hrall⟩ := ih bl mm b um ub hmb hum hub hrt
                 have hmx : (if x ≤ y then x else y) ≤ x := by split_ifs <;> linarith
                 have hmy : (if x ≤ y then x else y) ≤ y := by split_ifs <;> linarith
                 refine ⟨by split_ifs <;> assumption, h0, fun w hw hin => ?_⟩
                 rcases inWedge_split (m := rayR mm) hin with hl' | hr'
                 · exact sideAtR_mono hmx (hlall w hw hl')
                 · exact sideAtR_mono hmy (hrall w hw hr')
-      · simp at hres
 
 /-- Model of `sketch.coneSideForm.arcWedgeSide`. `cx`, `cy`, `sx`, `sy`, `ex`, `ey` are the exact values of
 the Center, Start and End coordinates (A31). The radius interval brackets `|Start − Center|`; the proof
-starts at depth `coneArcDepth = 12` with budget `coneArcBudget = 2048`. -/
+starts at depth `coneArcDepth = 12` with budget `coneArcBudget = 2048`, with the unit enclosures of the Start
+and End rays. -/
 @[expose] def arcWedgeSide (E : ConeArcEnv) (f : ConeSideForm) (cx cy sx sy ex ey : ℚ) :
     ConeSide × Option ℚ :=
   let start : ℚ × ℚ := (sx - cx, sy - cy)
@@ -341,8 +342,11 @@ starts at depth `coneArcDepth = 12` with budget `coneArcBudget = 2048`. -/
     match coneSqrtBounds (start.1 * start.1 + start.2 * start.2) with
     | none => (.zero, none)
     | some (rLo, rHi) =>
-      let r := f.wedgeSide E cx cy ⟨rLo, rHi⟩ start stop 12 2048
-      (r.1, r.2.1)
+      match coneUnit start, coneUnit stop with
+      | some us, some ue =>
+        let r := f.wedgeSide E cx cy ⟨rLo, rHi⟩ start stop us ue 12 2048
+        (r.1, r.2.1)
+      | _, _ => (.zero, none)
 
 /-- A side `arcWedgeSide` returns holds, with the returned positive margin, at every point of the exact arc:
 the circle about Center of radius `|Start − Center|`, from the Start ray counter-clockwise to the End ray,
@@ -362,12 +366,16 @@ theorem arcWedgeSide_sound {E : ConeArcEnv} {f : ConeSideForm} {cx cy sx sy ex e
   · rename_i rLo rHi hb
     obtain ⟨-, hρ⟩ := coneSqrtBounds_memR_normR (v := (sx - cx, sy - cy)) hb
     have hab : 0 < coneCross (sx - cx, sy - cy) (ex - cx, ey - cy) := lt_of_not_ge hc
-    generalize hw : f.wedgeSide E cx cy ⟨rLo, rHi⟩ (sx - cx, sy - cy) (ex - cx, ey - cy) 12 2048 = r at h
-    obtain ⟨s, mm, b'⟩ := r
-    simp only [Prod.mk.injEq] at h
-    obtain ⟨rfl, rfl⟩ := h
-    obtain ⟨hm, hs, hall⟩ := wedgeSide_sound E f cx cy ⟨rLo, rHi⟩ hρ 12 2048 _ _ hab hw
-    exact ⟨hm, hs, hab, hall⟩
+    split at h
+    · rename_i us ue hus hue
+      generalize hw : f.wedgeSide E cx cy ⟨rLo, rHi⟩ (sx - cx, sy - cy) (ex - cx, ey - cy) us ue 12 2048 = r
+        at h
+      obtain ⟨s, mm, b'⟩ := r
+      simp only [Prod.mk.injEq] at h
+      obtain ⟨rfl, rfl⟩ := h
+      obtain ⟨hm, hs, hall⟩ := wedgeSide_sound E f cx cy ⟨rLo, rHi⟩ hρ 12 2048 _ _ _ _ hab hus hue hw
+      exact ⟨hm, hs, hab, hall⟩
+    · simp at h
 
 /-- The exact part of `sketch.coneSideForm.arcQuadrantSide`, on the exact endpoint rays `p` (Start − Center)
 and `q` (End − Center) and the floats `Y`, `U`: the sign checks on the rays, the radius bracket

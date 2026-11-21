@@ -14,9 +14,10 @@
         "A31",
         "A32",
         "A33",
-        "A60"
+        "A60",
+        "A100"
       ],
-      "sha256": "0de0507cc47df9ad21e952a9761539227ff9d16389003a5a2ec6064b2f7c4563"
+      "sha256": "4dcfc6d0441b8a377f2dc7587722451b788920a3c3d34351b3d73b4970898dd1"
     },
     {
       "file": "cone_fit_crossing.go",
@@ -103,6 +104,34 @@
         "A60"
       ],
       "sha256": "ef7ff4c4b8babdfa52d8887d7d4f9c6d025933f4ffe5274c3760f199d7de971f"
+    },
+    {
+      "file": "cone_fit_crossing.go",
+      "func": "coneFitIntPoly",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Search.lean:Sketch.Cone.coneFitIntSign_eq",
+        "Sketch/Cone/Search.lean:Sketch.Cone.bisect_sound"
+      ],
+      "assumptions": [
+        "A30",
+        "A100"
+      ],
+      "sha256": "5d8562ea99e82770853822de3c0cb5a637dbd7138309489dcb210dadf18a71e2"
+    },
+    {
+      "file": "cone_fit_crossing.go",
+      "func": "coneFitIntSign",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/Search.lean:Sketch.Cone.coneFitIntSign_eq",
+        "Sketch/Cone/Search.lean:Sketch.Cone.bisect_sound"
+      ],
+      "assumptions": [
+        "A30",
+        "A100"
+      ],
+      "sha256": "5960ded8c68dc2b0d37e080a879a0fcb05e4a2d88935c57b408bcbcecec71646"
     },
     {
       "file": "cone_fit_crossing.go",
@@ -538,7 +567,7 @@
         "A50",
         "A51"
       ],
-      "sha256": "4087c2a915b79d3a3078271006e95aaf0de94f195b88c92a2250dd2ed2490c20"
+      "sha256": "7fb6ce54ec4606f4319e5b4bf945fd1fe4bf04161c0bc75b6ef15d6ec2b86ab8"
     },
     {
       "file": "cone_side_arc.go",
@@ -550,7 +579,7 @@
       "assumptions": [
         "A30"
       ],
-      "sha256": "54ec3ebdc01f77b2961aecaa52bb463febfd85150ca8bea31138f24189051cd1"
+      "sha256": "265f550cbde9ea70e86ec3479e002a27d5d45af3f1c1fad6fd399bc1b1f2869c"
     },
     {
       "file": "cone_side_arc.go",
@@ -591,7 +620,7 @@
         "A50",
         "A51"
       ],
-      "sha256": "c8cafff2b99e5d0258a5e45bfdd79c373a1f3c5f638ad8d58f50a078a6dcb88f"
+      "sha256": "1f15361d3c2a67af19639ffee029b220cef47bb9afb2e866013bc09f391d2257"
     },
     {
       "file": "cone_side_arc.go",
