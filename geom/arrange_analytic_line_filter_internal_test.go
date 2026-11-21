@@ -29,6 +29,15 @@ func TestAnalyticLinePairFilterMatchesUnfilteredArrangement(t *testing.T) {
 			NewLine(NewPoint(30, 0), NewPoint(30, 10)),
 		}},
 		{name: "custom-merge", curves: curves[:32], cfg: arrangeConfig{vertexMerge: 0.005}},
+		{name: "axis-parallel-walls", curves: rectChainFixture(12)},
+		{name: "axis-parallel-overlap", curves: []Curve{
+			NewLine(NewPoint(0, 0), NewPoint(10, 0)),
+			NewLine(NewPoint(10, 0), NewPoint(20, 0)),
+			NewLine(NewPoint(5, 0), NewPoint(15, 0)),
+			NewLine(NewPoint(0, 1e-9), NewPoint(10, 1e-9)),
+			NewLine(NewPoint(0, 5), NewPoint(0, -5)),
+			NewLine(NewPoint(0, 2), NewPoint(0, 7)),
+		}},
 	}
 	for _, scene := range scenes {
 		t.Run(scene.name, func(t *testing.T) {
@@ -256,4 +265,93 @@ func filterLinePair(a, b operand, scale, merge float64) bool {
 	}
 	return analyticLineBoxesDisjoint(analyticLineBoxExpand(analyticLineBoxOf(a), margin),
 		analyticLineBoxExpand(analyticLineBoxOf(b), margin))
+}
+
+// rectChainFixture returns n unit-height rectangles side by side. Each pair of
+// neighbours shares a wall drawn twice, and every bottom and top edge is
+// collinear with the others, so most line pairs are axis-parallel.
+func rectChainFixture(n int) []Curve {
+	var curves []Curve
+	for k := range n {
+		x0, x1 := float64(k)*2, float64(k+1)*2
+		a, b := NewPoint(x0, 0), NewPoint(x1, 0)
+		c, d := NewPoint(x1, 1), NewPoint(x0, 1)
+		curves = append(curves, NewLine(a, b), NewLine(b, c), NewLine(c, d), NewLine(d, a))
+	}
+	return curves
+}
+
+func TestAxisParallelLinesMissMatchesKernel(t *testing.T) {
+	rng := rand.New(rand.NewSource(0x7a11))
+	pick := func(scale float64) float64 {
+		// Mostly grid values, so collinear, touching and overlapping pairs are
+		// common, with some arbitrary values in between.
+		if rng.Intn(3) == 0 {
+			return (rng.Float64()*8 - 4) * scale
+		}
+		return float64(rng.Intn(9)-4) * scale
+	}
+	misses, kernelMisses := 0, 0
+	for i := 0; i < 20000; i++ {
+		scale := math.Pow(10, float64(rng.Intn(41)-20))
+		if i%97 == 0 {
+			scale = math.Pow(2, float64(rng.Intn(60)-1070)) // subnormal products
+		}
+		var a, b operand
+		if rng.Intn(2) == 0 {
+			y1, y2 := pick(scale), pick(scale)
+			if rng.Intn(4) == 0 {
+				y2 = y1 + (rng.Float64()*2-1)*scale*mergeEps*float64(rng.Intn(3))
+			}
+			a = lineOperand(pick(scale), y1, pick(scale), y1)
+			b = lineOperand(pick(scale), y2, pick(scale), y2)
+		} else {
+			x1, x2 := pick(scale), pick(scale)
+			if rng.Intn(4) == 0 {
+				x2 = x1 + (rng.Float64()*2-1)*scale*mergeEps*float64(rng.Intn(3))
+			}
+			a = lineOperand(x1, pick(scale), x1, pick(scale))
+			b = lineOperand(x2, pick(scale), x2, pick(scale))
+		}
+		sceneScale := 10 * scale
+		events, ambiguous := lineLineEvents(a, b, sceneScale)
+		kernelMiss := len(events) == 0 && !ambiguous
+		if kernelMiss {
+			kernelMisses++
+		}
+		if !axisParallelLinesMiss(&a, &b, sceneScale) {
+			continue
+		}
+		misses++
+		require.True(t, kernelMiss, "case %d: %+v %+v", i, a, b)
+		got, amb, ok := analyticEventsOf(lineSource(a), lineSource(b), a, b, sceneScale)
+		require.True(t, ok, "case %d", i)
+		require.False(t, amb, "case %d", i)
+		require.Empty(t, got, "case %d", i)
+	}
+	// The fast path must actually decide most of the kernel's misses.
+	require.Greater(t, misses, kernelMisses*9/10)
+}
+
+func TestAxisParallelLinesMissKeepsKernelCases(t *testing.T) {
+	cases := []struct {
+		name  string
+		a, b  operand
+		scale float64
+	}{
+		{name: "overlap", a: lineOperand(0, 0, 10, 0), b: lineOperand(5, 0, 15, 0), scale: 20},
+		{name: "duplicate wall", a: lineOperand(0, 0, 0, 1), b: lineOperand(0, 1, 0, 0), scale: 2},
+		{name: "within band", a: lineOperand(0, 0, 10, 0), b: lineOperand(2, 1e-7, 8, 1e-7), scale: 20},
+		{name: "not parallel", a: lineOperand(0, 0, 10, 0), b: lineOperand(0, 1, 10, 2), scale: 20},
+		{name: "mixed axes", a: lineOperand(0, 0, 10, 0), b: lineOperand(20, 0, 20, 10), scale: 20},
+		{name: "zero length", a: lineOperand(0, 0, 0, 0), b: lineOperand(0, 5, 10, 5), scale: 20},
+		{name: "underflowing product", a: lineOperand(0, 0, 1e-170, 0), b: lineOperand(0, 1, 1e-170, 1), scale: 2},
+		{name: "nonfinite", a: lineOperand(0, 0, math.Inf(1), 0), b: lineOperand(0, 5, 10, 5), scale: 20},
+		{name: "nan", a: lineOperand(0, 0, math.NaN(), 0), b: lineOperand(0, 5, 10, 5), scale: 20},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.False(t, axisParallelLinesMiss(&tc.a, &tc.b, tc.scale))
+		})
+	}
 }

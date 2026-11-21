@@ -427,6 +427,56 @@ func lineLineEvents(a, b operand, scale float64) ([]xEvent, bool) {
 	}}, false
 }
 
+// axisParallelLinesMiss reports whether lineLineEvents(*a, *b, scale) returns no
+// event and no ambiguity for two line operands that are both exactly horizontal
+// or both exactly vertical. It repeats the kernel's own arithmetic on that path,
+// in the same order, so it decides exactly what the kernel decides. Only the two
+// hypotenuses are skipped: with one difference exactly zero, math.Hypot returns
+// the other's absolute value exactly. A false result says nothing; the caller
+// runs the kernel.
+//
+// Under those conditions the kernel's cross product is a signed zero, so
+// plainLineCrossing fails whenever its threshold product is positive, and the
+// sine is zero whenever the length product is positive. The kernel then returns
+// nil for distinct carriers, or for collinear segments whose overlap is at most
+// arcParamEps.
+func axisParallelLinesMiss(a, b *operand, scale float64) bool {
+	d1x, d1y := a.bx-a.ax, a.by-a.ay
+	d2x, d2y := b.bx-b.ax, b.by-b.ay
+	var l1, l2 float64
+	switch {
+	case d1y == 0 && d2y == 0:
+		l1, l2 = math.Abs(d1x), math.Abs(d2x)
+	case d1x == 0 && d2x == 0:
+		l1, l2 = math.Abs(d1y), math.Abs(d2y)
+	default:
+		return false
+	}
+	if !analyticFinite(l1) || !analyticFinite(l2) || !(l1 > 0 && l2 > 0) {
+		return false
+	}
+	den := float64(d1x*d2y) - float64(d1y*d2x)
+	if den != 0 {
+		return false
+	}
+	// plainLineCrossing must fail. Its L1 norms equal l1 and l2 here.
+	if !(2*lineParallelEps*(l1*l2) > 0) {
+		return false
+	}
+	// The kernel's sine is |den|/(l1*l2); it is zero only for a positive product.
+	if !(l1*l2 > 0) {
+		return false
+	}
+	perp := math.Abs(float64((b.ax-a.ax)*d1y)-float64((b.ay-a.ay)*d1x)) / l1
+	if perp >= scale*mergeEps {
+		return true
+	}
+	tb0, tb1 := a.lineParam(b.ax, b.ay), a.lineParam(b.bx, b.by)
+	lo, hi := math.Min(tb0, tb1), math.Max(tb0, tb1)
+	ov0, ov1 := math.Max(0, lo), math.Min(1, hi)
+	return ov1-ov0 <= arcParamEps
+}
+
 // plainLineCrossing returns the carrier crossing of two lines that are plainly
 // not parallel, as lineLineEvents reports it, without allocating. A pair that is
 // plainly not parallel needs neither length: the L1 norm bounds the length from
