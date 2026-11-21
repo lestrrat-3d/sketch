@@ -508,3 +508,16 @@ func BenchmarkEncloseCrankRockerTurn(b *testing.B) {
 		require.NoError(b, err)
 	}
 }
+
+// BenchmarkRevision fingerprints the solved 40-rectangle chain, which every
+// Profile staleness check and attachment lookup does once per call.
+func BenchmarkRevision(b *testing.B) {
+	s, _ := buildLargeFixture(b)
+	if _, err := s.Solve(b.Context()); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		s.Revision()
+	}
+}
