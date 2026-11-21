@@ -534,6 +534,8 @@ func targetOf(d Dimension, rng Interval, isRanged bool) Interval {
 }
 
 // certDrivenOf returns the evaluator of one driven dimension's measured value.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func certDrivenOf(d Dimension) (certDriven, error) {
 	switch t := d.(type) {
 	case *HorizontalDistance:

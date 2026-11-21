@@ -12,10 +12,14 @@ public import Sketch.Cone.Line
 public import Sketch.Cone.Poly
 public import Sketch.Cone.Search
 public import Sketch.Enclose.Angle
+public import Sketch.Enclose.Driven
 public import Sketch.Enclose.Krawczyk
 public import Sketch.Float.Grid
 public import Sketch.Float.Model
 public import Sketch.Interval.Arith
+public import Sketch.Trig.ArcSpan
+public import Sketch.Trig.Atan2
+public import Sketch.Trig.Atan2Box
 public import Sketch.Trig.Binary64
 public import Sketch.Trig.Pi
 public import Sketch.Trig.Range

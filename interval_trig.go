@@ -605,6 +605,7 @@ func sinCosRange(q Interval) (Interval, Interval, bool) {
 }
 
 // twoPiTimes encloses k·2π.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func twoPiTimes(k int64) Interval {
 	kk := big.NewRat(2*k, 1)
 	a := new(big.Rat).Mul(kk, piLo)
@@ -627,6 +628,8 @@ func twoPiTimes(k int64) Interval {
 // sine/cosine pair; the second-order remainder at each end is bounded by
 // (|c|+|d|)·h²/2. With hi−lo far below π, the two open half-turns overlap in
 // exactly the arc (lo, hi).
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func atan2Point(c, d float64) (Interval, bool) {
 	if c == 0 && d == 0 {
 		return Interval{}, false
@@ -669,6 +672,8 @@ func atan2Point(c, d float64) (Interval, bool) {
 // within a half-turn of the centre's direction. A corner more than 3 rad from the
 // centre (a rectangle nearly surrounding the origin) is refused rather than
 // trusted to the float shift decision.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func atan2Box(c, d Interval) (Interval, bool) {
 	if c.Lo <= 0 && 0 <= c.Hi && d.Lo <= 0 && 0 <= d.Hi {
 		return Interval{}, false
@@ -733,6 +738,8 @@ func atan2Box(c, d Interval) (Interval, bool) {
 
 // shiftNear moves an angle enclosure by whole turns so its midpoint lies
 // within half a turn of ref. Every member keeps its value mod 2π.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func shiftNear(iv Interval, ref float64) Interval {
 	k := math.Round((iv.mid() - ref) / (2 * math.Pi))
 	if k == 0 || math.IsNaN(k) || math.Abs(k) > 1<<20 {
@@ -744,6 +751,8 @@ func shiftNear(iv Interval, ref float64) Interval {
 // certifiedArcSpanBounds follows geom.Arc's radius and counter-clockwise
 // angular branch. Point subtraction, direction angles, trigonometry and the
 // final coordinates all carry outward-rounded intervals.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func certifiedArcSpanBounds(a *Arc, lo, hi float64) (x, y Interval, err error) {
 	if a == nil || a.s == nil || !a.s.ownsEntity(a) || a.Center == nil ||
 		a.Start == nil || a.End == nil || !a.s.owns(a.Center) ||

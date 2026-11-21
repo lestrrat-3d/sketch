@@ -141,4 +141,6 @@ func (i Interval) within(o Interval) bool { return o.Lo <= i.Lo && i.Hi <= o.Hi 
 // Lean proofs depend on this function; see _proofs/trace.json.
 func (i Interval) strictlyInside(o Interval) bool { return o.Lo < i.Lo && i.Hi < o.Hi }
 
+// mid returns the float64 midpoint Lo + (Hi-Lo)/2.
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (i Interval) mid() float64 { return i.Lo + (i.Hi-i.Lo)/2 }
