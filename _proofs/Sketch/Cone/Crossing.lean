@@ -11,7 +11,7 @@ Models `sketch.Sketch.CertifyConeFitCrossing` (`cone_fit_crossing.go`) with `ske
 its Bézier control points (`coneFitBezier`) in power form (`coneFitPower`), and the cone half polynomial `h`,
 implicit function polynomial `f` and derivative `df` of the curve (`coneFitResidual`). The search
 (`Sketch/Cone/Search.lean`) visits every piece on `[0, 1]`, the bisection narrows the root bracket, and a
-final Bernstein bound on `df` over the narrowed bracket must exclude zero.
+final integer Bernstein bound on `df` over the narrowed bracket (`intBounds`) must exclude zero.
 
 The ideal spline is evaluated at real parameters: `FitData.spanPointR` is span `i` at local `u ∈ ℝ`, and
 `fitCurveR` maps it to the world through the plane frame. `worldFR` and `worldHR` (`Sketch/Cone/Real.lean`)
@@ -209,11 +209,11 @@ rounded midpoint `T`. So Go returns a certificate only when the model does, with
     match (List.range (fi.points.length - 1)).foldl
         (searchStep fun i => coneFitMakePiece fi i (newConeSideForm o U V A a s)) (some (8192, none)) with
     | some (_, some r) =>
-      if (coneFitCoeffBounds (coneFitMakePiece fi r.index (newConeSideForm o U V A a s)).df
+      if (intBounds (coneFitMakePiece fi r.index (newConeSideForm o U V A a s)).df
             (bisect (coneFitMakePiece fi r.index (newConeSideForm o U V A a s)).f r.loSign stop 256 0 r.lo r.hi).1
             (bisect (coneFitMakePiece fi r.index (newConeSideForm o U V A a s)).f r.loSign stop 256 0 r.lo r.hi).2).1
           ≤ 0 ∧
-        0 ≤ (coneFitCoeffBounds (coneFitMakePiece fi r.index (newConeSideForm o U V A a s)).df
+        0 ≤ (intBounds (coneFitMakePiece fi r.index (newConeSideForm o U V A a s)).df
             (bisect (coneFitMakePiece fi r.index (newConeSideForm o U V A a s)).f r.loSign stop 256 0 r.lo r.hi).1
             (bisect (coneFitMakePiece fi r.index (newConeSideForm o U V A a s)).f r.loSign stop 256 0 r.lo r.hi).2).2
       then none
@@ -257,8 +257,9 @@ is nonzero. The normalized parameter of `u*` lies in `[c.tLo, c.tHi]`. Every poi
 `c.after`, and the two sides differ. Covers `sketch.Sketch.CertifyConeFitCrossing`,
 `sketch.coneFitSearch.visit`, `sketch.coneFitMakePiece`, `sketch.coneFitPower`, `sketch.coneFitResidual`,
 `sketch.coneFitPolyDeriv`, `coneFitPiece.global`, `sketch.coneFitBezier`, `sketch.newConeSideForm`, the
-Bernstein bound `coneFitCoeffBounds`, the `coneFitPoly` helpers and the bisection's sign test `sketch.coneFitIntPoly`,
-`sketch.coneFitIntSign`; assumptions A30, A31, A32, A33, A60, A100. -/
+integer Bernstein bound `coneFitIntBounds_mem` (`sketch.coneFitIntBernstein`, `sketch.coneFitIntBounds`,
+`sketch.coneFitFactorial`), the `coneFitPoly` helpers and the sign test `sketch.coneFitIntPoly`,
+`sketch.coneFitIntSign`; assumptions A30, A31, A32, A33, A60, A100, A110, A111. -/
 theorem certifyConeFitCrossing_sound {o U V A a : Fin 3 → ℚ} {s : ℚ} {fi : FitData}
     {stop : ℕ → ℚ → ℚ → Bool} {down up : ℚ → ℚ} (hdown : ∀ r, down r ≤ r) (hup : ∀ r, r ≤ up r)
     {c : ConeFitCrossingCert} (h : certifyConeFitCrossing o U V A a s fi stop down up = some c) :
@@ -299,7 +300,7 @@ theorem certifyConeFitCrossing_sound {o U V A a : Fin 3 → ℚ} {s : ℚ} {fi :
       (le_trans ht1 (by exact_mod_cast hhi1)) htf) 256 0 r.lo r.hi le_rfl hlohi.le le_rfl hslo hshi
   set br := bisect piece.f r.loSign stop 256 0 r.lo r.hi with hbr
   obtain ⟨hb1, hb12, hb2, hbu1, hbu2⟩ := hbis
-  by_cases hd : (coneFitCoeffBounds piece.df br.1 br.2).1 ≤ 0 ∧ 0 ≤ (coneFitCoeffBounds piece.df br.1 br.2).2
+  by_cases hd : (intBounds piece.df br.1 br.2).1 ≤ 0 ∧ 0 ≤ (intBounds piece.df br.1 br.2).2
   · rw [ite_eq_left hd] at h
     simp at h
   rw [ite_eq_right hd] at h
@@ -327,11 +328,16 @@ theorem certifyConeFitCrossing_sound {o U V A a : Fin 3 → ℚ} {s : ℚ} {fi :
     (r.loSign : ℝ) hlo0R hu0 hu1 hhi1R hslo hshi hZ hJ
   have hdne : evalR piece.df ustar ≠ 0 := by
     have hb12R : br.1 ≤ br.2 := hb12
-    have hm := coneFitCoeffBounds_mem_Icc piece.df hb12R hbu1 hbu2
+    obtain ⟨sc, hsc, hm'⟩ := coneFitIntBounds_mem piece.df hb12R
+    have hm := hm' ustar hbu1 hbu2
+    intro hz
+    rw [hz, mul_zero] at hm
     rcases not_and_or.mp hd with hd | hd
-    · have : (0 : ℝ) < (coneFitCoeffBounds piece.df br.1 br.2).1 := by exact_mod_cast not_le.mp hd
+    · have : (0 : ℝ) < (intBounds piece.df br.1 br.2).1 := by exact_mod_cast not_le.mp hd
+      simp only [intBounds] at this
       linarith [hm.1]
-    · have : ((coneFitCoeffBounds piece.df br.1 br.2).2 : ℝ) < 0 := by exact_mod_cast not_le.mp hd
+    · have : ((intBounds piece.df br.1 br.2).2 : ℝ) < 0 := by exact_mod_cast not_le.mp hd
+      simp only [intBounds] at this
       linarith [hm.2]
   refine ⟨hNR, fun i hi u hu0' hu1' => ?_, ustar, hbu1, hbu2, by linarith, by linarith, ?_, ?_, ?_, ?_, ?_, ?_,
     ?_, ?_⟩

@@ -15,9 +15,11 @@
         "A32",
         "A33",
         "A60",
-        "A100"
+        "A100",
+        "A110",
+        "A111"
       ],
-      "sha256": "4dcfc6d0441b8a377f2dc7587722451b788920a3c3d34351b3d73b4970898dd1"
+      "sha256": "ffe59f8e3e9ead9899dc28ee44336a253e9493bbec3cf6a08d1c09b5ba0fb60f"
     },
     {
       "file": "cone_fit_crossing.go",
@@ -27,8 +29,7 @@
         "Sketch/Cone/Poly.lean:Sketch.Cone.coneFitCoeffBounds_linear",
         "Sketch/Cone/Line.lean:Sketch.Cone.ConeSideForm.lineSide_sound",
         "Sketch/Cone/Bernstein.lean:Sketch.Cone.coneFitCoeffBounds_mem",
-        "Sketch/Cone/Bernstein.lean:Sketch.Cone.eval_eq_sum_bw",
-        "Sketch/Cone/Crossing.lean:Sketch.Cone.certifyConeFitCrossing_sound"
+        "Sketch/Cone/Bernstein.lean:Sketch.Cone.eval_eq_sum_bw"
       ],
       "assumptions": [
         "A30",
@@ -61,7 +62,8 @@
         "Sketch/Cone/Poly.lean:Sketch.Cone.coneFitCoeffBounds_linear",
         "Sketch/Cone/Line.lean:Sketch.Cone.ConeSideForm.lineSide_sound",
         "Sketch/Cone/Bernstein.lean:Sketch.Cone.coneFitBinomial_eq",
-        "Sketch/Cone/Bernstein.lean:Sketch.Cone.coneFitCoeffBounds_mem"
+        "Sketch/Cone/Bernstein.lean:Sketch.Cone.coneFitCoeffBounds_mem",
+        "Sketch/Cone/IntBernstein.lean:Sketch.Cone.coneFitIntBounds_mem"
       ],
       "assumptions": [
         "A32"
@@ -76,14 +78,29 @@
         "Sketch/Cone/Poly.lean:Sketch.Cone.coneFitCoeffBounds_linear",
         "Sketch/Cone/Line.lean:Sketch.Cone.ConeSideForm.lineSide_sound",
         "Sketch/Cone/Bernstein.lean:Sketch.Cone.coneFitCoeffBounds_mem",
-        "Sketch/Cone/Bernstein.lean:Sketch.Cone.coneFitCoeffBounds_le",
-        "Sketch/Cone/Crossing.lean:Sketch.Cone.certifyConeFitCrossing_sound"
+        "Sketch/Cone/Bernstein.lean:Sketch.Cone.coneFitCoeffBounds_le"
       ],
       "assumptions": [
         "A30",
         "A32"
       ],
       "sha256": "659d2470a88d7399bc20e989eec4b8a75113b3e3dc4be983a4c1a09a9911df06"
+    },
+    {
+      "file": "cone_fit_crossing.go",
+      "func": "coneFitFactorial",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/IntBernstein.lean:Sketch.Cone.coneFitIntBounds_mem",
+        "Sketch/Cone/Search.lean:Sketch.Cone.visit_sound",
+        "Sketch/Cone/Crossing.lean:Sketch.Cone.certifyConeFitCrossing_sound"
+      ],
+      "assumptions": [
+        "A30",
+        "A110",
+        "A111"
+      ],
+      "sha256": "361e9577cb6f44d076261d39f1b5fe2fbc85bc24f5ff50270550ee8b1f6143a4"
     },
     {
       "file": "cone_fit_crossing.go",
@@ -107,11 +124,45 @@
     },
     {
       "file": "cone_fit_crossing.go",
+      "func": "coneFitIntBernstein",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/IntBernstein.lean:Sketch.Cone.coneFitIntBounds_mem",
+        "Sketch/Cone/Search.lean:Sketch.Cone.visit_sound",
+        "Sketch/Cone/Crossing.lean:Sketch.Cone.certifyConeFitCrossing_sound"
+      ],
+      "assumptions": [
+        "A30",
+        "A110",
+        "A111"
+      ],
+      "sha256": "2e18721094a892d12ccf44244f976baac7824dd763b36eee5eb477c77e44db21"
+    },
+    {
+      "file": "cone_fit_crossing.go",
+      "func": "coneFitIntBounds",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/IntBernstein.lean:Sketch.Cone.coneFitIntBounds_mem",
+        "Sketch/Cone/Search.lean:Sketch.Cone.visit_sound",
+        "Sketch/Cone/Crossing.lean:Sketch.Cone.certifyConeFitCrossing_sound"
+      ],
+      "assumptions": [
+        "A30",
+        "A110",
+        "A111"
+      ],
+      "sha256": "90f80014ddf81d58bce7da9c951da558a08b41edaadb53a99bb4671e52696e90"
+    },
+    {
+      "file": "cone_fit_crossing.go",
       "func": "coneFitIntPoly",
       "role": "models",
       "theorems": [
         "Sketch/Cone/Search.lean:Sketch.Cone.coneFitIntSign_eq",
-        "Sketch/Cone/Search.lean:Sketch.Cone.bisect_sound"
+        "Sketch/Cone/Search.lean:Sketch.Cone.bisect_sound",
+        "Sketch/Cone/IntBernstein.lean:Sketch.Cone.coneFitIntBounds_mem",
+        "Sketch/Cone/Search.lean:Sketch.Cone.visit_sound"
       ],
       "assumptions": [
         "A30",
@@ -125,7 +176,8 @@
       "role": "models",
       "theorems": [
         "Sketch/Cone/Search.lean:Sketch.Cone.coneFitIntSign_eq",
-        "Sketch/Cone/Search.lean:Sketch.Cone.bisect_sound"
+        "Sketch/Cone/Search.lean:Sketch.Cone.bisect_sound",
+        "Sketch/Cone/Search.lean:Sketch.Cone.visit_sound"
       ],
       "assumptions": [
         "A30",
@@ -280,9 +332,12 @@
       ],
       "assumptions": [
         "A30",
-        "A32"
+        "A32",
+        "A100",
+        "A110",
+        "A111"
       ],
-      "sha256": "01e932c35e4a89f0de32ac18709dba47a7b64a9e7a68323b516e66a9b97e0c4c"
+      "sha256": "946c387685a74b14f79da09fe35362a90fea97ff19677d0104e89c3b4b665246"
     },
     {
       "file": "cone_line.go",

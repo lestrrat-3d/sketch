@@ -1,6 +1,6 @@
 module
 
-public import Sketch.Cone.Bernstein
+public import Sketch.Cone.IntBernstein
 
 /-!
 # Root search of the cone crossing
@@ -9,7 +9,8 @@ Models `sketch.coneFitSearch.visit`, the piece loop that calls it, and the bisec
 `sketch.Sketch.CertifyConeFitCrossing` (`cone_fit_crossing.go`). Each piece carries its cone half polynomial
 `h`, its implicit function polynomial `f` and `f`'s derivative `df` on the local parameter `u ∈ [0, 1]`.
 
-`visit` bounds `h` and `f` on `[lo, hi]` by their Bernstein coefficients. It refuses unless `h > 0`, accepts
+`visit` bounds `h` and `f` on `[lo, hi]` by their scaled integer Bernstein coefficients (`intBounds`,
+`Sketch/Cone/IntBernstein.lean`) and reads the sign of `f` at a point with `coneFitIntSign`. It refuses unless `h > 0`, accepts
 when `f` is strictly signed, records a root when `f` changes sign between the ends and `df` keeps one sign,
 and otherwise bisects. `visit_sound` proves what a successful visit means: `h > 0` on `[lo, hi]`, and either `f`
 has no zero there and the root slot is unchanged, or the slot was empty and now holds a bracket around the
@@ -43,30 +44,121 @@ structure ConeFitRoot where
 /-- Model of `big.Rat.Sign`. -/
 @[expose] def coneSign (a : ℚ) : ℤ := if 0 < a then 1 else if a < 0 then -1 else 0
 
+/-- Model of the loop of `sketch.coneFitIntSign`, Horner's rule from the highest coefficient:
+`(r, pw) ← (r·num + a[i]·pw, pw·den)` from `(0, 1)`. -/
+@[expose] def coneFitIntEval (a : List ℤ) (num den : ℤ) : ℤ × ℤ :=
+  a.foldr (fun c s => (s.1 * num + c * s.2, s.2 * den)) (0, 1)
+
+/-- Model of `sketch.coneFitIntSign`: the sign of the loop's integer at `t = num/den` in lowest terms (A100). -/
+@[expose] def coneFitIntSign (a : List ℤ) (t : ℚ) : ℤ := coneSign ((coneFitIntEval a t.num t.den).1 : ℚ)
+
+theorem coneSign_pos_mul {k : ℚ} (hk : 0 < k) (x : ℚ) : coneSign (k * x) = coneSign x := by
+  unfold coneSign
+  rcases lt_trichotomy x 0 with h | h | h
+  · have h1 : k * x < 0 := mul_neg_of_pos_of_neg hk h
+    simp [h, h1, not_lt.mpr h.le, not_lt.mpr h1.le]
+  · simp [h]
+  · have h1 : 0 < k * x := mul_pos hk h
+    simp [h, h1]
+
+theorem coneFitIntEval_snd (a : List ℤ) (num den : ℤ) : (coneFitIntEval a num den).2 = den ^ a.length := by
+  induction a with
+  | nil => simp [coneFitIntEval]
+  | cons c a ih =>
+    simp only [coneFitIntEval, List.foldr_cons, List.length_cons] at ih ⊢
+    rw [ih, pow_succ]
+
+theorem coneFitIntEval_fst (a : List ℤ) (num den : ℤ) (hd : den ≠ 0) :
+    ((coneFitIntEval a num den).1 : ℚ) * den =
+      (den : ℚ) ^ a.length * coneFitPolyEval (a.map (Int.cast : ℤ → ℚ)) ((num : ℚ) / den) := by
+  induction a with
+  | nil => simp [coneFitIntEval]
+  | cons c a ih =>
+    have hs := coneFitIntEval_snd a num den
+    simp only [coneFitIntEval] at ih hs
+    simp only [coneFitIntEval, List.foldr_cons, List.map_cons, coneFitPolyEval_cons, List.length_cons, hs]
+    have hdq : (den : ℚ) ≠ 0 := by exact_mod_cast hd
+    push_cast
+    rw [show ((List.foldr (fun c s => (s.1 * num + c * s.2, s.2 * den)) (0, 1) a).1 * (num : ℚ) +
+        c * (den : ℚ) ^ a.length) * den =
+        ((List.foldr (fun c s => (s.1 * num + c * s.2, s.2 * den)) (0, 1) a).1 * den) * num +
+        c * (den : ℚ) ^ (a.length + 1) by ring, ih]
+    field_simp
+    ring
+
+/-- `coneFitIntSign (coneFitIntPoly p) t` is the sign of `p(t)`: the integer the loop forms is
+`den^(n+1)·D/den` times `p(t)` with both factors positive. Covers `sketch.coneFitIntPoly` and
+`sketch.coneFitIntSign`; assumption A100. -/
+theorem coneFitIntSign_eq (p : List ℚ) (t : ℚ) :
+    coneFitIntSign (coneFitIntPoly p) t = coneSign (coneFitPolyEval p t) := by
+  obtain ⟨hD, -, -⟩ := coneFitIntDen_foldl p 1 one_pos
+  have hden : (t.den : ℤ) ≠ 0 := by exact_mod_cast t.den_nz
+  have hdq : (0 : ℚ) < t.den := by exact_mod_cast t.den_pos
+  have hDq : (0 : ℚ) < coneFitIntDen p := by exact_mod_cast hD
+  have h := coneFitIntEval_fst (coneFitIntPoly p) t.num t.den hden
+  rw [coneFitIntPoly_cast, coneFitPolyEval_map_mul] at h
+  push_cast at h
+  rw [Rat.num_div_den] at h
+  have hv : ((coneFitIntEval (coneFitIntPoly p) t.num t.den).1 : ℚ) =
+      ((t.den : ℚ) ^ (coneFitIntPoly p).length * coneFitIntDen p / t.den) * coneFitPolyEval p t := by
+    field_simp
+    linarith
+  rw [coneFitIntSign, hv, coneSign_pos_mul]
+  positivity
+
+theorem coneSign_eq_zero_iff (x : ℚ) : coneSign x = 0 ↔ x = 0 := by
+  unfold coneSign
+  rcases lt_trichotomy x 0 with h | h | h
+  · simp [h, not_lt.mpr h.le, h.ne]
+  · simp [h]
+  · simp [h, h.ne']
+
+theorem coneSign_neg_iff (x : ℚ) : coneSign x < 0 ↔ x < 0 := by
+  unfold coneSign
+  rcases lt_trichotomy x 0 with h | h | h
+  · simp [h, not_lt.mpr h.le]
+  · simp [h]
+  · simp [h, not_lt.mpr h.le]
+
+theorem coneSign_pos_iff (x : ℚ) : 0 < coneSign x ↔ 0 < x := by
+  unfold coneSign
+  rcases lt_trichotomy x 0 with h | h | h
+  · simp [h, not_lt.mpr h.le]
+  · simp [h]
+  · simp [h]
+
+
+/-- The bounds `sketch.coneFitSearch.visit` reads for `p` on `[lo, hi]`: the least and greatest scaled
+Bernstein coefficient of the integer polynomial `coneFitIntPoly p`, which Go forms once per piece. -/
+@[expose] def intBounds (p : List ℚ) (lo hi : ℚ) : ℚ × ℚ :=
+  coneFitIntBounds (coneFitIntBernstein (coneFitIntPoly p) lo hi)
+
 /-- Model of `sketch.coneFitSearch.visit`. The search state is the budget and the root slot; the Go method
 mutates them in place, the model threads them through and returns them with the result. `&&` short-circuits as
-in Go. -/
+in Go. The bounds are `intBounds`; the sign of `f` at a point is `coneFitIntSign` of `coneFitIntPoly f`. Go
+forms the three `coneFitIntPoly` polynomials once per piece. -/
 @[expose] def visit (index : ℕ) (piece : ConeFitPiece) :
     ℕ → ℚ → ℚ → ℕ × Option ConeFitRoot → Bool × (ℕ × Option ConeFitRoot)
   | _, _, _, (0, root) => (false, (0, root))
   | depth, lo, hi, (budget + 1, root) =>
-    if (coneFitCoeffBounds piece.h lo hi).1 ≤ 0 then (false, (budget, root))
-    else if 0 < (coneFitCoeffBounds piece.f lo hi).1 ∨ (coneFitCoeffBounds piece.f lo hi).2 < 0 then
+    if (intBounds piece.h lo hi).1 ≤ 0 then (false, (budget, root))
+    else if 0 < (intBounds piece.f lo hi).1 ∨ (intBounds piece.f lo hi).2 < 0 then
       (true, (budget, root))
-    else if coneFitPolyEval piece.f lo = 0 ∨ coneFitPolyEval piece.f hi = 0 then (false, (budget, root))
-    else if coneSign (coneFitPolyEval piece.f lo) ≠ coneSign (coneFitPolyEval piece.f hi) ∧
-        ((0 ≤ (coneFitCoeffBounds piece.df lo hi).1 ∧ 0 < (coneFitCoeffBounds piece.df lo hi).2 ∧
-            coneFitPolyEval piece.f lo < 0) ∨
-          ((coneFitCoeffBounds piece.df lo hi).2 ≤ 0 ∧ (coneFitCoeffBounds piece.df lo hi).1 < 0 ∧
-            0 < coneFitPolyEval piece.f lo)) then
+    else if coneFitIntSign (coneFitIntPoly piece.f) lo = 0 ∨ coneFitIntSign (coneFitIntPoly piece.f) hi = 0 then
+      (false, (budget, root))
+    else if coneFitIntSign (coneFitIntPoly piece.f) lo ≠ coneFitIntSign (coneFitIntPoly piece.f) hi ∧
+        ((0 ≤ (intBounds piece.df lo hi).1 ∧ 0 < (intBounds piece.df lo hi).2 ∧
+            coneFitIntSign (coneFitIntPoly piece.f) lo < 0) ∨
+          ((intBounds piece.df lo hi).2 ≤ 0 ∧ (intBounds piece.df lo hi).1 < 0 ∧
+            0 < coneFitIntSign (coneFitIntPoly piece.f) lo)) then
       match root with
       | some r => (false, (budget, some r))
-      | none => (true, (budget, some ⟨index, lo, hi, coneSign (coneFitPolyEval piece.f lo)⟩))
+      | none => (true, (budget, some ⟨index, lo, hi, coneFitIntSign (coneFitIntPoly piece.f) lo⟩))
     else
       match depth with
       | 0 => (false, (budget, root))
       | d + 1 =>
-        if coneFitPolyEval piece.f ((lo + hi) * (1 / 2)) = 0 then (false, (budget, root))
+        if coneFitIntSign (coneFitIntPoly piece.f) ((lo + hi) * (1 / 2)) = 0 then (false, (budget, root))
         else
           match visit index piece d lo ((lo + hi) * (1 / 2)) (budget, root) with
           | (true, st) => visit index piece d ((lo + hi) * (1 / 2)) hi st
@@ -190,31 +282,38 @@ theorem zero_unique (g : List ℚ) {lo hi : ℝ}
   · exact absurd h (key y x hy hx hgy hgx)
 
 theorem visit_hpos (piece : ConeFitPiece) {lo hi : ℚ} (hle : lo ≤ hi)
-    (h : ¬ (coneFitCoeffBounds piece.h lo hi).1 ≤ 0) :
+    (h : ¬ (intBounds piece.h lo hi).1 ≤ 0) :
     ∀ t : ℝ, (lo : ℝ) ≤ t → t ≤ hi → 0 < evalR piece.h t := by
+  obtain ⟨s, hs, hb⟩ := coneFitIntBounds_mem piece.h hle
   intro t ht0 ht1
-  have := (coneFitCoeffBounds_mem_Icc piece.h hle ht0 ht1).1
-  have hq : (0 : ℝ) < (coneFitCoeffBounds piece.h lo hi).1 := by exact_mod_cast not_le.mp h
-  linarith
+  have h1 := (hb t ht0 ht1).1
+  have hq : (0 : ℝ) < (intBounds piece.h lo hi).1 := by exact_mod_cast not_le.mp h
+  simp only [intBounds] at hq
+  by_contra hc
+  nlinarith
 
 theorem visit_fnz (piece : ConeFitPiece) {lo hi : ℚ} (hle : lo ≤ hi)
-    (h : 0 < (coneFitCoeffBounds piece.f lo hi).1 ∨ (coneFitCoeffBounds piece.f lo hi).2 < 0) :
+    (h : 0 < (intBounds piece.f lo hi).1 ∨ (intBounds piece.f lo hi).2 < 0) :
     ∀ t : ℝ, (lo : ℝ) ≤ t → t ≤ hi → evalR piece.f t ≠ 0 := by
-  intro t ht0 ht1
-  have hb := coneFitCoeffBounds_mem_Icc piece.f hle ht0 ht1
+  obtain ⟨s, hs, hb'⟩ := coneFitIntBounds_mem piece.f hle
+  intro t ht0 ht1 hz
+  have hb := hb' t ht0 ht1
+  rw [hz, mul_zero] at hb
   rcases h with h | h
-  · have : (0 : ℝ) < (coneFitCoeffBounds piece.f lo hi).1 := by exact_mod_cast h
+  · have : (0 : ℝ) < (intBounds piece.f lo hi).1 := by exact_mod_cast h
+    simp only [intBounds] at this
     linarith [hb.1]
-  · have : ((coneFitCoeffBounds piece.f lo hi).2 : ℝ) < 0 := by exact_mod_cast h
+  · have : ((intBounds piece.f lo hi).2 : ℝ) < 0 := by exact_mod_cast h
+    simp only [intBounds] at this
     linarith [hb.2]
 
 /-- The leaf where `visit` records a root: `f` changes sign between the ends and `df` keeps one sign. -/
 theorem visit_leaf (index : ℕ) (piece : ConeFitPiece) (hdf : piece.df = coneFitPolyDeriv piece.f) {lo hi : ℚ}
     (hle : lo ≤ hi) (hz : ¬ (coneFitPolyEval piece.f lo = 0 ∨ coneFitPolyEval piece.f hi = 0))
     (hs : coneSign (coneFitPolyEval piece.f lo) ≠ coneSign (coneFitPolyEval piece.f hi) ∧
-        ((0 ≤ (coneFitCoeffBounds piece.df lo hi).1 ∧ 0 < (coneFitCoeffBounds piece.df lo hi).2 ∧
+        ((0 ≤ (intBounds piece.df lo hi).1 ∧ 0 < (intBounds piece.df lo hi).2 ∧
             coneFitPolyEval piece.f lo < 0) ∨
-          ((coneFitCoeffBounds piece.df lo hi).2 ≤ 0 ∧ (coneFitCoeffBounds piece.df lo hi).1 < 0 ∧
+          ((intBounds piece.df lo hi).2 ≤ 0 ∧ (intBounds piece.df lo hi).1 < 0 ∧
             0 < coneFitPolyEval piece.f lo))) :
     RootOK piece ⟨index, lo, hi, coneSign (coneFitPolyEval piece.f lo)⟩ lo hi := by
   set a := coneFitPolyEval piece.f lo with ha_def
@@ -236,18 +335,22 @@ theorem visit_leaf (index : ℕ) (piece : ConeFitPiece) (hdf : piece.df = coneFi
     · exfalso; rw [hb_def, ← h] at hsab; exact hsab rfl
     · exact h
   have hleR : (lo : ℝ) ≤ hi := by exact_mod_cast hle
-  have hderiv : ∀ t : ℝ, (lo : ℝ) ≤ t → t ≤ hi →
-      ((coneFitCoeffBounds piece.df lo hi).1 : ℝ) ≤ evalR (coneFitPolyDeriv piece.f) t ∧
-        evalR (coneFitPolyDeriv piece.f) t ≤ (coneFitCoeffBounds piece.df lo hi).2 := by
-    intro t ht0 ht1
-    rw [← hdf]
-    exact coneFitCoeffBounds_mem_Icc piece.df hle ht0 ht1
+  obtain ⟨s, hs, hderiv⟩ := coneFitIntBounds_mem piece.df hle
+  rw [hdf] at hderiv
   have hm : MonotoneOn (evalR piece.f) (Set.Icc lo hi) ∨ AntitoneOn (evalR piece.f) (Set.Icc lo hi) := by
     rcases hd with ⟨h1, -, -⟩ | ⟨h1, -, -⟩
-    · refine Or.inl (monotoneOn_evalR _ fun t ht0 ht1 => le_trans ?_ (hderiv t ht0 ht1).1)
-      exact_mod_cast h1
-    · refine Or.inr (antitoneOn_evalR _ fun t ht0 ht1 => le_trans (hderiv t ht0 ht1).2 ?_)
-      exact_mod_cast h1
+    · refine Or.inl (monotoneOn_evalR _ fun t ht0 ht1 => ?_)
+      have h1' : (0 : ℝ) ≤ (intBounds piece.df lo hi).1 := by exact_mod_cast h1
+      simp only [intBounds, hdf] at h1'
+      have := (hderiv t ht0 ht1).1
+      by_contra hc
+      nlinarith
+    · refine Or.inr (antitoneOn_evalR _ fun t ht0 ht1 => ?_)
+      have h1' : ((intBounds piece.df lo hi).2 : ℝ) ≤ 0 := by exact_mod_cast h1
+      simp only [intBounds, hdf] at h1'
+      have := (hderiv t ht0 ht1).2
+      by_contra hc
+      nlinarith
   have hla : 0 < ((coneSign a : ℤ) : ℝ) * evalR piece.f lo := by rw [hea]; exact hσa
   have hlb : ((coneSign a : ℤ) : ℝ) * evalR piece.f hi < 0 := by rw [heb]; exact hσb
   obtain ⟨z, hz0, hz1, hzf⟩ := ivt_zero piece.f _ hleR hla hlb
@@ -305,8 +408,8 @@ theorem visitOK_join (index : ℕ) (piece : ConeFitPiece) {lo mid hi : ℚ} (hlm
 
 /-- A `visit` of `[lo, hi]` that returns true proves `h > 0` on `[lo, hi]`, and either leaves the root slot
 unchanged with `f` free of zeros on `[lo, hi]`, or fills an empty slot with a bracket around the only zero of
-`f` on `[lo, hi]`. Covers `sketch.coneFitSearch.visit` and the Bernstein bound `coneFitCoeffBounds_mem`;
-assumptions A30, A32. -/
+`f` on `[lo, hi]`. Covers `sketch.coneFitSearch.visit`, the integer Bernstein bound `coneFitIntBounds_mem` and
+the sign test `coneFitIntSign_eq`; assumptions A30, A32, A100, A110, A111. -/
 theorem visit_sound (index : ℕ) (piece : ConeFitPiece) (hdf : piece.df = coneFitPolyDeriv piece.f) :
     ∀ (depth : ℕ) (lo hi : ℚ) (st st' : ℕ × Option ConeFitRoot), lo ≤ hi →
       visit index piece depth lo hi st = (true, st') → VisitOK index piece lo hi st.2 st'.2 := by
@@ -318,7 +421,7 @@ theorem visit_sound (index : ℕ) (piece : ConeFitPiece) (hdf : piece.df = coneF
     cases bud with
     | zero => simp [visit] at h
     | succ bud =>
-      simp only [visit] at h
+      simp only [visit, coneFitIntSign_eq, coneSign_eq_zero_iff, coneSign_neg_iff, coneSign_pos_iff] at h
       split_ifs at h with h1 h2 h3 h4
       · simp at h
       · simp only [Prod.mk.injEq, true_and] at h
@@ -338,7 +441,7 @@ theorem visit_sound (index : ℕ) (piece : ConeFitPiece) (hdf : piece.df = coneF
     cases bud with
     | zero => simp [visit] at h
     | succ bud =>
-      simp only [visit] at h
+      simp only [visit, coneFitIntSign_eq, coneSign_eq_zero_iff, coneSign_neg_iff, coneSign_pos_iff] at h
       split_ifs at h with h1 h2 h3 h4 h5
       · simp at h
       · simp only [Prod.mk.injEq, true_and] at h
@@ -435,108 +538,6 @@ theorem searchInv_foldl (pieces : ℕ → ConeFitPiece) (hdf : ∀ i, (pieces i)
   | succ k ih =>
     rw [List.range_succ, List.foldl_append, List.foldl_cons, List.foldl_nil]
     exact searchInv_step pieces hdf k _ ih
-
-/-- Model of the denominator loop of `sketch.coneFitIntPoly`: `d ← d·(den / gcd(d, den))` from `d = 1`, the
-least common multiple of the denominators (A100). -/
-@[expose] def coneFitIntDen (p : List ℚ) : ℕ := p.foldl (fun d c => d * (c.den / Nat.gcd d c.den)) 1
-
-/-- Model of `sketch.coneFitIntPoly`: coefficient `i` is `num·(D / den)` of `p[i]`, with `D = coneFitIntDen p`
-(A100). -/
-@[expose] def coneFitIntPoly (p : List ℚ) : List ℤ :=
-  p.map fun c => c.num * ((coneFitIntDen p / c.den : ℕ) : ℤ)
-
-/-- Model of the loop of `sketch.coneFitIntSign`, Horner's rule from the highest coefficient:
-`(r, pw) ← (r·num + a[i]·pw, pw·den)` from `(0, 1)`. -/
-@[expose] def coneFitIntEval (a : List ℤ) (num den : ℤ) : ℤ × ℤ :=
-  a.foldr (fun c s => (s.1 * num + c * s.2, s.2 * den)) (0, 1)
-
-/-- Model of `sketch.coneFitIntSign`: the sign of the loop's integer at `t = num/den` in lowest terms (A100). -/
-@[expose] def coneFitIntSign (a : List ℤ) (t : ℚ) : ℤ := coneSign ((coneFitIntEval a t.num t.den).1 : ℚ)
-
-theorem coneSign_pos_mul {k : ℚ} (hk : 0 < k) (x : ℚ) : coneSign (k * x) = coneSign x := by
-  unfold coneSign
-  rcases lt_trichotomy x 0 with h | h | h
-  · have h1 : k * x < 0 := mul_neg_of_pos_of_neg hk h
-    simp [h, h1, not_lt.mpr h.le, not_lt.mpr h1.le]
-  · simp [h]
-  · have h1 : 0 < k * x := mul_pos hk h
-    simp [h, h1]
-
-theorem coneFitIntEval_snd (a : List ℤ) (num den : ℤ) : (coneFitIntEval a num den).2 = den ^ a.length := by
-  induction a with
-  | nil => simp [coneFitIntEval]
-  | cons c a ih =>
-    simp only [coneFitIntEval, List.foldr_cons, List.length_cons] at ih ⊢
-    rw [ih, pow_succ]
-
-theorem coneFitIntEval_fst (a : List ℤ) (num den : ℤ) (hd : den ≠ 0) :
-    ((coneFitIntEval a num den).1 : ℚ) * den =
-      (den : ℚ) ^ a.length * coneFitPolyEval (a.map (Int.cast : ℤ → ℚ)) ((num : ℚ) / den) := by
-  induction a with
-  | nil => simp [coneFitIntEval]
-  | cons c a ih =>
-    have hs := coneFitIntEval_snd a num den
-    simp only [coneFitIntEval] at ih hs
-    simp only [coneFitIntEval, List.foldr_cons, List.map_cons, coneFitPolyEval_cons, List.length_cons, hs]
-    have hdq : (den : ℚ) ≠ 0 := by exact_mod_cast hd
-    push_cast
-    rw [show ((List.foldr (fun c s => (s.1 * num + c * s.2, s.2 * den)) (0, 1) a).1 * (num : ℚ) +
-        c * (den : ℚ) ^ a.length) * den =
-        ((List.foldr (fun c s => (s.1 * num + c * s.2, s.2 * den)) (0, 1) a).1 * den) * num +
-        c * (den : ℚ) ^ (a.length + 1) by ring, ih]
-    field_simp
-    ring
-
-theorem coneFitPolyEval_map_mul (p : List ℚ) (D t : ℚ) :
-    coneFitPolyEval (p.map (· * D)) t = coneFitPolyEval p t * D := by
-  induction p with
-  | nil => simp
-  | cons c p ih => simp only [List.map_cons, coneFitPolyEval_cons, ih]; ring
-
-theorem coneFitIntDen_foldl (p : List ℚ) (d : ℕ) (hd : 0 < d) :
-    0 < p.foldl (fun d c => d * (c.den / Nat.gcd d c.den)) d ∧
-      d ∣ p.foldl (fun d c => d * (c.den / Nat.gcd d c.den)) d ∧
-      ∀ c ∈ p, c.den ∣ p.foldl (fun d c => d * (c.den / Nat.gcd d c.den)) d := by
-  induction p generalizing d with
-  | nil => simp [hd]
-  | cons c p ih =>
-    have hstep : d * (c.den / Nat.gcd d c.den) = Nat.lcm d c.den :=
-      (Nat.mul_div_assoc d (Nat.gcd_dvd_right d c.den)).symm
-    simp only [List.foldl_cons, hstep, List.mem_cons, forall_eq_or_imp]
-    obtain ⟨h1, h2, h3⟩ := ih (Nat.lcm d c.den) (Nat.lcm_pos hd c.den_pos)
-    exact ⟨h1, (Nat.dvd_lcm_left d c.den).trans h2, (Nat.dvd_lcm_right d c.den).trans h2, h3⟩
-
-theorem coneFitIntPoly_cast (p : List ℚ) :
-    (coneFitIntPoly p).map (Int.cast : ℤ → ℚ) = p.map (· * (coneFitIntDen p : ℚ)) := by
-  obtain ⟨-, -, hdvd⟩ := coneFitIntDen_foldl p 1 one_pos
-  rw [coneFitIntPoly, List.map_map]
-  refine List.map_congr_left fun c hc => ?_
-  have hc' : c.den ∣ coneFitIntDen p := hdvd c hc
-  simp only [Function.comp_apply, Int.cast_mul, Int.cast_natCast]
-  rw [Nat.cast_div hc' (by exact_mod_cast c.den_nz)]
-  have hden : (c.den : ℚ) ≠ 0 := by exact_mod_cast c.den_nz
-  conv_rhs => rw [← Rat.num_div_den c]
-  field_simp
-
-/-- `coneFitIntSign (coneFitIntPoly p) t` is the sign of `p(t)`: the integer the loop forms is
-`den^(n+1)·D/den` times `p(t)` with both factors positive. Covers `sketch.coneFitIntPoly` and
-`sketch.coneFitIntSign`; assumption A100. -/
-theorem coneFitIntSign_eq (p : List ℚ) (t : ℚ) :
-    coneFitIntSign (coneFitIntPoly p) t = coneSign (coneFitPolyEval p t) := by
-  obtain ⟨hD, -, -⟩ := coneFitIntDen_foldl p 1 one_pos
-  have hden : (t.den : ℤ) ≠ 0 := by exact_mod_cast t.den_nz
-  have hdq : (0 : ℚ) < t.den := by exact_mod_cast t.den_pos
-  have hDq : (0 : ℚ) < coneFitIntDen p := by exact_mod_cast hD
-  have h := coneFitIntEval_fst (coneFitIntPoly p) t.num t.den hden
-  rw [coneFitIntPoly_cast, coneFitPolyEval_map_mul] at h
-  push_cast at h
-  rw [Rat.num_div_den] at h
-  have hv : ((coneFitIntEval (coneFitIntPoly p) t.num t.den).1 : ℚ) =
-      ((t.den : ℚ) ^ (coneFitIntPoly p).length * coneFitIntDen p / t.den) * coneFitPolyEval p t := by
-    field_simp
-    linarith
-  rw [coneFitIntSign, hv, coneSign_pos_mul]
-  positivity
 
 /-- Model of the bisection loop of `sketch.Sketch.CertifyConeFitCrossing`, with the fuel counting the
 remaining iterations of `for step := 0; step < 256; step++`. `stop step lo hi` stands for the early exit
