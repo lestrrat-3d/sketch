@@ -139,15 +139,18 @@ func (s *Sketch) referencesOrigin() bool {
 // A nil point is screened out first rather than reported here: [Sketch.Verify]
 // splits a nil operand out as a corrupt reference, not a foreign one, and the
 // entity half skips a nil operand for the same reason.
-func (s *Sketch) checkNoForeignRefs(pts []*Point, ents []Entity, what string) error {
+//
+// what names the referring entity or constraint in the error. It is called only
+// when there is an error to report, so a clean marshal formats no names.
+func (s *Sketch) checkNoForeignRefs(pts []*Point, ents []Entity, what func() string) error {
 	for _, p := range pts {
 		if p != nil && !s.owns(p) {
-			return fmt.Errorf("%w: %s references a point this sketch does not own", ErrForeignHandle, what)
+			return fmt.Errorf("%w: %s references a point this sketch does not own", ErrForeignHandle, what())
 		}
 	}
 	for _, e := range ents {
 		if !isNilEntity(e) && !s.ownsEntity(e) {
-			return fmt.Errorf("%w: %s references an entity this sketch does not own", ErrForeignHandle, what)
+			return fmt.Errorf("%w: %s references an entity this sketch does not own", ErrForeignHandle, what())
 		}
 	}
 	return nil
@@ -285,7 +288,7 @@ func (s *Sketch) marshalBody() (jsonSketchBody, error) {
 		// cannot be serialized here while those two miss it. The order it returns is
 		// the order each type's document form declares.
 		epts := entityPoints(e)
-		if err := s.checkNoForeignRefs(epts, nil, fmt.Sprintf("entity %T", e)); err != nil {
+		if err := s.checkNoForeignRefs(epts, nil, func() string { return fmt.Sprintf("entity %T", e) }); err != nil {
 			return jsonSketchBody{}, err
 		}
 		pts := pointIDs(epts)
@@ -362,7 +365,8 @@ func (s *Sketch) marshalBody() (jsonSketchBody, error) {
 		// both halves are screened here, through the same constraintRefs the removal
 		// cascade and the integrity scan read.
 		cpts, cents := constraintRefs(c)
-		if err := s.checkNoForeignRefs(cpts, cents, fmt.Sprintf("constraint %q", constraintKind(c))); err != nil {
+		what := func() string { return fmt.Sprintf("constraint %q", constraintKind(c)) }
+		if err := s.checkNoForeignRefs(cpts, cents, what); err != nil {
 			return jsonSketchBody{}, err
 		}
 		jc, ok := marshalConstraint(c)
