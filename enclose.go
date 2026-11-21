@@ -775,6 +775,8 @@ func (r *encloseRun) drivenRefs(prev *Enclosure) []float64 {
 
 // piece assembles one EnclosurePiece, enclosing every driven dimension over
 // the box and advancing each angle's whole-turn reference.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (r *encloseRun) piece(q Interval, box []Interval, refs []float64) (EnclosurePiece, error) {
 	e := &certEnv{box: box, q: q}
 	pc := EnclosurePiece{s: r.s, rng: q, box: box}

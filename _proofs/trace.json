@@ -531,6 +531,20 @@
       "sha256": "297d65c487cf067eae30497c41e1eb2a261b5d09f960e0df081ede5817994e85"
     },
     {
+      "file": "enclose.go",
+      "func": "encloseRun.piece",
+      "role": "models",
+      "theorems": [
+        "Sketch/Enclose/Driven.lean:Sketch.Enclose.drivenAngle_piece_sound",
+        "Sketch/Enclose/Driven.lean:Sketch.Enclose.drivenAngle_sound_binary64"
+      ],
+      "assumptions": [
+        "A70",
+        "A72"
+      ],
+      "sha256": "474b4bb58eef486cda1d22da503023bdc56162f69c3309e90e4f529b3bcaa4f2"
+    },
+    {
       "file": "enclose_system.go",
       "func": "certAngle.eval",
       "role": "models",
@@ -600,6 +614,23 @@
         "A42"
       ],
       "sha256": "b3d00f9069b12593352720b44370f6919a632a1bae63ec48da270c083ea68a9a"
+    },
+    {
+      "file": "enclose_system.go",
+      "func": "certDrivenOf",
+      "role": "models",
+      "theorems": [
+        "Sketch/Enclose/Driven.lean:Sketch.Enclose.drivenHorizontal_sound",
+        "Sketch/Enclose/Driven.lean:Sketch.Enclose.drivenVertical_sound",
+        "Sketch/Enclose/Driven.lean:Sketch.Enclose.drivenDistance_sound",
+        "Sketch/Enclose/Driven.lean:Sketch.Enclose.drivenAngle_sound",
+        "Sketch/Enclose/Driven.lean:Sketch.Enclose.drivenAngle_sound_binary64"
+      ],
+      "assumptions": [
+        "A40",
+        "A72"
+      ],
+      "sha256": "6060f803c7b30ad41ac1ef65dfea2bf98d2d95ac5687aa36d18aa5fb78676fcd"
     },
     {
       "file": "enclose_system.go",
@@ -680,6 +711,16 @@
         "A2"
       ],
       "sha256": "fa746497c8146e6110fa28a543b9425b70d55642e54c77313cf500a986ca67cb"
+    },
+    {
+      "file": "interval.go",
+      "func": "Interval.mid",
+      "role": "assumes",
+      "theorems": [],
+      "assumptions": [
+        "A72"
+      ],
+      "sha256": "dec2f2c83cab1660a21cf97594b44f8b0051be347ba42f70221a17ca7be6a236"
     },
     {
       "file": "interval.go",
@@ -863,6 +904,52 @@
     },
     {
       "file": "interval_trig.go",
+      "func": "atan2Box",
+      "role": "models",
+      "theorems": [
+        "Sketch/Trig/Atan2Box.lean:Sketch.Trig.atan2Box_sound",
+        "Sketch/Trig/Atan2Box.lean:Sketch.Trig.atan2Box_sound_binary64"
+      ],
+      "assumptions": [
+        "A28",
+        "A70",
+        "A72"
+      ],
+      "sha256": "b8af427878b92ac773b92becbf36760bd9c711879b409998f3170e46861d4702"
+    },
+    {
+      "file": "interval_trig.go",
+      "func": "atan2Point",
+      "role": "models",
+      "theorems": [
+        "Sketch/Trig/Atan2.lean:Sketch.Trig.atan2Point_sound",
+        "Sketch/Trig/Atan2.lean:Sketch.Trig.atan2Point_sound_binary64"
+      ],
+      "assumptions": [
+        "A28",
+        "A71"
+      ],
+      "sha256": "7b4cece156915564fb07fe020ad1cd83a5ce00abdc5ca9ca37f9a181588c1d1d"
+    },
+    {
+      "file": "interval_trig.go",
+      "func": "certifiedArcSpanBounds",
+      "role": "models",
+      "theorems": [
+        "Sketch/Trig/ArcSpan.lean:Sketch.Trig.certifiedArcSpanBounds_sound",
+        "Sketch/Trig/ArcSpan.lean:Sketch.Trig.certifiedArcSpanBounds_sound_binary64",
+        "Sketch/Trig/ArcSpan.lean:Sketch.Trig.arc_carrier_unique"
+      ],
+      "assumptions": [
+        "A2",
+        "A28",
+        "A70",
+        "A72"
+      ],
+      "sha256": "383cc27679fd62c434dc610716188111ccae27ffb4b0d5b9b3551948815cb4c1"
+    },
+    {
+      "file": "interval_trig.go",
       "func": "clampUnit",
       "role": "models",
       "theorems": [
@@ -988,6 +1075,19 @@
     },
     {
       "file": "interval_trig.go",
+      "func": "shiftNear",
+      "role": "models",
+      "theorems": [
+        "Sketch/Trig/Atan2Box.lean:Sketch.Trig.shiftNear_sound"
+      ],
+      "assumptions": [
+        "A28",
+        "A70"
+      ],
+      "sha256": "48eea1bd4f3701220d42f57a88a7062fa4b9da36009f1d021ba5246b6654c33c"
+    },
+    {
+      "file": "interval_trig.go",
       "func": "sinCosPoint",
       "role": "models",
       "theorems": [
@@ -1047,6 +1147,21 @@
         "A25"
       ],
       "sha256": "9730186c451dd3f6c4e0aa54c8fa8b02e972de1ef24e1ec0763f3d8818a11440"
+    },
+    {
+      "file": "interval_trig.go",
+      "func": "twoPiTimes",
+      "role": "models",
+      "theorems": [
+        "Sketch/Trig/Atan2.lean:Sketch.Trig.twoPiTimes_sound"
+      ],
+      "assumptions": [
+        "A20",
+        "A22",
+        "A24",
+        "A70"
+      ],
+      "sha256": "4d6ae1c52f049d0e5f7d8533827a1ccd743342496249d03cfb49f60cf21c4196"
     },
     {
       "file": "probe.go",
