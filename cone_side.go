@@ -406,8 +406,8 @@ func (f coneSideForm) arcSide(arc *Arc) (ConeSide, *big.Rat) {
 
 // arcQuadrantSide covers the real bevel-tooth tip and root arc class: a short
 // CCW sweep from the upper-left quadrant through negative local X into the
-// lower-left quadrant. This sector lies in a proven rectangle, which boxSide
-// tests exactly.
+// lower-left quadrant. The exact arc, of radius |Start-Center|, lies in a
+// proven rectangle, which boxSide tests exactly.
 // Lean proofs depend on this function; see _proofs/trace.json.
 func (f coneSideForm) arcQuadrantSide(arc *Arc) (ConeSide, *big.Rat) {
 	cx, cy := arc.Center.X(), arc.Center.Y()
@@ -418,9 +418,9 @@ func (f coneSideForm) arcQuadrantSide(arc *Arc) (ConeSide, *big.Rat) {
 		sy > 0 && ey < 0 && arc.Sweep() > 0 && arc.Sweep() < math.Pi/2) {
 		return 0, nil
 	}
-	// The actual circular curve uses r=Arc.R(), whereas its end point may have
-	// a slightly different radius after solving. Inflate both endpoint Y values
-	// and verify the bound against each normalized endpoint ray exactly.
+	// The float radius r and differences only seed the box. The exact arc has
+	// radius |Start-Center| and the exact endpoint rays, so bound that radius
+	// in [rLo, rHi] and verify the box against the exact rays.
 	delta := 1e-12 * r
 	if !(delta > 0) || !coneFinite(delta) {
 		return 0, nil
@@ -430,20 +430,28 @@ func (f coneSideForm) arcQuadrantSide(arc *Arc) (ConeSide, *big.Rat) {
 	if !(U < 0 && Y > 0 && coneFinite(U, Y)) {
 		return 0, nil
 	}
-	r2, y2, u2 := coneMul(coneRat(r), coneRat(r)),
-		coneMul(coneRat(Y), coneRat(Y)), coneMul(coneRat(U), coneRat(U))
-	if coneAdd(u2, y2).Cmp(r2) >= 0 {
+	start := coneRay{coneSub(coneRat(arc.Start.X()), coneRat(cx)), coneSub(coneRat(arc.Start.Y()), coneRat(cy))}
+	end := coneRay{coneSub(coneRat(arc.End.X()), coneRat(cx)), coneSub(coneRat(arc.End.Y()), coneRat(cy))}
+	if start[0].Sign() >= 0 || start[1].Sign() <= 0 || end[0].Sign() >= 0 || end[1].Sign() >= 0 {
 		return 0, nil
 	}
-	for _, p := range [2][2]float64{{sx, sy}, {ex, ey}} {
-		length2 := coneAdd(coneMul(coneRat(p[0]), coneRat(p[0])),
-			coneMul(coneRat(p[1]), coneRat(p[1])))
-		want := coneMul(r2, coneMul(coneRat(p[1]), coneRat(p[1])))
+	rLo, rHi, ok := coneSqrtBounds(coneAdd(coneMul(start[0], start[0]), coneMul(start[1], start[1])))
+	if !ok {
+		return 0, nil
+	}
+	y2, u2 := coneMul(coneRat(Y), coneRat(Y)), coneMul(coneRat(U), coneRat(U))
+	if coneAdd(u2, y2).Cmp(coneMul(rLo, rLo)) >= 0 {
+		return 0, nil
+	}
+	r2 := coneMul(rHi, rHi)
+	for _, p := range [2]coneRay{start, end} {
+		length2 := coneAdd(coneMul(p[0], p[0]), coneMul(p[1], p[1]))
+		want := coneMul(r2, coneMul(p[1], p[1]))
 		if coneMul(y2, length2).Cmp(want) <= 0 {
 			return 0, nil
 		}
 	}
-	u := coneInterval{coneSub(coneRat(cx), coneRat(r)), coneAdd(coneRat(cx), coneRat(U))}
+	u := coneInterval{coneSub(coneRat(cx), rHi), coneAdd(coneRat(cx), coneRat(U))}
 	v := coneInterval{coneSub(coneRat(cy), coneRat(Y)), coneAdd(coneRat(cy), coneRat(Y))}
 	return f.boxSide(u, v)
 }

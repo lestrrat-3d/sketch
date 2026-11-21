@@ -16,10 +16,8 @@ dispatches on the curve kind, and refuses unless the side is nonzero and the mar
 coordinates: every point of the curve, mapped to the world through the plane frame, lies in the positive cone
 half and on the certified side, with `|F| ≥ margin` for the cone implicit function `F` of `worldF`.
 
-`certifyConeCurveSide_arc_sound` states what an arc certificate proves: the same guarantee on the exact arc
-when the wedge proof produced it, or on the circle of radius `Arc.R()` through the rounded endpoint rays when
-the quadrant proof produced it. `certifyConeCurveSide_arc_wedge_sound` is the exact-arc guarantee whenever
-the quadrant proof refuses.
+`certifyConeCurveSide_arc_sound` states the same guarantee for an arc certificate, on the exact arc: radius
+`|Start − Center|`, from the Start ray counter-clockwise to the End ray.
 -/
 
 public section
@@ -116,45 +114,18 @@ theorem worldArcSideAt_of {o U V A a : Fin 3 → ℚ} {s : ℚ} {side : ConeSide
     WorldArcSideAt o U V A a s side m cx cy ρ wa wb :=
   fun w hw hin => sideAtR_newConeSideForm (h w hw hin)
 
-/-- A certificate for an arc proves, in world coordinates, that the points of one circle piece lie in the
-positive cone half and strictly on the certified side with `|F| ≥ margin > 0`. When the quadrant proof
-(`arcQuadrantSide`) produced it, the piece is the circle of radius `d.r` (the float `Arc.R()`) from the ray
-`(d.dsx, d.dsy)` to the ray `(d.dex, d.dey)` (the float differences `Start − Center`, `End − Center`); this is
-not the exact arc. Otherwise the piece is the exact arc: radius `|Start − Center|`, from the Start ray
-counter-clockwise to the End ray, with a sweep strictly between zero and a half turn. Covers
-`sketch.Sketch.CertifyConeCurveSide`, `sketch.newConeSideForm` and the functions `arcSide_sound` lists;
-assumptions A30, A31, A50, A51, A52. -/
+/-- A certificate for an arc proves that every point of the exact arc (radius `|Start − Center|`, from the
+Start ray counter-clockwise to the End ray, sweep strictly between zero and a half turn), in world
+coordinates, lies in the positive cone half and strictly on the certified side with `|F| ≥ margin > 0`. This
+holds whether the quadrant proof or the wedge proof produced it. Covers `sketch.Sketch.CertifyConeCurveSide`,
+`sketch.newConeSideForm` and the functions `arcSide_sound` lists; assumptions A30, A31, A50, A51, A52. -/
 theorem certifyConeCurveSide_arc_sound {o U V A a : Fin 3 → ℚ} {s : ℚ} {E : ConeArcEnv} {d : ConeArcData}
     {side : ConeSide} {m : ℚ} (h : certifyConeCurveSide o U V A a s (.arc E d) = some (side, m)) :
-    0 < m ∧ side ≠ .zero ∧
-      (((newConeSideForm o U V A a s).arcQuadrant d).1 ≠ .zero ∧
-          WorldArcSideAt o U V A a s side m d.cx d.cy d.r (rayR (d.dsx, d.dsy)) (rayR (d.dex, d.dey)) ∨
-        ((newConeSideForm o U V A a s).arcQuadrant d).1 = .zero ∧
-          0 < coneCross (d.sx - d.cx, d.sy - d.cy) (d.ex - d.cx, d.ey - d.cy) ∧
-          WorldArcSideAt o U V A a s side m d.cx d.cy (normR (rayR (d.sx - d.cx, d.sy - d.cy)))
-            (rayR (d.sx - d.cx, d.sy - d.cy)) (rayR (d.ex - d.cx, d.ey - d.cy))) := by
-  obtain ⟨hm, hs, hor⟩ := ConeSideForm.arcSide_sound (certifyConeCurveSide_some h)
-  refine ⟨hm, hs, ?_⟩
-  rcases hor with ⟨hq, hall⟩ | ⟨hq, hc, hall⟩
-  · exact Or.inl ⟨hq, worldArcSideAt_of hall⟩
-  · exact Or.inr ⟨hq, hc, worldArcSideAt_of hall⟩
-
-/-- When the quadrant proof refuses, an arc certificate proves that every point of the exact arc (radius
-`|Start − Center|`, from the Start ray counter-clockwise to the End ray, sweep strictly between zero and a
-half turn), in world coordinates, lies in the positive cone half and strictly on the certified side with
-`|F| ≥ margin > 0`. Covers `sketch.Sketch.CertifyConeCurveSide`, `sketch.newConeSideForm` and the functions
-`arcWedgeSide_sound` lists; assumptions A30, A31, A50, A51. -/
-theorem certifyConeCurveSide_arc_wedge_sound {o U V A a : Fin 3 → ℚ} {s : ℚ} {E : ConeArcEnv}
-    {d : ConeArcData} {side : ConeSide} {m : ℚ}
-    (hq : ((newConeSideForm o U V A a s).arcQuadrant d).1 = .zero)
-    (h : certifyConeCurveSide o U V A a s (.arc E d) = some (side, m)) :
     0 < m ∧ side ≠ .zero ∧ 0 < coneCross (d.sx - d.cx, d.sy - d.cy) (d.ex - d.cx, d.ey - d.cy) ∧
       WorldArcSideAt o U V A a s side m d.cx d.cy (normR (rayR (d.sx - d.cx, d.sy - d.cy)))
         (rayR (d.sx - d.cx, d.sy - d.cy)) (rayR (d.ex - d.cx, d.ey - d.cy)) := by
-  obtain ⟨hm, hs, hor⟩ := certifyConeCurveSide_arc_sound h
-  rcases hor with ⟨hq', -⟩ | ⟨-, hc, hall⟩
-  · exact absurd hq hq'
-  · exact ⟨hm, hs, hc, hall⟩
+  obtain ⟨hm, hs, hc, hall⟩ := ConeSideForm.arcSide_sound (certifyConeCurveSide_some h)
+  exact ⟨hm, hs, hc, worldArcSideAt_of hall⟩
 
 end Sketch.Cone
 
