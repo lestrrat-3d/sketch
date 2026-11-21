@@ -386,9 +386,12 @@
       "theorems": [
         "Sketch/Cone/Certify.lean:Sketch.Cone.certifyConeCurveSide_line_sound",
         "Sketch/Cone/Certify.lean:Sketch.Cone.certifyConeCurveSide_fit_sound",
-        "Sketch/Cone/Certify.lean:Sketch.Cone.certifyConeCurveSide_arc_sound"
+        "Sketch/Cone/Certify.lean:Sketch.Cone.certifyConeCurveSide_arc_sound",
+        "Sketch/Cone/FloatSkip.lean:Sketch.Cone.newConeFloatForm_enc"
       ],
       "assumptions": [
+        "A200",
+        "A24",
         "A30",
         "A31",
         "A32",
@@ -397,7 +400,7 @@
         "A51",
         "A52"
       ],
-      "sha256": "56f62754bad55fd68658b661275fbc9c5d87d369990eed38d6107b2481619234"
+      "sha256": "3451a5584b48be2fe7ccb610c0b8b72ddc470a9179d42d720dc92ad1f2b578d5"
     },
     {
       "file": "cone_side.go",
@@ -529,12 +532,20 @@
       "func": "coneSideForm.bezierSide",
       "role": "models",
       "theorems": [
-        "Sketch/Cone/Bezier.lean:Sketch.Cone.ConeSideForm.bezierSide_sound"
+        "Sketch/Cone/Bezier.lean:Sketch.Cone.ConeSideForm.bezierSide_sound",
+        "Sketch/Cone/FloatSkip.lean:Sketch.Cone.bezierSideP_eq"
       ],
       "assumptions": [
-        "A30"
+        "A1",
+        "A2",
+        "A200",
+        "A24",
+        "A3",
+        "A30",
+        "A4",
+        "A6"
       ],
-      "sha256": "8fa3b8afbc8daeb83612dce7f9b3258dbea0d006f59b6a168d7d0d6c109ec39a"
+      "sha256": "c482dfb2a12d35daa345563a8fbee4e1a7bb41260454d428e7abdc67f007d742"
     },
     {
       "file": "cone_side.go",
@@ -614,15 +625,23 @@
       "func": "coneArcWedge.side",
       "role": "models",
       "theorems": [
-        "Sketch/Cone/Arc.lean:Sketch.Cone.ConeSideForm.wedgeSide_sound"
+        "Sketch/Cone/Arc.lean:Sketch.Cone.ConeSideForm.wedgeSide_sound",
+        "Sketch/Cone/FloatSkip.lean:Sketch.Cone.wedgeSideP_eq"
       ],
       "assumptions": [
+        "A1",
+        "A2",
+        "A200",
+        "A24",
+        "A3",
         "A30",
         "A31",
+        "A4",
         "A50",
-        "A51"
+        "A51",
+        "A6"
       ],
-      "sha256": "7fb6ce54ec4606f4319e5b4bf945fd1fe4bf04161c0bc75b6ef15d6ec2b86ab8"
+      "sha256": "abdc4e3c3ded6016f58b38b17ebe75c17dbe056f56224ca498b55ad8508f5256"
     },
     {
       "file": "cone_side_arc.go",
@@ -667,15 +686,18 @@
       "func": "coneSideForm.arcWedgeSide",
       "role": "models",
       "theorems": [
-        "Sketch/Cone/Arc.lean:Sketch.Cone.ConeSideForm.arcWedgeSide_sound"
+        "Sketch/Cone/Arc.lean:Sketch.Cone.ConeSideForm.arcWedgeSide_sound",
+        "Sketch/Cone/FloatSkip.lean:Sketch.Cone.newConeArcFloat_enc"
       ],
       "assumptions": [
+        "A200",
+        "A24",
         "A30",
         "A31",
         "A50",
         "A51"
       ],
-      "sha256": "1f15361d3c2a67af19639ffee029b220cef47bb9afb2e866013bc09f391d2257"
+      "sha256": "dad39ee18c3b45a354a31282e9d4ef86c2973690bf3ca65caec3558ee9fe4f07"
     },
     {
       "file": "cone_side_arc.go",
@@ -728,6 +750,241 @@
         "A30"
       ],
       "sha256": "aeb99002329c313b3a847afdc12bfd1fadf5aa410e9d61a8704b66c9bf0c4ee3"
+    },
+    {
+      "file": "cone_side_float.go",
+      "func": "axisCrossSign",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/FloatSkip.lean:Sketch.Cone.axisInWedge_eq"
+      ],
+      "assumptions": [
+        "A30",
+        "A200"
+      ],
+      "sha256": "4f6319a2c26c950e7c88d5b741314389fd2c75e700c79941ae8925960cfd76aa"
+    },
+    {
+      "file": "cone_side_float.go",
+      "func": "axisInWedge",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/FloatSkip.lean:Sketch.Cone.axisInWedge_eq"
+      ],
+      "assumptions": [
+        "A30",
+        "A200"
+      ],
+      "sha256": "2fcddd164abef25a1bb877f5a28c2b3f551a89a162e29fe02c4659e520c4963e"
+    },
+    {
+      "file": "cone_side_float.go",
+      "func": "coneArcWedge.boxZero",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/FloatSkip.lean:Sketch.Cone.boxZeroW_sound"
+      ],
+      "assumptions": [
+        "A1",
+        "A2",
+        "A3",
+        "A4",
+        "A6",
+        "A24",
+        "A200",
+        "A30",
+        "A50"
+      ],
+      "sha256": "978d3b10e8a55a3a5c6daf5c69f27eca55e785e356c8ccc0257ded89d7ceac54"
+    },
+    {
+      "file": "cone_side_float.go",
+      "func": "coneFloatForm.zeroBox",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/FloatSkip.lean:Sketch.Cone.zeroBox_sound"
+      ],
+      "assumptions": [
+        "A1",
+        "A2",
+        "A3",
+        "A4",
+        "A6",
+        "A24",
+        "A200"
+      ],
+      "sha256": "e520eec74461d3d662a9d8c209ea966d4d9ae1f3a934bc2ed7b812cd9252b291"
+    },
+    {
+      "file": "cone_side_float.go",
+      "func": "coneSideForm.floatSkip",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/FloatSkip.lean:Sketch.Cone.floatSkip_sound"
+      ],
+      "assumptions": [
+        "A1",
+        "A2",
+        "A3",
+        "A4",
+        "A6",
+        "A24",
+        "A200"
+      ],
+      "sha256": "940ac45b53fe40a120f21073007865b3c226d9e2620199f60d7695e4aadaed1e"
+    },
+    {
+      "file": "cone_side_float.go",
+      "func": "coneSideForm.newConeArcFloat",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/FloatSkip.lean:Sketch.Cone.newConeArcFloat_enc"
+      ],
+      "assumptions": [
+        "A24",
+        "A31",
+        "A200"
+      ],
+      "sha256": "de74f8ebb38054c9943b7dd7d0544cf96221746c5c61343a359dbd41f300d4ed"
+    },
+    {
+      "file": "cone_side_float.go",
+      "func": "fivAdd",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/FloatSkip.lean:Sketch.Cone.enc_add"
+      ],
+      "assumptions": [
+        "A1",
+        "A2",
+        "A3",
+        "A4",
+        "A6",
+        "A24",
+        "A200"
+      ],
+      "sha256": "d6459930e708233de8f1b493f0467e9cf5e2525f9c0b98de648eeb9db6670596"
+    },
+    {
+      "file": "cone_side_float.go",
+      "func": "fivScale",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/FloatSkip.lean:Sketch.Cone.enc_scale"
+      ],
+      "assumptions": [
+        "A1",
+        "A2",
+        "A3",
+        "A4",
+        "A6",
+        "A24",
+        "A200"
+      ],
+      "sha256": "671b87a06c6b0e7a56240acef16b94ac453c64dce3dbca7764a300b1b1f612d8"
+    },
+    {
+      "file": "cone_side_float.go",
+      "func": "fivSquare",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/FloatSkip.lean:Sketch.Cone.enc_square"
+      ],
+      "assumptions": [
+        "A1",
+        "A2",
+        "A3",
+        "A4",
+        "A6",
+        "A24",
+        "A200"
+      ],
+      "sha256": "806fb6214342690fad825d8b5fe5de465a44435e0cfbb181fead05e5e437e927"
+    },
+    {
+      "file": "cone_side_float.go",
+      "func": "fivSub",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/FloatSkip.lean:Sketch.Cone.enc_sub"
+      ],
+      "assumptions": [
+        "A1",
+        "A2",
+        "A3",
+        "A4",
+        "A6",
+        "A24",
+        "A200"
+      ],
+      "sha256": "fc093aa9562f7d90a60d8daba45278cf21c8548bd7609866ad7103e8f476eca3"
+    },
+    {
+      "file": "cone_side_float.go",
+      "func": "ivMax",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/FloatSkip.lean:Sketch.Cone.ivMax_mem"
+      ],
+      "assumptions": [
+        "A6"
+      ],
+      "sha256": "aaa93b5697beafc4d089ee8759a6e23785d4f4ff6984b55affd43145271b36fa"
+    },
+    {
+      "file": "cone_side_float.go",
+      "func": "ivMin",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/FloatSkip.lean:Sketch.Cone.ivMin_mem"
+      ],
+      "assumptions": [
+        "A6"
+      ],
+      "sha256": "b708cc68cf54b0a59c086f7c93f67956102113b256e7e0915c46cb46441ef85a"
+    },
+    {
+      "file": "cone_side_float.go",
+      "func": "newConeFloatForm",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/FloatSkip.lean:Sketch.Cone.newConeFloatForm_enc"
+      ],
+      "assumptions": [
+        "A1",
+        "A2",
+        "A3",
+        "A24",
+        "A200"
+      ],
+      "sha256": "abefee911623214f423bad79e32ef8fd56a0496a9b53f26244abc1e7dbc0aa11"
+    },
+    {
+      "file": "cone_side_float.go",
+      "func": "ratEnclose",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/FloatSkip.lean:Sketch.Cone.ratEnclose_sound"
+      ],
+      "assumptions": [
+        "A1",
+        "A2",
+        "A3",
+        "A24"
+      ],
+      "sha256": "2349fe9f4111dfcfdb9272c0978edaac6381d6971619bc17aa682361915e9dbe"
+    },
+    {
+      "file": "cone_side_float.go",
+      "func": "unitEnclose",
+      "role": "models",
+      "theorems": [
+        "Sketch/Cone/FloatSkip.lean:Sketch.Cone.unitEnclose_enc"
+      ],
+      "assumptions": [
+        "A24"
+      ],
+      "sha256": "312ac9ebdca3ff5f0e39429c49dbc1e008e5139610516cb4280544c692b3ddb1"
     },
     {
       "file": "constraint.go",

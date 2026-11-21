@@ -19,6 +19,7 @@ on:
       - 'cone_line.go'
       - 'cone_side.go'
       - 'cone_side_arc.go'
+      - 'cone_side_float.go'
       - 'constraint.go'
       - 'constraint_dimension.go'
       - 'enclose.go'

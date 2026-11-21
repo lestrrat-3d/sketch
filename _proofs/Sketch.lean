@@ -8,6 +8,7 @@ public import Sketch.Cone.Box
 public import Sketch.Cone.Certify
 public import Sketch.Cone.Crossing
 public import Sketch.Cone.Fit
+public import Sketch.Cone.FloatSkip
 public import Sketch.Cone.Form
 public import Sketch.Cone.IntBernstein
 public import Sketch.Cone.Interval
