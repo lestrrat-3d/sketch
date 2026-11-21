@@ -691,6 +691,8 @@ func (s *Sketch) refreshDriven() {
 // them in lets a caller that evaluates many Jacobians in a loop (the
 // [lmWorkspace] case, [Sketch.lm]) reuse the same two buffers instead of
 // allocating a pair per call.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (s *Sketch) jacobianInto(J [][]float64, free []int, m int, eval func([]float64) []float64, rp, rm []float64) {
 	for j, vi := range free {
 		orig := s.vars[vi]

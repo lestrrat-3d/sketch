@@ -107,6 +107,8 @@ func putResidualPlan(pl *residualPlan) {
 
 // consFor returns the ascending positions in pl.cons whose constraint reads
 // variable vi.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (pl *residualPlan) consFor(vi int) []int {
 	if vi < 0 || vi+1 >= len(pl.varStart) {
 		return nil
@@ -120,6 +122,8 @@ func (pl *residualPlan) consFor(vi int) []int {
 // recorded count, so a constraint producing more rows than recorded appends into
 // a fresh array of its own instead of overwriting the next constraint's rows;
 // the length check then catches it and the caller falls back to the dense pass.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (pl *residualPlan) evalRows(dst []float64, ks []int) bool {
 	for _, k := range ks {
 		off, cnt := pl.offset[k], pl.count[k]
@@ -161,6 +165,8 @@ func (pl *residualPlan) evalRows(dst []float64, ks []int) bool {
 //     something other than s while [auxVars] reports live indices). That is the
 //     rewired-operand state the parameter model documents: the operands read
 //     local while the stored aux indices still address the donor's vector.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (s *Sketch) constraintVarIndices(c Constraint, out []int) ([]int, bool) {
 	var pointBuf [3]*Point
 	var entityBuf [3]Entity
@@ -229,6 +235,9 @@ func (s *Sketch) newResidualPlan(rows int) (*residualPlan, bool) {
 	return pl, true
 }
 
+// buildResidualPlan fills pl for s.residuals and reports false when a constraint's dependency set is unknown.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (s *Sketch) buildResidualPlan(pl *residualPlan, rows int, reuse bool) bool {
 	nc := len(s.cons)
 	pl.cons = slices.Grow(pl.cons[:0], nc)
@@ -353,6 +362,8 @@ func (s *Sketch) buildResidualPlan(pl *residualPlan, rows int, reuse bool) bool 
 // The step size, the variable order, the row order, the ±h evaluation order and
 // the exact restoration of the original bit pattern are all the dense pass's,
 // unchanged.
+//
+// Lean proofs depend on this function; see _proofs/trace.json.
 func (s *Sketch) jacobianLocalInto(J [][]float64, free []int, m int, pl *residualPlan, base []float64) bool {
 	if pl == nil || pl.m != m || len(base) != m {
 		return false
